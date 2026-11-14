@@ -24,6 +24,7 @@ import os
 import random
 import re
 import sys
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,17 +35,41 @@ from seeddrift.single import ARCHAEA, BACTERIA, EUKARYOTA, MAMMALIA, VIRUSES, ho
 RP = "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes"
 BG = dict(zip("ARNDCQEGHILKMFPSTWYV", [8.25, 5.53, 4.06, 5.45, 1.37, 3.93, 6.75, 7.07, 2.27, 5.96, 9.66, 5.84,
                                         2.42, 3.86, 4.70, 6.56, 5.34, 1.08, 2.92, 6.87]))   # UniProtKB composition
-CORE = re.compile(r"\b(30S|50S|40S|60S) ribosomal protein\b|\bribosomal protein [LS]\d|DNA-directed RNA polymerase subunit",
-                  re.I)
+CORE = re.compile(r"\b(Large|Small) ribosomal subunit protein\b|\b(30S|50S|40S|60S) ribosomal protein\b|"
+                  r"\bribosomal protein [LS]\d|DNA-directed RNA polymerase subunit", re.I)
 CORE_EXCLUDE = re.compile(r"methyltransferase|acetyltransferase|modification|kinase|maturation|assembly|"
                           r"biogenesis|accessory|binding protein|like|factor", re.I)
 
 
-def fetch_fasta(url, cache):
+def fetch_fasta(url, cache, tries=8):
+    """Download with retries and resume (EBI throttles and drops long transfers)."""
+    import time
     if not os.path.exists(cache):
-        with urllib.request.urlopen(url, timeout=600) as r, open(cache + ".part", "wb") as fh:
-            fh.write(r.read())
-        os.replace(cache + ".part", cache)
+        part = cache + ".part"
+        for k in range(tries):
+            have = os.path.getsize(part) if os.path.exists(part) else 0
+            req = urllib.request.Request(url, headers={"Range": "bytes=%d-" % have} if have else {})
+            try:
+                with urllib.request.urlopen(req, timeout=600) as r, open(part, "ab" if have else "wb") as fh:
+                    while True:
+                        b = r.read(1 << 20)
+                        if not b:
+                            break
+                        fh.write(b)
+                gzip.open(part).read()                   # complete gzip?
+                os.replace(part, cache)
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 416:                        # already complete
+                    os.replace(part, cache)
+                    break
+                if e.code == 404:
+                    raise
+                time.sleep(5 * (k + 1))
+            except Exception:                           # noqa: BLE001 - truncated: resume
+                time.sleep(5 * (k + 1))
+        else:
+            raise IOError("download failed: %s" % url)
     seqs, name, buf = [], None, []
     for line in io.TextIOWrapper(gzip.open(cache), errors="replace"):
         line = line.rstrip("\n")

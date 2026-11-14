@@ -129,6 +129,10 @@ def build(names, threads=None):
                 log("Foldseek database (reads the tar directly)")
                 subprocess.run([config.FOLDSEEK, "createdb", os.path.join(base, "swissprot_pdb_v6.tar"),
                                 os.path.join(base, "targetDB"), "--threads", str(threads)], check=True)
+            elif step == "metaeuk" and not os.path.exists(config.METAEUK_DB + ".dbtype"):
+                log("MetaEuk database of Swiss-Prot")
+                subprocess.run([config.METAEUK, "createdb", config.SPROT, config.METAEUK_DB], check=True,
+                               stdout=subprocess.DEVNULL)
             elif step == "pfam" and not os.path.exists(os.path.join(base, "Pfam-A.hmm")):
                 log("decompressing Pfam-A.hmm")
                 with gzip.open(os.path.join(base, "Pfam-A.hmm.gz"), "rb") as fi, \

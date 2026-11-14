@@ -30,9 +30,15 @@ class ToolsClient(_Http):
     def health(self):
         return self.get("/health")
 
-    def diamond(self, fasta, max_target_seqs=100, evalue=1e-5, sensitivity="sensitive"):
+    def diamond(self, fasta, max_target_seqs=100, evalue=1e-5, sensitivity="sensitive", masking=None):
         return self.post("/diamond", dict(fasta=fasta, max_target_seqs=max_target_seqs, evalue=evalue,
-                                          sensitivity=sensitivity))["hits"]
+                                          sensitivity=sensitivity, masking=masking))["hits"]
+
+    def trees(self, jobs):
+        return self.post("/trees", dict(jobs=jobs))["trees"]
+
+    def metaeuk(self, fasta):
+        return self.post("/metaeuk", dict(fasta=fasta))["proteins"]
 
     def sequences(self, ids, source="reference"):
         return self.post("/sequences", dict(ids=list(ids), source=source))["sequences"]

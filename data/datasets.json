@@ -2,25 +2,40 @@
   {
     "name": "reference-proteomes",
     "kind": "protein sequences",
-    "what": "UniProt reference proteomes, taxonomically balanced: Gammaproteobacteria 1 per genus; other bacteria, archaea and mammals 1 per family; other eukaryotes 1 per order; viruses 1 per genus (~5,300 proteomes, ~18 M proteins). FASTA headers are 'accession|taxid'.",
+    "what": "UniProt reference proteomes, one per genus for bacteria, archaea, viruses and mammals and one per family for other eukaryotes (selection 'broad': ~8,500 proteomes, ~40 M proteins). FASTA headers are 'accession|taxid'.",
     "dir": "reference",
-    "files": ["reference.faa", "proteomes.tsv"],
-    "built": ["ref.dmnd"],
+    "files": [
+      "reference.faa",
+      "proteomes.tsv"
+    ],
+    "built": [
+      "ref.dmnd"
+    ],
     "fetch": "reference",
-    "build": ["seqindex", "diamond"],
-    "size_gb": 7.5,
+    "build": [
+      "seqindex",
+      "diamond"
+    ],
+    "size_gb": 17.0,
     "source": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/",
     "license": "CC BY 4.0",
     "attribution": "UniProt Consortium. UniProt: the Universal Protein Knowledgebase. Nucleic Acids Research (current release).",
-    "mirror": "planned: huggingface.co/datasets/PointEightAI/uniprot-reference-proteomes-balanced"
+    "mirror": "planned: huggingface.co/datasets/PointEightAI/uniprot-reference-proteomes-balanced",
+    "policy": "broad"
   },
   {
     "name": "ncbi-taxonomy",
     "kind": "taxonomy",
     "what": "NCBI Taxonomy dump (nodes, names, merged); cached as taxonomy.tsv on first use.",
     "dir": "reference/taxdump",
-    "files": ["nodes.dmp", "names.dmp", "merged.dmp"],
-    "alt_files": ["taxonomy.tsv"],
+    "files": [
+      "nodes.dmp",
+      "names.dmp",
+      "merged.dmp"
+    ],
+    "alt_files": [
+      "taxonomy.tsv"
+    ],
     "fetch": "taxonomy",
     "size_gb": 0.5,
     "source": "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz",
@@ -31,28 +46,46 @@
   {
     "name": "uniprot-swissprot",
     "kind": "protein sequences",
-    "what": "UniProtKB/Swiss-Prot sequences: taxonomy and names of the AlphaFold Swiss-Prot structures.",
+    "what": "UniProtKB/Swiss-Prot sequences: taxonomy and names of the AlphaFold Swiss-Prot structures, and the reference for eukaryotic gene calling (MetaEuk).",
     "dir": "sprot",
-    "files": ["uniprot_sprot.fasta.gz"],
+    "files": [
+      "uniprot_sprot.fasta.gz"
+    ],
     "fetch": "url",
-    "urls": {"uniprot_sprot.fasta.gz": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz"},
+    "urls": {
+      "uniprot_sprot.fasta.gz": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz"
+    },
     "size_gb": 0.1,
     "source": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/complete/",
     "license": "CC BY 4.0",
     "attribution": "UniProt Consortium. UniProt: the Universal Protein Knowledgebase. Nucleic Acids Research (current release).",
-    "mirror": "planned: huggingface.co/datasets/PointEightAI/uniprot-swissprot"
+    "mirror": "planned: huggingface.co/datasets/PointEightAI/uniprot-swissprot",
+    "built": [
+      "metaeukDB.dbtype"
+    ],
+    "build": [
+      "metaeuk"
+    ]
   },
   {
     "name": "alphafold-swissprot",
     "kind": "protein structures",
     "what": "AlphaFold DB predicted structures of UniProtKB/Swiss-Prot (v6, ~550 k PDB files in one tar); Foldseek database built locally.",
     "dir": "afdb",
-    "files": ["swissprot_pdb_v6.tar"],
-    "built": ["targetDB.dbtype"],
+    "files": [
+      "swissprot_pdb_v6.tar"
+    ],
+    "built": [
+      "targetDB.dbtype"
+    ],
     "fetch": "url",
-    "urls": {"swissprot_pdb_v6.tar": "https://ftp.ebi.ac.uk/pub/databases/alphafold/latest/swissprot_pdb_v6.tar"},
+    "urls": {
+      "swissprot_pdb_v6.tar": "https://ftp.ebi.ac.uk/pub/databases/alphafold/latest/swissprot_pdb_v6.tar"
+    },
     "parts": 16,
-    "build": ["foldseek"],
+    "build": [
+      "foldseek"
+    ],
     "size_gb": 28.6,
     "source": "https://ftp.ebi.ac.uk/pub/databases/alphafold/",
     "license": "CC BY 4.0",
@@ -64,13 +97,22 @@
     "kind": "protein family HMMs",
     "what": "Pfam-A HMMs and their annotation (type, clan): repeat-like families for the repeat filter.",
     "dir": "pfam",
-    "files": ["Pfam-A.hmm.gz", "Pfam-A.hmm.dat.gz"],
-    "built": ["Pfam-A.hmm"],
+    "files": [
+      "Pfam-A.hmm.gz",
+      "Pfam-A.hmm.dat.gz"
+    ],
+    "built": [
+      "Pfam-A.hmm"
+    ],
     "fetch": "url",
-    "urls": {"Pfam-A.hmm.gz": "https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz",
-             "Pfam-A.hmm.dat.gz": "https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.dat.gz"},
+    "urls": {
+      "Pfam-A.hmm.gz": "https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz",
+      "Pfam-A.hmm.dat.gz": "https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.dat.gz"
+    },
     "parts": 8,
-    "build": ["pfam"],
+    "build": [
+      "pfam"
+    ],
     "size_gb": 4.3,
     "source": "https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/",
     "license": "CC0 1.0",
@@ -82,7 +124,9 @@
     "kind": "model",
     "what": "ESMFold v1 weights in HuggingFace transformers format (used as published; not mirrored).",
     "dir": "models/esmfold_v1",
-    "files": ["config.json"],
+    "files": [
+      "config.json"
+    ],
     "fetch": "huggingface",
     "repo": "facebook/esmfold_v1",
     "revision": "75a3841ee059df2bf4d56688166c8fb459ddd97a",

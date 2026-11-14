@@ -2,7 +2,7 @@
   {
     "id": "legionella-genome",
     "name": "嗜肺军团菌 Legionella pneumophila Philadelphia 1（基因组 DNA）",
-    "url": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/bacteria/current/fasta/bacteria_16_collection/legionella_pneumophila_subsp_pneumophila_str_philadelphia_1_gca_000008485/dna/Legionella_pneumophila_subsp_pneumophila_str_philadelphia_1_gca_000008485.ASM848v1_.dna.toplevel.fa.gz",
+    "url": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/release-63/bacteria/fasta/bacteria_16_collection/legionella_pneumophila_subsp_pneumophila_str_philadelphia_1_gca_000008485/dna/Legionella_pneumophila_subsp_pneumophila_str_philadelphia_1_gca_000008485.ASM848v1_.dna.toplevel.fa.gz",
     "self_taxon": "Legionella",
     "note": "3.4 Mb，约 3,000 个基因，从 DNA 开始（pyrodigal 预测基因），结果带基因组位置图。军团菌寄生在阿米巴里，有很多类真核蛋白（Ensembl Bacteria，无使用限制）。"
   },
@@ -12,6 +12,13 @@
     "url": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000001926/UP000001926_294381.fasta.gz",
     "self_taxon": "Entamoeba",
     "note": "约 8,000 个蛋白。真核寄生虫，基因组论文报道过一批来自细菌的基因：用来看“原核来源”候选（UniProt UP000001926，CC BY 4.0）。"
+  },
+  {
+    "id": "encephalitozoon-genome",
+    "name": "兔脑炎微孢子虫 Encephalitozoon cuniculi GB-M1（真核基因组 DNA）",
+    "url": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/release-63/fungi/fasta/fungi_microsporidia1_collection/encephalitozoon_cuniculi_gb_m1_gca_000091225/dna/Encephalitozoon_cuniculi_gb_m1_gca_000091225.ASM9122v2.dna.toplevel.fa.gz",
+    "self_taxon": "Encephalitozoon",
+    "note": "2.5 Mb 的真核寄生虫基因组，从 DNA 开始：自动判断为真核后用 MetaEuk 预测基因。微孢子虫基因组里报道过一批来自细菌的基因（Ensembl Fungi release 63，无使用限制）。"
   },
   {
     "id": "ecoli-k12",

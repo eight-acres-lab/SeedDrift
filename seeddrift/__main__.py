@@ -131,7 +131,14 @@ def main(argv=None):
 
     g = sub.add_parser("genome", help="single-genome screen: genes that look like they came from mammals, "
                        "prokaryotes or other distant lineages (uses the tools/ESMFold services or local tools)")
-    g.add_argument("input", help="protein FASTA, or prokaryote genome FASTA (genes called with pyrodigal); .gz ok")
+    g.add_argument("input", nargs="+", help="proteins / CDS / GenBank / EMBL / GFF3 (+ its FASTA) / genome contigs; "
+                   "gz, bz2, xz ok")
+    g.add_argument("--domain", default="auto", choices=["auto", "prokaryote", "eukaryote"],
+                   help="for raw contigs: gene caller (pyrodigal / MetaEuk); auto = probe a sample of genes")
+    g.add_argument("--home-rank", default="auto", help="the Alien Index in-group: auto (phylum / kingdom), genus, "
+                   "family, order, class, phylum, kingdom, domain")
+    g.add_argument("--no-deep", dest="deep", action="store_false", help="skip the unmasked ultra-sensitive re-search")
+    g.add_argument("--no-trees", dest="trees", action="store_false", help="skip the phylogenies of candidates")
     g.add_argument("--out", required=True, help="output folder")
     g.add_argument("--self-taxon", default="", help="the genome's own taxon (name or NCBI taxid); default: inferred")
     g.add_argument("--structure", action="store_true", help="also ESMFold + Foldseek for genes without outside homolog")
@@ -156,8 +163,9 @@ def main(argv=None):
     if a.cmd == "genome":
         from . import clients, pipeline
         os.makedirs(a.out, exist_ok=True)
-        params = dict(self_taxon=a.self_taxon, structure=a.structure, max_structures=a.max_structures)
-        summary = pipeline.run(a.out, open(a.input, "rb").read(), params, clients.tools(),
+        params = dict(self_taxon=a.self_taxon, structure=a.structure, max_structures=a.max_structures,
+                      domain=a.domain, home_rank=a.home_rank, deep=a.deep, trees=a.trees)
+        summary = pipeline.run(a.out, [open(f, "rb").read() for f in a.input], params, clients.tools(),
                                clients.folder() if a.structure else None,
                                lambda stage, msg, frac: print("[%3.0f%%] %s" % (100 * frac, msg), file=sys.stderr))
         print(json.dumps(summary, ensure_ascii=False, indent=1))

@@ -23,6 +23,9 @@ ESMFOLD_URL = env("SEEDDRIFT_ESMFOLD_URL", "")
 DIAMOND = env("SEEDDRIFT_DIAMOND", "diamond")
 FOLDSEEK = env("SEEDDRIFT_FOLDSEEK", "foldseek")
 NCOILS = env("SEEDDRIFT_NCOILS", "ncoils")
+MAFFT = env("SEEDDRIFT_MAFFT", "mafft")
+FASTTREE = env("SEEDDRIFT_FASTTREE", "FastTree")
+METAEUK = env("SEEDDRIFT_METAEUK", "metaeuk")
 FOLDSEEK_GPU = env("SEEDDRIFT_FOLDSEEK_GPU", "0") == "1"
 
 
@@ -30,11 +33,12 @@ def path(*parts):
     return os.path.join(DATA, *parts)
 
 
-# data layout (data/manifest.yaml describes how each item is obtained)
+# data layout (data/datasets.json describes how each item is obtained)
 REFERENCE = path("reference")            # reference.faa (acc|taxid), ref.dmnd, taxdump/
 REFERENCE_FAA = path("reference", "reference.faa")
 DIAMOND_DB = path("reference", "ref.dmnd")
 SPROT = path("sprot", "uniprot_sprot.fasta.gz")
+METAEUK_DB = path("sprot", "metaeukDB")          # MetaEuk/MMseqs2 database of Swiss-Prot
 AFDB = path("afdb")                      # swissprot_pdb_v6.tar, targetDB*
 AFDB_TAR = path("afdb", "swissprot_pdb_v6.tar")
 PFAM = path("pfam")                      # Pfam-A.hmm.gz, Pfam-A.hmm.dat.gz

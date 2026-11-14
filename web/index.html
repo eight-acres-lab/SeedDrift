@@ -33,8 +33,9 @@
       </div>
       <form id="form">
         <div class="pane" data-pane="file">
-          <input type="file" id="file" accept=".fa,.faa,.fasta,.fna,.gz,.txt">
-          <p class="hint">蛋白 FASTA，或原核基因组的核酸 FASTA（自动预测基因），可以是 .gz。文件会经由你的网络上传。</p>
+          <input type="file" id="file">
+          <label class="sub">第二个文件（可选，例如 GFF3 对应的基因组 FASTA）<input type="file" id="file2"></label>
+          <p class="hint">支持蛋白或 CDS 的 FASTA、GenBank / EMBL、GFF3（含或另附基因组序列）、基因组 contig（原核用 pyrodigal、真核用 MetaEuk 预测基因）；可以是 gz / bz2 / xz。文件经由你的网络上传。</p>
         </div>
         <div class="pane hidden" data-pane="url">
           <input id="url" placeholder="https://…/proteins.fa.gz">
@@ -46,7 +47,14 @@
         </div>
         <label>名称 <input id="name" placeholder="可留空"></label>
         <label>自身类群 <input id="self" placeholder="如 Legionella 或 446；留空自动推断"></label>
-        <label class="check"><input type="checkbox" id="structure" checked> 对“外部无同源”的基因做结构检索（ESMFold + Foldseek）</label>
+        <div class="row2">
+          <label>基因组类型 <select id="domain"><option value="auto">自动判断</option><option value="prokaryote">原核</option><option value="eukaryote">真核</option></select></label>
+          <label>本谱系范围 <select id="home"><option value="auto">自动（门 / 界）</option><option value="family">科</option><option value="order">目</option><option value="class">纲</option><option value="phylum">门</option><option value="kingdom">界</option><option value="domain">域</option></select></label>
+        </div>
+        <p class="hint">本谱系范围越窄，越近的转移也会被判为外来（例如选“科”时，来自同门其他科的基因也算）。</p>
+        <label class="check"><input type="checkbox" id="deep" checked> 对暂无外部同源的基因关闭重复屏蔽再深度检索一次</label>
+        <label class="check"><input type="checkbox" id="trees" checked> 为每个外来候选建树验证（MAFFT + FastTree）</label>
+        <label class="check"><input type="checkbox" id="structure" checked> 对仍无同源的基因做结构检索（ESMFold + Foldseek）</label>
         <button type="submit" class="primary" id="submit">开始分析</button>
         <p class="err" id="form-err"></p>
       </form>
@@ -77,6 +85,7 @@
     <p class="err rerr"></p>
     <div class="body hidden">
       <div class="cards"></div>
+      <div class="conf"></div>
       <p class="note muted"></p>
       <div class="grid2">
         <section class="card"><h3>外来候选的供体类群</h3><div class="groups"></div></section>

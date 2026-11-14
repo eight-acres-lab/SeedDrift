@@ -112,13 +112,16 @@ class LocalTools:
         return dict(
             diamond=bool(_which(config.DIAMOND)), foldseek=bool(_which(config.FOLDSEEK)),
             ncoils=bool(_which(config.NCOILS)), pyhmmer=_importable("pyhmmer"),
+            mafft=bool(_which(config.MAFFT)), fasttree=bool(_which(config.FASTTREE)),
+            metaeuk=bool(_which(config.METAEUK)) and have(config.METAEUK_DB + ".dbtype"),
             reference=have(config.DIAMOND_DB), taxonomy=have(os.path.join(config.REFERENCE, "taxdump")),
             sprot=have(config.SPROT), afdb=have(os.path.join(config.AFDB, "targetDB.dbtype")),
             pfam=have(os.path.join(config.PFAM, "Pfam-A.hmm.dat.gz")), data=config.DATA)
 
     # -- sequence search ----------------------------------------------------------------------------
-    def diamond(self, fasta, max_target_seqs=100, evalue=1e-5, sensitivity="sensitive"):
-        """Proteins (FASTA text) vs the reference library. Returns hit dicts."""
+    def diamond(self, fasta, max_target_seqs=100, evalue=1e-5, sensitivity="sensitive", masking=None):
+        """Proteins (FASTA text) vs the reference library. Returns hit dicts. masking=0 switches off
+        DIAMOND's repeat masking (tantan), which otherwise hides repeat-rich proteins entirely."""
         tmp = tempfile.mkdtemp(prefix="sd-dmnd-")
         try:
             q, o = os.path.join(tmp, "q.faa"), os.path.join(tmp, "hits.tsv")
@@ -126,7 +129,7 @@ class LocalTools:
                 fh.write(fasta)
             cmd = [config.DIAMOND, "blastp", "-q", q, "-d", config.DIAMOND_DB, "-o", o, "--" + sensitivity,
                    "--max-target-seqs", str(max_target_seqs), "-e", str(evalue), "--threads", str(self.threads),
-                   "--outfmt", "6"] + DIAMOND_FIELDS
+                   "--outfmt", "6"] + DIAMOND_FIELDS + (["--masking", str(masking)] if masking is not None else [])
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
             hits = []
             for line in open(o):
@@ -156,6 +159,49 @@ class LocalTools:
         pf = config.PFAM if os.path.exists(os.path.join(config.PFAM, "Pfam-A.hmm.dat.gz")) else None
         reg = annotate(seqs, pf, config.NCOILS, self.threads, tandem=False)
         return {k: [list(x) for x in v] for k, v in reg.items()}
+
+    # -- phylogenies ----------------------------------------------------------------------------------
+    def trees(self, jobs):
+        """{job: {label: protein}} -> {job: newick}: MAFFT (--auto) + FastTree (-lg -gamma), in parallel."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(item):
+            name, seqs = item
+            tmp = tempfile.mkdtemp(prefix="sd-tree-")
+            try:
+                fa, aln = os.path.join(tmp, "in.faa"), os.path.join(tmp, "aln.faa")
+                with open(fa, "w") as fh:
+                    for k, v in seqs.items():
+                        fh.write(">%s\n%s\n" % (k, v))
+                with open(aln, "w") as fh:
+                    subprocess.run([config.MAFFT, "--auto", "--quiet", "--thread", "1", fa], stdout=fh, check=True)
+                r = subprocess.run([config.FASTTREE, "-lg", "-gamma", "-quiet", "-nopr", aln],
+                                   capture_output=True, text=True, check=True)
+                return name, r.stdout.strip()
+            except subprocess.CalledProcessError:
+                return name, ""
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+        with ThreadPoolExecutor(self.threads) as ex:
+            return dict(ex.map(one, jobs.items()))
+
+    # -- eukaryotic gene calling ----------------------------------------------------------------------
+    def metaeuk(self, fasta):
+        """Contigs (FASTA text) -> predicted proteins (FASTA text, MetaEuk headers), homology to Swiss-Prot."""
+        db = config.METAEUK_DB
+        if not os.path.exists(db + ".dbtype"):
+            raise RuntimeError("MetaEuk reference database missing: seeddrift data build uniprot-swissprot")
+        tmp = tempfile.mkdtemp(prefix="sd-metaeuk-")
+        try:
+            fa = os.path.join(tmp, "contigs.fna")
+            with open(fa, "w") as fh:
+                fh.write(fasta)
+            out = os.path.join(tmp, "pred")
+            subprocess.run([config.METAEUK, "easy-predict", fa, db, out, os.path.join(tmp, "t"),
+                            "--threads", str(self.threads)], check=True, stdout=subprocess.DEVNULL)
+            return open(out + ".fas").read()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     # -- structure search ---------------------------------------------------------------------------
     def foldseek(self, pdbs):

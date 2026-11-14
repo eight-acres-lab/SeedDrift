@@ -15,7 +15,11 @@ const FOREIGN = new Set(["mammal", "prokaryote", "eukaryote", "virus"]);
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const state = { api: "", current: null, timer: null, genes: [], filter: new Set(), sort: ["AI", -1], query: "" };
+const state = { api: "", current: null, timer: null, genes: [], filter: new Set(), level: "", sort: ["AI", -1], query: "" };
+const LEVEL = { high: "高", medium: "中", low: "低" };
+const TREE = { outside: "支持外来", home: "落在本谱系", mixed: "不确定", na: "" };
+const KIND = { protein: "蛋白 FASTA", cds: "CDS FASTA", genbank: "GenBank / EMBL", gff: "GFF3",
+  "prokaryote-dna": "原核基因组（pyrodigal 预测基因）", "eukaryote-dna": "真核基因组（MetaEuk 预测基因）" };
 
 function defaultApi() {
   const saved = (() => { try { return localStorage.getItem("seeddrift.api"); } catch (e) { return null; } })();
@@ -72,6 +76,8 @@ function setupForm() {
       const f = $("#file").files[0];
       if (!f) { $("#form-err").textContent = "请选择一个文件"; return; }
       fd.append("file", f);
+      const f2 = $("#file2").files[0];
+      if (f2) fd.append("file2", f2);
     } else if (tab === "url") {
       if (!$("#url").value.trim()) { $("#form-err").textContent = "请填写 URL"; return; }
       fd.append("url", $("#url").value.trim());
@@ -81,6 +87,10 @@ function setupForm() {
     fd.append("name", $("#name").value.trim());
     fd.append("self_taxon", $("#self").value.trim());
     fd.append("structure", $("#structure").checked ? "true" : "false");
+    fd.append("deep", $("#deep").checked ? "true" : "false");
+    fd.append("trees", $("#trees").checked ? "true" : "false");
+    fd.append("domain", $("#domain").value);
+    fd.append("home_rank", $("#home").value);
     $("#submit").disabled = true;
     try {
       const r = await api("/api/jobs", { method: "POST", body: fd });
@@ -125,7 +135,7 @@ async function openJob(id) {
   document.querySelectorAll("#jobs li").forEach((li) => li.classList.toggle("on", li.dataset.id === id));
   const node = $("#tpl-result").content.cloneNode(true);
   $("#content").replaceChildren(node);
-  state.genes = []; state.filter = new Set(); state.query = "";
+  state.genes = []; state.filter = new Set(); state.level = ""; state.query = "";
   await refreshJob(id);
 }
 
@@ -159,11 +169,23 @@ function renderResult(s) {
   $(".cards").innerHTML = CATS.map(([k, l, c]) => `
     <div class="stat" style="--c:${c}" data-cat="${k}">
       <div class="n">${(cats[k] || 0).toLocaleString()}</div><div class="l">${l}</div>
-      <div class="s">${FOREIGN.has(k) ? "强证据（AI ≥ 45）" + (strong[k] || 0) : "&nbsp;"}</div>
+      <div class="s">${FOREIGN.has(k) ? confLine((s.confidence_by_category || {})[k]) : "&nbsp;"}</div>
     </div>`).join("");
   document.querySelectorAll(".stat").forEach((el) => el.addEventListener("click", () => toggleFilter(el.dataset.cat, true)));
+  const cf = s.confidence || {};
+  $(".conf").innerHTML = `<span class="muted">外来候选的置信度：</span>` + ["high", "medium", "low"].map((l) =>
+    `<span class="pill ${state.level === l ? "on" : ""}" data-l="${l}">${LEVEL[l]} ${cf[l] || 0}</span>`).join("") +
+    `<span class="muted" title="高：AI ≥ 45、建树支持外来、至少两个供体物种；中：AI ≥ 45 或建树支持外来；低：其余">ⓘ</span>`;
+  document.querySelectorAll(".conf .pill").forEach((el) => el.addEventListener("click", () => {
+    state.level = state.level === el.dataset.l ? "" : el.dataset.l;
+    document.querySelectorAll(".conf .pill").forEach((x) => x.classList.toggle("on", x.dataset.l === state.level));
+    renderTable();
+  }));
   const notes = [];
-  notes.push(`共 ${(s.n_genes || 0).toLocaleString()} 个基因，用时 ${fmtTime(s.seconds)}。`);
+  notes.push(`输入：${KIND[s.input_kind] || s.input_kind || ""}${s.genome_size ? "，" + (s.genome_size / 1e6).toFixed(2) + " Mb、" + s.n_contigs + " 条 contig" : ""}；共 ${(s.n_genes || 0).toLocaleString()} 个基因，用时 ${fmtTime(s.seconds)}。`);
+  if (s.deep_rescued) notes.push(`深度检索为 ${s.deep_rescued} 个原本无外部同源的基因找到了同源序列。`);
+  if (s.islands) notes.push(`${s.islands} 个候选位于 ≥ 3 个外来候选相邻的簇（可能的基因组岛）中。`);
+  if ((s.contaminant_contigs || []).length) notes.push(`${s.contaminant_contigs.length} 条 contig 上几乎全是原核样基因，更可能是污染，其上的候选已降为低置信度。`);
   if (s.self_name) notes.push(`自身类群：${s.self_name}（taxid ${s.self_taxid}），比对时排除；本谱系按 ${s.home_group} 计算 Alien Index。`);
   if (s.note) notes.push(s.note + "。");
   if (s.single_species) notes.push(`其中 ${s.single_species} 个真核来源候选只有一个物种支持，可能是该物种基因组被细菌污染，需谨慎。`);
@@ -182,6 +204,12 @@ function renderResult(s) {
   renderFilters();
   renderTable();
   $(".search").addEventListener("input", (ev) => { state.query = ev.target.value.trim().toLowerCase(); renderTable(); });
+}
+
+function confLine(c) {
+  c = c || {};
+  const n = (c.high || 0) + (c.medium || 0) + (c.low || 0);
+  return n ? `高 ${c.high || 0} · 中 ${c.medium || 0} · 低 ${c.low || 0}` : "&nbsp;";
 }
 
 function structLabel(g) {
@@ -206,11 +234,12 @@ function toggleFilter(k, only) {
 }
 
 const COLS = [
-  ["gene_id", "基因"], ["category", "判定"], ["AI", "AI"], ["donor_group", "供体类群"], ["support", "支持物种"],
-  ["best_taxon", "最像的外部物种"], ["best_pident", "一致度 %"], ["best_home_taxon", "本谱系最近"],
-  ["length", "长度"], ["struct_group", "结构类群"],
+  ["gene_id", "基因"], ["category", "判定"], ["confidence", "置信度"], ["AI", "AI"], ["donor_group", "供体类群"],
+  ["tree", "建树"], ["support", "支持物种"], ["best_taxon", "最像的外部物种"], ["best_pident", "一致度 %"],
+  ["best_home_taxon", "本谱系最近"], ["comp_z", "组成 z"], ["island", "簇"], ["length", "长度"], ["struct_group", "结构类群"],
 ];
-const NUM = new Set(["AI", "support", "best_pident", "length"]);
+const NUM = new Set(["AI", "support", "best_pident", "length", "comp_z", "island"]);
+const LV_ORDER = { high: 3, medium: 2, low: 1, "": 0 };
 
 function renderTable() {
   const tb = $(".genes tbody"), th = $(".genes thead");
@@ -220,12 +249,13 @@ function renderTable() {
     state.sort = [k, state.sort[0] === k ? -state.sort[1] : NUM.has(k) ? -1 : 1];
     renderTable();
   }));
-  let rows = state.genes.filter((r) => !state.filter.size || state.filter.has(r.category));
+  let rows = state.genes.filter((r) => (!state.filter.size || state.filter.has(r.category)) && (!state.level || r.confidence === state.level));
   if (state.query) rows = rows.filter((r) => [r.gene_id, r.best_taxon, r.donor_group, r.struct_name, r.mammal_hit]
     .some((x) => String(x || "").toLowerCase().includes(state.query)));
   const [k, d] = state.sort;
   rows.sort((a, b) => {
-    const x = NUM.has(k) ? parseFloat(a[k]) : a[k], y = NUM.has(k) ? parseFloat(b[k]) : b[k];
+    const val = (r) => k === "confidence" ? LV_ORDER[r[k] || ""] : NUM.has(k) ? parseFloat(r[k]) : r[k];
+    const x = val(a), y = val(b);
     const xa = x === "" || Number.isNaN(x), ya = y === "" || Number.isNaN(y);
     if (xa !== ya) return xa ? 1 : -1;
     return x < y ? -d : x > y ? d : 0;
@@ -236,9 +266,13 @@ function renderTable() {
       <td>${esc(r.gene_id)}</td>
       <td><span class="tagc" style="--c:${(CAT[r.category] || {}).color}">${esc((CAT[r.category] || {}).label || r.category)}</span>
         ${r.strength === "strong" ? "强" : ""}</td>
+      <td class="lv-${esc(r.confidence)}">${esc(LEVEL[r.confidence] || "")}${r.contig_flag ? ' <span class="flag">疑似污染</span>' : ""}</td>
       <td>${esc(r.AI)}</td><td>${esc(r.donor_group)}</td>
+      <td>${esc(TREE[r.tree] || "")}${r.tree_outside ? ' <span class="muted">' + esc(r.tree_outside) + "</span>" : ""}</td>
       <td class="${FOREIGN.has(r.category) && r.support === "1" ? "warnc" : ""}">${esc(r.support === "0" ? "" : r.support)}</td>
       <td>${esc(r.best_taxon)}</td><td>${esc(r.best_pident)}</td><td>${esc(r.best_home_taxon)}</td>
+      <td class="${Math.abs(parseFloat(r.comp_z)) >= 2 ? "warnc" : ""}">${esc(r.comp_z)}</td>
+      <td>${esc(+r.island > 1 ? r.island : "")}</td>
       <td>${esc(r.length)}</td><td>${esc(structLabel(r.struct_group || ""))}</td>
     </tr>`).join("");
   $(".more").textContent = rows.length > LIMIT ? `只显示前 ${LIMIT} 行（共 ${rows.length} 行），完整结果请下载 genes.tsv` : `${rows.length} 行`;
@@ -253,7 +287,10 @@ function toggleDetail(tr, r) {
     ["哺乳动物命中", r.mammal_hit || "无"],
     ["外部命中数", `${r.n_outside}（其中重复驱动 ${r.repeat_hits}，已剔除）`],
     ["重复区段", r.repeats || "无"],
-    ["位置", r.contig ? `${r.contig}:${r.start}-${r.end} (${r.strand})` : "—"],
+    ["建树", r.tree && r.tree !== "na" ? `${TREE[r.tree]}：最近的 5 条参考中 ${r.tree_outside} 在本谱系之外 · ${r.tree_group} · ${r.tree_taxa}` : "没有建树（候选以外的基因，或参考序列太少）"],
+    ["组成", r.gc ? `GC ${r.gc}，GC3 ${r.gc3}，与全基因组相比 z = ${r.comp_z}` : "—"],
+    ["检索", r.search === "deep" ? "深度检索（ultra-sensitive，未屏蔽重复）找到同源" : r.search === "deep: none" ? "深度检索也没有找到外部同源" : "常规检索"],
+    ["位置", r.contig ? `${r.contig}:${r.start}-${r.end} (${r.strand})${r.exons > 1 ? "，" + r.exons + " 个外显子" : ""}${+r.island > 1 ? "，与 " + (r.island - 1) + " 个外来候选相邻成簇" : ""}` : "—"],
   ];
   if (r.struct_group) items.push(["结构检索", r.struct_group === "no structural match" ? `无同折叠匹配（pLDDT ${r.plddt}）`
     : `${structLabel(r.struct_group)} · ${r.struct_name || ""} · ${r.struct_taxon || ""} · TM ${r.struct_tm} · pLDDT ${r.plddt}`]);

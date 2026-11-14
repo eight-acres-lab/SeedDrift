@@ -108,3 +108,11 @@ table.genes { border-collapse: collapse; width: 100%; font-size: 13px; }
 .detail dt { color: var(--muted); }
 .detail dd { margin: 0; }
 .warnc { color: var(--rust); }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label.sub { font-size: 12px; }
+.conf { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 8px; font-size: 13px; }
+.conf .pill { padding: 3px 10px; border-radius: 99px; background: var(--paper); border: 1px solid var(--line); cursor: pointer; }
+.conf .pill.on { background: var(--sage); color: #fff; border-color: var(--sage); }
+.lv-high { color: var(--sage); font-weight: 700; } .lv-medium { color: var(--soil); } .lv-low { color: var(--muted); }
+.flag { color: var(--rust); font-size: 12px; }

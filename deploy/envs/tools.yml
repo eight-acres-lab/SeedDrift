@@ -11,3 +11,7 @@ dependencies:
   - foldseek=10.941cd33
   - coils=2.2.1
   - pyhmmer=0.12.3
+  - mafft=7.526
+  - fasttree=2.2.0
+  - metaeuk=7.bba0d80
+  - mmseqs2=18.8cc5c

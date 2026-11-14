@@ -56,10 +56,26 @@ def group_class(tax, t):
     return "unknown"
 
 
-def home_group(tax, self_taxid):
-    """(taxid, name) of the genome's home neighbourhood, used as the Alien Index in-group."""
+HOME_RANKS = ("auto", "genus", "family", "order", "class", "phylum", "kingdom", "domain")
+
+
+def home_group(tax, self_taxid, rank="auto"):
+    """(taxid, name) of the genome's home neighbourhood, used as the Alien Index in-group.
+    auto: the phylum for prokaryotes; Metazoa / Fungi / Viridiplantae (else Eukaryota) for eukaryotes.
+    A narrower rank (e.g. family) also calls transfers from within the phylum."""
     lin = tax.lineage(self_taxid)
     s = set(lin)
+    if rank == "domain":
+        for g in (BACTERIA, ARCHAEA, EUKARYOTA, VIRUSES):
+            if g in s:
+                return g, tax.name.get(g, str(g))
+    elif rank == "kingdom":
+        rank = "auto" if EUKARYOTA in s else "domain"
+        return home_group(tax, self_taxid, rank)
+    elif rank not in ("auto", "", None):
+        t = tax.at_rank(self_taxid, rank)
+        if t:
+            return t, tax.name.get(t, str(t))
     if EUKARYOTA in s:
         for g in (METAZOA, FUNGI, VIRIDIPLANTAE):
             if g in s:

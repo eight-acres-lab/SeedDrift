@@ -2,11 +2,13 @@
 
   GET  /api/health                  this service + the dependency services
   GET  /api/demos                   demo genomes (data/demos.json)
-  POST /api/jobs                    multipart: file | url | demo, name, self_taxon, structure
+  POST /api/jobs                    multipart: file (+ file2, e.g. the FASTA of a GFF3) | url | demo, name,
+                                    self_taxon, domain, home_rank, deep, trees, structure
   GET  /api/jobs                    all jobs, newest first
   GET  /api/jobs/{id}               status, progress, summary
   GET  /api/jobs/{id}/genes         per-gene table (JSON); ?category=mammal,prokaryote
-  GET  /api/jobs/{id}/files/{name}  genes.tsv, proteins.faa, hits.tsv, summary.json, structures/<gene>.pdb
+  GET  /api/jobs/{id}/files/{name}  genes.tsv, proteins.faa, hits.tsv, summary.json, structures/<gene>.pdb,
+                                    trees/<gene>.nwk
   /                                 the web page (web/), when it is served from here
 
 Jobs run one at a time in a background thread; each job is a folder under $SEEDDRIFT_JOBS.
@@ -43,6 +45,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 os.makedirs(config.JOBS, exist_ok=True)
 Q = queue.Queue()
 FILES = ("genes.tsv", "proteins.faa", "hits.tsv", "summary.json")
+SUBDIRS = {"structures": ".pdb", "trees": ".nwk"}
 MAX_UPLOAD = int(config.env("SEEDDRIFT_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 
 
@@ -99,10 +102,13 @@ def _worker():
                 os.replace(inp + ".part", inp)
             params = st["params"]
             folder = clients.folder() if params.get("structure") else None
+            files = [open(inp, "rb").read()]
+            if os.path.exists(os.path.join(d, "input2.bin")):
+                files.append(open(os.path.join(d, "input2.bin"), "rb").read())
 
             def progress(stage, message, frac):
                 _write_status(d, stage=stage, message=message, progress=round(frac, 3))
-            summary = pipeline.run(d, open(inp, "rb").read(), params, clients.tools(), folder, progress)
+            summary = pipeline.run(d, files, params, clients.tools(), folder, progress)
             _write_status(d, status="done", summary=summary, finished=time.strftime("%Y-%m-%d %H:%M:%S"))
         except Exception as e:                  # noqa: BLE001 - the job records the error
             _write_status(d, status="failed", error="%s: %s" % (type(e).__name__, e),
@@ -141,9 +147,10 @@ def demos():
 
 
 @app.post("/api/jobs")
-async def create_job(file: Optional[UploadFile] = File(None), url: str = Form(""), demo: str = Form(""),
-                     name: str = Form(""), self_taxon: str = Form(""), structure: str = Form("true"),
-                     max_structures: int = Form(400)):
+async def create_job(file: Optional[UploadFile] = File(None), file2: Optional[UploadFile] = File(None),
+                     url: str = Form(""), demo: str = Form(""), name: str = Form(""), self_taxon: str = Form(""),
+                     domain: str = Form("auto"), home_rank: str = Form("auto"), deep: str = Form("true"),
+                     trees: str = Form("true"), structure: str = Form("true"), max_structures: int = Form(400)):
     if demo:
         dm = next((x for x in _demos() if x["id"] == demo), None)
         if not dm:
@@ -163,12 +170,24 @@ async def create_job(file: Optional[UploadFile] = File(None), url: str = Form(""
         with open(os.path.join(d, "input.bin"), "wb") as fh:
             fh.write(data)
         src = file.filename
+        if file2:
+            data2 = await file2.read(MAX_UPLOAD + 1)
+            if len(data2) > MAX_UPLOAD:
+                raise HTTPException(413, "file larger than %d MB" % (MAX_UPLOAD >> 20))
+            with open(os.path.join(d, "input2.bin"), "wb") as fh:
+                fh.write(data2)
+            src += " + " + file2.filename
     _write_status(d, id=jid, name=name or src, source=src, url=url if not file else "", status="queued",
                   stage="queued", message="排队中", progress=0.0, created=time.strftime("%Y-%m-%d %H:%M:%S"),
-                  params=dict(self_taxon=self_taxon, structure=structure.lower() in ("1", "true", "yes", "on"),
-                              max_structures=max_structures))
+                  params=dict(self_taxon=self_taxon, domain=domain if domain in ("auto", "prokaryote", "eukaryote")
+                              else "auto", home_rank=home_rank, deep=_flag(deep), trees=_flag(trees),
+                              structure=_flag(structure), max_structures=max_structures))
     Q.put(jid)
     return {"id": jid}
+
+
+def _flag(v):
+    return str(v).lower() in ("1", "true", "yes", "on")
 
 
 @app.get("/api/jobs")
@@ -200,8 +219,8 @@ def genes(jid: str, category: str = ""):
 @app.get("/api/jobs/{jid}/files/{name:path}")
 def files(jid: str, name: str):
     d = _jdir(jid)
-    ok = name in FILES or (name.startswith("structures/") and name.endswith(".pdb") and "/" not in name[11:]
-                           and ".." not in name)
+    sub, _, base = name.partition("/")
+    ok = name in FILES or (sub in SUBDIRS and base.endswith(SUBDIRS[sub]) and "/" not in base and ".." not in base)
     p = os.path.join(d, name)
     if not ok or not os.path.exists(p):
         raise HTTPException(404, "no such file")

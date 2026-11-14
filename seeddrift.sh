@@ -69,6 +69,9 @@ tool_env() {   # binaries of the tools env
   export SEEDDRIFT_DIAMOND="${SEEDDRIFT_DIAMOND:-$ENVS/sd-tools/bin/diamond}"
   export SEEDDRIFT_FOLDSEEK="${SEEDDRIFT_FOLDSEEK:-$ENVS/sd-tools/bin/foldseek}"
   export SEEDDRIFT_NCOILS="${SEEDDRIFT_NCOILS:-$ENVS/sd-tools/bin/ncoils}"
+  export SEEDDRIFT_MAFFT="${SEEDDRIFT_MAFFT:-$ENVS/sd-tools/bin/mafft}"
+  export SEEDDRIFT_FASTTREE="${SEEDDRIFT_FASTTREE:-$ENVS/sd-tools/bin/FastTree}"
+  export SEEDDRIFT_METAEUK="${SEEDDRIFT_METAEUK:-$ENVS/sd-tools/bin/metaeuk}"
 }
 
 data() {

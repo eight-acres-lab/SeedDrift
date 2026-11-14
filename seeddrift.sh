@@ -123,6 +123,7 @@ start_one() {
 stop_one() {
   if running "$1"; then
     local pid; pid=$(cat "$RUN/$1.pid")
+    pkill -TERM -P "$pid" 2>/dev/null || true      # its tool processes (DIAMOND, Foldseek ...) first
     kill "$pid"
     for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid"

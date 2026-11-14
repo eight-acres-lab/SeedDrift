@@ -124,7 +124,7 @@ def main():
         gaps += [(c, iv[i][1], iv[i + 1][0]) for i in range(len(iv) - 1) if iv[i + 1][0] - iv[i][1] > 30]
     islands = []
     for cls, name, url in DONORS:
-        t = names.get(name.lower())
+        t = names.get(name.lower()) or names.get(name.split()[0].lower())      # species, else genus
         group = tax.group(t) if t else ""
         try:
             seqs = [s for _, s in fetch_fasta(url, os.path.join(cache, os.path.basename(url)))]

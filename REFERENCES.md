@@ -9,14 +9,14 @@ Each item keeps its own license. If you publish results, cite the data and tools
 
 | Dataset | What it is used for | Source | License | Cite |
 |---|---|---|---|---|
-| `reference-proteomes` | Similarity search for every gene (DIAMOND). UniProt reference proteomes, taxonomically balanced (Gammaproteobacteria 1 per genus; other bacteria, archaea, mammals 1 per family; other eukaryotes 1 per order; viruses 1 per genus) | UniProt (EBI FTP `knowledgebase/reference_proteomes`) | CC BY 4.0 | The UniProt Consortium, *Nucleic Acids Res.* (release used) |
+| `reference-proteomes` | Similarity search for every gene (DIAMOND). UniProt reference proteomes, selection `broad`: one proteome per genus for bacteria, archaea, viruses and mammals, one per family for other eukaryotes (~8,500 proteomes, ~40 M proteins) | UniProt (EBI FTP `knowledgebase/reference_proteomes`) | CC BY 4.0 | The UniProt Consortium, *Nucleic Acids Res.* (release used) |
 | `ncbi-taxonomy` | Lineages, donor groups and the genome's own taxon | NCBI Taxonomy `taxdump.tar.gz` | Public domain: NCBI places no restrictions on use or distribution | Schoch et al., *Database* 2020 |
-| `uniprot-swissprot` | Taxonomy and names of the structures | UniProtKB/Swiss-Prot FASTA (EBI FTP) | CC BY 4.0 | The UniProt Consortium |
+| `uniprot-swissprot` | Taxonomy and names of the structures; reference for eukaryotic gene calling (MetaEuk) | UniProtKB/Swiss-Prot FASTA (EBI FTP) | CC BY 4.0 | The UniProt Consortium |
 | `alphafold-swissprot` | Structure search for genes without sequence homologs (Foldseek) | AlphaFold DB v6, Swiss-Prot set (EBI FTP) | CC BY 4.0 | Jumper et al., *Nature* 2021; Varadi et al., *Nucleic Acids Res.* 2024 |
 | `pfam-a` | Repeat-like families for the repeat filter | Pfam-A HMMs and annotation (EBI FTP, InterPro) | CC0 1.0 | Mistry et al., *Nucleic Acids Res.* 2021 |
 
-Demo inputs (`data/demos.json`) are downloaded from Ensembl Bacteria (no restrictions on use) and
-UniProt (CC BY 4.0).
+Demo and benchmark inputs (`data/demos.json`, `bench/`) are downloaded from Ensembl Bacteria and
+Ensembl Fungi (no restrictions on use) and UniProt reference proteomes (CC BY 4.0).
 
 ## Models
 
@@ -32,7 +32,11 @@ UniProt (CC BY 4.0).
 | Foldseek | 10.941cd33 | tools service | GPL-3.0 |
 | COILS (ncoils, Lupas et al. 1991; Russell and Lupas 1999) | 2.2.1 | tools service | GPL |
 | pyhmmer (HMMER 3 bindings) | 0.12.3 | tools service | MIT, BSD-3-Clause, BSD-2-Clause |
-| pyrodigal (Prodigal bindings) | 3.x | API (gene calling) | GPL-3.0 |
+| MAFFT | 7.526 | tools service (phylogenies of candidates) | BSD-3-Clause |
+| FastTree | 2.2.0 | tools service (phylogenies of candidates) | GPL-2.0-or-later |
+| MetaEuk | 7.bba0d80 | tools service (eukaryotic gene calling) | GPL-3.0 |
+| MMseqs2 | 18.8cc5c | tools service (MetaEuk databases) | MIT |
+| pyrodigal (Prodigal bindings) | 3.7.1 | API (prokaryotic gene calling) | GPL-3.0-or-later |
 | PyTorch | 2.4.0 (CUDA 12.1) | ESMFold service | BSD-3-Clause |
 | transformers | 4.49.0 | ESMFold service | Apache-2.0 |
 | Biopython | 1.88 | BLOSUM62 for tandem repeats | Biopython License (BSD-3-Clause-like) |

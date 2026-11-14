@@ -83,18 +83,39 @@ docker compose -f deploy/docker/compose.yml up -d --build
 浏览器访问 http://localhost:8700。
 
 网页上可以：
-- 上传蛋白 FASTA，或原核基因组的核酸 FASTA（自动预测基因）；
+- 上传文件：
+  - 蛋白 FASTA 或 CDS FASTA；
+  - GenBank / EMBL 注释文件；
+  - GFF3，基因组序列可以内嵌在里面，也可以作为第二个文件上传；
+  - 基因组 contig。原核基因组用 pyrodigal 预测基因，真核基因组用 MetaEuk 预测基因；不确定是哪一类时，会先抽样比对，自动判断；
+  - gz、bz2、xz 压缩包都可以；
 - 填一个 URL，由服务器去下载，不占你本地的流量；
 - 直接选示例基因组。
+
+每个基因经过以下几步：
+1. **比对参考库：** 用 DIAMOND 比对约 4,000 万条参考蛋白。
+2. **深度检索：** 没有外部同源的基因，关闭重复屏蔽，再用 ultra-sensitive 模式检索一次。DIAMOND 默认的屏蔽会把富含重复的蛋白整个藏起来。
+3. **重复过滤：** 去掉落在重复结构上的命中。
+4. **判定类别：** 按 Alien Index 归类。
+5. **建树验证：** 对外来候选，用 MAFFT 和 FastTree 建树，看最近的亲缘是不是在本谱系之外。
+6. **补充证据：** 有基因组序列时，再看 GC 和 GC3 是否偏离、相邻基因里是否成簇（基因组岛），以及所在 contig 是否像污染。
 
 每个基因会被归入以下几类之一：
 
 | 判定 | 含义 |
 |---|---|
-| 疑似哺乳动物来源 / 疑似原核来源 / 疑似其他真核来源 / 疑似病毒来源 | Alien Index > 0：最近的命中在本谱系之外，供体类群由前 10 个外部命中按 bit 分加权得出。AI ≥ 45 标为强证据 |
-| 本谱系 | 最近的命中在自己所在的谱系内：原核按门，真核按动物、真菌、植物或真核整体 |
-| 外部无同源 | 排除自身所在的属之后没有命中；可以选择对这类基因做结构检索（ESMFold + Foldseek） |
+| 疑似哺乳动物来源 / 疑似原核来源 / 疑似其他真核来源 / 疑似病毒来源 | Alien Index > 0：最近的命中在本谱系之外，供体类群由前 10 个外部命中按 bit 分加权得出。 |
+| 本谱系 | 最近的命中在自己所在的谱系内。原核按门；真核按动物、真菌、植物，原生生物按所在的真核超类群（如 Amoebozoa）。范围可以在网页上改窄，例如改成“科”，这样同一门内其他科来的基因也会被判出来 |
+| 外部无同源 | 排除自身所在的属之后，深度检索也没有命中。可以选择对这类基因做结构检索（ESMFold + Foldseek） |
 | 仅重复结构命中 | 主要命中都落在重复结构上（Pfam 重复型家族、串联重复、卷曲螺旋），且一致度低于 40%：不做判定 |
+
+外来候选还会给出置信度：
+
+| 置信度 | 条件 |
+|---|---|
+| 高 | AI ≥ 45，建树支持外来来源，且至少有两个供体物种 |
+| 中 | AI ≥ 45 或建树支持外来来源，且建树没有落在本谱系 |
+| 低 | 其余候选，以及位于疑似污染 contig 上的候选 |
 
 “支持物种”一栏只有 1 时要小心。这类真核来源候选往往是该真核基因组组装混入了细菌序列。
 
@@ -111,11 +132,23 @@ python3 -m seeddrift prepare / scan / donors / structure ...
 
 `genome` 命令设了 `SEEDDRIFT_TOOLS_URL` 和 `SEEDDRIFT_ESMFOLD_URL` 时调用这两个服务，没有设就在本进程里直接运行工具。
 
-## 测试
+## 测试与基准
 
 ```bash
 ./seeddrift.sh test
 ```
+
+上面这条是单元测试。下面是基准测试，在服务器上运行，数据由脚本从原始来源下载，真值表与数据放在一起：
+
+```bash
+python bench/spikein.py --recipient Bacteria/UP000000625_83333 --out bench/work/spike_ecoli
+python bench/contamination.py --out bench/work/contam_ecuniculi
+python bench/run_benchmark.py --api http://127.0.0.1:8600
+```
+
+- `spikein.py`：在真实受体蛋白组里掺入已知来源的外源蛋白，按 0%、30%、50%、70% 的位点替换率设置难度，供体选参考库没收录的物种。
+- `contamination.py`：往真核组装里混入细菌 contig。
+- `run_benchmark.py`：跑完整流程和各项消融，结果写进 [docs/benchmark-results.md](docs/benchmark-results.md)。
 
 ## 局限
 

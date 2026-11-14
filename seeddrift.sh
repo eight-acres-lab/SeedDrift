@@ -64,6 +64,13 @@ install() {
     # shellcheck disable=SC2046
     MAMBA_ROOT_PREFIX="$SD_MAMBA_ROOT" "$mm" create -y -f "$SD_ROOT/deploy/envs/esmfold.yml" $(channels_args)
   fi
+  if [ "${SD_MMSEQS_GPU:-auto}" != off ] && command -v nvidia-smi >/dev/null && [ -z "${SEEDDRIFT_MMSEQS_GPU:-}" ] \
+      && [ ! -x "$SD_ROOT/.tools/mmseqs/bin/mmseqs" ]; then
+    say "MMseqs2 GPU build (optional; GPU deep search)"
+    mkdir -p "$SD_ROOT/.tools"
+    curl -fsSL https://github.com/soedinglab/MMseqs2/releases/download/18-8cc5c/mmseqs-linux-gpu.tar.gz \
+      | tar -xz -C "$SD_ROOT/.tools" || say "MMseqs2 GPU build not available: deep search uses DIAMOND"
+  fi
   say "environments ready"
 }
 
@@ -74,6 +81,9 @@ tool_env() {   # binaries of the tools env
   export SEEDDRIFT_MAFFT="${SEEDDRIFT_MAFFT:-$ENVS/sd-tools/bin/mafft}"
   export SEEDDRIFT_FASTTREE="${SEEDDRIFT_FASTTREE:-$ENVS/sd-tools/bin/FastTree}"
   export SEEDDRIFT_METAEUK="${SEEDDRIFT_METAEUK:-$ENVS/sd-tools/bin/metaeuk}"
+  if [ -z "${SEEDDRIFT_MMSEQS_GPU:-}" ] && [ -x "$SD_ROOT/.tools/mmseqs/bin/mmseqs" ]; then
+    export SEEDDRIFT_MMSEQS_GPU="$SD_ROOT/.tools/mmseqs/bin/mmseqs"
+  fi
 }
 
 data() {

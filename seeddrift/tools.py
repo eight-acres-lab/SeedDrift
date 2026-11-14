@@ -95,6 +95,24 @@ class SprotTable:
             self.seq[acc] = "".join(buf)
 
 
+def _block_args():
+    """DIAMOND -b/-c: larger blocks mean fewer passes over the ~15 G-letter reference (much faster for a
+    single genome) but more memory (roughly 6 x b GB, more with -c 1)."""
+    v = config.DIAMOND_BLOCK
+    if v and v != "auto":
+        b, _, c = v.partition(",")
+        return ["-b", b] + (["-c", c] if c else [])
+    try:
+        avail = os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 1e9
+    except (ValueError, OSError, AttributeError):
+        return []
+    if avail > 300:
+        return ["-b", "8", "-c", "1"]
+    if avail > 100:
+        return ["-b", "4", "-c", "1"]
+    return []
+
+
 def af_acc(target):
     m = re.match(r"AF-([A-Z0-9]+)-F\d+", target)
     return m.group(1) if m else target.split(".")[0]
@@ -114,6 +132,7 @@ class LocalTools:
             ncoils=bool(_which(config.NCOILS)), pyhmmer=_importable("pyhmmer"),
             mafft=bool(_which(config.MAFFT)), fasttree=bool(_which(config.FASTTREE)),
             metaeuk=bool(_which(config.METAEUK)) and have(config.METAEUK_DB + ".dbtype"),
+            mmseqs_gpu=bool(config.MMSEQS_GPU and _which(config.MMSEQS_GPU)) and have(config.MMSEQS_DB + ".dbtype"),
             reference=have(config.DIAMOND_DB), taxonomy=have(os.path.join(config.REFERENCE, "taxdump")),
             sprot=have(config.SPROT), afdb=have(os.path.join(config.AFDB, "targetDB.dbtype")),
             pfam=have(os.path.join(config.PFAM, "Pfam-A.hmm.dat.gz")), data=config.DATA)
@@ -127,7 +146,8 @@ class LocalTools:
             q, o = os.path.join(tmp, "q.faa"), os.path.join(tmp, "hits.tsv")
             with open(q, "w") as fh:
                 fh.write(fasta)
-            cmd = [config.DIAMOND, "blastp", "-q", q, "-d", config.DIAMOND_DB, "-o", o, "--" + sensitivity,
+            cmd = [config.DIAMOND, "blastp", "-q", q, "-d", config.DIAMOND_DB, "-o", o, "--" + sensitivity] + \
+                _block_args() + [
                    "--max-target-seqs", str(max_target_seqs), "-e", str(evalue), "--threads", str(self.threads),
                    "--outfmt", "6"] + DIAMOND_FIELDS + (["--masking", str(masking)] if masking is not None else [])
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
@@ -140,6 +160,44 @@ class LocalTools:
                                  pident=float(f[2]), alnlen=int(f[3]), evalue=float(f[4]), bits=float(f[5]),
                                  qstart=qs, qend=qe, tstart=int(f[8]), tend=int(f[9]), qlen=ql, tlen=int(f[11]),
                                  qcov=(qe - qs + 1) / float(ql)))
+            return hits
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def deep_search(self, fasta, max_target_seqs=100, evalue=1e-5):
+        """Most sensitive search for genes without outside hits, repeat masking off. MMseqs2-GPU (exhaustive
+        ungapped prefilter on the GPU: seconds per query) when configured, else DIAMOND --ultra-sensitive."""
+        if config.MMSEQS_GPU and os.path.exists(config.MMSEQS_DB + ".dbtype") and _which(config.MMSEQS_GPU):
+            try:
+                return self._mmseqs_gpu(fasta, max_target_seqs, evalue)
+            except subprocess.CalledProcessError as e:
+                log("MMseqs2-GPU failed (%s); DIAMOND --ultra-sensitive instead" % e)
+        return self.diamond(fasta, max_target_seqs, evalue, "ultra-sensitive", masking=0)
+
+    def _mmseqs_gpu(self, fasta, max_target_seqs, evalue):
+        mm = config.MMSEQS_GPU
+        tmp = tempfile.mkdtemp(prefix="sd-mmgpu-")
+        try:
+            fa, q, res, o = (os.path.join(tmp, x) for x in ("q.faa", "q", "res", "hits.tsv"))
+            with open(fa, "w") as fh:
+                fh.write(fasta)
+            quiet = dict(check=True, stdout=subprocess.DEVNULL)
+            subprocess.run([mm, "createdb", fa, q], **quiet)
+            subprocess.run([mm, "search", q, config.MMSEQS_DB, res, os.path.join(tmp, "t"), "--gpu", "1", "--mask", "0",
+                            "-e", str(evalue), "--max-seqs", str(max_target_seqs * 4), "--threads", str(self.threads)], **quiet)
+            subprocess.run([mm, "convertalis", q, config.MMSEQS_DB, res, o, "--format-output",
+                            "query,target,pident,alnlen,evalue,bits,qstart,qend,tstart,tend,qlen,tlen",
+                            "--threads", str(self.threads)], **quiet)
+            hits = []
+            for line in open(o):
+                f = line.rstrip("\n").split("\t")
+                acc, _, tx = f[1].rpartition("|")
+                qs, qe, ql = int(f[6]), int(f[7]), int(f[10])
+                pid = float(f[2])
+                hits.append(dict(query=f[0], target=acc or f[1], taxid=int(tx) if tx.isdigit() else 0,
+                                 pident=pid * 100 if pid <= 1.0 else pid, alnlen=int(f[3]), evalue=float(f[4]),
+                                 bits=float(f[5]), qstart=qs, qend=qe, tstart=int(f[8]), tend=int(f[9]), qlen=ql,
+                                 tlen=int(f[11]), qcov=(qe - qs + 1) / float(ql)))
             return hits
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

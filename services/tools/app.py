@@ -2,6 +2,7 @@
 
   GET  /health                       which tools and datasets are available
   POST /diamond    {fasta, max_target_seqs, evalue, sensitivity}  -> {hits}
+  POST /deep       {fasta}  most sensitive search, no repeat masking (MMseqs2-GPU or DIAMOND ultra) -> {hits}
   POST /sequences  {ids, source: reference|sprot}                 -> {sequences}
   POST /repeats    {sequences}  Pfam repeat-like domains + coiled coils -> {regions}
   POST /foldseek   {pdbs}       vs AlphaFold DB Swiss-Prot              -> {hits}
@@ -65,6 +66,11 @@ def health():
 @app.post("/diamond")
 def diamond(r: DiamondReq):
     return {"hits": T.diamond(r.fasta, r.max_target_seqs, r.evalue, r.sensitivity, r.masking)}
+
+
+@app.post("/deep")
+def deep(r: DiamondReq):
+    return {"hits": T.deep_search(r.fasta, r.max_target_seqs, r.evalue)}
 
 
 @app.post("/sequences")

@@ -4,8 +4,8 @@
               pyrodigal, eukaryote genes with MetaEuk; for raw contigs the domain can be detected by
               a quick search of a sample of genes (inputs.py)
   search      DIAMOND --sensitive against the reference library
-  deep        genes without an outside hit: DIAMOND --ultra-sensitive without repeat masking (tantan
-              masking hides repeat-rich proteins completely)
+  deep        genes without an outside hit: the most sensitive search without repeat masking (tantan
+              masking hides repeat-rich proteins completely): MMseqs2-GPU, else DIAMOND --ultra-sensitive
   self        the genome's own taxon: given, or inferred from near-identical best hits
   repeats     repeat-like regions of the genes and of the hit targets (Pfam, coiled coils: tools
               service; tandem repeats: here)
@@ -178,11 +178,10 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
     if params.get("deep", True):
         lonely = [q for q in prots if not any(h["qcov"] >= MIN_QCOV and not self_lin(h["taxid"]) for h in by_q.get(q, []))]
         if lonely:
-            progress("deep", "深度检索 %d 个暂无外部同源的基因（ultra-sensitive，关闭重复屏蔽）" % len(lonely), 0.4)
+            progress("deep", "深度检索 %d 个暂无外部同源的基因（关闭重复屏蔽）" % len(lonely), 0.4)
             new = defaultdict(list)
             lf = _fasta({q: prots[q] for q in lonely})
-            for h in cached("diamond", [ref, "ultra-sensitive", 0, lf],
-                            lambda: tools.diamond(lf, sensitivity="ultra-sensitive", masking=0)):
+            for h in cached("deep", [ref, lf], lambda: tools.deep_search(lf)):
                 new[h["query"]].append(h)
             for q in lonely:
                 if new.get(q):

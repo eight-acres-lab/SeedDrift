@@ -35,7 +35,7 @@ Ensembl Fungi (no restrictions on use) and UniProt reference proteomes (CC BY 4.
 | MAFFT | 7.526 | tools service (phylogenies of candidates) | BSD-3-Clause |
 | FastTree | 2.2.0 | tools service (phylogenies of candidates) | GPL-2.0-or-later |
 | MetaEuk | 7.bba0d80 | tools service (eukaryotic gene calling) | GPL-3.0 |
-| MMseqs2 | 18.8cc5c | tools service (MetaEuk databases) | MIT |
+| MMseqs2 | 18.8cc5c (bioconda; optional linux-gpu build from the GitHub release) | tools service (MetaEuk databases; GPU deep search) | MIT |
 | pyrodigal (Prodigal bindings) | 3.7.1 | API (prokaryotic gene calling) | GPL-3.0-or-later |
 | PyTorch | 2.4.0 (CUDA 12.1) | ESMFold service | BSD-3-Clause |
 | transformers | 4.49.0 | ESMFold service | Apache-2.0 |

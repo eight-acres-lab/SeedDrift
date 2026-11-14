@@ -129,6 +129,13 @@ def build(names, threads=None):
                 log("Foldseek database (reads the tar directly)")
                 subprocess.run([config.FOLDSEEK, "createdb", os.path.join(base, "swissprot_pdb_v6.tar"),
                                 os.path.join(base, "targetDB"), "--threads", str(threads)], check=True)
+            elif step == "mmseqs_gpu" and config.MMSEQS_GPU and not os.path.exists(config.MMSEQS_DB + ".dbtype"):
+                log("MMseqs2 padded database for GPU search (optional)")
+                db = os.path.join(base, "refDB")
+                subprocess.run([config.MMSEQS_GPU, "createdb", os.path.join(base, "reference.faa"), db], check=True,
+                               stdout=subprocess.DEVNULL)
+                subprocess.run([config.MMSEQS_GPU, "makepaddedseqdb", db, config.MMSEQS_DB], check=True,
+                               stdout=subprocess.DEVNULL)
             elif step == "metaeuk" and not os.path.exists(config.METAEUK_DB + ".dbtype"):
                 log("MetaEuk database of Swiss-Prot")
                 subprocess.run([config.METAEUK, "createdb", config.SPROT, config.METAEUK_DB], check=True,

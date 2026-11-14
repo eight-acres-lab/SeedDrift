@@ -6,7 +6,8 @@ Works on similarity alone (no gene trees), so it gives candidates, not proof. Fo
   outside hits   hits covering >= MIN_QCOV of the gene, outside the genome's own genus ("self")
   repeat filter  hits that lie mostly on repeat-like regions and are < 40% identical are dropped;
                  genes whose top outside hits are mostly such hits are "repeat"
-  donor group    the closest outside group: top-10 clean hits, weighted by bit score (17 groups)
+  donor group    the group of the closest relatives outside the home group: top-10 clean
+                 outside-home hits, weighted by bit score (17 groups)
   home group     the genome's own neighbourhood: its phylum for prokaryotes; Metazoa, Fungi or
                  Viridiplantae for eukaryotes, else the eukaryotic supergroup (Amoebozoa, Sar ...)
   Alien Index    AI = ln(best E inside home) - ln(best E outside home)   (Gladyshev et al. 2008);
@@ -147,16 +148,17 @@ def classify_gene(gene, length, hits, tax, self_taxid, home, qreg=None, treg=Non
         row.update(category="repeat")
         return row
     clean = [(h, lin) for h, lin, r in out if not r]
-    w, species = Counter(), {}
-    for h, lin in clean[:TOP]:
-        g = tax.group(h["taxid"])
-        w[g] += h["bits"]
-        species.setdefault(g, set()).add(tax.at_rank(h["taxid"], "species") or h["taxid"])
-    grp, gb = w.most_common(1)[0]
     b = clean[0][0]
     home_t, _ = home
     in_home = [(h, lin) for h, lin in clean if home_t in lin]
     away = [(h, lin) for h, lin in clean if home_t not in lin]
+    # donor group: where the closest outside-home relatives are (top 10 by bit score); support: their species
+    w, species = Counter(), {}
+    for h, lin in (away or clean)[:TOP]:
+        g = tax.group(h["taxid"])
+        w[g] += h["bits"]
+        species.setdefault(g, set()).add(tax.at_rank(h["taxid"], "species") or h["taxid"])
+    grp, gb = w.most_common(1)[0]
     if (group_class(tax, b["taxid"]) == "mammal" and MAMMALIA not in self_lin
             and home_t in tax.lineage(MAMMALIA)):
         # mammal donor inside the home group (e.g. a nematode): compare with the non-mammal part

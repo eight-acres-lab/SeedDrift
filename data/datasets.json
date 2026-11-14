@@ -14,7 +14,8 @@
     "fetch": "reference",
     "build": [
       "seqindex",
-      "diamond"
+      "diamond",
+      "mmseqs_gpu"
     ],
     "size_gb": 17.0,
     "source": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/",

@@ -26,6 +26,8 @@ NCOILS = env("SEEDDRIFT_NCOILS", "ncoils")
 MAFFT = env("SEEDDRIFT_MAFFT", "mafft")
 FASTTREE = env("SEEDDRIFT_FASTTREE", "FastTree")
 METAEUK = env("SEEDDRIFT_METAEUK", "metaeuk")
+MMSEQS_GPU = env("SEEDDRIFT_MMSEQS_GPU", "")     # MMseqs2 linux-gpu build: GPU deep search (optional)
+DIAMOND_BLOCK = env("SEEDDRIFT_DIAMOND_BLOCK", "auto")   # "auto" (by free memory) or e.g. "8,1" (-b, -c)
 FOLDSEEK_GPU = env("SEEDDRIFT_FOLDSEEK_GPU", "0") == "1"
 
 
@@ -37,6 +39,7 @@ def path(*parts):
 REFERENCE = path("reference")            # reference.faa (acc|taxid), ref.dmnd, taxdump/
 REFERENCE_FAA = path("reference", "reference.faa")
 DIAMOND_DB = path("reference", "ref.dmnd")
+MMSEQS_DB = path("reference", "refDB_pad")       # padded MMseqs2 database for MMseqs2-GPU
 SPROT = path("sprot", "uniprot_sprot.fasta.gz")
 METAEUK_DB = path("sprot", "metaeukDB")          # MetaEuk/MMseqs2 database of Swiss-Prot
 AFDB = path("afdb")                      # swissprot_pdb_v6.tar, targetDB*

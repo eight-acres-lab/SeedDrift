@@ -117,7 +117,8 @@ def main():
             pools.setdefault(c, []).append(r)
     levels = [float(x) for x in a.divergence.split(",")]
     truth, prots = [], []
-    for name, seq in fetch_fasta("%s/%s/%s.fasta.gz" % (RP, regnum, rid), os.path.join(a.out, "cache", rid + ".fasta.gz")):
+    for name, seq in fetch_fasta("%s/%s/%s/%s.fasta.gz" % (RP, regnum, rid.split("_")[0], rid),
+                                 os.path.join(a.out, "cache", rid + ".fasta.gz")):
         acc = name.split()[0].split("|")[1] if "|" in name.split()[0] else name.split()[0]
         desc = name.split(" ", 1)[1] if " " in name else ""
         label = "core" if CORE.search(desc) and not CORE_EXCLUDE.search(desc.split(" OS=")[0]) else "other"

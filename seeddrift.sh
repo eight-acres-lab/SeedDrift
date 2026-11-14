@@ -19,6 +19,8 @@ set -a; eval "$(sed -e 's/#.*$//' "$CONF" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=')"
 : "${SD_TOOLS_PORT:=8601}" "${SD_ESMFOLD_PORT:=8602}" "${SD_API_HOST:=127.0.0.1}" "${SD_ESMFOLD_TORCH:=conda}"
 RUN="$SD_ROOT/.run"; mkdir -p "$RUN"
 export PYTHONPATH="$SD_ROOT${PYTHONPATH:+:$PYTHONPATH}" SEEDDRIFT_DATA
+# temporary files of DIAMOND / Foldseek / MetaEuk can be large: keep them next to the data, not in /tmp
+export TMPDIR="${SD_TMP:-$SEEDDRIFT_DATA/tmp}"; mkdir -p "$TMPDIR"
 ENVS="$SD_MAMBA_ROOT/envs"
 say() { printf '\033[32m[seeddrift]\033[0m %s\n' "$*"; }
 

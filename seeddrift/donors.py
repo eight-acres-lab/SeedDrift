@@ -285,11 +285,16 @@ def reference(ref, threads=16, max_proteins=25_000_000, policy="enterobacterales
         fn = "%s_%d.fasta.gz" % (r["id"], r["taxid"])
         dest = os.path.join(ref, "proteomes", fn)
         if os.path.exists(dest):
-            return "cached"
+            if _gzip_ok(dest):
+                return "cached"
+            os.remove(dest)
         url = "%s/%s/%s/%s" % (UNIPROT_RP, r["regnum"].capitalize(), r["id"], fn)
         for k in range(6):
             try:
                 _fetch(url, dest)
+                if not _gzip_ok(dest):              # dropped connections leave truncated files
+                    os.remove(dest)
+                    raise IOError("truncated download")
                 return "ok"
             except Exception as e:          # noqa: BLE001 - network hiccups / throttling: back off
                 err = e
@@ -314,7 +319,12 @@ def reference(ref, threads=16, max_proteins=25_000_000, policy="enterobacterales
                 p = os.path.join(ref, "proteomes", "%s_%d.fasta.gz" % (r["id"], r["taxid"]))
                 if not os.path.exists(p):
                     continue
-                for name, seq in _fasta_gz(p):
+                try:
+                    recs = list(_fasta_gz(p))
+                except (EOFError, OSError) as e:
+                    log("skipping unreadable %s: %s" % (p, e))
+                    continue
+                for name, seq in recs:
                     if len(seq) < 30:
                         continue
                     acc = name.split()[0].split("|")
@@ -323,6 +333,16 @@ def reference(ref, threads=16, max_proteins=25_000_000, policy="enterobacterales
                     k += 1
         os.replace(tmp, out)
         log("reference.faa: %d proteins" % k)
+
+
+def _gzip_ok(path):
+    try:
+        with gzip.open(path, "rb") as fh:
+            while fh.read(1 << 22):
+                pass
+        return True
+    except (EOFError, OSError):
+        return False
 
 
 def _fasta_gz(path):

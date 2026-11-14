@@ -225,13 +225,21 @@ def _readme_rows(path):
     return rows
 
 
-def select_proteomes(rows, tax):
-    """Taxonomically balanced subset: dense near the recipients, sparse far away.
+POLICIES = {
+    # dense near Enterobacterales (the multi-genome example), sparse far away
+    "enterobacterales": dict(gamma="genus", bacteria="family", archaea="family", viruses="genus",
+                             mammal="family", eukaryota="order"),
+    # unbiased: for any genome (the single-genome screen); ~8,500 proteomes, ~40 M proteins
+    "broad": dict(gamma="genus", bacteria="genus", archaea="genus", viruses="genus",
+                  mammal="genus", eukaryota="family"),
+}
 
-    Gammaproteobacteria (closest relatives of Enterobacterales): one proteome per genus; other
-    bacteria and archaea: one per family; mammals: one per family; other eukaryotes: one per
-    order; viruses: one per genus. Within a slot the proteome with most proteins wins.
-    """
+
+def select_proteomes(rows, tax, policy="enterobacterales"):
+    """Taxonomically balanced subset of the UniProt reference proteomes: one proteome per slot, the
+    slot being a genus / family / order depending on the lineage (POLICIES). Within a slot the
+    proteome with most proteins wins."""
+    lv = POLICIES[policy]
     best = {}
     unknown = 0
     for r in rows:
@@ -241,15 +249,13 @@ def select_proteomes(rows, tax):
             unknown += 1
             continue
         if r["regnum"] == "bacteria":
-            level = "genus" if 1236 in lin else "family"
-        elif r["regnum"] == "archaea":
-            level = "family"
-        elif r["regnum"] == "viruses":
-            level = "genus"
+            level = lv["gamma"] if 1236 in lin else lv["bacteria"]
+        elif r["regnum"] in ("archaea", "viruses"):
+            level = lv[r["regnum"]]
         elif 40674 in lin:
-            level = "family"
+            level = lv["mammal"]
         else:
-            level = "order"
+            level = lv["eukaryota"]
         slot = (tax.at_rank(t, level) or tax.at_rank(t, "family") or tax.at_rank(t, "genus") or t)
         key = (r["regnum"], level, slot)
         if key not in best or r["n"] > best[key]["n"]:
@@ -259,14 +265,14 @@ def select_proteomes(rows, tax):
     return sorted(best.values(), key=lambda r: (r["regnum"], r["id"]))
 
 
-def reference(ref, threads=16, max_proteins=25_000_000):
+def reference(ref, threads=16, max_proteins=25_000_000, policy="enterobacterales"):
     os.makedirs(os.path.join(ref, "proteomes"), exist_ok=True)
     tax = taxonomy(ref)
     readme = os.path.join(ref, "README")
     if not os.path.exists(readme):
         _fetch(UNIPROT_RP + "/README", readme)
     rows = _readme_rows(readme)
-    sel = select_proteomes(rows, tax)
+    sel = select_proteomes(rows, tax, policy)
     n = sum(r["n"] for r in sel)
     by = Counter(r["regnum"] for r in sel)
     mam = sum(1 for r in sel if 40674 in tax.lineage(r["taxid"]))

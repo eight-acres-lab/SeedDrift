@@ -90,7 +90,7 @@ def fetch(names, threads=None):
                 if not os.path.exists(dest):
                     _fetch_parallel(url, dest, parts=d.get("parts", 4))
         elif d["fetch"] == "reference":
-            reference(config.REFERENCE, threads or config.THREADS)
+            reference(config.REFERENCE, threads or config.THREADS, max_proteins=60_000_000, policy=d.get("policy", "broad"))
         elif d["fetch"] == "taxonomy":
             taxonomy(config.REFERENCE)
         elif d["fetch"] == "huggingface":

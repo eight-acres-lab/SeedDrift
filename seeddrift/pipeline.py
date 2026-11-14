@@ -78,6 +78,39 @@ def clean_proteins(seqs, min_len=30):
     return out, ren
 
 
+def _db_id(path):
+    try:
+        st = os.stat(path)
+        return "%s:%d:%d" % (path, st.st_size, int(st.st_mtime))
+    except OSError:
+        return path
+
+
+def cached(kind, key, fn):
+    """Memoise an expensive tool call on disk ($SEEDDRIFT_DATA/cache/<kind>/<sha1>.json.gz): the same
+    inputs against the same reference give the same answer, so re-running a genome with other
+    settings (or an ablation) skips the searches. SEEDDRIFT_CACHE=0 turns it off."""
+    import gzip
+    import hashlib
+    if config.env("SEEDDRIFT_CACHE", "1") == "0":
+        return fn()
+    h = hashlib.sha1(json.dumps(key, sort_keys=True).encode()).hexdigest()
+    d = config.path("cache", kind)
+    p = os.path.join(d, h + ".json.gz")
+    if os.path.exists(p):
+        try:
+            with gzip.open(p, "rt") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            pass
+    out = fn()
+    os.makedirs(d, exist_ok=True)
+    with gzip.open(p + ".part", "wt") as fh:
+        json.dump(out, fh)
+    os.replace(p + ".part", p)
+    return out
+
+
 def _fasta(seqs):
     return "".join(">%s\n%s\n" % kv for kv in seqs.items())
 
@@ -125,7 +158,8 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
         fh.write(_fasta(prots))
 
     progress("search", "DIAMOND 比对参考库：%d 个蛋白" % len(prots), 0.08)
-    hits = tools.diamond(_fasta(prots))
+    ref = _db_id(config.DIAMOND_DB)
+    hits = cached("diamond", [ref, "sensitive", _fasta(prots)], lambda: tools.diamond(_fasta(prots)))
     by_q = defaultdict(list)
     for h in hits:
         by_q[h["query"]].append(h)
@@ -146,7 +180,9 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
         if lonely:
             progress("deep", "深度检索 %d 个暂无外部同源的基因（ultra-sensitive，关闭重复屏蔽）" % len(lonely), 0.4)
             new = defaultdict(list)
-            for h in tools.diamond(_fasta({q: prots[q] for q in lonely}), sensitivity="ultra-sensitive", masking=0):
+            lf = _fasta({q: prots[q] for q in lonely})
+            for h in cached("diamond", [ref, "ultra-sensitive", 0, lf],
+                            lambda: tools.diamond(lf, sensitivity="ultra-sensitive", masking=0)):
                 new[h["query"]].append(h)
             for q in lonely:
                 if new.get(q):
@@ -175,8 +211,10 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
             elif n_out < 25:
                 targets.add(h["target"])
                 n_out += 1
-    tseqs = tools.sequences(sorted(targets)) if targets else {}
-    reg = tools.repeats(dict(prots, **{"t|" + k: v for k, v in tseqs.items()}))
+    tseqs = cached("sequences", [ref, sorted(targets)], lambda: tools.sequences(sorted(targets))) if targets else {}
+    rin = dict(prots, **{"t|" + k: v for k, v in tseqs.items()})
+    reg = cached("repeats", [_db_id(os.path.join(config.PFAM, "Pfam-A.hmm.dat.gz")), sorted(rin.items())],
+                 lambda: tools.repeats(rin))
     B = _blosum()
     qreg, treg, kinds = defaultdict(list), defaultdict(list), defaultdict(set)
     for k, v in reg.items():
@@ -220,7 +258,9 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
             os.makedirs(tdir, exist_ok=True)
             names = list(jobs)
             for i in range(0, len(names), 200):
-                part = tools.trees({n: jobs[n] for n in names[i:i + 200]})
+                chunk = {n: jobs[n] for n in names[i:i + 200]}
+                part = cached("trees", sorted((n, sorted(v.items())) for n, v in chunk.items()),
+                              lambda: tools.trees(chunk))
                 for n, nwk in part.items():
                     if nwk:
                         with open(os.path.join(tdir, n + ".nwk"), "w") as fh:

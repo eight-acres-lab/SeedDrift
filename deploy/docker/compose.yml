@@ -1,0 +1,29 @@
+# docker compose -f deploy/docker/compose.yml up -d --build      (from the repository root)
+# first: docker compose -f deploy/docker/compose.yml run --rm data   (fetch + index the data, hours)
+x-data: &data
+  volumes: ["${SEEDDRIFT_STORE:-../../store}:/data"]
+services:
+  data:
+    <<: *data
+    build: {context: ../.., dockerfile: deploy/docker/tools.Dockerfile}
+    profiles: [data]
+    command: ["sh", "-c", "python -m seeddrift data fetch && python -m seeddrift data build && python -m seeddrift data status"]
+  tools:
+    <<: *data
+    build: {context: ../.., dockerfile: deploy/docker/tools.Dockerfile}
+    environment: {SEEDDRIFT_THREADS: "${SEEDDRIFT_THREADS:-16}"}
+  esmfold:
+    <<: *data
+    build: {context: ../.., dockerfile: deploy/docker/esmfold.Dockerfile}
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+  api:
+    <<: *data
+    build: {context: ../.., dockerfile: deploy/docker/app.Dockerfile}
+    environment:
+      SEEDDRIFT_TOOLS_URL: http://tools:8601
+      SEEDDRIFT_ESMFOLD_URL: http://esmfold:8602
+    ports: ["127.0.0.1:${SD_API_PORT:-8600}:8600"]
+    depends_on: [tools, esmfold]

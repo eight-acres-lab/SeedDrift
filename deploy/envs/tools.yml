@@ -1,0 +1,13 @@
+# Dependency service: third-party search tools (CPU; Foldseek-GPU optional)
+name: sd-tools
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - numpy>=1.26
+  - biopython=1.88
+  - fastapi>=0.110
+  - uvicorn>=0.29
+  - diamond=2.2.8
+  - foldseek=10.941cd33
+  - coils=2.2.1
+  - pyhmmer=0.12.3

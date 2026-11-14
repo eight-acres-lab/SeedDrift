@@ -1,0 +1,13 @@
+# SeedDrift API (our own algorithm) + command line
+name: sd-app
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - numpy>=1.26
+  - biopython=1.88
+  - fastapi>=0.110
+  - uvicorn>=0.29
+  - python-multipart
+  - pip
+  - pip:
+      - pyrodigal>=3.5,<4

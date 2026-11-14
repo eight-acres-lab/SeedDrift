@@ -1,0 +1,67 @@
+{
+  "n_events": 1856,
+  "n_true_transfers": 156,
+  "n_true_detectable": 155,
+  "event_auc_P": 0.9475247948016415,
+  "event_auc_fT_only": 0.8716804890560875,
+  "threshold": 0.6,
+  "called": 94,
+  "precision": 0.9468085106382979,
+  "recall_detectable": 0.5741935483870968,
+  "recall_all": 0.5705128205128205,
+  "called_by_source": {
+    "tree": [
+      89,
+      5
+    ]
+  },
+  "recall_by_type": {
+    "leaf": {
+      "n": 57,
+      "recall": 0.8070175438596491,
+      "recall_any_direction": 0.8070175438596491,
+      "n_identifiable": 57,
+      "recall_identifiable": 0.8070175438596491
+    },
+    "internal": {
+      "n": 98,
+      "recall": 0.4387755102040816,
+      "recall_any_direction": 0.4387755102040816,
+      "n_identifiable": 67,
+      "recall_identifiable": 0.6119402985074627
+    }
+  },
+  "donor_top1_exact": 0.9325842696629213,
+  "donor_top1_lineage": 0.9662921348314607,
+  "donor_top3_exact": 0.9438202247191011,
+  "calibration": [
+    [
+      0.0,
+      0.3,
+      1711,
+      0.018118059614260665
+    ],
+    [
+      0.3,
+      0.6,
+      51,
+      0.3137254901960784
+    ],
+    [
+      0.6,
+      0.9,
+      60,
+      0.9333333333333333
+    ],
+    [
+      0.9,
+      1.0,
+      34,
+      0.9705882352941176
+    ]
+  ],
+  "gene_auc": 0.7793915196416903,
+  "gene_true_hgt": 652,
+  "gene_precision": 0.9397590361445783,
+  "gene_recall": 0.3588957055214724
+}

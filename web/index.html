@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SeedDrift</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 29c0-8 0-14 9-21-1 9-5 14-9 15' fill='%236b8f4e'/%3E%3Cpath d='M16 29c0-6-1-11-8-15 1 7 4 11 8 12' fill='%23a3b86c'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><path d="M16 29c0-8 0-14 9-21-1 9-5 14-9 15" /><path class="leaf2" d="M16 29c0-6-1-11-8-15 1 7 4 11 8 12"/></svg>
+    <div>
+      <h1>SeedDrift</h1>
+      <p class="tag">看看基因组里哪些基因像是从别的田里飘来的种子：来自哺乳动物、原核生物，还是别处</p>
+    </div>
+  </div>
+  <div class="conn">
+    <label>服务地址 <input id="api" spellcheck="false"></label>
+    <span id="health" class="dot" title="未连接"></span>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="side">
+    <section class="card">
+      <h2>新的分析</h2>
+      <div class="tabs" role="tablist">
+        <button data-tab="file" class="on">上传文件</button>
+        <button data-tab="url">服务器下载</button>
+        <button data-tab="demo">示例基因组</button>
+      </div>
+      <form id="form">
+        <div class="pane" data-pane="file">
+          <input type="file" id="file" accept=".fa,.faa,.fasta,.fna,.gz,.txt">
+          <p class="hint">蛋白 FASTA，或原核基因组的核酸 FASTA（自动预测基因），可以是 .gz。文件会经由你的网络上传。</p>
+        </div>
+        <div class="pane hidden" data-pane="url">
+          <input id="url" placeholder="https://…/proteins.fa.gz">
+          <p class="hint">由服务器直接下载，不占用你本地的流量。</p>
+        </div>
+        <div class="pane hidden" data-pane="demo">
+          <select id="demo"></select>
+          <p class="hint" id="demo-note"></p>
+        </div>
+        <label>名称 <input id="name" placeholder="可留空"></label>
+        <label>自身类群 <input id="self" placeholder="如 Legionella 或 446；留空自动推断"></label>
+        <label class="check"><input type="checkbox" id="structure" checked> 对“外部无同源”的基因做结构检索（ESMFold + Foldseek）</label>
+        <button type="submit" class="primary" id="submit">开始分析</button>
+        <p class="err" id="form-err"></p>
+      </form>
+    </section>
+    <section class="card">
+      <h2>分析记录</h2>
+      <ul id="jobs" class="jobs"></ul>
+    </section>
+  </aside>
+
+  <section class="content" id="content">
+    <div class="empty">
+      <h2>从左边开始</h2>
+      <p>上传一个基因组，或者选一个示例。每个基因都会和 1,840 万条 UniProt 参考蛋白比对，
+        再按 Alien Index 判断它离本谱系近还是离外部谱系近，并去掉重复结构造成的假信号。</p>
+      <p class="muted">结果是候选，不是定论：相似性本身不能区分转移、古老保守和参考库污染。</p>
+    </div>
+  </section>
+</main>
+
+<template id="tpl-result">
+  <div class="result">
+    <div class="rhead">
+      <div><h2 class="rname"></h2><p class="rmeta muted"></p></div>
+      <div class="downloads"></div>
+    </div>
+    <div class="progress hidden"><div class="bar"><span></span></div><p class="pmsg"></p></div>
+    <p class="err rerr"></p>
+    <div class="body hidden">
+      <div class="cards"></div>
+      <p class="note muted"></p>
+      <div class="grid2">
+        <section class="card"><h3>外来候选的供体类群</h3><div class="groups"></div></section>
+        <section class="card"><h3>结构检索（孤儿基因）</h3><div class="structs"></div></section>
+      </div>
+      <section class="card map-card hidden"><h3>在基因组上的位置</h3><div class="map"></div></section>
+      <section class="card">
+        <div class="thead">
+          <h3>基因列表</h3>
+          <div class="filters"></div>
+          <input class="search" placeholder="搜索基因 / 物种">
+        </div>
+        <div class="tablewrap"><table class="genes"><thead></thead><tbody></tbody></table></div>
+        <p class="muted more"></p>
+      </section>
+    </div>
+  </div>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Dependency service: ESMFold on the GPU (CUDA 12 driver)
+name: sd-esmfold
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - torch==2.4.0
+      - transformers==4.49.0
+      - fastapi>=0.110
+      - uvicorn>=0.29

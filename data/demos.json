@@ -1,0 +1,23 @@
+[
+  {
+    "id": "legionella-genome",
+    "name": "嗜肺军团菌 Legionella pneumophila Philadelphia 1（基因组 DNA）",
+    "url": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/bacteria/current/fasta/bacteria_16_collection/legionella_pneumophila_subsp_pneumophila_str_philadelphia_1_gca_000008485/dna/Legionella_pneumophila_subsp_pneumophila_str_philadelphia_1_gca_000008485.ASM848v1_.dna.toplevel.fa.gz",
+    "self_taxon": "Legionella",
+    "note": "3.4 Mb，约 3,000 个基因，从 DNA 开始（pyrodigal 预测基因），结果带基因组位置图。军团菌寄生在阿米巴里，有很多类真核蛋白（Ensembl Bacteria，无使用限制）。"
+  },
+  {
+    "id": "entamoeba",
+    "name": "溶组织内阿米巴 Entamoeba histolytica HM-1:IMSS（蛋白组）",
+    "url": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000001926/UP000001926_294381.fasta.gz",
+    "self_taxon": "Entamoeba",
+    "note": "约 8,000 个蛋白。真核寄生虫，基因组论文报道过一批来自细菌的基因：用来看“原核来源”候选（UniProt UP000001926，CC BY 4.0）。"
+  },
+  {
+    "id": "ecoli-k12",
+    "name": "大肠杆菌 Escherichia coli K-12（蛋白组，对照）",
+    "url": "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Bacteria/UP000000625/UP000000625_83333.fasta.gz",
+    "self_taxon": "Escherichia",
+    "note": "约 4,400 个蛋白的对照：外来候选主要应是原噬菌体和其他细菌门的基因，几乎不应有哺乳动物来源（UniProt UP000000625，CC BY 4.0）。"
+  }
+]

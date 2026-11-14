@@ -1,7 +1,9 @@
 """HTTP clients for the dependency services, with the same methods as the in-process tools."""
 from __future__ import annotations
 
+import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -16,14 +18,22 @@ class _Http:
         with urllib.request.urlopen(self.base + path, timeout=60) as r:
             return json.load(r)
 
-    def post(self, path, payload):
-        req = urllib.request.Request(self.base + path, data=json.dumps(payload).encode(),
-                                     headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                return json.load(r)
-        except urllib.error.HTTPError as e:
-            raise RuntimeError("%s%s: HTTP %d %s" % (self.base, path, e.code, e.read()[:500].decode(errors="replace")))
+    def post(self, path, payload, tries=6):
+        """POST JSON; a service that is restarting (connection refused / dropped) is retried with backoff."""
+        data = json.dumps(payload).encode()
+        for k in range(tries):
+            req = urllib.request.Request(self.base + path, data=data, headers={"Content-Type": "application/json"},
+                                         method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    return json.load(r)
+            except urllib.error.HTTPError as e:
+                raise RuntimeError("%s%s: HTTP %d %s" % (self.base, path, e.code,
+                                                        e.read()[:500].decode(errors="replace")))
+            except (urllib.error.URLError, http.client.RemoteDisconnected, ConnectionError) as e:
+                if k == tries - 1:
+                    raise
+                time.sleep(min(120, 10 * 2 ** k))
 
 
 class ToolsClient(_Http):

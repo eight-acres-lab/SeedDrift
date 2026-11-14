@@ -192,8 +192,11 @@ def run(job_dir, raw, params, tools, folder=None, progress=lambda *a: None):
         orphans = [r for r in rows if r["category"] == "orphan" and 50 <= r["length"] <= 1000]
         orphans = orphans[: int(params.get("max_structures", 400))]
         if orphans:
-            progress("structure", "ESMFold 预测 %d 个孤儿蛋白的结构" % len(orphans), 0.75)
-            folded = folder.fold({r["gene_id"]: prots[r["gene_id"]] for r in orphans})
+            folded, step = {}, 20
+            for i in range(0, len(orphans), step):
+                progress("structure", "ESMFold 预测孤儿蛋白的结构：%d / %d" % (i, len(orphans)),
+                         0.75 + 0.15 * i / len(orphans))
+                folded.update(folder.fold({r["gene_id"]: prots[r["gene_id"]] for r in orphans[i:i + step]}))
             sdir = os.path.join(job_dir, "structures")
             os.makedirs(sdir, exist_ok=True)
             pdbs = {}

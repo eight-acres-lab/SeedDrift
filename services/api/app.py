@@ -150,7 +150,8 @@ def demos():
 async def create_job(file: Optional[UploadFile] = File(None), file2: Optional[UploadFile] = File(None),
                      url: str = Form(""), demo: str = Form(""), name: str = Form(""), self_taxon: str = Form(""),
                      domain: str = Form("auto"), home_rank: str = Form("auto"), deep: str = Form("true"),
-                     trees: str = Form("true"), structure: str = Form("true"), max_structures: int = Form(400)):
+                     trees: str = Form("true"), structure: str = Form("true"), max_structures: int = Form(400),
+                     repeat_filter: str = Form("true")):
     if demo:
         dm = next((x for x in _demos() if x["id"] == demo), None)
         if not dm:
@@ -181,7 +182,8 @@ async def create_job(file: Optional[UploadFile] = File(None), file2: Optional[Up
                   stage="queued", message="排队中", progress=0.0, created=time.strftime("%Y-%m-%d %H:%M:%S"),
                   params=dict(self_taxon=self_taxon, domain=domain if domain in ("auto", "prokaryote", "eukaryote")
                               else "auto", home_rank=home_rank, deep=_flag(deep), trees=_flag(trees),
-                              structure=_flag(structure), max_structures=max_structures))
+                              structure=_flag(structure), max_structures=max_structures,
+                              repeat_filter=_flag(repeat_filter)))
     Q.put(jid)
     return {"id": jid}
 

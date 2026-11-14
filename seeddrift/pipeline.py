@@ -100,6 +100,16 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
     params: self_taxon, domain (auto/prokaryote/eukaryote), home_rank, deep, trees, structure,
     max_structures."""
     t0 = time.time()
+    timings, last = {}, [None, t0]
+    outer = progress
+
+    def progress(stage, msg, frac):                  # record time per stage
+        now = time.time()
+        if last[0] and last[0] != stage:
+            timings[last[0]] = round(timings.get(last[0], 0) + now - last[1], 1)
+        if last[0] != stage:
+            last[0], last[1] = stage, now
+        outer(stage, msg, frac)
     if isinstance(files, (bytes, bytearray)):
         files = [files]
     tax = get_taxonomy()
@@ -185,6 +195,8 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
 
     progress("classify", "逐个基因判定来源", 0.62)
     rows = []
+    if not params.get("repeat_filter", True):        # ablation: no repeat filter
+        qreg, treg = defaultdict(list), defaultdict(list)
     for gname, v in prots.items():
         r = classify_gene(gname, len(v), by_q.get(gname, []), tax, self_taxid, home, qreg.get(gname), treg)
         c = coords.get(gname, ("", "", "", "", ""))
@@ -250,10 +262,13 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
         trees=dict(Counter(r.get("tree") for r in rows if r.get("tree"))),
         contaminant_contigs=sorted(bad), deep_rescued=sum(1 for r in rows if r.get("search") == "deep"
                                                           and r["category"] != "orphan"),
-        islands=sum(1 for r in rows if int(r.get("island") or 0) >= 3))
+        islands=sum(1 for r in rows if int(r.get("island") or 0) >= 3), timings=timings,
+        params={k: v for k, v in params.items()})
     with open(os.path.join(job_dir, "summary.json"), "w") as fh:
         json.dump(summary, fh, ensure_ascii=False, indent=1)
     progress("done", "完成", 1.0)
+    with open(os.path.join(job_dir, "summary.json"), "w") as fh:     # with the last stage timed
+        json.dump(summary, fh, ensure_ascii=False, indent=1)
     return summary
 
 

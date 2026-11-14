@@ -1,0 +1,11 @@
+[
+  {"name": "spike_ecoli", "kind": "spikein", "dir": "bench/work/spike_ecoli", "input": "proteins.faa",
+   "self_taxon": "Escherichia",
+   "build": "python bench/spikein.py --recipient Bacteria/UP000000625_83333 --out bench/work/spike_ecoli"},
+  {"name": "spike_entamoeba", "kind": "spikein", "dir": "bench/work/spike_entamoeba", "input": "proteins.faa",
+   "self_taxon": "Entamoeba",
+   "build": "python bench/spikein.py --recipient Eukaryota/UP000001926_294381 --out bench/work/spike_entamoeba"},
+  {"name": "contam_encephalitozoon", "kind": "contam", "dir": "bench/work/contam_ecuniculi", "input": "genome.fa",
+   "self_taxon": "Encephalitozoon", "domain": "eukaryote",
+   "build": "python bench/contamination.py --out bench/work/contam_ecuniculi"}
+]

@@ -8,7 +8,7 @@ Works on similarity alone (no gene trees), so it gives candidates, not proof. Fo
                  genes whose top outside hits are mostly such hits are "repeat"
   donor group    the closest outside group: top-10 clean hits, weighted by bit score (17 groups)
   home group     the genome's own neighbourhood: its phylum for prokaryotes; Metazoa, Fungi or
-                 Viridiplantae (else Eukaryota) for eukaryotes
+                 Viridiplantae for eukaryotes, else the eukaryotic supergroup (Amoebozoa, Sar ...)
   Alien Index    AI = ln(best E inside home) - ln(best E outside home)   (Gladyshev et al. 2008);
                  AI > 0: closer to an outside lineage; AI >= 45: strong
   category       mammal / prokaryote / eukaryote / virus by the donor group when AI > 0
@@ -61,7 +61,8 @@ HOME_RANKS = ("auto", "genus", "family", "order", "class", "phylum", "kingdom", 
 
 def home_group(tax, self_taxid, rank="auto"):
     """(taxid, name) of the genome's home neighbourhood, used as the Alien Index in-group.
-    auto: the phylum for prokaryotes; Metazoa / Fungi / Viridiplantae (else Eukaryota) for eukaryotes.
+    auto: the phylum for prokaryotes; Metazoa / Fungi / Viridiplantae for those eukaryotes, the
+    eukaryotic supergroup (Amoebozoa, Sar, Discoba ...) for protists.
     A narrower rank (e.g. family) also calls transfers from within the phylum."""
     lin = tax.lineage(self_taxid)
     s = set(lin)
@@ -80,6 +81,11 @@ def home_group(tax, self_taxid, rank="auto"):
         for g in (METAZOA, FUNGI, VIRIDIPLANTAE):
             if g in s:
                 return g, tax.name.get(g, str(g))
+        # protists: the eukaryotic supergroup (the lineage node right below Eukaryota, e.g. Amoebozoa,
+        # Sar, Discoba), so that genes from animals, fungi or plants still count as foreign
+        for x in lin:
+            if tax.parent.get(x) == EUKARYOTA:
+                return x, tax.name.get(x, str(x))
         return EUKARYOTA, "Eukaryota"
     ph = tax.at_rank(self_taxid, "phylum")
     if ph:

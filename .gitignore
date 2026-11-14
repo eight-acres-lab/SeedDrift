@@ -8,3 +8,6 @@ deploy/seeddrift.env
 *.egg-info/
 .DS_Store
 bench/work/
+
+# internal notes (never committed)
+strategy/

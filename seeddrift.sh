@@ -101,13 +101,23 @@ start_one() {
     esmfold) port=$SD_ESMFOLD_PORT
              [ "$SD_ESMFOLD_TORCH" = system ] && export PYTHONPATH="$SD_ROOT/.pylibs/esmfold:$PYTHONPATH";;
   esac
-  ( cd "$SD_ROOT" && nohup "$(pyfor "$s")" -m uvicorn "services.$s.app:app" --host "$host" --port "$port" \
-      > "$RUN/$s.log" 2>&1 < /dev/null & echo $! > "$RUN/$s.pid" )
+  ( cd "$SD_ROOT"
+    nohup "$(pyfor "$s")" -m uvicorn "services.$s.app:app" --host "$host" --port "$port" \
+      > "$RUN/$s.log" 2>&1 < /dev/null &
+    echo $! > "$RUN/$s.pid" )
   say "$s started on $host:$port (log: .run/$s.log)"
 }
 
 stop_one() {
-  if running "$1"; then kill "$(cat "$RUN/$1.pid")"; say "$1 stopped"; else say "$1 not running"; fi
+  if running "$1"; then
+    local pid; pid=$(cat "$RUN/$1.pid")
+    kill "$pid"
+    for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+    say "$1 stopped"
+  else
+    say "$1 not running"
+  fi
   rm -f "$RUN/$1.pid"
 }
 

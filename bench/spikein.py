@@ -159,13 +159,16 @@ def main():
         # spread donors over groups: one per distinct donor group first
         rnd.shuffle(pool)
         chosen, seen = [], set()
-        for r in pool:
+        for r in pool:                                  # one per donor group first ...
             g = tax.group(r["taxid"])
-            if g not in seen or len(seen) >= a.donors_per_class:
+            if g not in seen and len(chosen) < a.donors_per_class:
                 chosen.append(r)
                 seen.add(g)
+        for r in pool:                                  # ... then fill up with other species
             if len(chosen) >= a.donors_per_class:
                 break
+            if r not in chosen and r["taxid"] not in {x["taxid"] for x in chosen}:
+                chosen.append(r)
         for r in chosen:
             fn = "%s_%d" % (r["id"], r["taxid"])
             try:

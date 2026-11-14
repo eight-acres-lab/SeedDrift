@@ -5,6 +5,9 @@
   {"name": "spike_entamoeba", "kind": "spikein", "dir": "bench/work/spike_entamoeba", "input": "proteins.faa",
    "self_taxon": "Entamoeba",
    "build": "python bench/spikein.py --recipient Eukaryota/UP000001926_294381 --out bench/work/spike_entamoeba"},
+  {"name": "transplant_legionella", "kind": "transplant", "dir": "bench/work/transplant_legionella", "input": "genome.fa",
+   "self_taxon": "Legionella",
+   "build": "python bench/transplant.py --out bench/work/transplant_legionella"},
   {"name": "contam_encephalitozoon", "kind": "contam", "dir": "bench/work/contam_ecuniculi", "input": "genome.fa",
    "self_taxon": "Encephalitozoon", "domain": "eukaryote",
    "build": "python bench/contamination.py --out bench/work/contam_ecuniculi"}

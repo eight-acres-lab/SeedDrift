@@ -140,6 +140,53 @@ def eval_spikein(pred, truth):
     return out
 
 
+def match_transplant(pred, truth):
+    """Predicted genes <-> inserted / core intervals (same contig, >= 50% of the true gene covered).
+    Returns (pred rows incl. 'missed' placeholders, per-gene truth rows)."""
+    by_contig = {}
+    for r in pred:
+        if r.get("contig"):
+            by_contig.setdefault(r["contig"], []).append(r)
+    labeled, used, rows = [], set(), list(pred)
+    for k, t in enumerate(truth):
+        a, b = int(t["start"]), int(t["end"])
+        best, ov = None, 0
+        for r in by_contig.get(t["contig"], []):
+            o = min(b, int(r["end"])) - max(a, int(r["start"])) + 1
+            if o > ov:
+                best, ov = r, o
+        if best is not None and ov >= 0.5 * (b - a + 1) and best["gene_id"] not in used:
+            used.add(best["gene_id"])
+            labeled.append(dict(t, gene_id=best["gene_id"]))
+        elif t["label"] == "spike":
+            gid = "MISSED_%d" % k
+            rows.append(dict(gene_id=gid, category="missed", confidence="", donor_group="", AI="", comp_z="", island=""))
+            labeled.append(dict(t, gene_id=gid))
+    for r in pred:
+        if r["gene_id"] not in used:
+            labeled.append(dict(gene_id=r["gene_id"], label="other", true_class="", divergence="", donor_group=""))
+    return rows, labeled
+
+
+def eval_transplant(pred, truth):
+    rows, labeled = match_transplant(pred, truth)
+    out = eval_spikein(rows, labeled)
+    by = {r["gene_id"]: r for r in rows}
+    spikes = [t for t in labeled if t["label"] == "spike"]
+    out["gene_calling_recall"] = round(frac([by[t["gene_id"]]["category"] != "missed" for t in spikes]), 3)
+    comp = {}
+    for d in sorted(set(t["divergence"] for t in spikes), key=float):
+        z = [abs(float(by[t["gene_id"]]["comp_z"])) >= 2 for t in spikes if t["divergence"] == d and by[t["gene_id"]].get("comp_z")]
+        comp[d] = round(frac(z), 3) if z else None
+    other = [by[t["gene_id"]] for t in labeled if t["label"] == "other" and by[t["gene_id"]].get("comp_z")]
+    out["composition_flag_by_amelioration"] = comp
+    out["composition_flag_native"] = round(frac([abs(float(r["comp_z"])) >= 2 for r in other]), 3) if other else None
+    isl = [int(by[t["gene_id"]].get("island") or 0) >= 2 for t in spikes
+           if int(t.get("island_size") or 1) >= 2 and by[t["gene_id"]]["category"] in FOREIGN]
+    out["island_recall"] = round(frac(isl), 3) if isl else None
+    return out
+
+
 def eval_contam(pred, summary, truth):
     bad = set(summary.get("contaminant_contigs", []))
     lab = {t["contig"]: t["label"] for t in truth}
@@ -164,7 +211,8 @@ def report(res, path):
         if "classes" in m:
             L += ["Spikes: %d; core genes (expected native): %d; other recipient genes (unlabeled): %d." %
                   (m["n_spikes"], m["n_core"], m["n_other"]), "",
-                  "**Full pipeline: recall by donor class and divergence** (recall = called with the right class; "
+                  "**Full pipeline: recall by donor class and divergence** (divergence: fraction of sites mutated for "
+                  "protein spike-ins, amelioration level for DNA transplants; recall = called with the right class; "
                   "95% bootstrap interval; any = called foreign of any class; group = right donor group among the hits)", "",
                   "| class | divergence | n | recall | 95% CI | any foreign | group accuracy | high/medium confidence |",
                   "|---|---|---|---|---|---|---|---|"]
@@ -174,6 +222,11 @@ def report(res, path):
                         c, round(float(d) * 100), x["n"], x["recall"], x["recall_ci"][0], x["recall_ci"][1], x["any_foreign"],
                         "%.2f" % x["group_accuracy"] if x["group_accuracy"] is not None else "–",
                         "%.2f" % x["high_or_medium"] if x["high_or_medium"] is not None else "–"))
+            if "gene_calling_recall" in m:
+                L += ["", "DNA level: inserted genes found by gene calling %.2f; composition flag (|z| ≥ 2) by amelioration "
+                      "%s, on native genes %s; inserted clusters recovered as islands %s." % (
+                          m["gene_calling_recall"], m["composition_flag_by_amelioration"], m["composition_flag_native"],
+                          m["island_recall"])]
             L += [""]
             L += ["**Configurations** (false positives: core genes called foreign; background: other recipient genes "
                   "called foreign, an upper bound since real genomes carry real transfers)", "",
@@ -229,7 +282,7 @@ def main():
             continue
         d = os.path.join(root, ds["dir"])
         truth = list(csv.DictReader(open(os.path.join(d, "truth.tsv")), delimiter="\t"))
-        cfgs = a.configs.split(",") if ds["kind"] == "spikein" else ["full"]
+        cfgs = a.configs.split(",") if ds["kind"] in ("spikein", "transplant") else ["full"]
         for cfg in cfgs:
             fields = dict(name="bench %s %s" % (ds["name"], cfg), self_taxon=ds.get("self_taxon", ""),
                           domain=ds.get("domain", "auto"), structure="false", **CONFIGS[cfg])
@@ -241,7 +294,9 @@ def main():
                 pred = genes(a.api, jid)
                 s = st.get("summary", {})
                 run.update(seconds=s.get("seconds"), timings=s.get("timings"), summary_categories=s.get("categories"),
-                           metrics=eval_spikein(pred, truth) if ds["kind"] == "spikein" else eval_contam(pred, s, truth))
+                           metrics=(eval_spikein(pred, truth) if ds["kind"] == "spikein" else
+                                    eval_transplant(pred, truth) if ds["kind"] == "transplant" else
+                                    eval_contam(pred, s, truth)))
             res.setdefault(ds["name"], {})[cfg] = run
             json.dump(res, open(rpath, "w"), indent=1)
             report(res, os.path.join(root, "docs", "benchmark-results.md"))

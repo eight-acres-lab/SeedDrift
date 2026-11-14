@@ -102,15 +102,36 @@ def _block_args():
     if v and v != "auto":
         b, _, c = v.partition(",")
         return ["-b", b] + (["-c", c] if c else [])
-    try:
-        avail = os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 1e9
-    except (ValueError, OSError, AttributeError):
-        return []
-    if avail > 300:
+    avail = _memory_gb()
+    if avail > 400:
         return ["-b", "8", "-c", "1"]
-    if avail > 100:
+    if avail > 160:
         return ["-b", "4", "-c", "1"]
+    if avail > 64:
+        return ["-b", "4", "-c", "2"]
     return []
+
+
+def _memory_gb():
+    """Memory this process can use: MemAvailable, capped by a container (cgroup v1/v2) limit."""
+    avail = 0.0
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                avail = int(line.split()[1]) / 1e6
+    except OSError:
+        try:
+            avail = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 1e9 / 2
+        except (ValueError, OSError, AttributeError):
+            return 0.0
+    for f in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            v = open(f).read().strip()
+            if v.isdigit() and int(v) < 1 << 60:
+                avail = min(avail, int(v) / 1e9)
+        except OSError:
+            pass
+    return avail
 
 
 def af_acc(target):

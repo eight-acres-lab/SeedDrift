@@ -54,14 +54,16 @@ class TestEvidence(unittest.TestCase):
         self.assertLess(abs(comp["g1"][2]), 3)
 
     def test_confidence(self):
-        base = dict(category="mammal", AI="80", support="3", tree="outside")
-        self.assertEqual(confidence(base), "high")
-        self.assertEqual(confidence(dict(base, support="1")), "medium")
-        self.assertEqual(confidence(dict(base, tree="home")), "low")
-        self.assertEqual(confidence(dict(base, AI="10", tree="mixed")), "low")
-        self.assertEqual(confidence(dict(base, contig_flag="prokaryote-like contig")), "low")
-        self.assertEqual(confidence(dict(base, category="native")), "")
-
+        no_home = dict(category="mammal", AI="80", support="3", tree="na", best_pident="70", best_home_pident="")
+        self.assertEqual(confidence(no_home), "high")                       # no relative in the home group
+        self.assertEqual(confidence(dict(no_home, support="1")), "medium")   # a single donor species
+        near = dict(no_home, best_home_pident="62", tree="outside")          # gap 8: not enough for high
+        self.assertEqual(confidence(near), "medium")
+        self.assertEqual(confidence(dict(near, best_home_pident="55")), "high")  # gap 15 + phylogeny
+        self.assertEqual(confidence(dict(near, best_home_pident="68")), "low")   # near-tie
+        self.assertEqual(confidence(dict(near, tree="home")), "low")
+        self.assertEqual(confidence(dict(no_home, contig_flag="prokaryote-like contig")), "low")
+        self.assertEqual(confidence(dict(no_home, category="native")), "")
 
 if __name__ == "__main__":
     unittest.main()

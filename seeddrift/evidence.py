@@ -7,9 +7,11 @@
   context       clusters of foreign candidates along a contig (gaps of <= 3 genes): islands
   contamination eukaryote assemblies: contigs on which nearly all classified genes look prokaryotic
                 are more likely bacterial contamination than transfer
-  confidence    high: AI >= 45, phylogeny outside the home group, >= 2 donor species, not on a
-                contaminant contig; medium: AI >= 45 or phylogeny outside, and phylogeny not home;
-                low: the rest of the candidates
+  confidence    high: AI >= 45, >= 2 donor species, and either no relative at all in the home group
+                (even after the home-group search) or the phylogeny outside with an identity gap
+                (outside - home) >= 10 points; medium: AI >= 45 or phylogeny outside, phylogeny not
+                home, and no home relative or a gap >= 5 points; low: the other candidates and those
+                on contaminant contigs. Tuned on the spike-in sets; check on held-out data.
 """
 from __future__ import annotations
 
@@ -125,15 +127,18 @@ def contaminant_contigs(rows, coords, min_genes=3, frac=0.8):
     return {c for c, n in per.items() if n[True] >= min_genes and n[True] >= frac * (n[True] + n[False])}
 
 
-def confidence(r, eukaryote_genome=False):
+def confidence(r):
+    """high / medium / low for a candidate (see the module docstring); '' for non-candidates."""
     if r["category"] not in FOREIGN:
         return ""
-    ai = float(r["AI"] or 0)
-    tree = r.get("tree", "na")
     if r.get("contig_flag"):
         return "low"
-    if ai >= 45 and tree == "outside" and int(r.get("support") or 0) >= 2:
+    ai = float(r["AI"] or 0)
+    tree = r.get("tree") or "na"
+    no_home = not r.get("best_home_pident")              # not even the home-group search found a relative
+    gap = 100.0 if no_home else float(r["best_pident"] or 0) - float(r["best_home_pident"])
+    if ai >= 45 and int(r.get("support") or 0) >= 2 and (no_home or (tree == "outside" and gap >= 10)):
         return "high"
-    if (ai >= 45 or tree == "outside") and tree != "home":
+    if (ai >= 45 or tree == "outside") and tree != "home" and (no_home or gap >= 5):
         return "medium"
     return "low"

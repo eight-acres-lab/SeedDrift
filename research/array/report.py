@@ -6,7 +6,8 @@ held-out classes (the unit that was kept out of training), with all seeds of an 
 resample.
 
 usage:
-  python research/array/report.py --runs DIR/run2 --profiles DIR/profiles.npz --library LIB --out research/array/RESULTS.md
+  python research/array/report.py --runs DIR/run2 DIR/run3 --ceiling DIR/ceiling_unseen.npz --profiles DIR/profiles.npz \
+      --library LIB --out research/array/RESULTS.md
 """
 from __future__ import annotations
 
@@ -23,7 +24,11 @@ ARMS = [("none_anchor", "only which cells exist"), ("none_pairs", "only which ce
         ("num_anchor", "numbers, gene-member"), ("num_pairs", "numbers, all pairs"),
         ("num_pairs_comp", "numbers, all pairs, plus composition"),
         ("msa_anchor", "residues, gene-member"), ("msa_pairs", "residues, all pairs"),
-        ("plm_anchor", "residues with language-model sites, gene-member"), ("plm_pairs", "residues with language-model sites, all pairs")]
+        ("plm_anchor", "residues with language-model sites, gene-member"), ("plm_pairs", "residues with language-model sites, all pairs"),
+        ("wide_panel", "wide table: 64 genes, every gene judged, panel rows"),
+        ("wide_panel_g13", "wide table control: 13 genes per example, panel rows"),
+        ("wide_all", "wide table: 64 genes, every gene judged, all reference proteomes")]
+ADDED = ("plm_anchor", "plm_pairs", "wide_panel", "wide_panel_g13", "wide_all")       # not part of the protocol fixed before the second version
 CONTRASTS = [("msa_pairs", "num_pairs", "residues minus numbers (all pairs)"),
              ("msa_anchor", "num_anchor", "residues minus numbers (gene-member)"),
              ("num_pairs", "num_anchor", "all pairs minus gene-member (numbers)"),
@@ -31,6 +36,12 @@ CONTRASTS = [("msa_pairs", "num_pairs", "residues minus numbers (all pairs)"),
              ("plm_pairs", "msa_pairs", "language-model sites added (all pairs)"),
              ("plm_anchor", "msa_anchor", "language-model sites added (gene-member)"),
              ("plm_pairs", "num_pairs", "residues with language-model sites minus numbers (all pairs)"),
+             ("wide_panel", "num_anchor", "wide table (panel rows) minus numbers, gene-member"),
+             ("wide_panel", "wide_panel_g13", "wide table (panel rows): 64 genes minus 13 genes per example"),
+             ("wide_panel_g13", "num_anchor", "wide table with 13 genes (panel rows) minus numbers, gene-member"),
+             ("wide_panel", "msa_pairs", "wide table (panel rows) minus residues, all pairs"),
+             ("wide_all", "wide_panel", "wide table: all reference proteomes minus panel rows"),
+             ("wide_all", "rule_ai", "wide table (all reference proteomes) minus the fixed rule"),
              ("num_pairs_comp", "num_pairs", "composition added (numbers, all pairs)"),
              ("num_anchor", "none_anchor", "numbers minus presence only (gene-member)"),
              ("num_pairs", "none_pairs", "numbers minus presence only (all pairs)"),
@@ -66,7 +77,7 @@ def load(runs, which):
     """{arm: [scores per seed]} and the shared trial table."""
     table, scores = None, {}
     for arm, _ in ARMS:
-        for d in sorted(glob.glob(os.path.join(runs, arm)) + glob.glob(os.path.join(runs, arm + "_s[0-9]"))):
+        for d in sorted(sum((glob.glob(os.path.join(r, arm)) + glob.glob(os.path.join(r, arm + "_s[0-9]")) for r in runs), [])):
             f = os.path.join(d, "trials_%s.npz" % which)
             if not os.path.exists(f):
                 continue
@@ -82,8 +93,10 @@ def load(runs, which):
     return table, scores
 
 
-def masks(t):
+def masks(t, sep=None):
     m = {"all": np.ones(len(t["label"]), dtype=bool)}
+    if sep is not None:
+        m["separable"], m["not separable"] = sep, ~sep
     for name, lo, hi in BANDS:
         m[name] = (t["d_gt"] >= lo) & (t["d_gt"] < hi)
     m["near, nothing hidden"] = m["near"] & (t["k_g"] == 0) & (t["k_t"] == 0)
@@ -117,7 +130,8 @@ def boot(scores, y, m, unit, a, b, n=1000, seed=0):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--runs", required=True); ap.add_argument("--profiles", required=True); ap.add_argument("--library", required=True)
+    ap.add_argument("--runs", nargs="+", required=True); ap.add_argument("--profiles", required=True); ap.add_argument("--library", required=True)
+    ap.add_argument("--ceiling", default="", help="the .npz written by ceiling.py for the unseen-class trials (adds the split by separability)")
     ap.add_argument("--out", required=True); ap.add_argument("--boot", type=int, default=1000)
     a = ap.parse_args()
     prof, lib = np.load(a.profiles), np.load(a.library)
@@ -130,7 +144,15 @@ def main():
         t, scores = load(a.runs, which)
         if t is None:
             continue
-        y, unit, M = t["label"] > 0.5, cls[t["g"]], masks(t)
+        sep = None
+        if which == "unseen" and a.ceiling:
+            z = np.load(a.ceiling)
+            st, names = z["stats"], [str(x) for x in z["names"]]
+            if not (np.array_equal(st[:, 0], t["x"]) and np.array_equal(st[:, 3], t["label"])):
+                raise SystemExit("the ceiling file is not for these trials")
+            ds, gs = st[:, 4 + names.index("donor_side")], st[:, 4 + names.index("genome_side")]
+            sep = ~((ds <= 0.05) & (gs <= 0.05))                   # NaN (no measurable distance between the two) counts as separable
+        y, unit, M = t["label"] > 0.5, cls[t["g"]], masks(t, sep)
         L += ["## " + title, "",
               "- Trials: %d (%d native, %d foreign) on %d genomes of %d classes; every run scores the same trials." % (
                   len(y), int((~y).sum()), int(y.sum()), len(set(t["g"].tolist())), len(set(unit.tolist()))),
@@ -141,7 +163,7 @@ def main():
                   100 * (t["n_present"][~y] > 0).mean(), 100 * (t["n_present"][y] > 0).mean()), "",
               "### AUROC, native against foreign queries", "",
               "| input | seeds | all | near | mid | far | recall at 5% false positives, near |", "|---|---|---|---|---|---|---|"]
-        rows = [(k, d) for k, d in ARMS if k in scores] + [("rule_ai", "fixed rule: best similarity outside the genome's nearest rows minus best inside"),
+        rows = [(k, d + (" (added after the protocol)" if k in ADDED else "")) for k, d in ARMS if k in scores] + [("rule_ai", "fixed rule: best similarity outside the genome's nearest rows minus best inside"),
                                                            ("rule_ctx", "fixed rule: largest excess over the genome's genes")]
         for k, d in rows:
             L.append("| %s | %d | %s | %.3f |" % (d, len(scores[k]), " | ".join("%.3f" % mean_auroc(scores[k], y, M[b]) for b in ("all", "near", "mid", "far")),
@@ -157,6 +179,23 @@ def main():
                         lo, hi = boot(scores, y, M[b], unit, x, z, a.boot)
                         cells.append("%+.3f (%+.3f to %+.3f)" % (diff, lo, hi))
                     L.append("| %s | %s |" % (d, " | ".join(cells)))
+            if sep is not None:
+                L += ["", "### By whether any visible row can tell the donor from the genome", "",
+                      "- Split by the two genome profiles only, on the panel rows (ceiling.py); no query is looked at. \"Not separable\": the genome and the "
+                      "donor are each other's nearest neighbours among the visible rows, so every row is about equally far from both.",
+                      "- This split was made after the first results of the second version were seen. Trials: separable %d, not separable %d "
+                      "(%.0f%% of the near donors, %.0f%% of mid, %.0f%% of far are not separable)." % (
+                          int(sep.sum()), int((~sep).sum()), 100 * (~sep & M["near"]).sum() / max(1, M["near"].sum()),
+                          100 * (~sep & M["mid"]).sum() / max(1, M["mid"].sum()), 100 * (~sep & M["far"]).sum() / max(1, M["far"].sum())), "",
+                      "| input | separable | not separable |", "|---|---|---|"]
+                for k, d in rows:
+                    L.append("| %s | %.3f | %.3f |" % (d, mean_auroc(scores[k], y, M["separable"]), mean_auroc(scores[k], y, M["not separable"])))
+                L += ["", "| comparison, separable trials only | difference (95% interval over held-out classes) |", "|---|---|"]
+                for x, z, d in CONTRASTS:
+                    if x in scores and z in scores:
+                        diff = mean_auroc(scores[x], y, M["separable"]) - mean_auroc(scores[z], y, M["separable"])
+                        lo, hi = boot(scores, y, M["separable"], unit, x, z, a.boot)
+                        L.append("| %s | %+.3f (%+.3f to %+.3f) |" % (d, diff, lo, hi))
             L += ["", "### Near donors in detail (AUROC)", "", "| input | " + " | ".join(k for k in M if k.startswith("near,")) + " |",
                   "|---|" + "---|" * sum(k.startswith("near,") for k in M)]
             for k, d in rows:
@@ -164,27 +203,38 @@ def main():
             L += ["", "- Trials in these cells: " + ", ".join("%s %d" % (k[6:], int(M[k].sum())) for k in M if k.startswith("near,")) + "."]
             res = {}
             for k, _ in ARMS:
-                f = os.path.join(a.runs, k, "result.json")
-                if os.path.exists(f):
-                    res[k] = json.load(open(f))
+                for r in a.runs:
+                    f = os.path.join(r, k, "result.json")
+                    if os.path.exists(f):
+                        res[k] = json.load(open(f))
             if res:
                 L += ["", "### Pointer to the nearest row of the true origin (foreign queries)", "", "| input | model | most similar row | chance |", "|---|---|---|---|"]
                 for k, d in ARMS:
                     if k in res and "pointer" in res[k]["unseen"]:
                         p = res[k]["unseen"]["pointer"]
                         L.append("| %s | %.3f | %.3f | %.3f |" % (d, p["model"], p["most_similar_row"], p["chance"]))
+                L += ["", "- The wide table reads other rows than the second version, so its pointer is scored against its own rows."]
         L.append("")
-    f = os.path.join(a.runs, "bench.json")
-    if os.path.exists(f):
-        B = json.load(open(f))
+    B = {}
+    for r in a.runs:
+        f = os.path.join(r, "bench.json")
+        if os.path.exists(f):
+            for ds, v in json.load(open(f)).items():
+                if ds in B:
+                    B[ds]["scores"].update(v.get("scores", {}))
+                else:
+                    B[ds] = v
+    if B:
         L += ["## Benchmark genomes (a floor check, not a ranking)", "",
               "- All benchmark donors are from other phyla or domains, most positives carry simulated random substitutions, and the negatives "
               "contain the recipient's real transfers. These numbers show whether a score fails grossly; they cannot rank the inputs.",
               "- A gene without any member in the rows shown ranks last, as genes without evidence do for the earlier scores. "
               "The array model reads a quarter of the reference proteomes; the earlier scores read all of them.", ""]
-        keys = ["rules", "ai_all", "place.node", "num_anchor.rule_ai"] + ["%s.array" % k for k, _ in ARMS]
+        keys = ["rules", "ai_all", "place.node", "num_anchor.rule_ai"] + ["%s.array" % k for k, _ in ARMS] + [
+            "wide_all.wide_rule_ai"] + ["%s.wide" % k for k, _ in ARMS]
         names = dict([("rules", "pipeline rules"), ("ai_all", "Alien Index"), ("place.node", "placement model (taxonomy)"),
-                      ("num_anchor.rule_ai", "fixed rule on the array rows")] + [("%s.array" % k, d) for k, d in ARMS])
+                      ("num_anchor.rule_ai", "fixed rule on the array rows"), ("wide_all.wide_rule_ai", "fixed rule on the wide table's rows")] +
+                     [("%s.array" % k, d) for k, d in ARMS] + [("%s.wide" % k, d) for k, d in ARMS])
         for ds, r in B.items():
             L += ["### %s (%d positives, %d core genes, %d other genes)" % (ds, r["n_pos"], r["n_core"], r["n_neg"]), "",
                   "| score | AP against core genes | AP against all genes | recall at the high tier's false positives |", "|---|---|---|---|"]

@@ -281,7 +281,7 @@ function renderTable() {
         ${r.strength === "strong" ? "强" : ""}</td>
       <td class="lv-${esc(r.confidence)}">${esc(LEVEL[r.confidence] || "")}${r.contig_flag ? ' <span class="flag">疑似污染</span>' : ""}</td>
       <td>${esc(r.AI)}</td><td>${esc(r.donor_group)}</td>
-      <td>${esc(TREE[r.tree] || "")}${r.tree_outside ? ' <span class="muted">' + esc(r.tree_outside) + "</span>" : ""}</td>
+      <td>${FOREIGN.has(r.category) && !r.best_home_taxon ? '<span class="muted">本谱系无同源</span>' : esc(TREE[r.tree] || "")}${r.tree_outside ? ' <span class="muted">' + esc(r.tree_outside) + "</span>" : ""}</td>
       <td class="${FOREIGN.has(r.category) && r.support === "1" ? "warnc" : ""}">${esc(r.support === "0" ? "" : r.support)}</td>
       <td>${esc(r.best_taxon)}</td><td>${esc(r.best_pident)}</td><td>${esc(r.best_home_taxon)}</td>
       <td class="${Math.abs(parseFloat(r.comp_z)) >= 2 ? "warnc" : ""}">${esc(r.comp_z)}</td>
@@ -300,7 +300,9 @@ function toggleDetail(tr, r) {
     ["哺乳动物命中", r.mammal_hit || "无"],
     ["外部命中数", `${r.n_outside}（其中重复驱动 ${r.repeat_hits}，已剔除）`],
     ["重复区段", r.repeats || "无"],
-    ["建树", r.tree && r.tree !== "na" ? `${TREE[r.tree]}：最近的 5 条参考中 ${r.tree_outside} 在本谱系之外 · ${r.tree_group} · ${r.tree_taxa}` : "没有建树（候选以外的基因，或参考序列太少）"],
+    ["建树", r.tree && r.tree !== "na" ? `${TREE[r.tree]}：最近的 5 条参考中 ${r.tree_outside} 在本谱系之外 · ${r.tree_group} · ${r.tree_taxa}`
+      : FOREIGN.has(r.category) && !r.best_home_taxon ? "本谱系（包括补搜）中没有任何同源序列：无法建树比较，这本身就是外来来源的强证据"
+      : "没有建树（候选以外的基因，或本谱系参考序列少于 2 条）"],
     ["组成", r.gc ? `GC ${r.gc}，GC3 ${r.gc3}，与全基因组相比 z = ${r.comp_z}` : "—"],
     ["检索", r.search === "deep" ? "深度检索（ultra-sensitive，未屏蔽重复）找到同源" : r.search === "deep: none" ? "深度检索也没有找到外部同源" : "常规检索"],
     ["位置", r.contig ? `${r.contig}:${r.start}-${r.end} (${r.strand})${r.exons > 1 ? "，" + r.exons + " 个外显子" : ""}${+r.island > 1 ? "，与 " + (r.island - 1) + " 个外来候选相邻成簇" : ""}` : "—"],

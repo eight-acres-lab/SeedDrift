@@ -1,0 +1,4085 @@
+{
+ "spike_ecoli": {
+  "full@broad": {
+   "job": "20261115-132048-376x",
+   "status": "done",
+   "error": null,
+   "seconds": 164,
+   "timings": {
+    "input": 0.0,
+    "search": 1.8,
+    "deep": 1.2,
+    "repeats": 155.0,
+    "classify": 1.4,
+    "home": 4.9,
+    "phylogeny": 0.2
+   },
+   "summary_categories": {
+    "native": 4166,
+    "orphan": 211,
+    "prokaryote": 121,
+    "virus": 175,
+    "repeat": 23,
+    "eukaryote": 113,
+    "mammal": 139
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 60,
+    "n_other": 4253,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.825,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 37,
+        "eukaryote": 1,
+        "repeat": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.865,
+       "calls": {
+        "mammal": 37,
+        "native": 1,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.475,
+        0.8
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.846,
+       "calls": {
+        "mammal": 26,
+        "orphan": 6,
+        "repeat": 3,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 0.97,
+       "high_or_medium": 0.97,
+       "calls": {
+        "orphan": 3,
+        "native": 4,
+        "prokaryote": 33
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.75,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.971,
+       "high_or_medium": 0.886,
+       "calls": {
+        "orphan": 2,
+        "prokaryote": 35,
+        "native": 3
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 0.962,
+       "high_or_medium": 0.731,
+       "calls": {
+        "prokaryote": 26,
+        "native": 4,
+        "orphan": 10
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.4,
+       "recall_ci": [
+        0.25,
+        0.55
+       ],
+       "any_foreign": 0.4,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.438,
+       "calls": {
+        "orphan": 18,
+        "prokaryote": 16,
+        "native": 3,
+        "repeat": 3
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.8,
+       "recall_ci": [
+        0.675,
+        0.9
+       ],
+       "any_foreign": 0.8,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.938,
+       "calls": {
+        "eukaryote": 32,
+        "orphan": 8
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.6,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.966,
+       "calls": {
+        "eukaryote": 29,
+        "orphan": 10,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.575,
+       "recall_ci": [
+        0.425,
+        0.725
+       ],
+       "any_foreign": 0.6,
+       "group_accuracy": 0.957,
+       "high_or_medium": 0.826,
+       "calls": {
+        "eukaryote": 23,
+        "mammal": 1,
+        "orphan": 14,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.425,
+       "recall_ci": [
+        0.275,
+        0.575
+       ],
+       "any_foreign": 0.425,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.529,
+       "calls": {
+        "eukaryote": 17,
+        "repeat": 1,
+        "orphan": 22
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.795,
+       "high_or_medium": 1.0,
+       "calls": {
+        "virus": 39
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.943,
+       "calls": {
+        "virus": 35,
+        "native": 2,
+        "repeat": 1,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.771,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.447,
+       "recall_ci": [
+        0.289,
+        0.605
+       ],
+       "any_foreign": 0.447,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.412,
+       "calls": {
+        "virus": 17,
+        "orphan": 18,
+        "repeat": 1,
+        "native": 2
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0153,
+    "background_high": 0.0016,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.948,
+    "high_confidence_precision_vs_all": 0.981,
+    "high_confidence_recall": 0.559
+   }
+  },
+  "no_repeat_filter@broad": {
+   "job": "20261115-133529-jr7v",
+   "status": "done",
+   "error": null,
+   "seconds": 160,
+   "timings": {
+    "input": 0.0,
+    "search": 1.9,
+    "deep": 1.2,
+    "repeats": 155.4,
+    "classify": 1.1,
+    "home": 0.4,
+    "phylogeny": 0.1
+   },
+   "summary_categories": {
+    "native": 4175,
+    "orphan": 211,
+    "prokaryote": 125,
+    "virus": 178,
+    "eukaryote": 116,
+    "mammal": 143
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 60,
+    "n_other": 4253,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.974,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.865,
+       "calls": {
+        "mammal": 37,
+        "native": 1,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.575,
+        0.85
+       ],
+       "any_foreign": 0.8,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.862,
+       "calls": {
+        "mammal": 29,
+        "orphan": 6,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 0.97,
+       "high_or_medium": 0.97,
+       "calls": {
+        "orphan": 3,
+        "native": 4,
+        "prokaryote": 33
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.75,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.971,
+       "high_or_medium": 0.886,
+       "calls": {
+        "orphan": 2,
+        "prokaryote": 35,
+        "native": 3
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 0.962,
+       "high_or_medium": 0.731,
+       "calls": {
+        "prokaryote": 26,
+        "native": 4,
+        "orphan": 10
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.475,
+       "recall_ci": [
+        0.325,
+        0.625
+       ],
+       "any_foreign": 0.475,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.474,
+       "calls": {
+        "orphan": 18,
+        "prokaryote": 19,
+        "native": 3
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.8,
+       "recall_ci": [
+        0.675,
+        0.9
+       ],
+       "any_foreign": 0.8,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.938,
+       "calls": {
+        "eukaryote": 32,
+        "orphan": 8
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.6,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.966,
+       "calls": {
+        "eukaryote": 29,
+        "orphan": 10,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.6,
+       "recall_ci": [
+        0.45,
+        0.75
+       ],
+       "any_foreign": 0.625,
+       "group_accuracy": 0.958,
+       "high_or_medium": 0.792,
+       "calls": {
+        "eukaryote": 24,
+        "mammal": 1,
+        "orphan": 14,
+        "native": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.45,
+       "recall_ci": [
+        0.275,
+        0.6
+       ],
+       "any_foreign": 0.45,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.5,
+       "calls": {
+        "eukaryote": 18,
+        "orphan": 22
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.795,
+       "high_or_medium": 1.0,
+       "calls": {
+        "virus": 39
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.923,
+       "recall_ci": [
+        0.821,
+        1.0
+       ],
+       "any_foreign": 0.949,
+       "group_accuracy": 0.944,
+       "high_or_medium": 0.917,
+       "calls": {
+        "virus": 36,
+        "native": 2,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.923,
+       "recall_ci": [
+        0.821,
+        1.0
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.944,
+       "high_or_medium": 0.778,
+       "calls": {
+        "virus": 36,
+        "orphan": 3
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.474,
+       "recall_ci": [
+        0.316,
+        0.632
+       ],
+       "any_foreign": 0.474,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.389,
+       "calls": {
+        "virus": 18,
+        "orphan": 18,
+        "native": 2
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0158,
+    "background_high": 0.0016,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.948,
+    "high_confidence_precision_vs_all": 0.981,
+    "high_confidence_recall": 0.567
+   }
+  },
+  "no_deep_search@broad": {
+   "job": "20261115-133829-ekdy",
+   "status": "done",
+   "error": null,
+   "seconds": 169,
+   "timings": {
+    "input": 0.0,
+    "search": 2.9,
+    "repeats": 159.6,
+    "classify": 1.2,
+    "home": 4.9,
+    "phylogeny": 0.1
+   },
+   "summary_categories": {
+    "native": 4158,
+    "orphan": 239,
+    "prokaryote": 119,
+    "virus": 172,
+    "repeat": 15,
+    "eukaryote": 107,
+    "mammal": 138
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 60,
+    "n_other": 4253,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.825,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 37,
+        "eukaryote": 1,
+        "repeat": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.865,
+       "calls": {
+        "mammal": 37,
+        "orphan": 2,
+        "eukaryote": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.625,
+       "recall_ci": [
+        0.45,
+        0.775
+       ],
+       "any_foreign": 0.7,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.88,
+       "calls": {
+        "mammal": 25,
+        "orphan": 7,
+        "repeat": 3,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 0.97,
+       "high_or_medium": 0.97,
+       "calls": {
+        "orphan": 4,
+        "native": 3,
+        "prokaryote": 33
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.75,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.971,
+       "high_or_medium": 0.886,
+       "calls": {
+        "orphan": 2,
+        "prokaryote": 35,
+        "native": 3
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 0.962,
+       "high_or_medium": 0.731,
+       "calls": {
+        "prokaryote": 26,
+        "native": 4,
+        "orphan": 10
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.35,
+       "recall_ci": [
+        0.2,
+        0.5
+       ],
+       "any_foreign": 0.35,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.5,
+       "calls": {
+        "orphan": 21,
+        "prokaryote": 14,
+        "repeat": 3,
+        "native": 2
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.775,
+       "recall_ci": [
+        0.65,
+        0.9
+       ],
+       "any_foreign": 0.775,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.968,
+       "calls": {
+        "eukaryote": 31,
+        "orphan": 9
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.6,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.966,
+       "calls": {
+        "eukaryote": 29,
+        "orphan": 11
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.575,
+       "recall_ci": [
+        0.425,
+        0.725
+       ],
+       "any_foreign": 0.6,
+       "group_accuracy": 0.957,
+       "high_or_medium": 0.826,
+       "calls": {
+        "eukaryote": 23,
+        "mammal": 1,
+        "orphan": 15,
+        "native": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.3,
+       "recall_ci": [
+        0.175,
+        0.45
+       ],
+       "any_foreign": 0.3,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.75,
+       "calls": {
+        "eukaryote": 12,
+        "orphan": 27,
+        "repeat": 1
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.795,
+       "high_or_medium": 1.0,
+       "calls": {
+        "virus": 39
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.872,
+       "recall_ci": [
+        0.744,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.941,
+       "high_or_medium": 0.941,
+       "calls": {
+        "virus": 34,
+        "orphan": 1,
+        "native": 2,
+        "repeat": 1,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.771,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.395,
+       "recall_ci": [
+        0.263,
+        0.553
+       ],
+       "any_foreign": 0.395,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.467,
+       "calls": {
+        "virus": 15,
+        "orphan": 22,
+        "native": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0153,
+    "background_high": 0.0016,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.947,
+    "high_confidence_precision_vs_all": 0.981,
+    "high_confidence_recall": 0.557
+   }
+  },
+  "no_phylogeny@broad": {
+   "job": "20261115-134130-bh7u",
+   "status": "done",
+   "error": null,
+   "seconds": 164,
+   "timings": {
+    "input": 0.0,
+    "search": 2.1,
+    "deep": 1.2,
+    "repeats": 154.2,
+    "classify": 1.4,
+    "home": 4.8
+   },
+   "summary_categories": {
+    "native": 4166,
+    "orphan": 211,
+    "prokaryote": 121,
+    "virus": 175,
+    "repeat": 23,
+    "eukaryote": 113,
+    "mammal": 139
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 60,
+    "n_other": 4253,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.825,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 37,
+        "eukaryote": 1,
+        "repeat": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.865,
+       "calls": {
+        "mammal": 37,
+        "native": 1,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.475,
+        0.8
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.846,
+       "calls": {
+        "mammal": 26,
+        "orphan": 6,
+        "repeat": 3,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 0.97,
+       "high_or_medium": 0.939,
+       "calls": {
+        "orphan": 3,
+        "native": 4,
+        "prokaryote": 33
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.75,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.971,
+       "high_or_medium": 0.771,
+       "calls": {
+        "orphan": 2,
+        "prokaryote": 35,
+        "native": 3
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 0.962,
+       "high_or_medium": 0.731,
+       "calls": {
+        "prokaryote": 26,
+        "native": 4,
+        "orphan": 10
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.4,
+       "recall_ci": [
+        0.25,
+        0.55
+       ],
+       "any_foreign": 0.4,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.438,
+       "calls": {
+        "orphan": 18,
+        "prokaryote": 16,
+        "native": 3,
+        "repeat": 3
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.8,
+       "recall_ci": [
+        0.675,
+        0.9
+       ],
+       "any_foreign": 0.8,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.906,
+       "calls": {
+        "eukaryote": 32,
+        "orphan": 8
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.6,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.966,
+       "calls": {
+        "eukaryote": 29,
+        "orphan": 10,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.575,
+       "recall_ci": [
+        0.425,
+        0.725
+       ],
+       "any_foreign": 0.6,
+       "group_accuracy": 0.957,
+       "high_or_medium": 0.783,
+       "calls": {
+        "eukaryote": 23,
+        "mammal": 1,
+        "orphan": 14,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.425,
+       "recall_ci": [
+        0.275,
+        0.575
+       ],
+       "any_foreign": 0.425,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.529,
+       "calls": {
+        "eukaryote": 17,
+        "repeat": 1,
+        "orphan": 22
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.795,
+       "high_or_medium": 1.0,
+       "calls": {
+        "virus": 39
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.943,
+       "calls": {
+        "virus": 35,
+        "native": 2,
+        "repeat": 1,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.771,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.447,
+       "recall_ci": [
+        0.289,
+        0.605
+       ],
+       "any_foreign": 0.447,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.412,
+       "calls": {
+        "virus": 17,
+        "orphan": 18,
+        "repeat": 1,
+        "native": 2
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0153,
+    "background_high": 0.0007,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.948,
+    "high_confidence_precision_vs_all": 0.99,
+    "high_confidence_recall": 0.457
+   }
+  },
+  "baseline_ai_only@broad": {
+   "job": "20261115-134430-t7ct",
+   "status": "done",
+   "error": null,
+   "seconds": 162,
+   "timings": {
+    "input": 0.0,
+    "search": 3.1,
+    "repeats": 156.9,
+    "classify": 1.3,
+    "home": 0.2
+   },
+   "summary_categories": {
+    "native": 4163,
+    "orphan": 239,
+    "prokaryote": 123,
+    "virus": 173,
+    "eukaryote": 108,
+    "mammal": 142
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 60,
+    "n_other": 4253,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.974,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.865,
+       "calls": {
+        "mammal": 37,
+        "orphan": 2,
+        "eukaryote": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.7,
+       "recall_ci": [
+        0.55,
+        0.825
+       ],
+       "any_foreign": 0.775,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.893,
+       "calls": {
+        "mammal": 28,
+        "orphan": 7,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 0.97,
+       "high_or_medium": 0.939,
+       "calls": {
+        "orphan": 4,
+        "native": 3,
+        "prokaryote": 33
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.75,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.971,
+       "high_or_medium": 0.771,
+       "calls": {
+        "orphan": 2,
+        "prokaryote": 35,
+        "native": 3
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 0.962,
+       "high_or_medium": 0.731,
+       "calls": {
+        "prokaryote": 26,
+        "native": 4,
+        "orphan": 10
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.425,
+       "recall_ci": [
+        0.275,
+        0.6
+       ],
+       "any_foreign": 0.425,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.529,
+       "calls": {
+        "orphan": 21,
+        "prokaryote": 17,
+        "native": 2
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.775,
+       "recall_ci": [
+        0.65,
+        0.9
+       ],
+       "any_foreign": 0.775,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.935,
+       "calls": {
+        "eukaryote": 31,
+        "orphan": 9
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.6,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.966,
+       "calls": {
+        "eukaryote": 29,
+        "orphan": 11
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.575,
+       "recall_ci": [
+        0.425,
+        0.725
+       ],
+       "any_foreign": 0.6,
+       "group_accuracy": 0.957,
+       "high_or_medium": 0.783,
+       "calls": {
+        "eukaryote": 23,
+        "mammal": 1,
+        "orphan": 15,
+        "native": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.325,
+       "recall_ci": [
+        0.175,
+        0.475
+       ],
+       "any_foreign": 0.325,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.692,
+       "calls": {
+        "eukaryote": 13,
+        "orphan": 27
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.795,
+       "high_or_medium": 1.0,
+       "calls": {
+        "virus": 39
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.914,
+       "calls": {
+        "virus": 35,
+        "orphan": 1,
+        "native": 2,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.771,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.395,
+       "recall_ci": [
+        0.263,
+        0.553
+       ],
+       "any_foreign": 0.395,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.467,
+       "calls": {
+        "virus": 15,
+        "orphan": 22,
+        "native": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0155,
+    "background_high": 0.0007,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.948,
+    "high_confidence_precision_vs_all": 0.99,
+    "high_confidence_recall": 0.46
+   }
+  }
+ },
+ "spike_entamoeba": {
+  "full@broad": {
+   "job": "20261115-134731-a3v6",
+   "status": "done",
+   "error": null,
+   "seconds": 306,
+   "timings": {
+    "input": 0.1,
+    "search": 1.9,
+    "deep": 2.1,
+    "repeats": 239.4,
+    "classify": 2.1,
+    "home": 59.6,
+    "phylogeny": 0.4
+   },
+   "summary_categories": {
+    "native": 2846,
+    "eukaryote": 1046,
+    "repeat": 503,
+    "prokaryote": 438,
+    "orphan": 3442,
+    "virus": 133,
+    "mammal": 146
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 163,
+    "n_other": 7756,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.825,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.973,
+       "calls": {
+        "mammal": 37,
+        "eukaryote": 1,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.838,
+       "calls": {
+        "mammal": 37,
+        "native": 1,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.475,
+        0.8
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.846,
+       "calls": {
+        "mammal": 26,
+        "orphan": 6,
+        "repeat": 3,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.875,
+       "high_or_medium": 0.975,
+       "calls": {
+        "prokaryote": 40
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.897,
+       "high_or_medium": 0.897,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.923,
+       "high_or_medium": 0.872,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.346,
+       "calls": {
+        "prokaryote": 26,
+        "orphan": 13,
+        "native": 1
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.775,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "eukaryote": 35,
+        "orphan": 4,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.85,
+       "recall_ci": [
+        0.725,
+        0.95
+       ],
+       "any_foreign": 0.85,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.912,
+       "calls": {
+        "eukaryote": 34,
+        "orphan": 5,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.575,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 0.931,
+       "high_or_medium": 0.655,
+       "calls": {
+        "orphan": 11,
+        "eukaryote": 29
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.3,
+       "recall_ci": [
+        0.15,
+        0.45
+       ],
+       "any_foreign": 0.3,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.667,
+       "calls": {
+        "orphan": 22,
+        "eukaryote": 12,
+        "native": 5,
+        "repeat": 1
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "prokaryote": 1
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.914,
+       "high_or_medium": 0.914,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.821,
+       "recall_ci": [
+        0.692,
+        0.923
+       ],
+       "any_foreign": 0.846,
+       "group_accuracy": 0.906,
+       "high_or_medium": 0.75,
+       "calls": {
+        "virus": 32,
+        "orphan": 5,
+        "eukaryote": 1,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.316,
+       "recall_ci": [
+        0.184,
+        0.474
+       ],
+       "any_foreign": 0.342,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.333,
+       "calls": {
+        "orphan": 24,
+        "virus": 12,
+        "eukaryote": 1,
+        "native": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.129,
+    "core_fp_ci": [
+     0.08,
+     0.184
+    ],
+    "core_fp_high": 0.006,
+    "background_foreign": 0.1582,
+    "background_high": 0.0369,
+    "auprc_vs_core": 0.992,
+    "auprc_vs_all": 0.609,
+    "high_confidence_precision_vs_all": 0.563,
+    "high_confidence_recall": 0.583
+   }
+  },
+  "no_repeat_filter@broad": {
+   "job": "20261115-135252-5rzr",
+   "status": "done",
+   "error": null,
+   "seconds": 252,
+   "timings": {
+    "input": 0.1,
+    "search": 2.0,
+    "deep": 2.3,
+    "repeats": 244.2,
+    "classify": 1.5,
+    "home": 1.6,
+    "phylogeny": 0.5
+   },
+   "summary_categories": {
+    "native": 3098,
+    "eukaryote": 1267,
+    "prokaryote": 463,
+    "orphan": 3442,
+    "virus": 134,
+    "mammal": 150
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 163,
+    "n_other": 7756,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.974,
+       "high_or_medium": 0.974,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.838,
+       "calls": {
+        "mammal": 37,
+        "native": 1,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.575,
+        0.85
+       ],
+       "any_foreign": 0.8,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.862,
+       "calls": {
+        "mammal": 29,
+        "orphan": 6,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.875,
+       "high_or_medium": 0.975,
+       "calls": {
+        "prokaryote": 40
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.897,
+       "high_or_medium": 0.897,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.923,
+       "high_or_medium": 0.872,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.346,
+       "calls": {
+        "prokaryote": 26,
+        "orphan": 13,
+        "native": 1
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.775,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "eukaryote": 35,
+        "orphan": 4,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.85,
+       "recall_ci": [
+        0.725,
+        0.95
+       ],
+       "any_foreign": 0.85,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.912,
+       "calls": {
+        "eukaryote": 34,
+        "orphan": 5,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.575,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 0.931,
+       "high_or_medium": 0.655,
+       "calls": {
+        "orphan": 11,
+        "eukaryote": 29
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.325,
+       "recall_ci": [
+        0.175,
+        0.475
+       ],
+       "any_foreign": 0.325,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.615,
+       "calls": {
+        "orphan": 22,
+        "eukaryote": 13,
+        "native": 5
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "prokaryote": 1
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.914,
+       "high_or_medium": 0.914,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.846,
+       "recall_ci": [
+        0.718,
+        0.949
+       ],
+       "any_foreign": 0.872,
+       "group_accuracy": 0.909,
+       "high_or_medium": 0.727,
+       "calls": {
+        "virus": 33,
+        "orphan": 5,
+        "eukaryote": 1
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.316,
+       "recall_ci": [
+        0.184,
+        0.474
+       ],
+       "any_foreign": 0.342,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.333,
+       "calls": {
+        "orphan": 24,
+        "virus": 12,
+        "eukaryote": 1,
+        "native": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.129,
+    "core_fp_ci": [
+     0.08,
+     0.184
+    ],
+    "core_fp_high": 0.006,
+    "background_foreign": 0.1898,
+    "background_high": 0.0467,
+    "auprc_vs_core": 0.993,
+    "auprc_vs_all": 0.582,
+    "high_confidence_precision_vs_all": 0.507,
+    "high_confidence_recall": 0.587
+   }
+  },
+  "no_deep_search@broad": {
+   "job": "20261115-135712-v99m",
+   "status": "done",
+   "error": null,
+   "seconds": 307,
+   "timings": {
+    "input": 0.1,
+    "search": 3.4,
+    "repeats": 234.0,
+    "classify": 1.9,
+    "home": 67.1,
+    "phylogeny": 0.5
+   },
+   "summary_categories": {
+    "native": 2745,
+    "eukaryote": 959,
+    "repeat": 333,
+    "prokaryote": 424,
+    "orphan": 3821,
+    "virus": 127,
+    "mammal": 145
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 163,
+    "n_other": 7756,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.825,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.973,
+       "calls": {
+        "mammal": 37,
+        "eukaryote": 1,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.838,
+       "calls": {
+        "mammal": 37,
+        "orphan": 2,
+        "eukaryote": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.625,
+       "recall_ci": [
+        0.45,
+        0.775
+       ],
+       "any_foreign": 0.7,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.88,
+       "calls": {
+        "mammal": 25,
+        "orphan": 7,
+        "repeat": 3,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.875,
+       "high_or_medium": 0.975,
+       "calls": {
+        "prokaryote": 40
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.897,
+       "high_or_medium": 0.897,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.923,
+       "high_or_medium": 0.872,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.575,
+       "recall_ci": [
+        0.425,
+        0.725
+       ],
+       "any_foreign": 0.575,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.391,
+       "calls": {
+        "prokaryote": 23,
+        "orphan": 16,
+        "native": 1
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.775,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "eukaryote": 35,
+        "orphan": 4,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.939,
+       "calls": {
+        "eukaryote": 33,
+        "orphan": 6,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.675,
+       "recall_ci": [
+        0.525,
+        0.825
+       ],
+       "any_foreign": 0.675,
+       "group_accuracy": 0.926,
+       "high_or_medium": 0.704,
+       "calls": {
+        "orphan": 13,
+        "eukaryote": 27
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.275,
+       "recall_ci": [
+        0.125,
+        0.425
+       ],
+       "any_foreign": 0.275,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.727,
+       "calls": {
+        "orphan": 24,
+        "eukaryote": 11,
+        "native": 4,
+        "repeat": 1
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "prokaryote": 1
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.914,
+       "high_or_medium": 0.914,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.795,
+       "recall_ci": [
+        0.667,
+        0.923
+       ],
+       "any_foreign": 0.795,
+       "group_accuracy": 0.903,
+       "high_or_medium": 0.774,
+       "calls": {
+        "virus": 31,
+        "orphan": 7,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.184,
+       "recall_ci": [
+        0.079,
+        0.316
+       ],
+       "any_foreign": 0.211,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.429,
+       "calls": {
+        "orphan": 30,
+        "virus": 7,
+        "eukaryote": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.129,
+    "core_fp_ci": [
+     0.08,
+     0.184
+    ],
+    "core_fp_high": 0.006,
+    "background_foreign": 0.1462,
+    "background_high": 0.0334,
+    "auprc_vs_core": 0.992,
+    "auprc_vs_all": 0.617,
+    "high_confidence_precision_vs_all": 0.587,
+    "high_confidence_recall": 0.583
+   }
+  },
+  "no_phylogeny@broad": {
+   "job": "20261115-140233-2v7j",
+   "status": "done",
+   "error": null,
+   "seconds": 313,
+   "timings": {
+    "input": 0.1,
+    "search": 2.0,
+    "deep": 2.1,
+    "repeats": 248.5,
+    "classify": 2.1,
+    "home": 58.6
+   },
+   "summary_categories": {
+    "native": 2846,
+    "eukaryote": 1046,
+    "repeat": 503,
+    "prokaryote": 438,
+    "orphan": 3442,
+    "virus": 133,
+    "mammal": 146
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 163,
+    "n_other": 7756,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.825,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.973,
+       "calls": {
+        "mammal": 37,
+        "eukaryote": 1,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.838,
+       "calls": {
+        "mammal": 37,
+        "native": 1,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.475,
+        0.8
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.846,
+       "calls": {
+        "mammal": 26,
+        "orphan": 6,
+        "repeat": 3,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.875,
+       "high_or_medium": 0.975,
+       "calls": {
+        "prokaryote": 40
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.897,
+       "high_or_medium": 0.897,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.923,
+       "high_or_medium": 0.872,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.65,
+       "recall_ci": [
+        0.5,
+        0.8
+       ],
+       "any_foreign": 0.65,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.346,
+       "calls": {
+        "prokaryote": 26,
+        "orphan": 13,
+        "native": 1
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.775,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "eukaryote": 35,
+        "orphan": 4,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.85,
+       "recall_ci": [
+        0.725,
+        0.95
+       ],
+       "any_foreign": 0.85,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.912,
+       "calls": {
+        "eukaryote": 34,
+        "orphan": 5,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.725,
+       "recall_ci": [
+        0.575,
+        0.85
+       ],
+       "any_foreign": 0.725,
+       "group_accuracy": 0.931,
+       "high_or_medium": 0.655,
+       "calls": {
+        "orphan": 11,
+        "eukaryote": 29
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.3,
+       "recall_ci": [
+        0.15,
+        0.45
+       ],
+       "any_foreign": 0.3,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.667,
+       "calls": {
+        "orphan": 22,
+        "eukaryote": 12,
+        "native": 5,
+        "repeat": 1
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "prokaryote": 1
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.914,
+       "high_or_medium": 0.914,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.821,
+       "recall_ci": [
+        0.692,
+        0.923
+       ],
+       "any_foreign": 0.846,
+       "group_accuracy": 0.906,
+       "high_or_medium": 0.75,
+       "calls": {
+        "virus": 32,
+        "orphan": 5,
+        "eukaryote": 1,
+        "repeat": 1
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.316,
+       "recall_ci": [
+        0.184,
+        0.474
+       ],
+       "any_foreign": 0.342,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.333,
+       "calls": {
+        "orphan": 24,
+        "virus": 12,
+        "eukaryote": 1,
+        "native": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.129,
+    "core_fp_ci": [
+     0.08,
+     0.184
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.1582,
+    "background_high": 0.0245,
+    "auprc_vs_core": 0.992,
+    "auprc_vs_all": 0.609,
+    "high_confidence_precision_vs_all": 0.627,
+    "high_confidence_recall": 0.502
+   }
+  },
+  "baseline_ai_only@broad": {
+   "job": "20261115-140754-a7gu",
+   "status": "done",
+   "error": null,
+   "seconds": 249,
+   "timings": {
+    "input": 0.1,
+    "search": 3.3,
+    "repeats": 233.1,
+    "classify": 1.6,
+    "home": 10.7
+   },
+   "summary_categories": {
+    "native": 2962,
+    "eukaryote": 1062,
+    "prokaryote": 432,
+    "orphan": 3821,
+    "virus": 128,
+    "mammal": 149
+   },
+   "metrics": {
+    "n_spikes": 635,
+    "n_core": 163,
+    "n_other": 7756,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.974,
+       "high_or_medium": 0.974,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.95,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 38,
+        "eukaryote": 1,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.925,
+       "recall_ci": [
+        0.85,
+        1.0
+       ],
+       "any_foreign": 0.95,
+       "group_accuracy": 0.973,
+       "high_or_medium": 0.838,
+       "calls": {
+        "mammal": 37,
+        "orphan": 2,
+        "eukaryote": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.7,
+       "recall_ci": [
+        0.55,
+        0.825
+       ],
+       "any_foreign": 0.775,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.893,
+       "calls": {
+        "mammal": 28,
+        "orphan": 7,
+        "native": 2,
+        "eukaryote": 3
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 1.0,
+       "recall_ci": [
+        1.0,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 0.875,
+       "high_or_medium": 0.975,
+       "calls": {
+        "prokaryote": 40
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.897,
+       "high_or_medium": 0.897,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.975,
+       "recall_ci": [
+        0.925,
+        1.0
+       ],
+       "any_foreign": 0.975,
+       "group_accuracy": 0.923,
+       "high_or_medium": 0.872,
+       "calls": {
+        "prokaryote": 39,
+        "orphan": 1
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.575,
+       "recall_ci": [
+        0.425,
+        0.725
+       ],
+       "any_foreign": 0.575,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.391,
+       "calls": {
+        "prokaryote": 23,
+        "orphan": 16,
+        "native": 1
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 40,
+       "recall": 0.875,
+       "recall_ci": [
+        0.775,
+        0.975
+       ],
+       "any_foreign": 0.875,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "eukaryote": 35,
+        "orphan": 4,
+        "native": 1
+       }
+      },
+      "0.3": {
+       "n": 40,
+       "recall": 0.825,
+       "recall_ci": [
+        0.7,
+        0.925
+       ],
+       "any_foreign": 0.825,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.939,
+       "calls": {
+        "eukaryote": 33,
+        "orphan": 6,
+        "native": 1
+       }
+      },
+      "0.5": {
+       "n": 40,
+       "recall": 0.675,
+       "recall_ci": [
+        0.525,
+        0.825
+       ],
+       "any_foreign": 0.675,
+       "group_accuracy": 0.926,
+       "high_or_medium": 0.704,
+       "calls": {
+        "orphan": 13,
+        "eukaryote": 27
+       }
+      },
+      "0.7": {
+       "n": 40,
+       "recall": 0.3,
+       "recall_ci": [
+        0.15,
+        0.45
+       ],
+       "any_foreign": 0.3,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.667,
+       "calls": {
+        "orphan": 24,
+        "eukaryote": 12,
+        "native": 4
+       }
+      }
+     },
+     "virus": {
+      "0.0": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.923,
+       "group_accuracy": 0.943,
+       "high_or_medium": 0.971,
+       "calls": {
+        "virus": 35,
+        "orphan": 3,
+        "prokaryote": 1
+       }
+      },
+      "0.3": {
+       "n": 39,
+       "recall": 0.897,
+       "recall_ci": [
+        0.795,
+        0.974
+       ],
+       "any_foreign": 0.897,
+       "group_accuracy": 0.914,
+       "high_or_medium": 0.914,
+       "calls": {
+        "virus": 35,
+        "orphan": 4
+       }
+      },
+      "0.5": {
+       "n": 39,
+       "recall": 0.821,
+       "recall_ci": [
+        0.692,
+        0.923
+       ],
+       "any_foreign": 0.821,
+       "group_accuracy": 0.906,
+       "high_or_medium": 0.75,
+       "calls": {
+        "virus": 32,
+        "orphan": 7
+       }
+      },
+      "0.7": {
+       "n": 38,
+       "recall": 0.184,
+       "recall_ci": [
+        0.079,
+        0.316
+       ],
+       "any_foreign": 0.211,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.429,
+       "calls": {
+        "orphan": 30,
+        "virus": 7,
+        "eukaryote": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.129,
+    "core_fp_ci": [
+     0.08,
+     0.184
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.1604,
+    "background_high": 0.022,
+    "auprc_vs_core": 0.992,
+    "auprc_vs_all": 0.613,
+    "high_confidence_precision_vs_all": 0.652,
+    "high_confidence_recall": 0.506
+   }
+  }
+ },
+ "transplant_legionella": {
+  "full@broad": {
+   "job": "20261115-141214-b7bd",
+   "status": "done",
+   "error": null,
+   "seconds": 264,
+   "timings": {
+    "input": 51.0,
+    "search": 1.0,
+    "deep": 0.8,
+    "repeats": 107.7,
+    "classify": 0.9,
+    "home": 39.3,
+    "phylogeny": 63.1
+   },
+   "summary_categories": {
+    "native": 2577,
+    "prokaryote": 192,
+    "repeat": 41,
+    "orphan": 320,
+    "eukaryote": 75,
+    "mammal": 65,
+    "virus": 1
+   },
+   "metrics": {
+    "n_spikes": 240,
+    "n_core": 48,
+    "n_other": 2988,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 20,
+       "recall": 0.75,
+       "recall_ci": [
+        0.55,
+        0.95
+       ],
+       "any_foreign": 0.75,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.933,
+       "calls": {
+        "missed": 2,
+        "mammal": 15,
+        "orphan": 3
+       }
+      },
+      "0.5": {
+       "n": 25,
+       "recall": 0.96,
+       "recall_ci": [
+        0.88,
+        1.0
+       ],
+       "any_foreign": 0.96,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 24,
+        "missed": 1
+       }
+      },
+      "1.0": {
+       "n": 27,
+       "recall": 0.963,
+       "recall_ci": [
+        0.889,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 26,
+        "eukaryote": 1
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.778,
+       "recall_ci": [
+        0.63,
+        0.926
+       ],
+       "any_foreign": 0.815,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.81,
+       "calls": {
+        "prokaryote": 21,
+        "orphan": 5,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 31,
+       "recall": 0.935,
+       "recall_ci": [
+        0.839,
+        1.0
+       ],
+       "any_foreign": 0.935,
+       "group_accuracy": 0.966,
+       "high_or_medium": 0.966,
+       "calls": {
+        "prokaryote": 29,
+        "missed": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 38,
+       "recall": 0.868,
+       "recall_ci": [
+        0.763,
+        0.974
+       ],
+       "any_foreign": 0.868,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.879,
+       "calls": {
+        "prokaryote": 33,
+        "native": 5
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.926,
+       "recall_ci": [
+        0.815,
+        1.0
+       ],
+       "any_foreign": 0.926,
+       "group_accuracy": 0.64,
+       "high_or_medium": 0.96,
+       "calls": {
+        "eukaryote": 25,
+        "orphan": 1,
+        "missed": 1
+       }
+      },
+      "0.5": {
+       "n": 21,
+       "recall": 0.857,
+       "recall_ci": [
+        0.667,
+        1.0
+       ],
+       "any_foreign": 0.857,
+       "group_accuracy": 0.778,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 18,
+        "orphan": 1,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "1.0": {
+       "n": 24,
+       "recall": 0.958,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.958,
+       "group_accuracy": 0.652,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 23,
+        "orphan": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0392,
+    "background_high": 0.0074,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.923,
+    "high_confidence_precision_vs_all": 0.887,
+    "high_confidence_recall": 0.721,
+    "gene_calling_recall": 0.979,
+    "composition_flag_by_amelioration": {
+     "0.0": 0.761,
+     "0.5": 0.587,
+     "1.0": 0.213
+    },
+    "composition_flag_native": 0.1,
+    "island_recall": 0.988
+   }
+  },
+  "no_repeat_filter@broad": {
+   "job": "20261115-141655-cdpd",
+   "status": "done",
+   "error": null,
+   "seconds": 164,
+   "timings": {
+    "input": 50.2,
+    "search": 1.1,
+    "deep": 0.8,
+    "repeats": 110.5,
+    "classify": 0.9,
+    "home": 0.3,
+    "phylogeny": 0.2
+   },
+   "summary_categories": {
+    "native": 2607,
+    "prokaryote": 194,
+    "orphan": 320,
+    "eukaryote": 84,
+    "mammal": 65,
+    "virus": 1
+   },
+   "metrics": {
+    "n_spikes": 240,
+    "n_core": 48,
+    "n_other": 2988,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 20,
+       "recall": 0.75,
+       "recall_ci": [
+        0.55,
+        0.95
+       ],
+       "any_foreign": 0.75,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.933,
+       "calls": {
+        "missed": 2,
+        "mammal": 15,
+        "orphan": 3
+       }
+      },
+      "0.5": {
+       "n": 25,
+       "recall": 0.96,
+       "recall_ci": [
+        0.88,
+        1.0
+       ],
+       "any_foreign": 0.96,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 24,
+        "missed": 1
+       }
+      },
+      "1.0": {
+       "n": 27,
+       "recall": 0.963,
+       "recall_ci": [
+        0.889,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 26,
+        "eukaryote": 1
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.778,
+       "recall_ci": [
+        0.63,
+        0.926
+       ],
+       "any_foreign": 0.815,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.81,
+       "calls": {
+        "prokaryote": 21,
+        "orphan": 5,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 31,
+       "recall": 0.935,
+       "recall_ci": [
+        0.839,
+        1.0
+       ],
+       "any_foreign": 0.935,
+       "group_accuracy": 0.966,
+       "high_or_medium": 0.966,
+       "calls": {
+        "prokaryote": 29,
+        "missed": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 38,
+       "recall": 0.868,
+       "recall_ci": [
+        0.763,
+        0.974
+       ],
+       "any_foreign": 0.868,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.879,
+       "calls": {
+        "prokaryote": 33,
+        "native": 5
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.926,
+       "recall_ci": [
+        0.815,
+        1.0
+       ],
+       "any_foreign": 0.926,
+       "group_accuracy": 0.64,
+       "high_or_medium": 0.96,
+       "calls": {
+        "eukaryote": 25,
+        "orphan": 1,
+        "missed": 1
+       }
+      },
+      "0.5": {
+       "n": 21,
+       "recall": 0.905,
+       "recall_ci": [
+        0.762,
+        1.0
+       ],
+       "any_foreign": 0.905,
+       "group_accuracy": 0.737,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 19,
+        "orphan": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 24,
+       "recall": 0.958,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.958,
+       "group_accuracy": 0.652,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 23,
+        "orphan": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0425,
+    "background_high": 0.0077,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.924,
+    "high_confidence_precision_vs_all": 0.884,
+    "high_confidence_recall": 0.729,
+    "gene_calling_recall": 0.979,
+    "composition_flag_by_amelioration": {
+     "0.0": 0.761,
+     "0.5": 0.587,
+     "1.0": 0.213
+    },
+    "composition_flag_native": 0.1,
+    "island_recall": 0.988
+   }
+  },
+  "no_deep_search@broad": {
+   "job": "20261115-141956-h47c",
+   "status": "done",
+   "error": null,
+   "seconds": 272,
+   "timings": {
+    "input": 56.0,
+    "search": 1.8,
+    "repeats": 174.8,
+    "classify": 0.8,
+    "home": 38.5,
+    "phylogeny": 0.2
+   },
+   "summary_categories": {
+    "native": 2561,
+    "prokaryote": 189,
+    "repeat": 28,
+    "orphan": 352,
+    "eukaryote": 75,
+    "mammal": 65,
+    "virus": 1
+   },
+   "metrics": {
+    "n_spikes": 240,
+    "n_core": 48,
+    "n_other": 2988,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 20,
+       "recall": 0.75,
+       "recall_ci": [
+        0.55,
+        0.95
+       ],
+       "any_foreign": 0.75,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.933,
+       "calls": {
+        "missed": 2,
+        "mammal": 15,
+        "orphan": 3
+       }
+      },
+      "0.5": {
+       "n": 25,
+       "recall": 0.96,
+       "recall_ci": [
+        0.88,
+        1.0
+       ],
+       "any_foreign": 0.96,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 24,
+        "missed": 1
+       }
+      },
+      "1.0": {
+       "n": 27,
+       "recall": 0.963,
+       "recall_ci": [
+        0.889,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 26,
+        "eukaryote": 1
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.778,
+       "recall_ci": [
+        0.63,
+        0.926
+       ],
+       "any_foreign": 0.815,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.81,
+       "calls": {
+        "prokaryote": 21,
+        "orphan": 5,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 31,
+       "recall": 0.935,
+       "recall_ci": [
+        0.839,
+        1.0
+       ],
+       "any_foreign": 0.935,
+       "group_accuracy": 0.966,
+       "high_or_medium": 0.966,
+       "calls": {
+        "prokaryote": 29,
+        "missed": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 38,
+       "recall": 0.868,
+       "recall_ci": [
+        0.763,
+        0.974
+       ],
+       "any_foreign": 0.868,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.879,
+       "calls": {
+        "prokaryote": 33,
+        "native": 5
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.926,
+       "recall_ci": [
+        0.815,
+        1.0
+       ],
+       "any_foreign": 0.926,
+       "group_accuracy": 0.64,
+       "high_or_medium": 0.96,
+       "calls": {
+        "eukaryote": 25,
+        "orphan": 1,
+        "missed": 1
+       }
+      },
+      "0.5": {
+       "n": 21,
+       "recall": 0.857,
+       "recall_ci": [
+        0.667,
+        1.0
+       ],
+       "any_foreign": 0.857,
+       "group_accuracy": 0.778,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 18,
+        "orphan": 1,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "1.0": {
+       "n": 24,
+       "recall": 0.958,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.958,
+       "group_accuracy": 0.652,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 23,
+        "orphan": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0382,
+    "background_high": 0.0074,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.923,
+    "high_confidence_precision_vs_all": 0.887,
+    "high_confidence_recall": 0.721,
+    "gene_calling_recall": 0.979,
+    "composition_flag_by_amelioration": {
+     "0.0": 0.761,
+     "0.5": 0.587,
+     "1.0": 0.213
+    },
+    "composition_flag_native": 0.1,
+    "island_recall": 0.988
+   }
+  },
+  "no_phylogeny@broad": {
+   "job": "20261115-142437-e592",
+   "status": "done",
+   "error": null,
+   "seconds": 171,
+   "timings": {
+    "input": 52.2,
+    "search": 0.9,
+    "deep": 0.7,
+    "repeats": 109.8,
+    "classify": 0.8,
+    "home": 6.4
+   },
+   "summary_categories": {
+    "native": 2577,
+    "prokaryote": 192,
+    "repeat": 41,
+    "orphan": 320,
+    "eukaryote": 75,
+    "mammal": 65,
+    "virus": 1
+   },
+   "metrics": {
+    "n_spikes": 240,
+    "n_core": 48,
+    "n_other": 2988,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 20,
+       "recall": 0.75,
+       "recall_ci": [
+        0.55,
+        0.95
+       ],
+       "any_foreign": 0.75,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.933,
+       "calls": {
+        "missed": 2,
+        "mammal": 15,
+        "orphan": 3
+       }
+      },
+      "0.5": {
+       "n": 25,
+       "recall": 0.96,
+       "recall_ci": [
+        0.88,
+        1.0
+       ],
+       "any_foreign": 0.96,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 24,
+        "missed": 1
+       }
+      },
+      "1.0": {
+       "n": 27,
+       "recall": 0.963,
+       "recall_ci": [
+        0.889,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 26,
+        "eukaryote": 1
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.778,
+       "recall_ci": [
+        0.63,
+        0.926
+       ],
+       "any_foreign": 0.815,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.762,
+       "calls": {
+        "prokaryote": 21,
+        "orphan": 5,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 31,
+       "recall": 0.935,
+       "recall_ci": [
+        0.839,
+        1.0
+       ],
+       "any_foreign": 0.935,
+       "group_accuracy": 0.966,
+       "high_or_medium": 0.966,
+       "calls": {
+        "prokaryote": 29,
+        "missed": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 38,
+       "recall": 0.868,
+       "recall_ci": [
+        0.763,
+        0.974
+       ],
+       "any_foreign": 0.868,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.848,
+       "calls": {
+        "prokaryote": 33,
+        "native": 5
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.926,
+       "recall_ci": [
+        0.815,
+        1.0
+       ],
+       "any_foreign": 0.926,
+       "group_accuracy": 0.64,
+       "high_or_medium": 0.96,
+       "calls": {
+        "eukaryote": 25,
+        "orphan": 1,
+        "missed": 1
+       }
+      },
+      "0.5": {
+       "n": 21,
+       "recall": 0.857,
+       "recall_ci": [
+        0.667,
+        1.0
+       ],
+       "any_foreign": 0.857,
+       "group_accuracy": 0.778,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 18,
+        "orphan": 1,
+        "native": 1,
+        "repeat": 1
+       }
+      },
+      "1.0": {
+       "n": 24,
+       "recall": 0.958,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.958,
+       "group_accuracy": 0.652,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 23,
+        "orphan": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0392,
+    "background_high": 0.0023,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.923,
+    "high_confidence_precision_vs_all": 0.938,
+    "high_confidence_recall": 0.442,
+    "gene_calling_recall": 0.979,
+    "composition_flag_by_amelioration": {
+     "0.0": 0.761,
+     "0.5": 0.587,
+     "1.0": 0.213
+    },
+    "composition_flag_native": 0.1,
+    "island_recall": 0.988
+   }
+  },
+  "baseline_ai_only@broad": {
+   "job": "20261115-142738-z8ax",
+   "status": "done",
+   "error": null,
+   "seconds": 191,
+   "timings": {
+    "input": 49.9,
+    "search": 1.6,
+    "repeats": 106.8,
+    "classify": 0.8,
+    "home": 32.2
+   },
+   "summary_categories": {
+    "native": 2584,
+    "prokaryote": 191,
+    "orphan": 352,
+    "eukaryote": 78,
+    "mammal": 65,
+    "virus": 1
+   },
+   "metrics": {
+    "n_spikes": 240,
+    "n_core": 48,
+    "n_other": 2988,
+    "classes": {
+     "mammal": {
+      "0.0": {
+       "n": 20,
+       "recall": 0.75,
+       "recall_ci": [
+        0.55,
+        0.95
+       ],
+       "any_foreign": 0.75,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.933,
+       "calls": {
+        "missed": 2,
+        "mammal": 15,
+        "orphan": 3
+       }
+      },
+      "0.5": {
+       "n": 25,
+       "recall": 0.96,
+       "recall_ci": [
+        0.88,
+        1.0
+       ],
+       "any_foreign": 0.96,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 24,
+        "missed": 1
+       }
+      },
+      "1.0": {
+       "n": 27,
+       "recall": 0.963,
+       "recall_ci": [
+        0.889,
+        1.0
+       ],
+       "any_foreign": 1.0,
+       "group_accuracy": 1.0,
+       "high_or_medium": 1.0,
+       "calls": {
+        "mammal": 26,
+        "eukaryote": 1
+       }
+      }
+     },
+     "prokaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.778,
+       "recall_ci": [
+        0.63,
+        0.926
+       ],
+       "any_foreign": 0.815,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.762,
+       "calls": {
+        "prokaryote": 21,
+        "orphan": 5,
+        "eukaryote": 1
+       }
+      },
+      "0.5": {
+       "n": 31,
+       "recall": 0.935,
+       "recall_ci": [
+        0.839,
+        1.0
+       ],
+       "any_foreign": 0.935,
+       "group_accuracy": 0.966,
+       "high_or_medium": 0.966,
+       "calls": {
+        "prokaryote": 29,
+        "missed": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 38,
+       "recall": 0.868,
+       "recall_ci": [
+        0.763,
+        0.974
+       ],
+       "any_foreign": 0.868,
+       "group_accuracy": 1.0,
+       "high_or_medium": 0.848,
+       "calls": {
+        "prokaryote": 33,
+        "native": 5
+       }
+      }
+     },
+     "eukaryote": {
+      "0.0": {
+       "n": 27,
+       "recall": 0.926,
+       "recall_ci": [
+        0.815,
+        1.0
+       ],
+       "any_foreign": 0.926,
+       "group_accuracy": 0.64,
+       "high_or_medium": 0.96,
+       "calls": {
+        "eukaryote": 25,
+        "orphan": 1,
+        "missed": 1
+       }
+      },
+      "0.5": {
+       "n": 21,
+       "recall": 0.905,
+       "recall_ci": [
+        0.762,
+        1.0
+       ],
+       "any_foreign": 0.905,
+       "group_accuracy": 0.737,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 19,
+        "orphan": 1,
+        "native": 1
+       }
+      },
+      "1.0": {
+       "n": 24,
+       "recall": 0.958,
+       "recall_ci": [
+        0.875,
+        1.0
+       ],
+       "any_foreign": 0.958,
+       "group_accuracy": 0.652,
+       "high_or_medium": 1.0,
+       "calls": {
+        "eukaryote": 23,
+        "orphan": 1
+       }
+      }
+     }
+    },
+    "core_fp": 0.0,
+    "core_fp_ci": [
+     0.0,
+     0.0
+    ],
+    "core_fp_high": 0.0,
+    "background_foreign": 0.0395,
+    "background_high": 0.002,
+    "auprc_vs_core": 1.0,
+    "auprc_vs_all": 0.926,
+    "high_confidence_precision_vs_all": 0.944,
+    "high_confidence_recall": 0.425,
+    "gene_calling_recall": 0.979,
+    "composition_flag_by_amelioration": {
+     "0.0": 0.761,
+     "0.5": 0.587,
+     "1.0": 0.213
+    },
+    "composition_flag_native": 0.1,
+    "island_recall": 0.988
+   }
+  }
+ },
+ "contam_encephalitozoon": {
+  "full@broad": {
+   "job": "20261115-143059-25y5",
+   "status": "done",
+   "error": null,
+   "seconds": 954,
+   "timings": {
+    "input": 14.8,
+    "search": 473.5,
+    "deep": 141.6,
+    "repeats": 175.1,
+    "classify": 0.5,
+    "home": 80.9,
+    "phylogeny": 67.7
+   },
+   "summary_categories": {
+    "orphan": 159,
+    "native": 936,
+    "eukaryote": 6,
+    "repeat": 19,
+    "prokaryote": 183
+   },
+   "metrics": {
+    "contam_contigs": 6,
+    "flagged": 6,
+    "false_flags": 0,
+    "candidates_on_contam": 184,
+    "high_on_contam": 0,
+    "candidates_on_eukaryote": 5,
+    "eukaryote_candidates_by_conf": {
+     "high": 2,
+     "medium": 0,
+     "low": 3
+    }
+   }
+  }
+ }
+}

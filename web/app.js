@@ -145,6 +145,19 @@ async function refreshJob(id) {
   try { j = await api("/api/jobs/" + id); } catch (e) { $(".rerr").textContent = e.message; return; }
   $(".rname").textContent = j.name || id;
   $(".rmeta").textContent = `任务 ${id} · 创建于 ${j.created || ""}` + (j.params && j.params.self_taxon ? ` · 自身类群：${j.params.self_taxon}` : "");
+  if (j.status !== "running" && !$(".rdel")) {
+    const b = document.createElement("button");
+    b.className = "rdel";
+    b.textContent = "删除这条记录";
+    b.addEventListener("click", async () => {
+      if (!confirm("删除任务 " + (j.name || id) + " 及其全部结果？")) return;
+      try { await api("/api/jobs/" + id, { method: "DELETE" }); } catch (e) { alert(e.message); return; }
+      state.current = null;
+      $("#content").innerHTML = '<div class="empty"><h2>已删除</h2></div>';
+      loadJobs();
+    });
+    $(".rhead").appendChild(b);
+  }
   const prog = $(".progress");
   if (j.status === "queued" || j.status === "running") {
     prog.classList.remove("hidden");

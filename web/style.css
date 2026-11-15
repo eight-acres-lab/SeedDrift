@@ -116,3 +116,4 @@ label.sub { font-size: 12px; }
 .conf .pill.on { background: var(--sage); color: #fff; border-color: var(--sage); }
 .lv-high { color: var(--sage); font-weight: 700; } .lv-medium { color: var(--soil); } .lv-low { color: var(--muted); }
 .flag { color: var(--rust); font-size: 12px; }
+.rdel { font-size: 12px; color: var(--rust); background: transparent; }

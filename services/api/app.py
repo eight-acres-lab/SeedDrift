@@ -6,6 +6,7 @@
                                     self_taxon, domain, home_rank, deep, trees, structure
   GET  /api/jobs                    all jobs, newest first
   GET  /api/jobs/{id}               status, progress, summary
+  DELETE /api/jobs/{id}             remove a finished or failed job
   GET  /api/jobs/{id}/genes         per-gene table (JSON); ?category=mammal,prokaryote
   GET  /api/jobs/{id}/files/{name}  genes.tsv, proteins.faa, hits.tsv, summary.json, structures/<gene>.pdb,
                                     trees/<gene>.nwk
@@ -46,7 +47,7 @@ os.makedirs(config.JOBS, exist_ok=True)
 Q = queue.Queue()
 FILES = ("genes.tsv", "proteins.faa", "hits.tsv", "summary.json")
 SUBDIRS = {"structures": ".pdb", "trees": ".nwk"}
-MAX_UPLOAD = int(config.env("SEEDDRIFT_MAX_UPLOAD_MB", "200")) * 1024 * 1024
+MAX_UPLOAD = int(config.env("SEEDDRIFT_MAX_UPLOAD_MB", "2048")) * 1024 * 1024
 
 
 def _demos():
@@ -206,6 +207,16 @@ def list_jobs():
 @app.get("/api/jobs/{jid}")
 def get_job(jid: str):
     return _status(_jdir(jid))
+
+
+@app.delete("/api/jobs/{jid}")
+def delete_job(jid: str):
+    d = _jdir(jid)
+    if _status(d).get("status") == "running":
+        raise HTTPException(409, "job is running")
+    import shutil
+    shutil.rmtree(d)
+    return {"deleted": jid}
 
 
 @app.get("/api/jobs/{jid}/genes")

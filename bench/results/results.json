@@ -307,8 +307,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0153,
     "background_high": 0.0016,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.948,
+    "auprc_vs_core": 0.979,
+    "auprc_vs_all": 0.763,
     "high_confidence_precision_vs_all": 0.981,
     "high_confidence_recall": 0.559
    }
@@ -611,8 +611,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0158,
     "background_high": 0.0016,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.948,
+    "auprc_vs_core": 0.981,
+    "auprc_vs_all": 0.778,
     "high_confidence_precision_vs_all": 0.981,
     "high_confidence_recall": 0.567
    }
@@ -919,8 +919,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0153,
     "background_high": 0.0016,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.947,
+    "auprc_vs_core": 0.978,
+    "auprc_vs_all": 0.748,
     "high_confidence_precision_vs_all": 0.981,
     "high_confidence_recall": 0.557
    }
@@ -1231,8 +1231,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0153,
     "background_high": 0.0007,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.948,
+    "auprc_vs_core": 0.979,
+    "auprc_vs_all": 0.763,
     "high_confidence_precision_vs_all": 0.99,
     "high_confidence_recall": 0.457
    }
@@ -1532,8 +1532,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0155,
     "background_high": 0.0007,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.948,
+    "auprc_vs_core": 0.979,
+    "auprc_vs_all": 0.759,
     "high_confidence_precision_vs_all": 0.99,
     "high_confidence_recall": 0.46
    }
@@ -1842,8 +1842,8 @@
     "core_fp_high": 0.006,
     "background_foreign": 0.1582,
     "background_high": 0.0369,
-    "auprc_vs_core": 0.992,
-    "auprc_vs_all": 0.609,
+    "auprc_vs_core": 0.96,
+    "auprc_vs_all": 0.55,
     "high_confidence_precision_vs_all": 0.563,
     "high_confidence_recall": 0.583
    }
@@ -2145,8 +2145,8 @@
     "core_fp_high": 0.006,
     "background_foreign": 0.1898,
     "background_high": 0.0467,
-    "auprc_vs_core": 0.993,
-    "auprc_vs_all": 0.582,
+    "auprc_vs_core": 0.962,
+    "auprc_vs_all": 0.532,
     "high_confidence_precision_vs_all": 0.507,
     "high_confidence_recall": 0.587
    }
@@ -2449,8 +2449,8 @@
     "core_fp_high": 0.006,
     "background_foreign": 0.1462,
     "background_high": 0.0334,
-    "auprc_vs_core": 0.992,
-    "auprc_vs_all": 0.617,
+    "auprc_vs_core": 0.956,
+    "auprc_vs_all": 0.549,
     "high_confidence_precision_vs_all": 0.587,
     "high_confidence_recall": 0.583
    }
@@ -2756,8 +2756,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.1582,
     "background_high": 0.0245,
-    "auprc_vs_core": 0.992,
-    "auprc_vs_all": 0.609,
+    "auprc_vs_core": 0.96,
+    "auprc_vs_all": 0.55,
     "high_confidence_precision_vs_all": 0.627,
     "high_confidence_recall": 0.502
    }
@@ -3054,8 +3054,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.1604,
     "background_high": 0.022,
-    "auprc_vs_core": 0.992,
-    "auprc_vs_all": 0.613,
+    "auprc_vs_core": 0.958,
+    "auprc_vs_all": 0.552,
     "high_confidence_precision_vs_all": 0.652,
     "high_confidence_recall": 0.506
    }
@@ -3246,8 +3246,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0392,
     "background_high": 0.0074,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.923,
+    "auprc_vs_core": 0.983,
+    "auprc_vs_all": 0.864,
     "high_confidence_precision_vs_all": 0.887,
     "high_confidence_recall": 0.721,
     "gene_calling_recall": 0.979,
@@ -3442,8 +3442,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0425,
     "background_high": 0.0077,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.924,
+    "auprc_vs_core": 0.984,
+    "auprc_vs_all": 0.87,
     "high_confidence_precision_vs_all": 0.884,
     "high_confidence_recall": 0.729,
     "gene_calling_recall": 0.979,
@@ -3639,8 +3639,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0382,
     "background_high": 0.0074,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.923,
+    "auprc_vs_core": 0.983,
+    "auprc_vs_all": 0.864,
     "high_confidence_precision_vs_all": 0.887,
     "high_confidence_recall": 0.721,
     "gene_calling_recall": 0.979,
@@ -3836,8 +3836,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0392,
     "background_high": 0.0023,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.923,
+    "auprc_vs_core": 0.983,
+    "auprc_vs_all": 0.864,
     "high_confidence_precision_vs_all": 0.938,
     "high_confidence_recall": 0.442,
     "gene_calling_recall": 0.979,
@@ -4030,8 +4030,8 @@
     "core_fp_high": 0.0,
     "background_foreign": 0.0395,
     "background_high": 0.002,
-    "auprc_vs_core": 1.0,
-    "auprc_vs_all": 0.926,
+    "auprc_vs_core": 0.984,
+    "auprc_vs_all": 0.87,
     "high_confidence_precision_vs_all": 0.944,
     "high_confidence_recall": 0.425,
     "gene_calling_recall": 0.979,

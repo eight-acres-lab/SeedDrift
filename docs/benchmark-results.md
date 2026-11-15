@@ -31,11 +31,11 @@ Spikes: 635; core genes (expected native): 60; other recipient genes (unlabeled)
 
 | configuration | mean recall (0% / 30% / 50% / 70%) | core FP | core FP high | background | background high | AUPRC vs core | AUPRC vs all | high-conf precision vs all | high-conf recall | time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| full@broad | 0.89 / 0.86 / 0.76 / 0.48 | 0.000 | 0.000 | 0.0153 | 0.0016 | 1.000 | 0.948 | 0.981 | 0.559 | 2.7 min |
-| no_repeat_filter@broad | 0.89 / 0.87 / 0.77 / 0.53 | 0.000 | 0.000 | 0.0158 | 0.0016 | 1.000 | 0.948 | 0.981 | 0.567 | 2.7 min |
-| no_deep_search@broad | 0.88 / 0.86 / 0.76 / 0.42 | 0.000 | 0.000 | 0.0153 | 0.0016 | 1.000 | 0.947 | 0.981 | 0.557 | 2.8 min |
-| no_phylogeny@broad | 0.89 / 0.86 / 0.76 / 0.48 | 0.000 | 0.000 | 0.0153 | 0.0007 | 1.000 | 0.948 | 0.99 | 0.457 | 2.7 min |
-| baseline_ai_only@broad | 0.89 / 0.86 / 0.76 / 0.46 | 0.000 | 0.000 | 0.0155 | 0.0007 | 1.000 | 0.948 | 0.99 | 0.46 | 2.7 min |
+| full@broad | 0.89 / 0.86 / 0.76 / 0.48 | 0.000 | 0.000 | 0.0153 | 0.0016 | 0.979 | 0.763 | 0.981 | 0.559 | 2.7 min |
+| no_repeat_filter@broad | 0.89 / 0.87 / 0.77 / 0.53 | 0.000 | 0.000 | 0.0158 | 0.0016 | 0.981 | 0.778 | 0.981 | 0.567 | 2.7 min |
+| no_deep_search@broad | 0.88 / 0.86 / 0.76 / 0.42 | 0.000 | 0.000 | 0.0153 | 0.0016 | 0.978 | 0.748 | 0.981 | 0.557 | 2.8 min |
+| no_phylogeny@broad | 0.89 / 0.86 / 0.76 / 0.48 | 0.000 | 0.000 | 0.0153 | 0.0007 | 0.979 | 0.763 | 0.99 | 0.457 | 2.7 min |
+| baseline_ai_only@broad | 0.89 / 0.86 / 0.76 / 0.46 | 0.000 | 0.000 | 0.0155 | 0.0007 | 0.979 | 0.759 | 0.99 | 0.46 | 2.7 min |
 
 Time per stage (full): input 0 s, search 2 s, deep 1 s, repeats 2.6 min, classify 1 s, home 5 s, phylogeny 0 s
 
@@ -68,11 +68,11 @@ Spikes: 635; core genes (expected native): 163; other recipient genes (unlabeled
 
 | configuration | mean recall (0% / 30% / 50% / 70%) | core FP | core FP high | background | background high | AUPRC vs core | AUPRC vs all | high-conf precision vs all | high-conf recall | time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| full@broad | 0.92 / 0.92 / 0.86 / 0.48 | 0.129 | 0.006 | 0.1582 | 0.0369 | 0.992 | 0.609 | 0.563 | 0.583 | 5.1 min |
-| no_repeat_filter@broad | 0.93 / 0.92 / 0.87 / 0.50 | 0.129 | 0.006 | 0.1898 | 0.0467 | 0.993 | 0.582 | 0.507 | 0.587 | 4.2 min |
-| no_deep_search@broad | 0.92 / 0.91 / 0.84 / 0.41 | 0.129 | 0.006 | 0.1462 | 0.0334 | 0.992 | 0.617 | 0.587 | 0.583 | 5.1 min |
-| no_phylogeny@broad | 0.92 / 0.92 / 0.86 / 0.48 | 0.129 | 0.000 | 0.1582 | 0.0245 | 0.992 | 0.609 | 0.627 | 0.502 | 5.2 min |
-| baseline_ai_only@broad | 0.93 / 0.91 / 0.85 / 0.44 | 0.129 | 0.000 | 0.1604 | 0.0220 | 0.992 | 0.613 | 0.652 | 0.506 | 4.2 min |
+| full@broad | 0.92 / 0.92 / 0.86 / 0.48 | 0.129 | 0.006 | 0.1582 | 0.0369 | 0.960 | 0.550 | 0.563 | 0.583 | 5.1 min |
+| no_repeat_filter@broad | 0.93 / 0.92 / 0.87 / 0.50 | 0.129 | 0.006 | 0.1898 | 0.0467 | 0.962 | 0.532 | 0.507 | 0.587 | 4.2 min |
+| no_deep_search@broad | 0.92 / 0.91 / 0.84 / 0.41 | 0.129 | 0.006 | 0.1462 | 0.0334 | 0.956 | 0.549 | 0.587 | 0.583 | 5.1 min |
+| no_phylogeny@broad | 0.92 / 0.92 / 0.86 / 0.48 | 0.129 | 0.000 | 0.1582 | 0.0245 | 0.960 | 0.550 | 0.627 | 0.502 | 5.2 min |
+| baseline_ai_only@broad | 0.93 / 0.91 / 0.85 / 0.44 | 0.129 | 0.000 | 0.1604 | 0.0220 | 0.958 | 0.552 | 0.652 | 0.506 | 4.2 min |
 
 Time per stage (full): input 0 s, search 2 s, deep 2 s, repeats 4.0 min, classify 2 s, home 60 s, phylogeny 0 s
 
@@ -100,11 +100,11 @@ DNA level: inserted genes found by gene calling 0.98; composition flag (|z| ≥ 
 
 | configuration | mean recall (0% / 30% / 50% / 70%) | core FP | core FP high | background | background high | AUPRC vs core | AUPRC vs all | high-conf precision vs all | high-conf recall | time |
 |---|---|---|---|---|---|---|---|---|---|---|
-| full@broad | 0.82 / 0.92 / 0.93 | 0.000 | 0.000 | 0.0392 | 0.0074 | 1.000 | 0.923 | 0.887 | 0.721 | 4.4 min |
-| no_repeat_filter@broad | 0.82 / 0.93 / 0.93 | 0.000 | 0.000 | 0.0425 | 0.0077 | 1.000 | 0.924 | 0.884 | 0.729 | 2.7 min |
-| no_deep_search@broad | 0.82 / 0.92 / 0.93 | 0.000 | 0.000 | 0.0382 | 0.0074 | 1.000 | 0.923 | 0.887 | 0.721 | 4.5 min |
-| no_phylogeny@broad | 0.82 / 0.92 / 0.93 | 0.000 | 0.000 | 0.0392 | 0.0023 | 1.000 | 0.923 | 0.938 | 0.442 | 2.9 min |
-| baseline_ai_only@broad | 0.82 / 0.93 / 0.93 | 0.000 | 0.000 | 0.0395 | 0.0020 | 1.000 | 0.926 | 0.944 | 0.425 | 3.2 min |
+| full@broad | 0.82 / 0.92 / 0.93 | 0.000 | 0.000 | 0.0392 | 0.0074 | 0.983 | 0.864 | 0.887 | 0.721 | 4.4 min |
+| no_repeat_filter@broad | 0.82 / 0.93 / 0.93 | 0.000 | 0.000 | 0.0425 | 0.0077 | 0.984 | 0.870 | 0.884 | 0.729 | 2.7 min |
+| no_deep_search@broad | 0.82 / 0.92 / 0.93 | 0.000 | 0.000 | 0.0382 | 0.0074 | 0.983 | 0.864 | 0.887 | 0.721 | 4.5 min |
+| no_phylogeny@broad | 0.82 / 0.92 / 0.93 | 0.000 | 0.000 | 0.0392 | 0.0023 | 0.983 | 0.864 | 0.938 | 0.442 | 2.9 min |
+| baseline_ai_only@broad | 0.82 / 0.93 / 0.93 | 0.000 | 0.000 | 0.0395 | 0.0020 | 0.984 | 0.870 | 0.944 | 0.425 | 3.2 min |
 
 Time per stage (full): input 51 s, search 1 s, deep 1 s, repeats 108 s, classify 1 s, home 39 s, phylogeny 63 s
 

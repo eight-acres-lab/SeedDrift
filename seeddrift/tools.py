@@ -95,6 +95,14 @@ class SprotTable:
             self.seq[acc] = "".join(buf)
 
 
+def _db_stamp(path):
+    try:
+        st = os.stat(path)
+        return ":%d:%d" % (st.st_size, int(st.st_mtime))
+    except OSError:
+        return ""
+
+
 def _block_args():
     """DIAMOND -b/-c: larger blocks mean fewer passes over the ~15 G-letter reference (much faster for a
     single genome) but more memory (roughly 6 x b GB, more with -c 1)."""
@@ -159,7 +167,7 @@ class LocalTools:
             pfam=have(os.path.join(config.PFAM, "Pfam-A.hmm.dat.gz")), data=config.DATA)
 
     # -- sequence search ----------------------------------------------------------------------------
-    def diamond(self, fasta, max_target_seqs=100, evalue=1e-5, sensitivity="sensitive", masking=None):
+    def diamond(self, fasta, max_target_seqs=100, evalue=1e-5, sensitivity="sensitive", masking=None, db=None):
         """Proteins (FASTA text) vs the reference library. Returns hit dicts. masking=0 switches off
         DIAMOND's repeat masking (tantan), which otherwise hides repeat-rich proteins entirely."""
         tmp = tempfile.mkdtemp(prefix="sd-dmnd-")
@@ -167,8 +175,8 @@ class LocalTools:
             q, o = os.path.join(tmp, "q.faa"), os.path.join(tmp, "hits.tsv")
             with open(q, "w") as fh:
                 fh.write(fasta)
-            cmd = [config.DIAMOND, "blastp", "-q", q, "-d", config.DIAMOND_DB, "-o", o, "--" + sensitivity] + \
-                _block_args() + [
+            cmd = [config.DIAMOND, "blastp", "-q", q, "-d", db or config.DIAMOND_DB, "-o", o, "--" + sensitivity] + \
+                (_block_args() if not db else []) + [
                    "--max-target-seqs", str(max_target_seqs), "-e", str(evalue), "--threads", str(self.threads),
                    "--outfmt", "6"] + DIAMOND_FIELDS + (["--masking", str(masking)] if masking is not None else [])
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
@@ -184,6 +192,34 @@ class LocalTools:
             return hits
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def home_search(self, fasta, taxids, max_target_seqs=25, evalue=1e-5):
+        """Search only the reference proteomes of the given taxa (the genome's home group). With ~40 M
+        references a gene's top 100 hits can all lie outside a sparsely sampled home group, so the
+        home-group relatives are looked up directly. The subset database is built once per taxon set."""
+        import hashlib
+        tx = sorted(set(int(t) for t in taxids))
+        key = hashlib.sha1((",".join(map(str, tx)) + _db_stamp(config.REFERENCE_FAA)).encode()).hexdigest()[:16]
+        d = config.path("cache", "homedb")
+        os.makedirs(d, exist_ok=True)
+        db = os.path.join(d, key + ".dmnd")
+        with self._lock:
+            if not os.path.exists(db):
+                want, fa, n = set(str(t) for t in tx), os.path.join(d, key + ".faa"), 0
+                with open(config.REFERENCE_FAA) as fi, open(fa, "w") as fo:
+                    keep = False
+                    for line in fi:
+                        if line[0] == ">":
+                            keep = line.rstrip("\n").rsplit("|", 1)[-1] in want
+                            n += keep
+                        if keep:
+                            fo.write(line)
+                log("home-group database: %d taxa, %d proteins" % (len(tx), n))
+                subprocess.run([config.DIAMOND, "makedb", "--in", fa, "-d", db + ".part", "--threads", str(self.threads)],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                os.replace(db + ".part.dmnd", db)
+                os.remove(fa)
+        return self.diamond(fasta, max_target_seqs, evalue, "sensitive", db=db)
 
     def deep_search(self, fasta, max_target_seqs=100, evalue=1e-5):
         """Most sensitive search for genes without outside hits, repeat masking off. MMseqs2-GPU (exhaustive

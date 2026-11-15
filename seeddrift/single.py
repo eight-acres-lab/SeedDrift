@@ -11,11 +11,11 @@ Works on similarity alone (no gene trees), so it gives candidates, not proof. Fo
   home group     the genome's own neighbourhood: its phylum for prokaryotes; Metazoa, Fungi or
                  Viridiplantae for eukaryotes, else the eukaryotic supergroup (Amoebozoa, Sar ...)
   Alien Index    AI = ln(best E inside home) - ln(best E outside home)   (Gladyshev et al. 2008);
-                 AI > 0: closer to an outside lineage; AI >= 45: strong
-  category       mammal / prokaryote / eukaryote / virus by the donor group when AI > 0
+                 a call needs AI >= 15 (near-ties of conserved genes are not evidence); AI >= 45: strong
+  category       mammal / prokaryote / eukaryote / virus by the donor group when AI >= 15
                  (for a mammal donor inside the home group, e.g. a nematode, the AI is taken
-                 against the non-mammal part of the home group); native when AI <= 0;
-                 orphan without outside hits; repeat as above
+                 against the non-mammal part of the home group);
+                 native when AI < 15; orphan without outside hits; repeat as above
   support        distinct species among the top-10 clean hits of the donor group: a single
                  eukaryote species is a typical sign of contamination in its genome assembly
 """
@@ -27,6 +27,8 @@ from collections import Counter
 from .repeats import REPEAT_DOMINANCE, is_repeat_hit
 
 MIN_QCOV = 0.4
+MIN_AI = 15.0        # a call needs the outside hit to be clearly better (E-value ~3e6-fold): near-ties of
+                     # conserved genes in sparsely sampled lineages are not evidence
 STRONG_AI = 45.0
 TOP = 10
 
@@ -170,7 +172,7 @@ def classify_gene(gene, length, hits, tax, self_taxid, home, qreg=None, treg=Non
         e_in = min((h["evalue"] for h, lin in in_home), default=1.0)
         e_out = min((h["evalue"] for h, lin in away), default=1.0)
     ai = _ln(e_in) - _ln(e_out)
-    if ai > 0:
+    if ai >= MIN_AI:
         cat = cls if cls in ("mammal", "eukaryote", "prokaryote", "virus") else "native"
         if cat == "mammal" and MAMMALIA in self_lin:
             cat = "native"

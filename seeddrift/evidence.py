@@ -1,6 +1,6 @@
 """Extra evidence for foreign-gene candidates, beyond best hits, and a confidence level.
 
-  phylogeny     MAFFT + FastTree of the gene, its closest clean outside hits and its closest home hits;
+  phylogeny     MAFFT + FastTree of the gene, its closest clean outside hits and >= 2 closest home hits;
                 the 5 references nearest to the gene (patristic) decide: outside (>= 4 outside the home
                 group), home (>= 3 inside) or mixed
   composition   GC and GC3 of the coding sequence vs the genome (robust z; genes >= 300 bp)
@@ -45,7 +45,7 @@ def tree_jobs(rows, by_q, tseqs, prots, tax, self_taxid, home_t, treg_rep, n_out
             if len(bucket) < cap:
                 bucket.append(h)
                 seen[sp] += 1
-        if len(out) + len(home) < 3:
+        if len(out) + len(home) < 3 or len(home) < 2:     # without home relatives the tree cannot test anything
             continue
         seqs = {QUERY: prots[g]}
         for h in out + home:

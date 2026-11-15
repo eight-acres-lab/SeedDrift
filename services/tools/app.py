@@ -3,6 +3,7 @@
   GET  /health                       which tools and datasets are available
   POST /diamond    {fasta, max_target_seqs, evalue, sensitivity}  -> {hits}
   POST /deep       {fasta}  most sensitive search, no repeat masking (MMseqs2-GPU or DIAMOND ultra) -> {hits}
+  POST /home       {fasta, taxids}  search only the home group's proteomes (cached subset DB) -> {hits}
   POST /sequences  {ids, source: reference|sprot}                 -> {sequences}
   POST /repeats    {sequences}  Pfam repeat-like domains + coiled coils -> {regions}
   POST /foldseek   {pdbs}       vs AlphaFold DB Swiss-Prot              -> {hits}
@@ -35,6 +36,13 @@ class DiamondReq(BaseModel):
     evalue: float = 1e-5
     sensitivity: str = "sensitive"
     masking: Optional[int] = None
+
+
+class HomeReq(BaseModel):
+    fasta: str
+    taxids: List[int]
+    max_target_seqs: int = 25
+    evalue: float = 1e-5
 
 
 class SeqReq(BaseModel):
@@ -71,6 +79,11 @@ def diamond(r: DiamondReq):
 @app.post("/deep")
 def deep(r: DiamondReq):
     return {"hits": T.deep_search(r.fasta, r.max_target_seqs, r.evalue)}
+
+
+@app.post("/home")
+def home(r: HomeReq):
+    return {"hits": T.home_search(r.fasta, r.taxids, r.max_target_seqs, r.evalue)}
 
 
 @app.post("/sequences")

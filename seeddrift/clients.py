@@ -44,6 +44,10 @@ class ToolsClient(_Http):
         return self.post("/diamond", dict(fasta=fasta, max_target_seqs=max_target_seqs, evalue=evalue,
                                           sensitivity=sensitivity, masking=masking))["hits"]
 
+    def home_search(self, fasta, taxids, max_target_seqs=25, evalue=1e-5):
+        return self.post("/home", dict(fasta=fasta, taxids=list(taxids), max_target_seqs=max_target_seqs,
+                                       evalue=evalue))["hits"]
+
     def deep_search(self, fasta, max_target_seqs=100, evalue=1e-5):
         return self.post("/deep", dict(fasta=fasta, max_target_seqs=max_target_seqs, evalue=evalue))["hits"]
 

@@ -10,6 +10,8 @@
   repeats     repeat-like regions of the genes and of the hit targets (Pfam, coiled coils: tools
               service; tandem repeats: here)
   classify    category, Alien Index, donor group, support (single.py)
+  home        candidates without any home-group hit: search the home group's proteomes directly (a
+              sparsely sampled home group can be crowded out of the top hits) and classify again
   phylogeny   MAFFT + FastTree for each candidate: are its nearest relatives outside the home group?
   context     composition (GC, GC3), clusters of candidates (islands), contaminant contigs
   confidence  high / medium / low for candidates (evidence.py)
@@ -113,6 +115,19 @@ def cached(kind, key, fn):
 
 def _fasta(seqs):
     return "".join(">%s\n%s\n" % kv for kv in seqs.items())
+
+
+def _home_taxa(tax, home_t, self_taxid):
+    """Taxids of the reference proteomes inside the home group (minus the genome's own taxon)."""
+    p = os.path.join(config.REFERENCE, "proteomes.tsv")
+    if not os.path.exists(p) or not home_t or home_t == 1:
+        return []
+    out = []
+    for r in csv.DictReader(open(p), delimiter="\t"):
+        lin = tax.lineage(int(r["taxid"]))
+        if home_t in lin and not (self_taxid and self_taxid in lin):
+            out.append(int(r["taxid"]))
+    return out
 
 
 def domain_probe(tools, tax):
@@ -242,6 +257,37 @@ def run(job_dir, files, params, tools, folder=None, progress=lambda *a: None):
                  search=deep.get(gname, ""))
         rows.append(r)
     byg = {r["gene_id"]: r for r in rows}
+
+    # candidates without any home-group hit: their top hits may simply have crowded out the home
+    # relatives; search the home group's proteomes directly and classify them again
+    need = [r["gene_id"] for r in rows if r["category"] in FOREIGN and not r["best_home_taxon"]]
+    home_taxa = _home_taxa(tax, home[0], self_taxid)
+    if need and home_taxa and hasattr(tools, "home_search"):
+        progress("home", "在本谱系（%s）的参考蛋白组中补搜 %d 个候选" % (home[1], len(need)), 0.64)
+        nf = _fasta({g: prots[g] for g in need})
+        hh = cached("home", [ref, sorted(home_taxa), nf], lambda: tools.home_search(nf, home_taxa))
+        new_t = set()
+        for h in hh:
+            have = {x["target"] for x in by_q[h["query"]]}
+            if h["target"] not in have:
+                by_q[h["query"]].append(h)
+                new_t.add(h["target"])
+        new_t -= set(tseqs)
+        if new_t:
+            ns = tools.sequences(sorted(new_t))
+            tseqs.update(ns)
+            if params.get("repeat_filter", True):
+                for k, v in tools.repeats({"t|" + k: v for k, v in ns.items()}).items():
+                    treg[k[2:]].extend((a, b) for a, b, _ in v)
+                for k, v in ns.items():
+                    treg[k].extend(tandem_regions(v, B))
+        for gname in need:
+            old_r = byg[gname]
+            r = classify_gene(gname, old_r["length"], by_q.get(gname, []), tax, self_taxid, home, qreg.get(gname), treg)
+            for k in ("contig", "start", "end", "strand", "exons", "repeats", "search"):
+                r[k] = old_r.get(k, "")
+            old_r.clear()
+            old_r.update(r)
 
     if params.get("trees", True):
         rep_pairs = set()

@@ -22,11 +22,15 @@ ARMS = [("none_anchor", "only which cells exist"), ("none_pairs", "only which ce
         ("blind", "numbers, all pairs, query hidden"),
         ("num_anchor", "numbers, gene-member"), ("num_pairs", "numbers, all pairs"),
         ("num_pairs_comp", "numbers, all pairs, plus composition"),
-        ("msa_anchor", "residues, gene-member"), ("msa_pairs", "residues, all pairs")]
+        ("msa_anchor", "residues, gene-member"), ("msa_pairs", "residues, all pairs"),
+        ("plm_anchor", "residues with language-model sites, gene-member"), ("plm_pairs", "residues with language-model sites, all pairs")]
 CONTRASTS = [("msa_pairs", "num_pairs", "residues minus numbers (all pairs)"),
              ("msa_anchor", "num_anchor", "residues minus numbers (gene-member)"),
              ("num_pairs", "num_anchor", "all pairs minus gene-member (numbers)"),
              ("msa_pairs", "msa_anchor", "all pairs minus gene-member (residues)"),
+             ("plm_pairs", "msa_pairs", "language-model sites added (all pairs)"),
+             ("plm_anchor", "msa_anchor", "language-model sites added (gene-member)"),
+             ("plm_pairs", "num_pairs", "residues with language-model sites minus numbers (all pairs)"),
              ("num_pairs_comp", "num_pairs", "composition added (numbers, all pairs)"),
              ("num_anchor", "none_anchor", "numbers minus presence only (gene-member)"),
              ("num_pairs", "none_pairs", "numbers minus presence only (all pairs)"),

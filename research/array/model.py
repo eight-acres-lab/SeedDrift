@@ -9,6 +9,8 @@ Arms through one trunk:
   mode   "none": only which cells exist (the floor)
          "num":  relations between two aligned sequences are fixed summary numbers (identity, coverage, score)
          "msa":  the same numbers plus relations learned from the aligned residues (starts out equal to "num")
+         "plm":  as "msa", and every position of a gene also carries the state of a pretrained protein language
+                 model at that site (sites.py), so members are judged against what the language model expects there
   pairs  False: only gene-versus-member relations
          True:  also member-versus-member within every gene, their consensus over the genome's genes (a state
                 for every pair of rows), and the column profile across members as site context
@@ -64,7 +66,7 @@ def blosum21():
 class Store:
     """Aligned rows of every gene (memory-mapped) and the genome profiles."""
 
-    def __init__(self, data_dir, names, profiles):
+    def __init__(self, data_dir, names, profiles, sites=False):
         prof = np.load(profiles)
         self.D, self.own = prof["D"], prof["own"]
         self.genomes = [str(x) for x in prof["genome"]]
@@ -72,7 +74,8 @@ class Store:
         self.n_prot = self.D.shape[1]
         self.in_panel = np.zeros(self.n_prot, dtype=bool)
         self.in_panel[prof["panel"]] = True
-        self.msa, parts = [], {k: [] for k in ("L", "genome", "cs", "codes", "roff", "rp", "rs", "base", "part", "gid")}
+        self.sites = [np.load(os.path.join(data_dir, name + ".site.npy"), mmap_mode="r") for name in names] if sites else None
+        self.msa, parts = [], {k: [] for k in ("L", "genome", "cs", "cl", "codes", "roff", "rp", "rs", "base", "part", "gid")}
         c0 = r0 = 0
         for k, name in enumerate(names):
             z = np.load(os.path.join(data_dir, name + ".index.npz"))
@@ -81,6 +84,7 @@ class Store:
             parts["L"].append(z["gene_L"].astype(np.int64))
             parts["genome"].append(np.array([gix[str(x)] for x in z["gene_genome"]], dtype=np.int64))
             parts["cs"].append(z["code_start"][:-1] + c0)
+            parts["cl"].append(z["code_start"][:-1])
             parts["codes"].append(z["codes"])
             parts["roff"].append(z["row_off"][:-1] + r0)
             parts["rp"].append(z["row_p"])
@@ -90,7 +94,7 @@ class Store:
             parts["gid"].append(z["gene_id"])
             c0 += len(z["codes"]); r0 += len(z["row_p"])
         cat = {k: np.concatenate(v) for k, v in parts.items()}
-        self.L, self.genome, self.cs, self.all_codes = cat["L"], cat["genome"], cat["cs"], cat["codes"]
+        self.L, self.genome, self.cs, self.all_codes, self.cl = cat["L"], cat["genome"], cat["cs"], cat["codes"], cat["cl"]
         self.row_off = np.r_[cat["roff"], r0]
         self.row_p, self.base, self.part, self.gene_id = cat["rp"], cat["base"], cat["part"], cat["gid"]
         self.row_score = cat["rs"] / np.repeat(self.L, np.diff(self.row_off)).astype(np.float32)
@@ -101,6 +105,9 @@ class Store:
 
     def codes(self, g):
         return self.all_codes[self.cs[g]:self.cs[g] + self.L[g]]
+
+    def site(self, g):
+        return self.sites[self.part[g]][self.cl[g]:self.cl[g] + self.L[g]]
 
     def rows(self, g):
         return self.row_p[self.row_off[g]:self.row_off[g + 1]]
@@ -186,12 +193,15 @@ def example(st, cfg, rng, g, x, ctx, hidden, truth):
     G, R, P = len(genes), cfg.R, cfg.P
     msa = np.full((G, R + 1, P), PAD, dtype=np.int8)
     present = np.zeros((G, R), dtype=bool)
+    site = np.zeros((G, P, st.sites[0].shape[1]), dtype=np.float16) if st.sites is not None else None
     for i, gene in enumerate(genes):
         L = int(st.L[gene])
         pos = np.sort(rng.choice(L, P, replace=False)) if L > P else np.arange(L)
         n = len(pos)
         msa[i, 0, :n] = st.codes(gene)[pos]
         msa[i, 1:, :n] = NOALN
+        if site is not None:
+            site[i, :n] = st.site(gene)[pos]
         rp = st.rows(gene)
         if len(rp):
             k = np.searchsorted(rp, rows)
@@ -212,7 +222,11 @@ def example(st, cfg, rng, g, x, ctx, hidden, truth):
     if cfg.blind:                                     # control: nothing of the query is shown
         msa[0] = PAD
         present[0] = False
+        if site is not None:
+            site[0] = 0
     out.update(msa=msa, present=present)
+    if site is not None:
+        out.update(site=site)
     return out
 
 
@@ -345,15 +359,15 @@ def mlp(i, h, o):
 class Relate(nn.Module):
     """Relation between every two rows of a gene's alignment (row 0 is the gene itself): [B, G, R1, R1, k]."""
 
-    def __init__(self, mode, k, profile, K=12, db=4):
+    def __init__(self, mode, k, profile, K=12, db=4, site_dim=48):
         super().__init__()
         self.mode, self.k, self.K, self.db, self.profile = mode, k, K, db, profile
         self.register_buffer("blosum", blosum21())
         if mode == "num":
             self.out = mlp(6, 64, k)
-        elif mode == "msa":
+        elif mode in ("msa", "plm"):
             self.emb = nn.Embedding(24, 24)
-            self.site = mlp(22 + 24, 64, 24)
+            self.site = mlp(22 + 24 + (site_dim if mode == "plm" else 0), 64, 24)
             self.tok = mlp(48, 64, 64)
             self.left, self.right = nn.Linear(64, K * db), nn.Linear(64, K * db)
             self.out = mlp(6 + 2 * K, 64, k)
@@ -374,7 +388,7 @@ class Relate(nn.Module):
         return torch.stack([match / c1, co / npos, bl / c1 / 4, eg / (co + eg).clamp(min=1), (co > 0).float(),
                             torch.log1p(co) / 6], -1)
 
-    def forward(self, msa):
+    def forward(self, msa, site=None):
         msa = msa.long()
         B, G, R1, P = msa.shape
         if self.mode == "none":
@@ -396,7 +410,8 @@ class Relate(nn.Module):
                 prof = oh.sum(2) / seen.sum(2).clamp(min=1).unsqueeze(-1)
             else:                                                    # gene-versus-member only: no view across members
                 prof = torch.zeros(B, G, P, 22, device=msa.device)
-            ctx = self.site(torch.cat([prof, e[:, :, 0]], -1))           # [B, G, P, 24]
+            parts = [prof, e[:, :, 0]] + ([site.float()] if self.mode == "plm" else [])
+            ctx = self.site(torch.cat(parts, -1))                    # [B, G, P, 24]
             u = self.tok(torch.cat([e, ctx.unsqueeze(2).expand(-1, -1, R1, -1, -1)], -1))
             m = seen.unsqueeze(-1)
             l = (self.left(u) * m).view(B * G, R1, P, self.K, self.db).permute(0, 3, 1, 2, 4).reshape(B * G, self.K, R1, P * self.db)
@@ -446,9 +461,9 @@ class ArrayNet(nn.Module):
         self.read = mlp(4 * d, 2 * d, d)
         self.out, self.ptr = nn.Linear(2 * d, 1), nn.Linear(d, 1)
 
-    def forward(self, msa, present):
+    def forward(self, msa, present, site=None):
         B, G, R1, P = msa.shape
-        rel = self.rel(msa)
+        rel = self.rel(msa, site)
         role = torch.zeros(G, dtype=torch.long, device=msa.device)
         role[1:] = 1
         x = torch.where(present.unsqueeze(-1), self.cell(rel[:, :, 0, 1:]), self.absent.expand(B, G, R1 - 1, -1))

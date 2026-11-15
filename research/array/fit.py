@@ -75,12 +75,12 @@ def run(model, loader, dev):
     logits, ptr_ok, keep = [], [], {}
     with torch.no_grad():
         for b in loader:
-            logit, ptr = model(b["msa"].to(dev), b["present"].to(dev))
+            logit, ptr = model(b["msa"].to(dev), b["present"].to(dev), b["site"].to(dev) if "site" in b else None)
             logits.append(logit.float().cpu().numpy())
             if "ptr" in b:
                 ptr_ok.append((ptr.float().masked_fill(~b["present"][:, 0].to(dev), -1e9).argmax(1).cpu() == b["ptr"]).numpy())
             for k in b:
-                if k not in ("msa", "present"):
+                if k not in ("msa", "present", "site"):
                     keep.setdefault(k, []).append(b[k].numpy())
     res = {k: np.concatenate(v) for k, v in keep.items()}
     res["logit"] = np.concatenate(logits)
@@ -124,7 +124,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", required=True); ap.add_argument("--names", nargs="+", required=True)
     ap.add_argument("--profiles", required=True); ap.add_argument("--library", required=True); ap.add_argument("--out", required=True)
-    ap.add_argument("--mode", default="num", choices=("none", "num", "msa")); ap.add_argument("--pairs", type=int, default=1)
+    ap.add_argument("--mode", default="num", choices=("none", "num", "msa", "plm")); ap.add_argument("--pairs", type=int, default=1)
     ap.add_argument("--comp", type=int, default=0); ap.add_argument("--blind", type=int, default=0)
     ap.add_argument("--steps", type=int, default=12000); ap.add_argument("--batch", type=int, default=24)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--workers", type=int, default=6)
@@ -139,7 +139,7 @@ def main():
     torch.manual_seed(a.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     bench = dict(x.split("=", 1) for x in a.bench)
-    st = Store(a.data, a.names + list(bench), a.profiles)
+    st = Store(a.data, a.names + list(bench), a.profiles, sites=a.mode == "plm")
     cfg = Cfg(blind=bool(a.blind))
     sp = splits(st, a.library)
     enough = {g for g, genes in st.genes_of.items() if len(genes) > cfg.M + 1}
@@ -160,7 +160,7 @@ def main():
         best, t0, step, run_loss = -1.0, time.time(), 0, []
         model.train()
         for b in torch.utils.data.DataLoader(data, **kw):
-            logit, ptr = model(b["msa"].to(dev), b["present"].to(dev))
+            logit, ptr = model(b["msa"].to(dev), b["present"].to(dev), b["site"].to(dev) if "site" in b else None)
             y, tgt = b["label"].to(dev), b["ptr"].to(dev)
             loss = F.binary_cross_entropy_with_logits(logit.float(), y)
             has = tgt >= 0

@@ -135,8 +135,12 @@ def cmd_job(a):
                 H.add(f[ix["query"]], 0, qlen, p, float(f[ix["bits"]]), float(f[ix["pident"]]),
                       (int(f[ix["qend"]]) - int(f[ix["qstart"]]) + 1) / qlen, (abs(int(f[ix["tend"]]) - int(f[ix["tstart"]])) + 1) / tlen,
                       float(f[ix["evalue"]]), tlen)
+    from seeddrift.single import home_group
+    home_t, home_name = home_group(tax, summ["self_taxid"], summ.get("params", {}).get("home_rank", "auto"))
+    in_home = np.array([home_t in tax.lineage(int(t)) for t in lib["taxid"]])
+    print("home group of the pipeline: %s (%d library proteomes)" % (home_name, in_home.sum()), file=sys.stderr)
     H.save(a.out, genome_ranks=np.array(lineage_row(tax, summ["self_taxid"]), dtype=np.int64), self_taxid=np.int64(summ["self_taxid"]),
-           limit=np.int64(a.limit if a.deep_hits else 100))   # the pipeline's own search keeps 100 targets
+           home_member=in_home, limit=np.int64(a.limit if a.deep_hits else 100))   # the pipeline's own search keeps 100 targets
 
 
 def main():

@@ -260,6 +260,11 @@ def offpath(node, NID, P, s):
 
 
 def load_model(path, device):
+    """A trained checkpoint, or "untrained" for a randomly initialised model: the floor that the read-outs reach
+    from the structure of the tokens alone (which lineages the hits come from), with nothing learned."""
+    if path == "untrained":
+        torch.manual_seed(0)
+        return PlaceNet().to(device).eval()
     ck = torch.load(path, map_location=device, weights_only=False)
     m = PlaceNet(**ck["cfg"]).to(device)
     m.load_state_dict(ck["state"])

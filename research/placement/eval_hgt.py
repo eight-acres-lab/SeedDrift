@@ -25,7 +25,7 @@ import fusion_probe as fp  # noqa: E402
 from seeddrift.pipeline import get_taxonomy  # noqa: E402
 
 PLACE = ["disc", "node", "p1", "p2", "top", "mean5"]
-TOKEN_RULES = ["ai_near", "hidx_near", "lca_adapt"]      # rule baselines computed by score.py on the model's tokens
+TOKEN_RULES = ["ai_pipe", "hidx_pipe", "ai_tok", "hidx_tok", "lca_tok", "ai_near", "hidx_near", "lca_adapt"]   # rules computed by score.py on the model's tokens
 
 
 def main():
@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--config", default="bench/benchmark.json")
     ap.add_argument("--label", default="broad")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--extra", nargs="*", default=[], help="name=DIR: disc and node of other models (ablations, untrained) from their score files")
     a = ap.parse_args()
     runs = json.load(open(a.results))
     tax = get_taxonomy()
@@ -57,11 +58,22 @@ def main():
             scores["place_" + k] = np.array([float(sc[r["gene"]][k]) if r["gene"] in sc else -1e9 for r in rows])
         for k in TOKEN_RULES:
             scores["rule_" + k] = np.array([float(sc[r["gene"]][k]) if r["gene"] in sc else -1e9 for r in rows])
+        # the Alien Index of the pipeline for every gene that has one, without the cut that turns uncalled genes into ties;
+        # and the token Alien Index with its ties (E-value floor) broken by the bit-score difference
+        scores["ai_all"] = np.array([r["f"]["AI"] if fp.has_evidence(r) else -1e9 for r in rows])
+        scores["rule_ai_pipe_tb"] = scores["rule_ai_pipe"] + 1e-3 * np.where(scores["rule_hidx_pipe"] > -1e8, scores["rule_hidx_pipe"], 0.0)
+        extra = []
+        for spec in a.extra:
+            name, d = spec.split("=", 1)
+            sx = {r["gene_id"]: r for r in csv.DictReader(open(os.path.join(d, "scores_%s.tsv" % test)), delimiter="\t")}
+            for k in ("disc", "node"):
+                scores["%s_%s" % (name, k)] = np.array([float(sx[r["gene"]][k]) if r["gene"] in sx else -1e9 for r in rows])
+                extra.append("%s_%s" % (name, k))
         r = fp.evaluate(rows, scores)
         y = np.array([x["y"] for x in rows])
         div = np.array([x["div"] for x in rows])
         k_high = r["high_tier_fp"]
-        for k in ("place_disc", "place_node", "rule_ai_near"):
+        for k in ("place_disc", "place_node", "rule_ai_tok", "rule_ai_near"):
             thr = fp.recall_at_fp(scores[k], y, k_high)[1]
             r["by_divergence"][k] = {d: round(float(np.mean(scores[k][(y == 1) & (div == d)] > thr)), 3)
                                      for d in sorted(set(div[y == 1]), key=float)}
@@ -77,7 +89,7 @@ def main():
         res[test] = r
         print("\n### %s  (%d positives, %d core, %d negatives; high tier: recall %.3f with %d false positives)" % (
             test, r["n_pos"], r["n_core"], r["n_neg"], r["high_tier_recall"], r["high_tier_fp"]))
-        cols = ["ai", "rules", "gbm_hits"] + ["rule_" + k for k in TOKEN_RULES] + ["place_" + k for k in PLACE]
+        cols = ["ai", "ai_all", "rules", "gbm_hits", "rule_ai_pipe_tb"] + ["rule_" + k for k in TOKEN_RULES] + ["place_" + k for k in PLACE] + extra
         print("\n".join(fp.table(r, cols)))
         print("\n".join(fp.core_table(r, cols)))
         for k, v in r["by_divergence"].items():
@@ -85,7 +97,7 @@ def main():
         e = r["exact_only"]
         print("- genes with an exact token set (plus genes without hits): %d positives, %d negatives; AP vs all / recall at high-tier FP: %s" % (
             e["n_pos"], e["n_neg"], ", ".join("%s %.3f / %.3f" % (k, e["scores"][k]["ap_all"], e["scores"][k]["recall_at_high_fp"])
-                                              for k in ("ai", "rules", "gbm_hits", "rule_ai_near", "place_disc", "place_node"))))
+                                              for k in ("ai", "rules", "gbm_hits", "rule_ai_tok", "rule_ai_near", "place_disc", "place_node"))))
     json.dump(res, open(a.out, "w"), indent=1)
 
 

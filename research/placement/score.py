@@ -22,7 +22,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from placenet import COLS, Library, Runner, discordance, load_model, make_example, offpath, pack  # noqa: E402
-from trials import rule_scores  # noqa: E402
+from trials import LN10, rule_scores  # noqa: E402
 
 
 def main():
@@ -65,21 +65,33 @@ def main():
     r = discordance(prob, P, s_tax)
     r["node"] = offpath(node, NID, P, s_tax)
     best = r["exc"].argmax(1)
-    # rule baselines on the same tokens (trials.py): home = the nearest group of the genome that the library still samples
+    # rule baselines on the same tokens. *_tok: home = hits sharing the phylum with the genome (trials.py);
+    # *_near: home = the nearest group of the genome that the library still samples; *_pipe: the home group the
+    # pipeline itself uses for this genome (phylum for prokaryotes, the supergroup for protists), so that a gain
+    # of the model over the pipeline is not just the deeper, stratified retrieval
     near = int(g_rel[~hidden].max())
+    member = z["home_member"]                              # library proteomes inside the pipeline's home group
     rules = []
     for f, tp in ex:
         top = f[:, 1] >= 0.9
         sub = lib.S[np.ix_(tp[top], tp[top])].astype(int)
         clade = int(sub[~np.eye(len(sub), dtype=bool)].min()) if len(sub) > 1 else 6
-        rules.append(rule_scores(f, g_rel[tp].astype(int), near, top, clade))
+        r1 = rule_scores(f, g_rel[tp].astype(int), near, top, clade)
+        # the pipeline's own Alien Index on these tokens: its home group, hits covering at least 40% of the query
+        ok = f[:, 3] >= 0.4
+        home, away = ok & member[tp], ok & ~member[tp]
+        loge, bres = f[:, 5].astype(np.float64) * 200.0, f[:, 0].astype(np.float64)
+        r1["ai_pipe"] = LN10 * ((loge[away].max() if away.any() else 0.0) - (loge[home].max() if home.any() else 0.0)) if ok.any() else -1e9
+        r1["hidx_pipe"] = ((bres[away].max() if away.any() else 0.0) - (bres[home].max() if home.any() else 0.0)) if ok.any() else -1e9
+        rules.append(r1)
     with open(a.out, "w") as fo:
-        fo.write("gene_id\tn_hits\texact\tdisc\tnode\tp1\tp2\ttop\tmean5\tai_near\thidx_near\tlca_adapt\tdonor_taxid\tdonor_pred_depth\tdonor_genome_depth\n")
+        fo.write("gene_id\tn_hits\texact\tdisc\tnode\tp1\tp2\ttop\tmean5\tai_tok\thidx_tok\tlca_tok\tai_near\thidx_near\tlca_adapt\tai_pipe\thidx_pipe\tdonor_taxid\tdonor_pred_depth\tdonor_genome_depth\n")
         for g, q in enumerate(genes):
             b = best[g]
-            fo.write("%s\t%d\t%d\t%.3f\t%.3f\t%.4f\t%.4f\t%.3f\t%.3f\t%.2f\t%.4f\t%.1f\t%d\t%.2f\t%d\n" % (
+            fo.write("%s\t%d\t%d\t%.3f\t%.3f\t%.4f\t%.4f\t%.3f\t%.3f\t%.2f\t%.4f\t%.1f\t%.2f\t%.4f\t%.1f\t%.2f\t%.4f\t%d\t%.2f\t%d\n" % (
                 q_id[q], int((~pad[g]).sum()), exact[g], r["disc"][g], r["node"][g], r["p1"][g], r["p2"][g], r["top"][g], r["mean5"][g],
-                rules[g]["ai_near"], rules[g]["hidx_near"], rules[g]["lca_adapt"], lib.taxid[Pc[g, b]], r["ev"][g, b], int(s_tax[g, b])))
+                rules[g]["ai"], rules[g]["hidx"], rules[g]["lca"], rules[g]["ai_near"], rules[g]["hidx_near"], rules[g]["lca_adapt"],
+                rules[g]["ai_pipe"], rules[g]["hidx_pipe"], lib.taxid[Pc[g, b]], r["ev"][g, b], int(s_tax[g, b])))
     print("genes scored %d of %d (%d with an exact token set); library proteomes hidden %d; stored list limit %d; "
           "nearest group of the genome still in the library: depth %d" % (len(genes), len(q_id), sum(exact), int(hidden.sum()), limit, near), file=sys.stderr)
 

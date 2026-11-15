@@ -13,16 +13,21 @@ Scores (higher = more foreign), G = the genome the trial is scored against, s_i 
   p1, p2, top, mean5   other read-outs of the per-hit output
   ai, hidx   Alien Index / bits-per-residue difference, home = hits sharing the phylum with G (registered; as the pipeline does)
   lca        LCA of the hits within 10% of the best bit score: depth of that clade minus the depth G shares with it (registered)
-  *_adapt    home = the nearest group of G that the library still samples, at most the phylum      (exploratory)
-  *_near     the same without the phylum cap: home can be as narrow as G's order or family          (exploratory)
+  *_adapt    home = the phylum; when no member of the phylum is left, the widest group still sampled (exploratory)
+  *_near     home = the nearest group of G that the library still samples: can be as narrow as a family (exploratory)
   lca_adapt  the LCA rule with the clade depth capped at the nearest group of G still sampled       (exploratory)
 
 Statistics per stratum:
   auroc      foreign trials of the stratum against clean native trials (marker proteins)
-  recall     share of the foreign trials above the score that 1% of those natives exceed (ties count against;
-             the realised false-positive rate is stored)
-  paired     over the token sets of marker proteins in the stratum: share in which the foreign trial scores
-             above the native trial of the SAME tokens (ties half). Nothing but the reference genome differs.
+  recall     share of the foreign trials above the score that 5% (and 1%) of those natives exceed. Ties count
+             against the score, so a score with many natives tied at its maximum is read at a lower realised
+             false-positive rate, which is stored next to the recall.
+Clean natives: one native trial per marker protein and hold-out level (the first decoy only; the others repeat
+the same protein). The number of distinct proteins is reported: it limits how strict a threshold can be read.
+A "paired" statistic (foreign above native on the same tokens) was reported at first and dropped: for any model
+output, lowering the depths the genome shares with the tokens can only raise these scores, so it measured the
+swap of the genome, not the model. An untrained model (--models untrained=untrained) gives the floor that the
+read-outs reach from the structure of the tokens alone.
 
 usage (needs torch):
   python research/placement/trials.py --library L.npz --data train_a.npz --markers markers.txt \
@@ -83,17 +88,15 @@ def rule_scores(f, s, near, top, clade):
     return out
 
 
-def stats(scores, pos_sel, neg_sel, mk):
+def stats(scores, pos_sel, neg_sel, mk, qid):
     out = {}
-    pair = pos_sel & mk
     for k, v in scores.items():
         pos, neg = v["for"][pos_sel], v["nat"][neg_sel]
         r1, f1 = recall_at(pos, neg, 0.01)
-        d = v["for"][pair] - v["nat"][pair]
-        out[k] = dict(auroc=auroc(pos, neg), recall_fpr1=r1, realised_fpr1=f1, recall_fpr5=recall_at(pos, neg, 0.05)[0],
-                      paired=float(np.mean(d > 0) + 0.5 * np.mean(d == 0)) if len(d) else None,
-                      auroc_marker_positives=auroc(v["for"][pair], neg))
-    return dict(n_foreign=int(pos_sel.sum()), n_clean_native=int(neg_sel.sum()), n_pairs=int(pair.sum()), scores=out)
+        r5, f5 = recall_at(pos, neg, 0.05)
+        out[k] = dict(auroc=auroc(pos, neg), recall_fpr5=r5, realised_fpr5=f5, recall_fpr1=r1, realised_fpr1=f1,
+                      auroc_marker_positives=auroc(v["for"][pos_sel & mk], neg))
+    return dict(n_foreign=int(pos_sel.sum()), n_clean_native=int(neg_sel.sum()), n_native_proteins=len(set(qid[neg_sel])), scores=out)
 
 
 def main():
@@ -118,12 +121,14 @@ def main():
     markers = set(open(a.markers).read().split())
     limit = stored_limit(a.data, a.list_limit)
     by_depth = {}                                           # decoy candidates per proteome, by shared depth
-    ex, meta, n_q = [], [], {2: 0, 3: 0}
+    ex, meta, n_q, q_no = [], [], {2: 0, 3: 0}, 0
     for name, A, hp, d, qlen in queries(a.data, lib):
         sp = int(split[A])
         if sp not in (2, 3) or (a.max_queries and n_q[sp] >= a.max_queries):
             continue
         n_q[sp] += 1
+        q_no += 1
+        seen = set()
         relA = lib.S[A]
         if A not in by_depth:
             by_depth[A] = [np.flatnonzero(relA == t) for t in (0, 1, 2)]
@@ -141,7 +146,9 @@ def main():
                 f, tp = e
                 sA, sB = relA[tp].astype(int), relB[tp].astype(int)
                 left = ~hidden
-                row = dict(split=sp, A=A, B=B, level=m, decoy_depth=t, oracle=int((sA - sB).max()), marker=name in markers)
+                row = dict(split=sp, A=A, B=B, level=m, decoy_depth=t, oracle=int((sA - sB).max()), marker=name in markers,
+                           q=q_no, first=m not in seen)        # first: the one native trial kept per protein and level
+                seen.add(m)
                 top = f[:, 1] >= 0.9                          # hits within 10% of the best bit score
                 sub = lib.S[np.ix_(tp[top], tp[top])].astype(int)
                 clade = int(sub[~np.eye(len(sub), dtype=bool)].min()) if len(sub) > 1 else 6
@@ -167,16 +174,16 @@ def main():
         scores[k] = {g: np.array([x[g][k] for x in meta]) for g in ("nat", "for")}
     sp = np.array([x["split"] for x in meta]); lv = np.array([x["level"] for x in meta]); dd = np.array([x["decoy_depth"] for x in meta])
     oracle = np.array([x["oracle"] for x in meta]); mk = np.array([x["marker"] for x in meta])
-    first = a.models[0].split("=", 1)[0]
-    primary = first + ".disc"
-    others = [k for k in scores if k.endswith(".disc") and k != primary]
-    shown = [primary, first + ".node"] + others + RULES
+    qid = np.array([x["q"] for x in meta]); first_trial = np.array([x["first"] for x in meta])
+    names = [m.split("=", 1)[0] for m in a.models]
+    primary = names[0] + ".disc"
+    shown = [k for n in names for k in (n + ".disc", n + ".node")] + RULES
     out = dict(n_token_sets=len(meta), primary=primary, markers_file=a.markers, n_marker_ids=len(markers),
-               registered=[primary] + others + ["ai", "hidx", "lca"], splits={})
+               registered=[n + ".disc" for n in names] + ["ai", "hidx", "lca"], splits={})
     rnd = np.random.default_rng(0)
     for s, sname in ((2, "unseen_class"), (3, "bench_lineage")):
         in_s = sp == s
-        det, clean = in_s & (oracle >= 1), in_s & mk
+        det, clean = in_s & (oracle >= 1), in_s & mk & first_trial
         strata = [("all levels, oracle >= 1", det, clean)] + \
                  [("oracle = %d" % o, in_s & (oracle == o), clean) for o in (1, 2, 3)] + \
                  [("oracle >= 4", in_s & (oracle >= 4), clean), ("oracle <= 0: no signal in principle (null)", in_s & (oracle <= 0), clean)] + \
@@ -185,38 +192,40 @@ def main():
         if s == 3:
             strata += [("%s lineage, oracle >= 1, its own natives" % n, det & (lineage[A_ix] == n), clean & (lineage[A_ix] == n)) for n in BENCH]
         res = dict(n_token_sets=int(in_s.sum()), n_source_proteomes=len(set(A_ix[in_s])), n_marker_proteomes=len(set(A_ix[clean])),
-                   strata={label: stats(scores, p, n, mk) for label, p, n in strata})
+                   n_native_proteins=len(set(qid[clean])), strata={label: stats(scores, p, n, mk, qid) for label, p, n in strata})
         if s == 2 and a.boot:
-            # cluster bootstrap over the held-out classes: primary minus every other score, on the detectable trials
+            # cluster bootstrap over the held-out classes, detectable trials: each model read-out of the first model minus every other score
             keys = class_key[A_ix]
             groups = np.unique(keys[in_s])
             ip = {g: np.flatnonzero(det & (keys == g)) for g in groups}
             ineg = {g: np.flatnonzero(clean & (keys == g)) for g in groups}
-            diff = {k: dict(auroc=[], recall_fpr1=[]) for k in shown if k != primary}
+            refs = [primary, names[0] + ".node"]
+            diff = {ref: {k: dict(auroc=[], recall_fpr5=[]) for k in shown if k != ref} for ref in refs}
             for _ in range(a.boot):
                 pick = rnd.choice(groups, len(groups))
                 p, n = np.concatenate([ip[g] for g in pick]), np.concatenate([ineg[g] for g in pick])
                 if len(p) == 0 or len(n) == 0:
                     continue
-                base = (auroc(scores[primary]["for"][p], scores[primary]["nat"][n]), recall_at(scores[primary]["for"][p], scores[primary]["nat"][n], 0.01)[0])
-                for k in diff:
-                    diff[k]["auroc"].append(base[0] - auroc(scores[k]["for"][p], scores[k]["nat"][n]))
-                    diff[k]["recall_fpr1"].append(base[1] - recall_at(scores[k]["for"][p], scores[k]["nat"][n], 0.01)[0])
-            res["primary_minus_other_ci95"] = {k: {m: [round(float(x), 3) for x in np.percentile(v, [2.5, 97.5])] for m, v in d.items() if v}
-                                               for k, d in diff.items()}
+                val = {k: (auroc(scores[k]["for"][p], scores[k]["nat"][n]), recall_at(scores[k]["for"][p], scores[k]["nat"][n], 0.05)[0]) for k in shown}
+                for ref in refs:
+                    for k in diff[ref]:
+                        diff[ref][k]["auroc"].append(val[ref][0] - val[k][0])
+                        diff[ref][k]["recall_fpr5"].append(val[ref][1] - val[k][1])
+            res["minus_other_ci95"] = {ref: {k: {m: [round(float(x), 3) for x in np.percentile(v, [2.5, 97.5])] for m, v in d.items() if v}
+                                             for k, d in dd_.items()} for ref, dd_ in diff.items()}
             res["n_classes"] = int(len(groups))
         out["splits"][sname] = res
-        print("\n## %s: %d token sets, %d source proteomes (%d with marker proteins)" % (sname, res["n_token_sets"], res["n_source_proteomes"], res["n_marker_proteomes"]))
-        print("| stratum | foreign | clean natives | pairs | " + " | ".join(shown) + " |")
-        print("|---|---|---|---|" + "---|" * len(shown))
-        fmt = lambda x: "–" if x is None else "%.2f" % x  # noqa: E731
+        print("\n## %s: %d token sets, %d source proteomes; clean natives from %d marker proteins of %d proteomes" % (
+            sname, res["n_token_sets"], res["n_source_proteomes"], res["n_native_proteins"], res["n_marker_proteomes"]))
+        print("| stratum | foreign | clean natives (proteins) | " + " | ".join(shown) + " |")
+        print("|---|---|---|" + "---|" * len(shown))
+        fmt = lambda x, p="%.2f": "–" if x is None else p % x  # noqa: E731
         for label, row in res["strata"].items():
-            cells = ["%s / %s / %s" % ("–" if row["scores"][k]["auroc"] is None else "%.3f" % row["scores"][k]["auroc"],
-                                       fmt(row["scores"][k]["recall_fpr1"]), fmt(row["scores"][k]["paired"])) for k in shown]
-            print("| %s | %d | %d | %d | %s |" % (label, row["n_foreign"], row["n_clean_native"], row["n_pairs"], " | ".join(cells)))
-        print("cells: AUROC against clean natives / recall at 1% false positives / share of identical token sets in which the foreign trial scores higher.")
-        if "primary_minus_other_ci95" in res:
-            print("%s minus other, 95%% interval over %d held-out classes: %s" % (primary, res["n_classes"], json.dumps(res["primary_minus_other_ci95"])))
+            cells = ["%s / %s" % (fmt(row["scores"][k]["auroc"], "%.3f"), fmt(row["scores"][k]["recall_fpr5"])) for k in shown]
+            print("| %s | %d | %d (%d) | %s |" % (label, row["n_foreign"], row["n_clean_native"], row["n_native_proteins"], " | ".join(cells)))
+        print("cells: AUROC against clean natives / recall at 5% false positives.")
+        if "minus_other_ci95" in res:
+            print("95%% intervals over %d held-out classes: %s" % (res["n_classes"], json.dumps(res["minus_other_ci95"])))
     json.dump(out, open(a.out, "w"), indent=1)
 
 

@@ -9,14 +9,15 @@ import webbrowser
 from .config import HOME
 
 
-def serve(port=8700, api="http://localhost:8600"):
+def serve(port=8700, api="http://localhost:8600", open_browser=True):
     web = os.path.join(HOME, "web")
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=web)
     with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
         url = "http://localhost:%d/" % port
         print("SeedDrift web page: %s   (API: %s; change it at the top of the page)" % (url, api))
-        try:
-            webbrowser.open(url)
-        except Exception:                      # noqa: BLE001 - headless machines
-            pass
+        if open_browser:
+            try:
+                webbrowser.open(url)
+            except Exception:                  # noqa: BLE001 - headless machines
+                pass
         httpd.serve_forever()

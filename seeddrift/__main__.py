@@ -152,6 +152,7 @@ def main(argv=None):
     w = sub.add_parser("web", help="serve the web page locally (static files; the API address is set in the page)")
     w.add_argument("--port", type=int, default=8700)
     w.add_argument("--api", default="http://localhost:8600", help="API address the page starts with")
+    w.add_argument("--no-open", action="store_true", help="do not open a browser")
 
     d = sub.add_parser("data", help="the data store: status / fetch / build / link (see data/references.yaml)")
     d.add_argument("action", choices=["status", "fetch", "build", "link"])
@@ -179,7 +180,7 @@ def main(argv=None):
         return
     if a.cmd == "web":
         from .webserve import serve
-        serve(a.port, a.api)
+        serve(a.port, a.api, not a.no_open)
         return
     if a.cmd == "data":
         from . import data

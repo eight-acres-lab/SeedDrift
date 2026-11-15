@@ -1,0 +1,5028 @@
+{
+ "spike_ecoli": {
+  "n_pos": 635,
+  "n_core": 60,
+  "n_neg": 4313,
+  "high_tier_fp": 7,
+  "high_tier_recall": 0.559,
+  "high_or_medium_fp": 23,
+  "high_or_medium_recall": 0.654,
+  "scores": {
+   "ai": {
+    "ap_core": 0.979,
+    "ap_all": 0.763,
+    "recall_at_high_fp": 0.405,
+    "recall_at_high_or_medium_fp": 0.564,
+    "recall_at_1pct_fp": 0.701
+   },
+   "rules": {
+    "ap_core": 0.979,
+    "ap_all": 0.772,
+    "recall_at_high_fp": 0.583,
+    "recall_at_high_or_medium_fp": 0.654,
+    "recall_at_1pct_fp": 0.654
+   },
+   "gbm_hits": {
+    "ap_core": 0.983,
+    "ap_all": 0.776,
+    "recall_at_high_fp": 0.323,
+    "recall_at_high_or_medium_fp": 0.561,
+    "recall_at_1pct_fp": 0.672,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.008,
+      0.019
+     ],
+     "recall_at_high_fp": [
+      -0.368,
+      -0.1
+     ]
+    }
+   },
+   "place_disc": {
+    "ap_core": 0.982,
+    "ap_all": 0.675,
+    "recall_at_high_fp": 0.087,
+    "recall_at_high_or_medium_fp": 0.209,
+    "recall_at_1pct_fp": 0.405,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.132,
+      -0.069
+     ],
+     "recall_at_high_fp": [
+      -0.576,
+      -0.398
+     ]
+    }
+   },
+   "place_node": {
+    "ap_core": 0.983,
+    "ap_all": 0.788,
+    "recall_at_high_fp": 0.394,
+    "recall_at_high_or_medium_fp": 0.562,
+    "recall_at_1pct_fp": 0.672,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.005,
+      0.033
+     ],
+     "recall_at_high_fp": [
+      -0.269,
+      -0.055
+     ]
+    }
+   },
+   "place_p1": {
+    "ap_core": 0.982,
+    "ap_all": 0.707,
+    "recall_at_high_fp": 0.29,
+    "recall_at_high_or_medium_fp": 0.372,
+    "recall_at_1pct_fp": 0.391,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.091,
+      -0.043
+     ],
+     "recall_at_high_fp": [
+      -0.369,
+      -0.175
+     ]
+    }
+   },
+   "place_p2": {
+    "ap_core": 0.982,
+    "ap_all": 0.693,
+    "recall_at_high_fp": 0.246,
+    "recall_at_high_or_medium_fp": 0.296,
+    "recall_at_1pct_fp": 0.356,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.108,
+      -0.055
+     ],
+     "recall_at_high_fp": [
+      -0.431,
+      -0.249
+     ]
+    }
+   },
+   "place_top": {
+    "ap_core": 0.982,
+    "ap_all": 0.703,
+    "recall_at_high_fp": 0.028,
+    "recall_at_high_or_medium_fp": 0.331,
+    "recall_at_1pct_fp": 0.521,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.108,
+      -0.036
+     ],
+     "recall_at_high_fp": [
+      -0.628,
+      -0.438
+     ]
+    }
+   },
+   "place_mean5": {
+    "ap_core": 0.982,
+    "ap_all": 0.779,
+    "recall_at_high_fp": 0.356,
+    "recall_at_high_or_medium_fp": 0.688,
+    "recall_at_1pct_fp": 0.754,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.019,
+      0.027
+     ],
+     "recall_at_high_fp": [
+      -0.388,
+      -0.105
+     ]
+    }
+   },
+   "rule_ai_near": {
+    "ap_core": 0.983,
+    "ap_all": 0.73,
+    "recall_at_high_fp": 0.143,
+    "recall_at_high_or_medium_fp": 0.342,
+    "recall_at_1pct_fp": 0.474,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.071,
+      -0.015
+     ],
+     "recall_at_high_fp": [
+      -0.59,
+      -0.313
+     ]
+    }
+   },
+   "rule_hidx_near": {
+    "ap_core": 0.983,
+    "ap_all": 0.707,
+    "recall_at_high_fp": 0.128,
+    "recall_at_high_or_medium_fp": 0.211,
+    "recall_at_1pct_fp": 0.348,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.094,
+      -0.036
+     ],
+     "recall_at_high_fp": [
+      -0.54,
+      -0.341
+     ]
+    }
+   },
+   "rule_lca_adapt": {
+    "ap_core": 0.98,
+    "ap_all": 0.679,
+    "recall_at_high_fp": 0.0,
+    "recall_at_high_or_medium_fp": 0.0,
+    "recall_at_1pct_fp": 0.0,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.125,
+      -0.063
+     ],
+     "recall_at_high_fp": [
+      -0.654,
+      -0.476
+     ]
+    }
+   }
+  },
+  "by_divergence": {
+   "rules": {
+    "0.0": 0.799,
+    "0.3": 0.711,
+    "0.5": 0.553,
+    "0.7": 0.266
+   },
+   "gbm_hits": {
+    "0.0": 0.597,
+    "0.3": 0.352,
+    "0.5": 0.264,
+    "0.7": 0.076
+   },
+   "place_disc": {
+    "0.0": 0.17,
+    "0.3": 0.088,
+    "0.5": 0.088,
+    "0.7": 0.0
+   },
+   "place_node": {
+    "0.0": 0.66,
+    "0.3": 0.459,
+    "0.5": 0.333,
+    "0.7": 0.12
+   },
+   "rule_ai_near": {
+    "0.0": 0.371,
+    "0.3": 0.164,
+    "0.5": 0.038,
+    "0.7": 0.0
+   }
+  },
+  "core_matched": {
+   "high": {
+    "core_fp": 0,
+    "tier_recall": 0.559,
+    "recall": {
+     "ai": 0.761,
+     "rules": 0.761,
+     "gbm_hits": 0.794,
+     "place_disc": 0.688,
+     "place_node": 0.789,
+     "place_p1": 0.704,
+     "place_p2": 0.682,
+     "place_top": 0.794,
+     "place_mean5": 0.773,
+     "rule_ai_near": 0.802,
+     "rule_hidx_near": 0.802,
+     "rule_lca_adapt": 0.775
+    }
+   },
+   "high_or_medium": {
+    "core_fp": 0,
+    "tier_recall": 0.654,
+    "recall": {
+     "ai": 0.761,
+     "rules": 0.761,
+     "gbm_hits": 0.794,
+     "place_disc": 0.688,
+     "place_node": 0.789,
+     "place_p1": 0.704,
+     "place_p2": 0.682,
+     "place_top": 0.794,
+     "place_mean5": 0.773,
+     "rule_ai_near": 0.802,
+     "rule_hidx_near": 0.802,
+     "rule_lca_adapt": 0.775
+    }
+   },
+   "any_call": {
+    "core_fp": 0,
+    "tier_recall": 0.761,
+    "recall": {
+     "ai": 0.761,
+     "rules": 0.761,
+     "gbm_hits": 0.794,
+     "place_disc": 0.688,
+     "place_node": 0.789,
+     "place_p1": 0.704,
+     "place_p2": 0.682,
+     "place_top": 0.794,
+     "place_mean5": 0.773,
+     "rule_ai_near": 0.802,
+     "rule_hidx_near": 0.802,
+     "rule_lca_adapt": 0.775
+    }
+   }
+  },
+  "scored_by_placement": {
+   "positives": 509,
+   "negatives": 4220
+  },
+  "exact_only": {
+   "n_pos": 593,
+   "n_neg": 4106,
+   "high_tier_fp": 7,
+   "high_tier_recall": 0.536,
+   "scores": {
+    "ai": {
+     "ap_core": 0.983,
+     "ap_all": 0.744,
+     "recall_at_high_fp": 0.371,
+     "recall_at_1pct_fp": 0.68
+    },
+    "rules": {
+     "ap_core": 0.983,
+     "ap_all": 0.755,
+     "recall_at_high_fp": 0.555,
+     "recall_at_1pct_fp": 0.631
+    },
+    "gbm_hits": {
+     "ap_core": 0.986,
+     "ap_all": 0.759,
+     "recall_at_high_fp": 0.307,
+     "recall_at_1pct_fp": 0.653
+    },
+    "place_disc": {
+     "ap_core": 0.985,
+     "ap_all": 0.652,
+     "recall_at_high_fp": 0.088,
+     "recall_at_1pct_fp": 0.378
+    },
+    "place_node": {
+     "ap_core": 0.986,
+     "ap_all": 0.769,
+     "recall_at_high_fp": 0.354,
+     "recall_at_1pct_fp": 0.642
+    },
+    "place_p1": {
+     "ap_core": 0.985,
+     "ap_all": 0.677,
+     "recall_at_high_fp": 0.245,
+     "recall_at_1pct_fp": 0.347
+    },
+    "place_p2": {
+     "ap_core": 0.986,
+     "ap_all": 0.664,
+     "recall_at_high_fp": 0.209,
+     "recall_at_1pct_fp": 0.314
+    },
+    "place_top": {
+     "ap_core": 0.986,
+     "ap_all": 0.68,
+     "recall_at_high_fp": 0.024,
+     "recall_at_1pct_fp": 0.482
+    },
+    "place_mean5": {
+     "ap_core": 0.985,
+     "ap_all": 0.761,
+     "recall_at_high_fp": 0.334,
+     "recall_at_1pct_fp": 0.73
+    },
+    "rule_ai_near": {
+     "ap_core": 0.986,
+     "ap_all": 0.705,
+     "recall_at_high_fp": 0.118,
+     "recall_at_1pct_fp": 0.432
+    },
+    "rule_hidx_near": {
+     "ap_core": 0.986,
+     "ap_all": 0.683,
+     "recall_at_high_fp": 0.113,
+     "recall_at_1pct_fp": 0.325
+    },
+    "rule_lca_adapt": {
+     "ap_core": 0.984,
+     "ap_all": 0.662,
+     "recall_at_high_fp": 0.0,
+     "recall_at_1pct_fp": 0.0
+    }
+   }
+  },
+  "top_negatives": {
+   "rules": [
+    {
+     "gene": "P76072",
+     "kind": "other",
+     "name": "Prophage side tail fiber protein homolog StfR",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 30460.5,
+     "positives_above": 44
+    },
+    {
+     "gene": "P76220",
+     "kind": "other",
+     "name": "Uncharacterized protein YdjY",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 173.2,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Peptostreptococcus equinus",
+     "score": 30173.2,
+     "positives_above": 195
+    },
+    {
+     "gene": "P64435",
+     "kind": "other",
+     "name": "Uncharacterized protein YbcW",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 90.8,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Andreesenia angusta",
+     "score": 30090.8,
+     "positives_above": 276
+    },
+    {
+     "gene": "P78285",
+     "kind": "other",
+     "name": "Lysozyme RrrD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 73.4,
+     "gap": 24.1,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 30073.4,
+     "positives_above": 299
+    },
+    {
+     "gene": "Q47274",
+     "kind": "other",
+     "name": "Prophage antitermination protein Q homolog QuuD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 64.3,
+     "gap": 24.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 30064.3,
+     "positives_above": 317
+    },
+    {
+     "gene": "P75718",
+     "kind": "other",
+     "name": "Putative protein RenD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 56.5,
+     "gap": 43.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 30056.5,
+     "positives_above": 331
+    },
+    {
+     "gene": "P77330",
+     "kind": "other",
+     "name": "Prophage lipoprotein Bor homolog",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 45.3,
+     "gap": 27.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage Stx2 II",
+     "score": 30045.3,
+     "positives_above": 354
+    },
+    {
+     "gene": "P76510",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdN",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 209.6,
+     "gap": 62.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 20209.6,
+     "positives_above": 370
+    },
+    {
+     "gene": "P76515",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdS",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 151.7,
+     "gap": 46.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 20151.7,
+     "positives_above": 377
+    },
+    {
+     "gene": "P31468",
+     "kind": "other",
+     "name": "Inner membrane protein CbrB",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 81.7,
+     "gap": 58.0,
+     "donor_group": "Bacillota",
+     "best_taxon": "Alkalicoccobacillus porphyridii",
+     "score": 20081.7,
+     "positives_above": 395
+    },
+    {
+     "gene": "Q46901",
+     "kind": "other",
+     "name": "CRISPR system Cascade subunit CasA",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 67.4,
+     "gap": 5.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Hydrosulfovibrio ferrireducens",
+     "score": 20067.4,
+     "positives_above": 399
+    },
+    {
+     "gene": "P76512",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdP",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 66.8,
+     "gap": 31.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Stx2-converting phage Stx2a_WGPS2",
+     "score": 20066.8,
+     "positives_above": 399
+    },
+    {
+     "gene": "P58041",
+     "kind": "other",
+     "name": "Prophage outer membrane lipoprotein RzoD",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 60.4,
+     "gap": 48.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 20060.4,
+     "positives_above": 399
+    },
+    {
+     "gene": "P58042",
+     "kind": "other",
+     "name": "Prophage outer membrane lipoprotein RzoR",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 55.5,
+     "gap": 47.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 20055.5,
+     "positives_above": 403
+    },
+    {
+     "gene": "Q2EES0",
+     "kind": "other",
+     "name": "Uncharacterized protein YnfO",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 44.0,
+     "gap": 17.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 20044.0,
+     "positives_above": 408
+    },
+    {
+     "gene": "P77528",
+     "kind": "other",
+     "name": "Putative protein PeaD",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 34.4,
+     "gap": 25.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 20034.4,
+     "positives_above": 413
+    },
+    {
+     "gene": "P0AG74",
+     "kind": "other",
+     "name": "Crossover junction endodeoxyribonuclease RusA",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 33.4,
+     "gap": 13.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 20033.4,
+     "positives_above": 414
+    },
+    {
+     "gene": "P31062",
+     "kind": "other",
+     "name": "DNA-packaging protein NU1 homolog",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 31.9,
+     "gap": 14.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 20031.9,
+     "positives_above": 414
+    },
+    {
+     "gene": "P31061",
+     "kind": "other",
+     "name": "Prophage DNA-packing protein NohA",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 30.9,
+     "gap": 14.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 20030.9,
+     "positives_above": 414
+    },
+    {
+     "gene": "Q47272",
+     "kind": "other",
+     "name": "Uncharacterized protein YlcG",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 29.9,
+     "gap": 31.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 20029.9,
+     "positives_above": 414
+    },
+    {
+     "gene": "A5A607",
+     "kind": "other",
+     "name": "Uncharacterized protein YlcI",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 28.5,
+     "gap": 11.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Tigheibacillus halophilus",
+     "score": 20028.5,
+     "positives_above": 415
+    },
+    {
+     "gene": "P76485",
+     "kind": "other",
+     "name": "Uncharacterized protein YfbO",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 26.8,
+     "gap": 5.8,
+     "donor_group": "Actinomycetota",
+     "best_taxon": "Leifsonia shinshuensis",
+     "score": 20026.8,
+     "positives_above": 415
+    },
+    {
+     "gene": "P75717",
+     "kind": "other",
+     "name": "Putative uncharacterized protein ExoD",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 16.1,
+     "gap": 12.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 20016.1,
+     "positives_above": 415
+    },
+    {
+     "gene": "P15032",
+     "kind": "other",
+     "name": "Exodeoxyribonuclease 8",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 260.9,
+     "gap": 26.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Shigella phage POCJ13",
+     "score": 10260.9,
+     "positives_above": 415
+    },
+    {
+     "gene": "P09169",
+     "kind": "other",
+     "name": "Protease 7",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 150.4,
+     "gap": 39.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 10150.4,
+     "positives_above": 415
+    }
+   ],
+   "rule_ai_near": [
+    {
+     "gene": "P0AEP9",
+     "kind": "other",
+     "name": "Glycolate oxidase subunit GlcD",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Ectopseudomonas toyotomiensis",
+     "score": 460.52,
+     "positives_above": 7
+    },
+    {
+     "gene": "P52074",
+     "kind": "other",
+     "name": "Glycolate oxidase iron-sulfur subunit",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Zestomonas carbonaria",
+     "score": 460.52,
+     "positives_above": 11
+    },
+    {
+     "gene": "P37330",
+     "kind": "other",
+     "name": "Malate synthase G",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Stutzerimonas kunmingensis",
+     "score": 460.52,
+     "positives_above": 33
+    },
+    {
+     "gene": "P0CK95",
+     "kind": "other",
+     "name": "Putative lipoprotein AcfD homolog",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Parasalinivibrio latis",
+     "score": 460.52,
+     "positives_above": 57
+    },
+    {
+     "gene": "P0CF91",
+     "kind": "other",
+     "name": "Putative transposase InsL for insertion sequence element IS1",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Tannerella forsythia 92A2",
+     "score": 448.79,
+     "positives_above": 71
+    },
+    {
+     "gene": "P0CF93",
+     "kind": "other",
+     "name": "Putative transposase InsL for insertion sequence element IS1",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Tannerella forsythia 92A2",
+     "score": 448.79,
+     "positives_above": 71
+    },
+    {
+     "gene": "P0CF92",
+     "kind": "other",
+     "name": "Putative transposase InsL for insertion sequence element IS1",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Tannerella forsythia 92A2",
+     "score": 448.79,
+     "positives_above": 71
+    },
+    {
+     "gene": "Q46901",
+     "kind": "other",
+     "name": "CRISPR system Cascade subunit CasA",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 67.4,
+     "gap": 5.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Hydrosulfovibrio ferrireducens",
+     "score": 388.61,
+     "positives_above": 91
+    },
+    {
+     "gene": "P52073",
+     "kind": "other",
+     "name": "Glycolate oxidase subunit GlcE",
+     "category": "native",
+     "confidence": "",
+     "AI": -385.0,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Zestomonas carbonaria",
+     "score": 384.96,
+     "positives_above": 92
+    },
+    {
+     "gene": "Q46899",
+     "kind": "other",
+     "name": "CRISPR system Cascade subunit CasC",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 20.8,
+     "gap": 3.5,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Geothermobacter hydrogeniphilus",
+     "score": 371.72,
+     "positives_above": 99
+    },
+    {
+     "gene": "Q57083",
+     "kind": "other",
+     "name": "HTH-type transcriptional regulator PerR",
+     "category": "native",
+     "confidence": "",
+     "AI": -261.9,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Erwinia typographi",
+     "score": 364.02,
+     "positives_above": 102
+    },
+    {
+     "gene": "P15005",
+     "kind": "other",
+     "name": "Type IV methyl-directed restriction enzyme EcoKMcrB subunit",
+     "category": "native",
+     "confidence": "",
+     "AI": -78.7,
+     "gap": 0.0,
+     "donor_group": "Bacillota",
+     "best_taxon": "Zhengella mangrovi",
+     "score": 353.09,
+     "positives_above": 105
+    },
+    {
+     "gene": "P39356",
+     "kind": "other",
+     "name": "Uncharacterized transcriptional regulator YjhU",
+     "category": "native",
+     "confidence": "",
+     "AI": -223.5,
+     "gap": 0.0,
+     "donor_group": "Bacillota",
+     "best_taxon": "Parasalinivibrio latis",
+     "score": 333.3,
+     "positives_above": 120
+    },
+    {
+     "gene": "P45508",
+     "kind": "other",
+     "name": "Probable autotransporter YfaL",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Enterobacterales, other genera",
+     "best_taxon": "Rahnella aceris",
+     "score": 322.58,
+     "positives_above": 122
+    },
+    {
+     "gene": "P0ACL5",
+     "kind": "other",
+     "name": "Glc operon transcriptional activator",
+     "category": "native",
+     "confidence": "",
+     "AI": -167.7,
+     "gap": 0.0,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Ectopseudomonas toyotomiensis",
+     "score": 269.38,
+     "positives_above": 149
+    },
+    {
+     "gene": "P37630",
+     "kind": "other",
+     "name": "Inner membrane protein YhiM",
+     "category": "native",
+     "confidence": "",
+     "AI": -16.5,
+     "gap": 0.0,
+     "donor_group": "Bacillota",
+     "best_taxon": "Laribacter hongkongensis HLHK9",
+     "score": 264.35,
+     "positives_above": 152
+    },
+    {
+     "gene": "P38036",
+     "kind": "other",
+     "name": "CRISPR-associated endonuclease/helicase Cas3",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Izhakiella australiensis",
+     "score": 262.24,
+     "positives_above": 153
+    },
+    {
+     "gene": "P37007",
+     "kind": "other",
+     "name": "Uncharacterized protein YagA",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 88.8,
+     "gap": 38.3,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Brevibacterium aurantiacum",
+     "score": 237.9,
+     "positives_above": 175
+    },
+    {
+     "gene": "P42640",
+     "kind": "other",
+     "name": "Putative transferase YhbX",
+     "category": "native",
+     "confidence": "",
+     "AI": -394.6,
+     "gap": 0.0,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Leminorella grimontii",
+     "score": 223.34,
+     "positives_above": 184
+    },
+    {
+     "gene": "P76510",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdN",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 209.6,
+     "gap": 62.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 209.55,
+     "positives_above": 195
+    },
+    {
+     "gene": "P77698",
+     "kind": "other",
+     "name": "Uncharacterized protein YbcK",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 69.9,
+     "gap": 46.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 208.69,
+     "positives_above": 195
+    },
+    {
+     "gene": "P30192",
+     "kind": "other",
+     "name": "Putative transposase InsZ",
+     "category": "native",
+     "confidence": "",
+     "AI": -97.9,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pleionea litopenaei",
+     "score": 197.88,
+     "positives_above": 205
+    },
+    {
+     "gene": "P39368",
+     "kind": "other",
+     "name": "Uncharacterized N-acetyltransferase YjhQ",
+     "category": "native",
+     "confidence": "",
+     "AI": -69.0,
+     "gap": 0.0,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Enterobacillus tribolii",
+     "score": 193.48,
+     "positives_above": 210
+    },
+    {
+     "gene": "P52129",
+     "kind": "other",
+     "name": "mRNA endoribonuclease toxin LS",
+     "category": "native",
+     "confidence": "",
+     "AI": -143.2,
+     "gap": 0.0,
+     "donor_group": "Bacillota",
+     "best_taxon": "Candidatus Nitrosoglobus terrae",
+     "score": 185.06,
+     "positives_above": 217
+    },
+    {
+     "gene": "Q46898",
+     "kind": "other",
+     "name": "CRISPR system Cascade subunit CasD",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 30.4,
+     "gap": 7.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Syntrophus gentianae",
+     "score": 181.99,
+     "positives_above": 218
+    }
+   ],
+   "place_disc": [
+    {
+     "gene": "Q2EES0",
+     "kind": "other",
+     "name": "Uncharacterized protein YnfO",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 44.0,
+     "gap": 17.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 4.873,
+     "positives_above": 12
+    },
+    {
+     "gene": "P78285",
+     "kind": "other",
+     "name": "Lysozyme RrrD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 73.4,
+     "gap": 24.1,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 4.871,
+     "positives_above": 13
+    },
+    {
+     "gene": "Q47272",
+     "kind": "other",
+     "name": "Uncharacterized protein YlcG",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 29.9,
+     "gap": 31.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 4.857,
+     "positives_above": 19
+    },
+    {
+     "gene": "Q47274",
+     "kind": "other",
+     "name": "Prophage antitermination protein Q homolog QuuD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 64.3,
+     "gap": 24.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 4.812,
+     "positives_above": 33
+    },
+    {
+     "gene": "P76072",
+     "kind": "other",
+     "name": "Prophage side tail fiber protein homolog StfR",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.804,
+     "positives_above": 37
+    },
+    {
+     "gene": "A5A607",
+     "kind": "other",
+     "name": "Uncharacterized protein YlcI",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 28.5,
+     "gap": 11.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Tigheibacillus halophilus",
+     "score": 4.719,
+     "positives_above": 52
+    },
+    {
+     "gene": "P75718",
+     "kind": "other",
+     "name": "Putative protein RenD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 56.5,
+     "gap": 43.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 4.698,
+     "positives_above": 53
+    },
+    {
+     "gene": "P76515",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdS",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 151.7,
+     "gap": 46.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.679,
+     "positives_above": 56
+    },
+    {
+     "gene": "P0AG74",
+     "kind": "other",
+     "name": "Crossover junction endodeoxyribonuclease RusA",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 33.4,
+     "gap": 13.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 4.666,
+     "positives_above": 56
+    },
+    {
+     "gene": "P31061",
+     "kind": "other",
+     "name": "Prophage DNA-packing protein NohA",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 30.9,
+     "gap": 14.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.653,
+     "positives_above": 57
+    },
+    {
+     "gene": "P77598",
+     "kind": "other",
+     "name": "Uncharacterized protein YbcV",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 134.6,
+     "gap": 54.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 4.569,
+     "positives_above": 60
+    },
+    {
+     "gene": "P31062",
+     "kind": "other",
+     "name": "DNA-packaging protein NU1 homolog",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 31.9,
+     "gap": 14.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.565,
+     "positives_above": 61
+    },
+    {
+     "gene": "P0A9R2",
+     "kind": "other",
+     "name": "Prophage lysis protein S homolog EssD",
+     "category": "native",
+     "confidence": "",
+     "AI": 12.0,
+     "gap": 11.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 4.557,
+     "positives_above": 62
+    },
+    {
+     "gene": "P21420",
+     "kind": "other",
+     "name": "Putative outer membrane porin protein NmpC",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 10.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 4.4,
+     "positives_above": 72
+    },
+    {
+     "gene": "P25738",
+     "kind": "other",
+     "name": "Acidic protein MsyB",
+     "category": "native",
+     "confidence": "",
+     "AI": -14.9,
+     "gap": 0.8,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Acrobeloides nanus",
+     "score": 4.326,
+     "positives_above": 77
+    },
+    {
+     "gene": "P03014",
+     "kind": "other",
+     "name": "Serine recombinase PinE",
+     "category": "native",
+     "confidence": "",
+     "AI": 4.0,
+     "gap": 1.6,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Salmonella phage SEN8",
+     "score": 4.313,
+     "positives_above": 78
+    },
+    {
+     "gene": "P76156",
+     "kind": "other",
+     "name": "Uncharacterized protein YdfO",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 83.4,
+     "gap": 35.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 4.232,
+     "positives_above": 84
+    },
+    {
+     "gene": "P77237",
+     "kind": "other",
+     "name": "Prophage lysis protein S homolog EssQ",
+     "category": "native",
+     "confidence": "",
+     "AI": 5.3,
+     "gap": 5.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.149,
+     "positives_above": 88
+    },
+    {
+     "gene": "P37057",
+     "kind": "other",
+     "name": "Prophage late control protein OgrK",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 15.8,
+     "gap": 11.1,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Peduovirus P24A7b",
+     "score": 4.132,
+     "positives_above": 90
+    },
+    {
+     "gene": "P09169",
+     "kind": "other",
+     "name": "Protease 7",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 150.4,
+     "gap": 39.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 4.093,
+     "positives_above": 94
+    },
+    {
+     "gene": "P64435",
+     "kind": "other",
+     "name": "Uncharacterized protein YbcW",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 90.8,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Andreesenia angusta",
+     "score": 4.063,
+     "positives_above": 94
+    },
+    {
+     "gene": "P77515",
+     "kind": "other",
+     "name": "Prophage side tail fiber protein homolog StfQ",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 80.5,
+     "gap": 18.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 4.036,
+     "positives_above": 96
+    },
+    {
+     "gene": "P77330",
+     "kind": "other",
+     "name": "Prophage lipoprotein Bor homolog",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 45.3,
+     "gap": 27.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage Stx2 II",
+     "score": 3.895,
+     "positives_above": 123
+    },
+    {
+     "gene": "P0DPN3",
+     "kind": "other",
+     "name": "Protein YlcJ",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 35.8,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 3.878,
+     "positives_above": 133
+    },
+    {
+     "gene": "P76161",
+     "kind": "other",
+     "name": "Prophage antitermination protein Q homolog QuuQ",
+     "category": "native",
+     "confidence": "",
+     "AI": 12.6,
+     "gap": 3.6,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 3.804,
+     "positives_above": 154
+    }
+   ],
+   "place_node": [
+    {
+     "gene": "P78285",
+     "kind": "other",
+     "name": "Lysozyme RrrD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 73.4,
+     "gap": 24.1,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 7.209,
+     "positives_above": 150
+    },
+    {
+     "gene": "Q2EES0",
+     "kind": "other",
+     "name": "Uncharacterized protein YnfO",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 44.0,
+     "gap": 17.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 7.182,
+     "positives_above": 154
+    },
+    {
+     "gene": "Q47274",
+     "kind": "other",
+     "name": "Prophage antitermination protein Q homolog QuuD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 64.3,
+     "gap": 24.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 7.058,
+     "positives_above": 160
+    },
+    {
+     "gene": "P76072",
+     "kind": "other",
+     "name": "Prophage side tail fiber protein homolog StfR",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 6.597,
+     "positives_above": 190
+    },
+    {
+     "gene": "P64435",
+     "kind": "other",
+     "name": "Uncharacterized protein YbcW",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 90.8,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Andreesenia angusta",
+     "score": 6.199,
+     "positives_above": 210
+    },
+    {
+     "gene": "P0A9R2",
+     "kind": "other",
+     "name": "Prophage lysis protein S homolog EssD",
+     "category": "native",
+     "confidence": "",
+     "AI": 12.0,
+     "gap": 11.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 5.728,
+     "positives_above": 233
+    },
+    {
+     "gene": "Q47272",
+     "kind": "other",
+     "name": "Uncharacterized protein YlcG",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 29.9,
+     "gap": 31.8,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev099",
+     "score": 5.703,
+     "positives_above": 234
+    },
+    {
+     "gene": "P75718",
+     "kind": "other",
+     "name": "Putative protein RenD",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 56.5,
+     "gap": 43.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 5.414,
+     "positives_above": 250
+    },
+    {
+     "gene": "P77237",
+     "kind": "other",
+     "name": "Prophage lysis protein S homolog EssQ",
+     "category": "native",
+     "confidence": "",
+     "AI": 5.3,
+     "gap": 5.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.363,
+     "positives_above": 293
+    },
+    {
+     "gene": "P0DPN3",
+     "kind": "other",
+     "name": "Protein YlcJ",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 35.8,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 4.289,
+     "positives_above": 295
+    },
+    {
+     "gene": "P76158",
+     "kind": "other",
+     "name": "Uncharacterized protein RzpQ",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 73.3,
+     "gap": 21.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.227,
+     "positives_above": 301
+    },
+    {
+     "gene": "P0AG74",
+     "kind": "other",
+     "name": "Crossover junction endodeoxyribonuclease RusA",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 33.4,
+     "gap": 13.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 4.212,
+     "positives_above": 302
+    },
+    {
+     "gene": "Q47270",
+     "kind": "other",
+     "name": "Prophage NinE homolog",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 23.9,
+     "gap": 21.9,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 4.148,
+     "positives_above": 306
+    },
+    {
+     "gene": "P76515",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdS",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 151.7,
+     "gap": 46.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 4.138,
+     "positives_above": 306
+    },
+    {
+     "gene": "Q2EES9",
+     "kind": "other",
+     "name": "Response regulator inhibitor for tor operon",
+     "category": "native",
+     "confidence": "",
+     "AI": 13.0,
+     "gap": 12.1,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK633",
+     "score": 4.054,
+     "positives_above": 313
+    },
+    {
+     "gene": "C1P5Z8",
+     "kind": "other",
+     "name": "Uncharacterized membrane protein YkgR",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 27.0,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Alkalicoccobacillus porphyridii",
+     "score": 4.009,
+     "positives_above": 317
+    },
+    {
+     "gene": "P58042",
+     "kind": "other",
+     "name": "Prophage outer membrane lipoprotein RzoR",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 55.5,
+     "gap": 47.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 4.009,
+     "positives_above": 317
+    },
+    {
+     "gene": "P75717",
+     "kind": "other",
+     "name": "Putative uncharacterized protein ExoD",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 16.1,
+     "gap": 12.7,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage ev243",
+     "score": 3.986,
+     "positives_above": 319
+    },
+    {
+     "gene": "P58041",
+     "kind": "other",
+     "name": "Prophage outer membrane lipoprotein RzoD",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 60.4,
+     "gap": 48.5,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 3.721,
+     "positives_above": 334
+    },
+    {
+     "gene": "P31061",
+     "kind": "other",
+     "name": "Prophage DNA-packing protein NohA",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 30.9,
+     "gap": 14.2,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 3.714,
+     "positives_above": 334
+    },
+    {
+     "gene": "P77598",
+     "kind": "other",
+     "name": "Uncharacterized protein YbcV",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 134.6,
+     "gap": 54.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage HK629",
+     "score": 3.504,
+     "positives_above": 344
+    },
+    {
+     "gene": "P31062",
+     "kind": "other",
+     "name": "DNA-packaging protein NU1 homolog",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 31.9,
+     "gap": 14.3,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 2H10",
+     "score": 3.48,
+     "positives_above": 346
+    },
+    {
+     "gene": "P76512",
+     "kind": "other",
+     "name": "Uncharacterized protein YfdP",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 66.8,
+     "gap": 31.4,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Stx2-converting phage Stx2a_WGPS2",
+     "score": 3.282,
+     "positives_above": 353
+    },
+    {
+     "gene": "P21420",
+     "kind": "other",
+     "name": "Putative outer membrane porin protein NmpC",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 10.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Escherichia phage 4A7",
+     "score": 3.251,
+     "positives_above": 357
+    },
+    {
+     "gene": "P38393",
+     "kind": "other",
+     "name": "Killing protein KilR",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 75.4,
+     "gap": 47.1,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Shigella phage POCJ13",
+     "score": 3.047,
+     "positives_above": 365
+    }
+   ]
+  }
+ },
+ "spike_entamoeba": {
+  "n_pos": 635,
+  "n_core": 163,
+  "n_neg": 7919,
+  "high_tier_fp": 287,
+  "high_tier_recall": 0.583,
+  "high_or_medium_fp": 467,
+  "high_or_medium_recall": 0.685,
+  "scores": {
+   "ai": {
+    "ap_core": 0.96,
+    "ap_all": 0.55,
+    "recall_at_high_fp": 0.598,
+    "recall_at_high_or_medium_fp": 0.728,
+    "recall_at_1pct_fp": 0.302
+   },
+   "rules": {
+    "ap_core": 0.958,
+    "ap_all": 0.546,
+    "recall_at_high_fp": 0.589,
+    "recall_at_high_or_medium_fp": 0.685,
+    "recall_at_1pct_fp": 0.301
+   },
+   "gbm_hits": {
+    "ap_core": 0.959,
+    "ap_all": 0.706,
+    "recall_at_high_fp": 0.726,
+    "recall_at_high_or_medium_fp": 0.762,
+    "recall_at_1pct_fp": 0.58,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.126,
+      0.189
+     ],
+     "recall_at_high_fp": [
+      0.07,
+      0.185
+     ]
+    }
+   },
+   "place_disc": {
+    "ap_core": 0.962,
+    "ap_all": 0.721,
+    "recall_at_high_fp": 0.773,
+    "recall_at_high_or_medium_fp": 0.792,
+    "recall_at_1pct_fp": 0.71,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.141,
+      0.212
+     ],
+     "recall_at_high_fp": [
+      0.119,
+      0.235
+     ]
+    }
+   },
+   "place_node": {
+    "ap_core": 0.96,
+    "ap_all": 0.718,
+    "recall_at_high_fp": 0.726,
+    "recall_at_high_or_medium_fp": 0.769,
+    "recall_at_1pct_fp": 0.603,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.141,
+      0.202
+     ],
+     "recall_at_high_fp": [
+      0.076,
+      0.187
+     ]
+    }
+   },
+   "place_p1": {
+    "ap_core": 0.962,
+    "ap_all": 0.701,
+    "recall_at_high_fp": 0.694,
+    "recall_at_high_or_medium_fp": 0.764,
+    "recall_at_1pct_fp": 0.573,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.123,
+      0.186
+     ],
+     "recall_at_high_fp": [
+      0.044,
+      0.155
+     ]
+    }
+   },
+   "place_p2": {
+    "ap_core": 0.961,
+    "ap_all": 0.753,
+    "recall_at_high_fp": 0.775,
+    "recall_at_high_or_medium_fp": 0.794,
+    "recall_at_1pct_fp": 0.685,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.172,
+      0.241
+     ],
+     "recall_at_high_fp": [
+      0.12,
+      0.239
+     ]
+    }
+   },
+   "place_top": {
+    "ap_core": 0.962,
+    "ap_all": 0.73,
+    "recall_at_high_fp": 0.781,
+    "recall_at_high_or_medium_fp": 0.792,
+    "recall_at_1pct_fp": 0.707,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.152,
+      0.221
+     ],
+     "recall_at_high_fp": [
+      0.124,
+      0.247
+     ]
+    }
+   },
+   "place_mean5": {
+    "ap_core": 0.962,
+    "ap_all": 0.722,
+    "recall_at_high_fp": 0.776,
+    "recall_at_high_or_medium_fp": 0.795,
+    "recall_at_1pct_fp": 0.687,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.141,
+      0.214
+     ],
+     "recall_at_high_fp": [
+      0.119,
+      0.24
+     ]
+    }
+   },
+   "rule_ai_near": {
+    "ap_core": 0.898,
+    "ap_all": 0.335,
+    "recall_at_high_fp": 0.323,
+    "recall_at_high_or_medium_fp": 0.443,
+    "recall_at_1pct_fp": 0.148,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.234,
+      -0.177
+     ],
+     "recall_at_high_fp": [
+      -0.332,
+      -0.213
+     ]
+    }
+   },
+   "rule_hidx_near": {
+    "ap_core": 0.831,
+    "ap_all": 0.412,
+    "recall_at_high_fp": 0.35,
+    "recall_at_high_or_medium_fp": 0.441,
+    "recall_at_1pct_fp": 0.213,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.169,
+      -0.095
+     ],
+     "recall_at_high_fp": [
+      -0.31,
+      -0.183
+     ]
+    }
+   },
+   "rule_lca_adapt": {
+    "ap_core": 0.959,
+    "ap_all": 0.466,
+    "recall_at_high_fp": 0.392,
+    "recall_at_high_or_medium_fp": 0.392,
+    "recall_at_1pct_fp": 0.0,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.119,
+      -0.034
+     ],
+     "recall_at_high_fp": [
+      -0.276,
+      -0.131
+     ]
+    }
+   }
+  },
+  "by_divergence": {
+   "rules": {
+    "0.0": 0.83,
+    "0.3": 0.742,
+    "0.5": 0.553,
+    "0.7": 0.228
+   },
+   "gbm_hits": {
+    "0.0": 0.881,
+    "0.3": 0.855,
+    "0.5": 0.736,
+    "0.7": 0.43
+   },
+   "place_disc": {
+    "0.0": 0.943,
+    "0.3": 0.899,
+    "0.5": 0.792,
+    "0.7": 0.456
+   },
+   "place_node": {
+    "0.0": 0.925,
+    "0.3": 0.887,
+    "0.5": 0.704,
+    "0.7": 0.386
+   },
+   "rule_ai_near": {
+    "0.0": 0.667,
+    "0.3": 0.396,
+    "0.5": 0.189,
+    "0.7": 0.038
+   }
+  },
+  "core_matched": {
+   "high": {
+    "core_fp": 1,
+    "tier_recall": 0.583,
+    "recall": {
+     "ai": 0.757,
+     "rules": 0.685,
+     "gbm_hits": 0.595,
+     "place_disc": 0.795,
+     "place_node": 0.775,
+     "place_p1": 0.794,
+     "place_p2": 0.77,
+     "place_top": 0.795,
+     "place_mean5": 0.806,
+     "rule_ai_near": 0.222,
+     "rule_hidx_near": 0.098,
+     "rule_lca_adapt": 0.806
+    }
+   },
+   "high_or_medium": {
+    "core_fp": 11,
+    "tier_recall": 0.685,
+    "recall": {
+     "ai": 0.802,
+     "rules": 0.794,
+     "gbm_hits": 0.75,
+     "place_disc": 0.808,
+     "place_node": 0.798,
+     "place_p1": 0.811,
+     "place_p2": 0.802,
+     "place_top": 0.808,
+     "place_mean5": 0.813,
+     "rule_ai_near": 0.317,
+     "rule_hidx_near": 0.145,
+     "rule_lca_adapt": 0.806
+    }
+   },
+   "any_call": {
+    "core_fp": 21,
+    "tier_recall": 0.811,
+    "recall": {
+     "ai": 0.811,
+     "rules": 0.811,
+     "gbm_hits": 0.776,
+     "place_disc": 0.813,
+     "place_node": 0.806,
+     "place_p1": 0.814,
+     "place_p2": 0.808,
+     "place_top": 0.814,
+     "place_mean5": 0.813,
+     "rule_ai_near": 0.439,
+     "rule_hidx_near": 0.165,
+     "rule_lca_adapt": 0.806
+    }
+   }
+  },
+  "scored_by_placement": {
+   "positives": 518,
+   "negatives": 4655
+  },
+  "exact_only": {
+   "n_pos": 597,
+   "n_neg": 7879,
+   "high_tier_fp": 282,
+   "high_tier_recall": 0.561,
+   "scores": {
+    "ai": {
+     "ap_core": 0.956,
+     "ap_all": 0.518,
+     "recall_at_high_fp": 0.576,
+     "recall_at_1pct_fp": 0.278
+    },
+    "rules": {
+     "ap_core": 0.953,
+     "ap_all": 0.515,
+     "recall_at_high_fp": 0.566,
+     "recall_at_1pct_fp": 0.285
+    },
+    "gbm_hits": {
+     "ap_core": 0.954,
+     "ap_all": 0.685,
+     "recall_at_high_fp": 0.71,
+     "recall_at_1pct_fp": 0.563
+    },
+    "place_disc": {
+     "ap_core": 0.957,
+     "ap_all": 0.704,
+     "recall_at_high_fp": 0.76,
+     "recall_at_1pct_fp": 0.695
+    },
+    "place_node": {
+     "ap_core": 0.956,
+     "ap_all": 0.694,
+     "recall_at_high_fp": 0.707,
+     "recall_at_1pct_fp": 0.58
+    },
+    "place_p1": {
+     "ap_core": 0.957,
+     "ap_all": 0.676,
+     "recall_at_high_fp": 0.675,
+     "recall_at_1pct_fp": 0.544
+    },
+    "place_p2": {
+     "ap_core": 0.956,
+     "ap_all": 0.734,
+     "recall_at_high_fp": 0.762,
+     "recall_at_1pct_fp": 0.668
+    },
+    "place_top": {
+     "ap_core": 0.957,
+     "ap_all": 0.713,
+     "recall_at_high_fp": 0.769,
+     "recall_at_1pct_fp": 0.692
+    },
+    "place_mean5": {
+     "ap_core": 0.957,
+     "ap_all": 0.703,
+     "recall_at_high_fp": 0.762,
+     "recall_at_1pct_fp": 0.67
+    },
+    "rule_ai_near": {
+     "ap_core": 0.886,
+     "ap_all": 0.3,
+     "recall_at_high_fp": 0.296,
+     "recall_at_1pct_fp": 0.126
+    },
+    "rule_hidx_near": {
+     "ap_core": 0.815,
+     "ap_all": 0.38,
+     "recall_at_high_fp": 0.33,
+     "recall_at_1pct_fp": 0.188
+    },
+    "rule_lca_adapt": {
+     "ap_core": 0.955,
+     "ap_all": 0.46,
+     "recall_at_high_fp": 0.41,
+     "recall_at_1pct_fp": 0.0
+    }
+   }
+  },
+  "top_negatives": {
+   "rules": [
+    {
+     "gene": "C4MAP5",
+     "kind": "other",
+     "name": "Metallo-beta-lactamase superfamily protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Parabacteroides distasonis",
+     "score": 30460.5,
+     "positives_above": 1
+    },
+    {
+     "gene": "C4M571",
+     "kind": "other",
+     "name": "Tryptophanase, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Fungi",
+     "best_taxon": "Blattamonas nauphoetae",
+     "score": 30460.5,
+     "positives_above": 1
+    },
+    {
+     "gene": "C4M148",
+     "kind": "other",
+     "name": "Metallo-beta-lactamase superfamily protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Parabacteroides distasonis",
+     "score": 30460.5,
+     "positives_above": 1
+    },
+    {
+     "gene": "C4M6H3",
+     "kind": "other",
+     "name": "NAD(FAD)-dependent dehydrogenase, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Hexamita inflata",
+     "score": 30460.5,
+     "positives_above": 1
+    },
+    {
+     "gene": "C4LWQ8",
+     "kind": "other",
+     "name": "PPi-type phosphoenolpyruvate carboxykinase 3",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Mangrovibacterium diazotrophicum",
+     "score": 30460.5,
+     "positives_above": 35
+    },
+    {
+     "gene": "C4LY96",
+     "kind": "other",
+     "name": "PPi-type phosphoenolpyruvate carboxykinase 1",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Ruficoccus amylovorans",
+     "score": 30460.5,
+     "positives_above": 40
+    },
+    {
+     "gene": "B1N387",
+     "kind": "other",
+     "name": "alcohol dehydrogenase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Culicoidibacter larvae",
+     "score": 30460.5,
+     "positives_above": 40
+    },
+    {
+     "gene": "C4LUV9",
+     "kind": "other",
+     "name": "Acetyl-CoA synthetase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Flavilitoribacter nigricans DSM 23189 = NBRC 102662",
+     "score": 30460.5,
+     "positives_above": 48
+    },
+    {
+     "gene": "C4M1E4",
+     "kind": "other",
+     "name": "PPi-type phosphoenolpyruvate carboxykinase 2",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Mangrovibacterium diazotrophicum",
+     "score": 30460.5,
+     "positives_above": 50
+    },
+    {
+     "gene": "C4LTW4",
+     "kind": "other",
+     "name": "phosphoglycerate mutase (2,3-diphosphoglycerate-independent)",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Candidatus Lokiarchaeum ossiferum",
+     "score": 30460.5,
+     "positives_above": 51
+    },
+    {
+     "gene": "B1N624",
+     "kind": "other",
+     "name": "Aminoglycoside 3'-phosphotransferase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 442.2,
+     "gap": null,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Proteus vulgaris",
+     "score": 30442.2,
+     "positives_above": 58
+    },
+    {
+     "gene": "C4M1C4",
+     "kind": "other",
+     "name": "Beta-galactosidase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 414.6,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Jilunia laotingensis",
+     "score": 30414.6,
+     "positives_above": 67
+    },
+    {
+     "gene": "B1N2J0",
+     "kind": "other",
+     "name": "Malic enzyme, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 409.0,
+     "gap": 38.4,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Tenuifilum osseticum",
+     "score": 30409.0,
+     "positives_above": 68
+    },
+    {
+     "gene": "C4LSA2",
+     "kind": "other",
+     "name": "Alpha-amylase, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 383.3,
+     "gap": 34.7,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Trichomonas vaginalis G3",
+     "score": 30383.3,
+     "positives_above": 80
+    },
+    {
+     "gene": "C4LWS5",
+     "kind": "other",
+     "name": "Alanine--tRNA ligase",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 380.6,
+     "gap": 24.2,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Stylonychia lemnae",
+     "score": 30380.6,
+     "positives_above": 81
+    },
+    {
+     "gene": "C4M7Y8",
+     "kind": "other",
+     "name": "Alpha-amylase, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 376.3,
+     "gap": 34.1,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Trichomonas vaginalis G3",
+     "score": 30376.3,
+     "positives_above": 82
+    },
+    {
+     "gene": "B1N2E0",
+     "kind": "other",
+     "name": "Beta/alpha-amylase, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 373.7,
+     "gap": 33.8,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Trichomonas vaginalis G3",
+     "score": 30373.7,
+     "positives_above": 83
+    },
+    {
+     "gene": "B1N3D4",
+     "kind": "other",
+     "name": "DNA-directed DNA polymerase",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 367.3,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Tritrichomonas musculus",
+     "score": 30367.3,
+     "positives_above": 84
+    },
+    {
+     "gene": "B1N5X8",
+     "kind": "other",
+     "name": "GTPase-activating protein, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 358.0,
+     "gap": null,
+     "donor_group": "Fungi",
+     "best_taxon": "Cerrena zonata",
+     "score": 30358.0,
+     "positives_above": 87
+    },
+    {
+     "gene": "C4M4S3",
+     "kind": "other",
+     "name": "Metallo-beta-lactamase domain-containing protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 349.4,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Odoribacter splanchnicus DSM 20712",
+     "score": 30349.4,
+     "positives_above": 93
+    },
+    {
+     "gene": "P35630",
+     "kind": "other",
+     "name": "NADP-dependent isopropanol dehydrogenase",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 337.5,
+     "gap": 46.7,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Trichomonas vaginalis G3",
+     "score": 30337.5,
+     "positives_above": 96
+    },
+    {
+     "gene": "C4LWU4",
+     "kind": "other",
+     "name": "Alkyl sulfatase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 335.3,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Barnesiella intestinihominis YIT 11860",
+     "score": 30335.3,
+     "positives_above": 97
+    },
+    {
+     "gene": "B1N526",
+     "kind": "other",
+     "name": "DNA-directed DNA polymerase",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 320.6,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Tritrichomonas musculus",
+     "score": 30320.6,
+     "positives_above": 106
+    },
+    {
+     "gene": "C4M8Z0",
+     "kind": "other",
+     "name": "Alkyl sulfatase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 319.5,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Barnesiella intestinihominis YIT 11860",
+     "score": 30319.5,
+     "positives_above": 106
+    },
+    {
+     "gene": "C4LU10",
+     "kind": "other",
+     "name": "Radical SAM domain protein",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 317.1,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Tritrichomonas musculus",
+     "score": 30317.1,
+     "positives_above": 106
+    }
+   ],
+   "rule_ai_near": [
+    {
+     "gene": "C4LY96",
+     "kind": "other",
+     "name": "PPi-type phosphoenolpyruvate carboxykinase 1",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Ruficoccus amylovorans",
+     "score": 460.52,
+     "positives_above": 0
+    },
+    {
+     "gene": "P31018",
+     "kind": "other",
+     "name": "Elongation factor 1-alpha",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Vertebrata, other",
+     "best_taxon": "Balamuthia mandrillaris",
+     "score": 460.52,
+     "positives_above": 0
+    },
+    {
+     "gene": "C4LY22",
+     "kind": "other",
+     "name": "Cdc48-like protein, putative",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.7,
+     "donor_group": "Vertebrata, other",
+     "best_taxon": "Culter alburnus",
+     "score": 460.52,
+     "positives_above": 0
+    },
+    {
+     "gene": "P37213",
+     "kind": "other",
+     "name": "Pyruvate, phosphate dikinase",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 444.4,
+     "gap": 33.4,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Paraflavisolibacter caeni",
+     "score": 460.52,
+     "positives_above": 0
+    },
+    {
+     "gene": "C4M6A4",
+     "kind": "other",
+     "name": "acetyl-CoA carboxytransferase",
+     "category": "eukaryote",
+     "confidence": "low",
+     "AI": 128.2,
+     "gap": 1.9,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Carpediemonas membranifera",
+     "score": 460.52,
+     "positives_above": 2
+    },
+    {
+     "gene": "C4LYU3",
+     "kind": "other",
+     "name": "Acyl-CoA synthetase, putative",
+     "category": "eukaryote",
+     "confidence": "medium",
+     "AI": 353.4,
+     "gap": 8.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Anaeromyces robustus",
+     "score": 460.52,
+     "positives_above": 2
+    },
+    {
+     "gene": "C4M148",
+     "kind": "other",
+     "name": "Metallo-beta-lactamase superfamily protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Parabacteroides distasonis",
+     "score": 460.52,
+     "positives_above": 2
+    },
+    {
+     "gene": "B1N2V8",
+     "kind": "other",
+     "name": "Adaptor protein (AP) family protein",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 1.0,
+     "donor_group": "Viridiplantae",
+     "best_taxon": "Eucalyptus grandis",
+     "score": 460.52,
+     "positives_above": 5
+    },
+    {
+     "gene": "C4M384",
+     "kind": "other",
+     "name": "1,4-alpha-glucan branching enzyme",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 4.3,
+     "donor_group": "Fungi",
+     "best_taxon": "Emydomyces testavorans",
+     "score": 460.52,
+     "positives_above": 5
+    },
+    {
+     "gene": "C4LTD0",
+     "kind": "other",
+     "name": "U5 snRNP-specific 200kd protein, putative",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": -0.7,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Gigaspora margarita",
+     "score": 460.52,
+     "positives_above": 5
+    },
+    {
+     "gene": "C4LXE7",
+     "kind": "other",
+     "name": "Oligo-1,6-glucosidase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 88.5,
+     "gap": 14.8,
+     "donor_group": "Bacillota",
+     "best_taxon": "Sporanaerobium hydrogeniformans",
+     "score": 460.52,
+     "positives_above": 8
+    },
+    {
+     "gene": "B1N306",
+     "kind": "other",
+     "name": "Elongation factor 2",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Balamuthia mandrillaris",
+     "score": 460.52,
+     "positives_above": 8
+    },
+    {
+     "gene": "C4MAC9",
+     "kind": "other",
+     "name": "Elongation factor 1-alpha",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Vertebrata, other",
+     "best_taxon": "Balamuthia mandrillaris",
+     "score": 460.52,
+     "positives_above": 10
+    },
+    {
+     "gene": "B1N4I3",
+     "kind": "other",
+     "name": "proton-translocating NAD(P)(+) transhydrogenase",
+     "category": "eukaryote",
+     "confidence": "low",
+     "AI": 193.9,
+     "gap": 1.5,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Blattamonas nauphoetae",
+     "score": 460.52,
+     "positives_above": 10
+    },
+    {
+     "gene": "C4M2E4",
+     "kind": "other",
+     "name": "T-complex protein 1 subunit gamma",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 3.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Basidiobolus ranarum",
+     "score": 460.52,
+     "positives_above": 10
+    },
+    {
+     "gene": "C4LUU5",
+     "kind": "other",
+     "name": "SNF2 family protein",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.7,
+     "donor_group": "Vertebrata, other",
+     "best_taxon": "Eleutherodactylus coqui",
+     "score": 460.52,
+     "positives_above": 15
+    },
+    {
+     "gene": "C4M0I4",
+     "kind": "other",
+     "name": "dihydropyrimidinase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 230.6,
+     "gap": 19.5,
+     "donor_group": "Bacillota",
+     "best_taxon": "Anoxybacterium hadale",
+     "score": 460.52,
+     "positives_above": 15
+    },
+    {
+     "gene": "B1N3D6",
+     "kind": "other",
+     "name": "Elongation factor 2",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Balamuthia mandrillaris",
+     "score": 460.52,
+     "positives_above": 15
+    },
+    {
+     "gene": "C4M0V2",
+     "kind": "other",
+     "name": "Multidrug resistance protein, putative",
+     "category": "eukaryote",
+     "confidence": "low",
+     "AI": 44.2,
+     "gap": 2.9,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Clavelina lepadiformis",
+     "score": 460.52,
+     "positives_above": 16
+    },
+    {
+     "gene": "A0A8U0WPM4",
+     "kind": "other",
+     "name": "proton-translocating NAD(P)(+) transhydrogenase",
+     "category": "eukaryote",
+     "confidence": "low",
+     "AI": 193.3,
+     "gap": -0.4,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Blattamonas nauphoetae",
+     "score": 460.52,
+     "positives_above": 16
+    },
+    {
+     "gene": "C4LVL5",
+     "kind": "other",
+     "name": "Probable threonine--tRNA ligase, cytoplasmic",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 3.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Lipomyces starkeyi NRRL Y-11557",
+     "score": 460.52,
+     "positives_above": 16
+    },
+    {
+     "gene": "C4LX69",
+     "kind": "other",
+     "name": "Dihydropyrimidine dehydrogenase [NADP(+)]",
+     "category": "eukaryote",
+     "confidence": "medium",
+     "AI": 158.7,
+     "gap": 9.5,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Carpediemonas membranifera",
+     "score": 460.52,
+     "positives_above": 17
+    },
+    {
+     "gene": "C4M5K9",
+     "kind": "other",
+     "name": "Heat shock protein 70 family",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": -0.5,
+     "donor_group": "Viridiplantae",
+     "best_taxon": "Cystoisospora suis",
+     "score": 460.52,
+     "positives_above": 17
+    },
+    {
+     "gene": "C4M571",
+     "kind": "other",
+     "name": "Tryptophanase, putative",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Fungi",
+     "best_taxon": "Blattamonas nauphoetae",
+     "score": 460.52,
+     "positives_above": 17
+    },
+    {
+     "gene": "C4LWD6",
+     "kind": "other",
+     "name": "RNA helicase",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 2.5,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Octopus vulgaris",
+     "score": 460.52,
+     "positives_above": 20
+    }
+   ],
+   "place_disc": [
+    {
+     "gene": "B1N3F7",
+     "kind": "other",
+     "name": "CRESS-DNA virus Rep endonuclease domain-containing protein",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 209.4,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Entamoeba-associated CRESS DNA virus 2",
+     "score": 4.777,
+     "positives_above": 10
+    },
+    {
+     "gene": "B1N4J7",
+     "kind": "other",
+     "name": "Helicase superfamily 3 single-stranded DNA/RNA virus domain-",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 220.8,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Odonata-associated circular virus-14",
+     "score": 4.733,
+     "positives_above": 14
+    },
+    {
+     "gene": "C4MAZ2",
+     "kind": "other",
+     "name": "ATP-dependent helicase Rep",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 265.9,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Odonata-associated circular virus-14",
+     "score": 4.699,
+     "positives_above": 19
+    },
+    {
+     "gene": "C4M6E8",
+     "kind": "other",
+     "name": "CRESS-DNA virus Rep endonuclease domain-containing protein",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 155.4,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Entamoeba-associated CRESS DNA virus 1",
+     "score": 4.685,
+     "positives_above": 20
+    },
+    {
+     "gene": "C4M6F1",
+     "kind": "other",
+     "name": "Replication-associated protein",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 86.3,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Circoviridae sp.",
+     "score": 4.126,
+     "positives_above": 60
+    },
+    {
+     "gene": "C4LSC6",
+     "kind": "other",
+     "name": "Prolyl oligopeptidase family protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 277.5,
+     "gap": 25.2,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Parabacteroides distasonis",
+     "score": 3.79,
+     "positives_above": 92
+    },
+    {
+     "gene": "C4M6U8",
+     "kind": "other",
+     "name": "MutT/nudix family protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 104.3,
+     "gap": 32.5,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Indolivaga alginatilytica",
+     "score": 3.758,
+     "positives_above": 98
+    },
+    {
+     "gene": "B1N618",
+     "kind": "other",
+     "name": "Uncharacterized protein",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 82.1,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Campylobacter phage CP21",
+     "score": 3.723,
+     "positives_above": 99
+    },
+    {
+     "gene": "C4LU30",
+     "kind": "other",
+     "name": "Uncharacterized protein",
+     "category": "repeat",
+     "confidence": "",
+     "AI": null,
+     "gap": null,
+     "donor_group": "",
+     "best_taxon": "",
+     "score": 3.684,
+     "positives_above": 108
+    },
+    {
+     "gene": "A0A8U0WPJ5",
+     "kind": "other",
+     "name": "serine O-acetyltransferase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 159.2,
+     "gap": null,
+     "donor_group": "Archaea",
+     "best_taxon": "Halalkalicoccus salilacus",
+     "score": 3.679,
+     "positives_above": 108
+    },
+    {
+     "gene": "B1N5W4",
+     "kind": "other",
+     "name": "Uncharacterized protein",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 21.5,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Poseidonibacter ostreae",
+     "score": 3.679,
+     "positives_above": 109
+    },
+    {
+     "gene": "C4LZ12",
+     "kind": "other",
+     "name": "tyrosine--tRNA ligase",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 65.7,
+     "gap": 7.7,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Megavirus chiliensis",
+     "score": 3.663,
+     "positives_above": 112
+    },
+    {
+     "gene": "C4LZG3",
+     "kind": "other",
+     "name": "Tagatose-6-phosphate kinase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 130.7,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Sediminispirochaeta smaragdinae DSM 11293",
+     "score": 3.491,
+     "positives_above": 125
+    },
+    {
+     "gene": "C4LZJ9",
+     "kind": "other",
+     "name": "Helicase superfamily 3 single-stranded DNA/RNA virus domain-",
+     "category": "virus",
+     "confidence": "low",
+     "AI": 31.0,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Valinorvirus eriador",
+     "score": 3.486,
+     "positives_above": 125
+    },
+    {
+     "gene": "B1N3G7",
+     "kind": "other",
+     "name": "RRM domain-containing protein",
+     "category": "orphan",
+     "confidence": "",
+     "AI": null,
+     "gap": null,
+     "donor_group": "",
+     "best_taxon": "",
+     "score": 3.478,
+     "positives_above": 126
+    },
+    {
+     "gene": "C4MA71",
+     "kind": "other",
+     "name": "NAD-specific glutamate dehydrogenase, putative",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 264.2,
+     "gap": 13.1,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Criblamydia sequanensis CRIB-18",
+     "score": 3.411,
+     "positives_above": 130
+    },
+    {
+     "gene": "B1N619",
+     "kind": "other",
+     "name": "Uncharacterized protein",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 106.0,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Campylobacter phage CP21",
+     "score": 3.385,
+     "positives_above": 134
+    },
+    {
+     "gene": "B1N5W0",
+     "kind": "other",
+     "name": "Modulator of drug activity B homolog, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 202.2,
+     "gap": null,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Exercitatus varius",
+     "score": 3.379,
+     "positives_above": 134
+    },
+    {
+     "gene": "C4LUR5",
+     "kind": "other",
+     "name": "Isopentenyl phosphate kinase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 82.6,
+     "gap": 12.5,
+     "donor_group": "Archaea",
+     "best_taxon": "Methanococcoides seepicolus",
+     "score": 3.26,
+     "positives_above": 151
+    },
+    {
+     "gene": "C4LXG1",
+     "kind": "other",
+     "name": "Purine nucleoside phosphorylase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 211.3,
+     "gap": 38.3,
+     "donor_group": "Bacillota",
+     "best_taxon": "Holtiella tumoricola",
+     "score": 3.252,
+     "positives_above": 153
+    },
+    {
+     "gene": "Q24814",
+     "kind": "other",
+     "name": "Rho-related protein racA",
+     "category": "native",
+     "confidence": "",
+     "AI": -0.5,
+     "gap": 0.0,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Heterostelium album PN500",
+     "score": 3.132,
+     "positives_above": 174
+    },
+    {
+     "gene": "C4MAP5",
+     "kind": "other",
+     "name": "Metallo-beta-lactamase superfamily protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 460.5,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Parabacteroides distasonis",
+     "score": 3.1,
+     "positives_above": 179
+    },
+    {
+     "gene": "B1N2E3",
+     "kind": "other",
+     "name": "Prolyl oligopeptidase family protein",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 56.4,
+     "gap": 32.7,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Hoylesella loescheii DSM 19665 = JCM 12249 = ATCC 15930",
+     "score": 3.052,
+     "positives_above": 188
+    },
+    {
+     "gene": "C4M7W6",
+     "kind": "other",
+     "name": "RNA methyltransferase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 297.5,
+     "gap": 23.8,
+     "donor_group": "Bacillota",
+     "best_taxon": "Mobilisporobacter senegalensis",
+     "score": 2.895,
+     "positives_above": 226
+    },
+    {
+     "gene": "B1N624",
+     "kind": "other",
+     "name": "Aminoglycoside 3'-phosphotransferase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 442.2,
+     "gap": null,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Proteus vulgaris",
+     "score": 2.887,
+     "positives_above": 226
+    }
+   ],
+   "place_node": [
+    {
+     "gene": "C4MAZ2",
+     "kind": "other",
+     "name": "ATP-dependent helicase Rep",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 265.9,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Odonata-associated circular virus-14",
+     "score": 7.435,
+     "positives_above": 55
+    },
+    {
+     "gene": "C4M6E8",
+     "kind": "other",
+     "name": "CRESS-DNA virus Rep endonuclease domain-containing protein",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 155.4,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Entamoeba-associated CRESS DNA virus 1",
+     "score": 7.186,
+     "positives_above": 75
+    },
+    {
+     "gene": "B1N4J7",
+     "kind": "other",
+     "name": "Helicase superfamily 3 single-stranded DNA/RNA virus domain-",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 220.8,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Odonata-associated circular virus-14",
+     "score": 7.041,
+     "positives_above": 84
+    },
+    {
+     "gene": "B1N3F7",
+     "kind": "other",
+     "name": "CRESS-DNA virus Rep endonuclease domain-containing protein",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 209.4,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Entamoeba-associated CRESS DNA virus 2",
+     "score": 7.008,
+     "positives_above": 86
+    },
+    {
+     "gene": "C4LSC6",
+     "kind": "other",
+     "name": "Prolyl oligopeptidase family protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 277.5,
+     "gap": 25.2,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Parabacteroides distasonis",
+     "score": 5.62,
+     "positives_above": 197
+    },
+    {
+     "gene": "Q24814",
+     "kind": "other",
+     "name": "Rho-related protein racA",
+     "category": "native",
+     "confidence": "",
+     "AI": -0.5,
+     "gap": 0.0,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Heterostelium album PN500",
+     "score": 5.618,
+     "positives_above": 197
+    },
+    {
+     "gene": "C4LXG1",
+     "kind": "other",
+     "name": "Purine nucleoside phosphorylase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 211.3,
+     "gap": 38.3,
+     "donor_group": "Bacillota",
+     "best_taxon": "Holtiella tumoricola",
+     "score": 5.478,
+     "positives_above": 206
+    },
+    {
+     "gene": "B1N5W0",
+     "kind": "other",
+     "name": "Modulator of drug activity B homolog, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 202.2,
+     "gap": null,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Exercitatus varius",
+     "score": 5.441,
+     "positives_above": 210
+    },
+    {
+     "gene": "C4M0C2",
+     "kind": "other",
+     "name": "Type A flavoprotein, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 275.6,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Defluviitalea raffinosedens",
+     "score": 5.197,
+     "positives_above": 231
+    },
+    {
+     "gene": "O76156",
+     "kind": "other",
+     "name": "Sulfate adenylyltransferase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 307.8,
+     "gap": 28.9,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Desulfosalsimonas propionicica",
+     "score": 5.17,
+     "positives_above": 234
+    },
+    {
+     "gene": "B1N618",
+     "kind": "other",
+     "name": "Uncharacterized protein",
+     "category": "virus",
+     "confidence": "medium",
+     "AI": 82.1,
+     "gap": null,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Campylobacter phage CP21",
+     "score": 5.152,
+     "positives_above": 234
+    },
+    {
+     "gene": "C4M6U8",
+     "kind": "other",
+     "name": "MutT/nudix family protein",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 104.3,
+     "gap": 32.5,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Indolivaga alginatilytica",
+     "score": 5.108,
+     "positives_above": 239
+    },
+    {
+     "gene": "C4LXR8",
+     "kind": "other",
+     "name": "adenosine deaminase",
+     "category": "native",
+     "confidence": "",
+     "AI": 12.5,
+     "gap": 0.8,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Trichomonas vaginalis G3",
+     "score": 5.067,
+     "positives_above": 243
+    },
+    {
+     "gene": "B1N2F9",
+     "kind": "other",
+     "name": "Type A flavoprotein, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 298.6,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Defluviitalea raffinosedens",
+     "score": 5.008,
+     "positives_above": 248
+    },
+    {
+     "gene": "B1N2H6",
+     "kind": "other",
+     "name": "Pyruvate phosphate dikinase AMP/ATP-binding domain-containin",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 157.7,
+     "gap": null,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Candidatus Competibacter denitrificans Run_A_D11",
+     "score": 4.997,
+     "positives_above": 248
+    },
+    {
+     "gene": "C4M7W6",
+     "kind": "other",
+     "name": "RNA methyltransferase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 297.5,
+     "gap": 23.8,
+     "donor_group": "Bacillota",
+     "best_taxon": "Mobilisporobacter senegalensis",
+     "score": 4.965,
+     "positives_above": 250
+    },
+    {
+     "gene": "C4M6F1",
+     "kind": "other",
+     "name": "Replication-associated protein",
+     "category": "virus",
+     "confidence": "high",
+     "AI": 86.3,
+     "gap": null,
+     "donor_group": "Viruses, other",
+     "best_taxon": "Circoviridae sp.",
+     "score": 4.932,
+     "positives_above": 253
+    },
+    {
+     "gene": "C4M3S0",
+     "kind": "other",
+     "name": "Mannose-1-phosphate guanylyltransferase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 276.2,
+     "gap": null,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Roseimarinus sediminis",
+     "score": 4.704,
+     "positives_above": 276
+    },
+    {
+     "gene": "Q24815",
+     "kind": "other",
+     "name": "Rho-related protein racB",
+     "category": "native",
+     "confidence": "",
+     "AI": 2.3,
+     "gap": 1.2,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Limulus polyphemus",
+     "score": 4.67,
+     "positives_above": 278
+    },
+    {
+     "gene": "B1N624",
+     "kind": "other",
+     "name": "Aminoglycoside 3'-phosphotransferase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 442.2,
+     "gap": null,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Proteus vulgaris",
+     "score": 4.572,
+     "positives_above": 283
+    },
+    {
+     "gene": "C4MA80",
+     "kind": "other",
+     "name": "small monomeric GTPase",
+     "category": "native",
+     "confidence": "",
+     "AI": 4.1,
+     "gap": -2.9,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Nematostella vectensis",
+     "score": 4.539,
+     "positives_above": 286
+    },
+    {
+     "gene": "C4M0I4",
+     "kind": "other",
+     "name": "dihydropyrimidinase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 230.6,
+     "gap": 19.5,
+     "donor_group": "Bacillota",
+     "best_taxon": "Anoxybacterium hadale",
+     "score": 4.455,
+     "positives_above": 292
+    },
+    {
+     "gene": "C4LZG3",
+     "kind": "other",
+     "name": "Tagatose-6-phosphate kinase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 130.7,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Sediminispirochaeta smaragdinae DSM 11293",
+     "score": 4.443,
+     "positives_above": 295
+    },
+    {
+     "gene": "B1N2H5",
+     "kind": "other",
+     "name": "Pyruvate, phosphate dikinase, putative",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 133.0,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Heliobacterium chlorum",
+     "score": 4.434,
+     "positives_above": 295
+    },
+    {
+     "gene": "C4M220",
+     "kind": "other",
+     "name": "fumarate hydratase",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 183.9,
+     "gap": 17.9,
+     "donor_group": "Bacillota",
+     "best_taxon": "Schinkia azotoformans LMG 9581",
+     "score": 4.419,
+     "positives_above": 296
+    }
+   ]
+  }
+ },
+ "transplant_legionella": {
+  "n_pos": 240,
+  "n_core": 48,
+  "n_neg": 3036,
+  "high_tier_fp": 22,
+  "high_tier_recall": 0.721,
+  "high_or_medium_fp": 52,
+  "high_or_medium_recall": 0.854,
+  "scores": {
+   "ai": {
+    "ap_core": 0.983,
+    "ap_all": 0.864,
+    "recall_at_high_fp": 0.75,
+    "recall_at_high_or_medium_fp": 0.867,
+    "recall_at_1pct_fp": 0.808
+   },
+   "rules": {
+    "ap_core": 0.983,
+    "ap_all": 0.859,
+    "recall_at_high_fp": 0.787,
+    "recall_at_high_or_medium_fp": 0.858,
+    "recall_at_1pct_fp": 0.817
+   },
+   "gbm_hits": {
+    "ap_core": 0.988,
+    "ap_all": 0.886,
+    "recall_at_high_fp": 0.754,
+    "recall_at_high_or_medium_fp": 0.887,
+    "recall_at_1pct_fp": 0.825,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.005,
+      0.056
+     ],
+     "recall_at_high_fp": [
+      -0.071,
+      0.136
+     ]
+    }
+   },
+   "place_disc": {
+    "ap_core": 0.989,
+    "ap_all": 0.907,
+    "recall_at_high_fp": 0.842,
+    "recall_at_high_or_medium_fp": 0.875,
+    "recall_at_1pct_fp": 0.854,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.021,
+      0.082
+     ],
+     "recall_at_high_fp": [
+      0.002,
+      0.221
+     ]
+    }
+   },
+   "place_node": {
+    "ap_core": 0.99,
+    "ap_all": 0.916,
+    "recall_at_high_fp": 0.863,
+    "recall_at_high_or_medium_fp": 0.896,
+    "recall_at_1pct_fp": 0.863,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.03,
+      0.092
+     ],
+     "recall_at_high_fp": [
+      0.029,
+      0.233
+     ]
+    }
+   },
+   "place_p1": {
+    "ap_core": 0.989,
+    "ap_all": 0.9,
+    "recall_at_high_fp": 0.825,
+    "recall_at_high_or_medium_fp": 0.858,
+    "recall_at_1pct_fp": 0.833,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.015,
+      0.076
+     ],
+     "recall_at_high_fp": [
+      -0.019,
+      0.196
+     ]
+    }
+   },
+   "place_p2": {
+    "ap_core": 0.989,
+    "ap_all": 0.895,
+    "recall_at_high_fp": 0.804,
+    "recall_at_high_or_medium_fp": 0.846,
+    "recall_at_1pct_fp": 0.842,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.008,
+      0.07
+     ],
+     "recall_at_high_fp": [
+      -0.042,
+      0.196
+     ]
+    }
+   },
+   "place_top": {
+    "ap_core": 0.99,
+    "ap_all": 0.92,
+    "recall_at_high_fp": 0.863,
+    "recall_at_high_or_medium_fp": 0.9,
+    "recall_at_1pct_fp": 0.887,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.035,
+      0.094
+     ],
+     "recall_at_high_fp": [
+      0.025,
+      0.237
+     ]
+    }
+   },
+   "place_mean5": {
+    "ap_core": 0.988,
+    "ap_all": 0.909,
+    "recall_at_high_fp": 0.867,
+    "recall_at_high_or_medium_fp": 0.883,
+    "recall_at_1pct_fp": 0.871,
+    "minus_rules_ci95": {
+     "ap_all": [
+      0.022,
+      0.082
+     ],
+     "recall_at_high_fp": [
+      0.033,
+      0.238
+     ]
+    }
+   },
+   "rule_ai_near": {
+    "ap_core": 0.99,
+    "ap_all": 0.544,
+    "recall_at_high_fp": 0.0,
+    "recall_at_high_or_medium_fp": 0.408,
+    "recall_at_1pct_fp": 0.35,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.371,
+      -0.258
+     ],
+     "recall_at_high_fp": [
+      -0.842,
+      -0.314
+     ]
+    }
+   },
+   "rule_hidx_near": {
+    "ap_core": 0.99,
+    "ap_all": 0.668,
+    "recall_at_high_fp": 0.4,
+    "recall_at_high_or_medium_fp": 0.492,
+    "recall_at_1pct_fp": 0.438,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.234,
+      -0.134
+     ],
+     "recall_at_high_fp": [
+      -0.461,
+      -0.194
+     ]
+    }
+   },
+   "rule_lca_adapt": {
+    "ap_core": 0.986,
+    "ap_all": 0.594,
+    "recall_at_high_fp": 0.167,
+    "recall_at_high_or_medium_fp": 0.346,
+    "recall_at_1pct_fp": 0.167,
+    "minus_rules_ci95": {
+     "ap_all": [
+      -0.313,
+      -0.212
+     ],
+     "recall_at_high_fp": [
+      -0.679,
+      -0.435
+     ]
+    }
+   }
+  },
+  "by_divergence": {
+   "rules": {
+    "0.0": 0.716,
+    "0.5": 0.831,
+    "1.0": 0.809
+   },
+   "gbm_hits": {
+    "0.0": 0.716,
+    "0.5": 0.779,
+    "1.0": 0.764
+   },
+   "place_disc": {
+    "0.0": 0.811,
+    "0.5": 0.935,
+    "1.0": 0.787
+   },
+   "place_node": {
+    "0.0": 0.811,
+    "0.5": 0.935,
+    "1.0": 0.843
+   },
+   "rule_ai_near": {
+    "0.0": 0.0,
+    "0.5": 0.0,
+    "1.0": 0.0
+   }
+  },
+  "core_matched": {
+   "high": {
+    "core_fp": 0,
+    "tier_recall": 0.721,
+    "recall": {
+     "ai": 0.9,
+     "rules": 0.9,
+     "gbm_hits": 0.929,
+     "place_disc": 0.908,
+     "place_node": 0.933,
+     "place_p1": 0.854,
+     "place_p2": 0.846,
+     "place_top": 0.938,
+     "place_mean5": 0.917,
+     "rule_ai_near": 0.938,
+     "rule_hidx_near": 0.938,
+     "rule_lca_adapt": 0.917
+    }
+   },
+   "high_or_medium": {
+    "core_fp": 0,
+    "tier_recall": 0.854,
+    "recall": {
+     "ai": 0.9,
+     "rules": 0.9,
+     "gbm_hits": 0.929,
+     "place_disc": 0.908,
+     "place_node": 0.933,
+     "place_p1": 0.854,
+     "place_p2": 0.846,
+     "place_top": 0.938,
+     "place_mean5": 0.917,
+     "rule_ai_near": 0.938,
+     "rule_hidx_near": 0.938,
+     "rule_lca_adapt": 0.917
+    }
+   },
+   "any_call": {
+    "core_fp": 0,
+    "tier_recall": 0.9,
+    "recall": {
+     "ai": 0.9,
+     "rules": 0.9,
+     "gbm_hits": 0.929,
+     "place_disc": 0.908,
+     "place_node": 0.933,
+     "place_p1": 0.854,
+     "place_p2": 0.846,
+     "place_top": 0.938,
+     "place_mean5": 0.917,
+     "rule_ai_near": 0.938,
+     "rule_hidx_near": 0.938,
+     "rule_lca_adapt": 0.917
+    }
+   }
+  },
+  "scored_by_placement": {
+   "positives": 225,
+   "negatives": 2725
+  },
+  "exact_only": {
+   "n_pos": 201,
+   "n_neg": 2915,
+   "high_tier_fp": 22,
+   "high_tier_recall": 0.687,
+   "scores": {
+    "ai": {
+     "ap_core": 0.981,
+     "ap_all": 0.83,
+     "recall_at_high_fp": 0.711,
+     "recall_at_1pct_fp": 0.781
+    },
+    "rules": {
+     "ap_core": 0.981,
+     "ap_all": 0.823,
+     "recall_at_high_fp": 0.751,
+     "recall_at_1pct_fp": 0.776
+    },
+    "gbm_hits": {
+     "ap_core": 0.987,
+     "ap_all": 0.858,
+     "recall_at_high_fp": 0.716,
+     "recall_at_1pct_fp": 0.786
+    },
+    "place_disc": {
+     "ap_core": 0.987,
+     "ap_all": 0.886,
+     "recall_at_high_fp": 0.821,
+     "recall_at_1pct_fp": 0.836
+    },
+    "place_node": {
+     "ap_core": 0.988,
+     "ap_all": 0.895,
+     "recall_at_high_fp": 0.836,
+     "recall_at_1pct_fp": 0.836
+    },
+    "place_p1": {
+     "ap_core": 0.987,
+     "ap_all": 0.874,
+     "recall_at_high_fp": 0.791,
+     "recall_at_1pct_fp": 0.801
+    },
+    "place_p2": {
+     "ap_core": 0.988,
+     "ap_all": 0.872,
+     "recall_at_high_fp": 0.796,
+     "recall_at_1pct_fp": 0.816
+    },
+    "place_top": {
+     "ap_core": 0.988,
+     "ap_all": 0.901,
+     "recall_at_high_fp": 0.841,
+     "recall_at_1pct_fp": 0.866
+    },
+    "place_mean5": {
+     "ap_core": 0.986,
+     "ap_all": 0.888,
+     "recall_at_high_fp": 0.841,
+     "recall_at_1pct_fp": 0.846
+    },
+    "rule_ai_near": {
+     "ap_core": 0.988,
+     "ap_all": 0.469,
+     "recall_at_high_fp": 0.0,
+     "recall_at_1pct_fp": 0.294
+    },
+    "rule_hidx_near": {
+     "ap_core": 0.988,
+     "ap_all": 0.608,
+     "recall_at_high_fp": 0.363,
+     "recall_at_1pct_fp": 0.403
+    },
+    "rule_lca_adapt": {
+     "ap_core": 0.985,
+     "ap_all": 0.55,
+     "recall_at_high_fp": 0.169,
+     "recall_at_1pct_fp": 0.169
+    }
+   }
+  },
+  "top_negatives": {
+   "rules": [
+    {
+     "gene": "Chromosome_1383",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 337.3,
+     "gap": null,
+     "donor_group": "Fungi",
+     "best_taxon": "Funiculus sociatus GB2-A5",
+     "score": 30337.3,
+     "positives_above": 68
+    },
+    {
+     "gene": "Chromosome_192",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 303.9,
+     "gap": 30.4,
+     "donor_group": "Actinomycetota",
+     "best_taxon": "Candidatus Uabimicrobium amorphum",
+     "score": 30303.9,
+     "positives_above": 72
+    },
+    {
+     "gene": "Chromosome_188",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 197.0,
+     "gap": 30.3,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Uabimicrobium amorphum",
+     "score": 30197.0,
+     "positives_above": 104
+    },
+    {
+     "gene": "Chromosome_584",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 181.1,
+     "gap": 15.7,
+     "donor_group": "Fungi",
+     "best_taxon": "Hyalangium minutum",
+     "score": 30181.1,
+     "positives_above": 112
+    },
+    {
+     "gene": "Chromosome_1219",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 156.6,
+     "gap": 14.4,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Antrihabitans stalactiti",
+     "score": 30156.6,
+     "positives_above": 125
+    },
+    {
+     "gene": "Chromosome_2236",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 151.4,
+     "gap": 13.6,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Coraliomargarita algicola",
+     "score": 30151.4,
+     "positives_above": 128
+    },
+    {
+     "gene": "Chromosome_1570",
+     "kind": "other",
+     "name": "",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 136.4,
+     "gap": 14.4,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Pseudocohnilembus persalinus",
+     "score": 30136.4,
+     "positives_above": 134
+    },
+    {
+     "gene": "Chromosome_1534",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 133.0,
+     "gap": 20.3,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Hydrotalea sandarakina",
+     "score": 30133.0,
+     "positives_above": 136
+    },
+    {
+     "gene": "Chromosome_549",
+     "kind": "other",
+     "name": "",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 121.4,
+     "gap": 13.9,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Acrasis kona",
+     "score": 30121.4,
+     "positives_above": 144
+    },
+    {
+     "gene": "Chromosome_2656",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 119.4,
+     "gap": 17.1,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Limnoglobus roseus",
+     "score": 30119.4,
+     "positives_above": 144
+    },
+    {
+     "gene": "Chromosome_826",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 110.5,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Anaeroselena agilis",
+     "score": 30110.5,
+     "positives_above": 147
+    },
+    {
+     "gene": "Chromosome_842",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 106.1,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Planctopirus hydrillae",
+     "score": 30106.1,
+     "positives_above": 149
+    },
+    {
+     "gene": "Chromosome_1793",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 106.1,
+     "gap": 18.8,
+     "donor_group": "Bacillota",
+     "best_taxon": "Hydrococcus rivularis NIES-593",
+     "score": 30106.1,
+     "positives_above": 149
+    },
+    {
+     "gene": "Chromosome_827",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 103.9,
+     "gap": null,
+     "donor_group": "Bacillota",
+     "best_taxon": "Anaeroselena agilis",
+     "score": 30103.9,
+     "positives_above": 152
+    },
+    {
+     "gene": "Chromosome_1645",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 96.9,
+     "gap": 10.9,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Spirobacillus cienkowskii",
+     "score": 30096.9,
+     "positives_above": 157
+    },
+    {
+     "gene": "Chromosome_2241",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 96.5,
+     "gap": 22.3,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Ignavibacterium album JCM 16511",
+     "score": 30096.5,
+     "positives_above": 157
+    },
+    {
+     "gene": "Chromosome_460",
+     "kind": "other",
+     "name": "",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 87.9,
+     "gap": null,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Willaertia magna",
+     "score": 30087.9,
+     "positives_above": 159
+    },
+    {
+     "gene": "Chromosome_2775",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 77.8,
+     "gap": 15.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Estrella lausannensis",
+     "score": 30077.8,
+     "positives_above": 164
+    },
+    {
+     "gene": "Chromosome_252",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 69.3,
+     "gap": 23.7,
+     "donor_group": "Bacillota",
+     "best_taxon": "Polyangium jinanense",
+     "score": 30069.3,
+     "positives_above": 168
+    },
+    {
+     "gene": "Chromosome_1819",
+     "kind": "other",
+     "name": "",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 53.9,
+     "gap": null,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Balamuthia mandrillaris",
+     "score": 30053.9,
+     "positives_above": 170
+    },
+    {
+     "gene": "Chromosome_2614",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 46.2,
+     "gap": null,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Pedosphaera parvula Ellin514",
+     "score": 30046.2,
+     "positives_above": 172
+    },
+    {
+     "gene": "Chromosome_3151",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 45.0,
+     "gap": 10.9,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Zarconia navalis LEGE 11467",
+     "score": 30045.0,
+     "positives_above": 173
+    },
+    {
+     "gene": "Chromosome_48",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 142.4,
+     "gap": 9.7,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Saprospira grandis str. Lewin",
+     "score": 20142.4,
+     "positives_above": 189
+    },
+    {
+     "gene": "Chromosome_1149",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 135.8,
+     "gap": 6.8,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Chloroploca mongolica",
+     "score": 20135.8,
+     "positives_above": 191
+    },
+    {
+     "gene": "Chromosome_191",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 126.8,
+     "gap": 16.1,
+     "donor_group": "Bacillota",
+     "best_taxon": "Candidatus Uabimicrobium amorphum",
+     "score": 20126.8,
+     "positives_above": 191
+    }
+   ],
+   "rule_ai_near": [
+    {
+     "gene": "Chromosome_1550",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -11.2,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Francisella philomiragia",
+     "score": 460.52,
+     "positives_above": 7
+    },
+    {
+     "gene": "Chromosome_2349",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 2.0,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Syntrophotalea carbinolica DSM 2380",
+     "score": 460.52,
+     "positives_above": 9
+    },
+    {
+     "gene": "Chromosome_3239",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Sneathiella marina",
+     "score": 460.52,
+     "positives_above": 10
+    },
+    {
+     "gene": "Chromosome_2333",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -16.1,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Roseiterribacter gracilis",
+     "score": 460.52,
+     "positives_above": 11
+    },
+    {
+     "gene": "Chromosome_84",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Kistimonas scapharcae",
+     "score": 460.52,
+     "positives_above": 11
+    },
+    {
+     "gene": "Chromosome_2353",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 31.6,
+     "gap": 4.3,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Amazonocrinis nigriterrae CENA67",
+     "score": 460.52,
+     "positives_above": 11
+    },
+    {
+     "gene": "Chromosome_2571",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -27.7,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Methylocella tundrae",
+     "score": 460.52,
+     "positives_above": 13
+    },
+    {
+     "gene": "Chromosome_3170",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Fluviicoccus keumensis",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_1799",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -124.3,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Aquicella siphonis",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_3167",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Phreatobacter stygius",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_1763",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 3.6,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Rippkaea orientalis PCC 8801",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_1344",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -42.6,
+     "gap": 0.0,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Jezberella montanilacus",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_716",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -107.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Accumulibacter phosphatis",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_1434",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -441.8,
+     "gap": 0.0,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Verticiella sediminum",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_705",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Gallibacterium anatis",
+     "score": 460.52,
+     "positives_above": 20
+    },
+    {
+     "gene": "Chromosome_486",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Thiogranum longum",
+     "score": 460.52,
+     "positives_above": 30
+    },
+    {
+     "gene": "Chromosome_2548",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -129.7,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pseudoduganella namucuonensis",
+     "score": 460.52,
+     "positives_above": 40
+    },
+    {
+     "gene": "Chromosome_206",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Zooshikella ganghwensis",
+     "score": 460.52,
+     "positives_above": 41
+    },
+    {
+     "gene": "Chromosome_190",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 4.5,
+     "donor_group": "Fungi",
+     "best_taxon": "Candidatus Uabimicrobium amorphum",
+     "score": 460.52,
+     "positives_above": 41
+    },
+    {
+     "gene": "Chromosome_1152",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -143.6,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pseudoduganella namucuonensis",
+     "score": 460.52,
+     "positives_above": 41
+    },
+    {
+     "gene": "Chromosome_2893",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Ectothiorhodospira shaposhnikovii",
+     "score": 460.52,
+     "positives_above": 41
+    },
+    {
+     "gene": "Chromosome_217",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 0.0,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Phycorickettsia trachydisci",
+     "score": 460.52,
+     "positives_above": 41
+    },
+    {
+     "gene": "Chromosome_252",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 69.3,
+     "gap": 23.7,
+     "donor_group": "Bacillota",
+     "best_taxon": "Polyangium jinanense",
+     "score": 460.52,
+     "positives_above": 41
+    },
+    {
+     "gene": "Chromosome_48",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 142.4,
+     "gap": 9.7,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Saprospira grandis str. Lewin",
+     "score": 459.22,
+     "positives_above": 71
+    },
+    {
+     "gene": "Chromosome_192",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 303.9,
+     "gap": 30.4,
+     "donor_group": "Actinomycetota",
+     "best_taxon": "Candidatus Uabimicrobium amorphum",
+     "score": 453.68,
+     "positives_above": 72
+    }
+   ],
+   "place_disc": [
+    {
+     "gene": "Chromosome_611",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 41.8,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Protochlamydia naegleriophila",
+     "score": 2.726,
+     "positives_above": 165
+    },
+    {
+     "gene": "Chromosome_1791",
+     "kind": "other",
+     "name": "",
+     "category": "repeat",
+     "confidence": "",
+     "AI": null,
+     "gap": null,
+     "donor_group": "",
+     "best_taxon": "",
+     "score": 2.596,
+     "positives_above": 169
+    },
+    {
+     "gene": "Chromosome_202",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 50.4,
+     "gap": 6.9,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Lishizhenia tianjinensis",
+     "score": 2.595,
+     "positives_above": 169
+    },
+    {
+     "gene": "Chromosome_2378",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -101.3,
+     "gap": 0.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Candidatus Berkiella aquae",
+     "score": 2.574,
+     "positives_above": 171
+    },
+    {
+     "gene": "Chromosome_1434",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -441.8,
+     "gap": 0.0,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Verticiella sediminum",
+     "score": 2.564,
+     "positives_above": 171
+    },
+    {
+     "gene": "Chromosome_1444",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 6.3,
+     "gap": -0.3,
+     "donor_group": "Fungi",
+     "best_taxon": "Stylonychia lemnae",
+     "score": 2.556,
+     "positives_above": 172
+    },
+    {
+     "gene": "Chromosome_280",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -34.1,
+     "gap": 0.0,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Aquicella siphonis",
+     "score": 2.168,
+     "positives_above": 189
+    },
+    {
+     "gene": "Chromosome_1547",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -127.6,
+     "gap": 0.0,
+     "donor_group": "Metazoa, other",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 2.077,
+     "positives_above": 193
+    },
+    {
+     "gene": "Chromosome_679",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -77.4,
+     "gap": 0.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Candidatus Berkiella aquae",
+     "score": 2.012,
+     "positives_above": 195
+    },
+    {
+     "gene": "Chromosome_2214",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -17.5,
+     "gap": 0.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 2.003,
+     "positives_above": 195
+    },
+    {
+     "gene": "Chromosome_2938",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -129.7,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.991,
+     "positives_above": 195
+    },
+    {
+     "gene": "Chromosome_1445",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -120.3,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.965,
+     "positives_above": 196
+    },
+    {
+     "gene": "Chromosome_2955",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -358.6,
+     "gap": 0.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.948,
+     "positives_above": 196
+    },
+    {
+     "gene": "Chromosome_2140",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -6.4,
+     "gap": 0.0,
+     "donor_group": "Fungi",
+     "best_taxon": "Candidatus Methylopumilus turicensis",
+     "score": 1.913,
+     "positives_above": 198
+    },
+    {
+     "gene": "Chromosome_1357",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -355.2,
+     "gap": 0.0,
+     "donor_group": "Vertebrata, other",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.886,
+     "positives_above": 199
+    },
+    {
+     "gene": "Chromosome_3151",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 45.0,
+     "gap": 10.9,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Zarconia navalis LEGE 11467",
+     "score": 1.83,
+     "positives_above": 201
+    },
+    {
+     "gene": "Chromosome_2276",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -109.6,
+     "gap": 0.0,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Candidatus Megaera venefica",
+     "score": 1.825,
+     "positives_above": 201
+    },
+    {
+     "gene": "Chromosome_2544",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.803,
+     "positives_above": 201
+    },
+    {
+     "gene": "Chromosome_2279",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -46.2,
+     "gap": 0.0,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Candidatus Megaera venefica",
+     "score": 1.769,
+     "positives_above": 201
+    },
+    {
+     "gene": "Chromosome_720",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -76.1,
+     "gap": 0.0,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Candidatus Xenohaliotis californiensis",
+     "score": 1.747,
+     "positives_above": 202
+    },
+    {
+     "gene": "Chromosome_2285",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 9.7,
+     "gap": 8.6,
+     "donor_group": "Archaea",
+     "best_taxon": "Methanosarcina acetivorans C2A",
+     "score": 1.732,
+     "positives_above": 202
+    },
+    {
+     "gene": "Chromosome_1153",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -51.7,
+     "gap": 0.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.726,
+     "positives_above": 202
+    },
+    {
+     "gene": "Chromosome_2776",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -7.7,
+     "gap": 0.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Sapientia aquatica",
+     "score": 1.722,
+     "positives_above": 202
+    },
+    {
+     "gene": "Chromosome_2775",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 77.8,
+     "gap": 15.2,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Estrella lausannensis",
+     "score": 1.659,
+     "positives_above": 203
+    },
+    {
+     "gene": "Chromosome_920",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -460.5,
+     "gap": 0.0,
+     "donor_group": "Gammaproteobacteria, other",
+     "best_taxon": "Fluoribacter dumoffii",
+     "score": 1.644,
+     "positives_above": 203
+    }
+   ],
+   "place_node": [
+    {
+     "gene": "Chromosome_562",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -194.3,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Holospora curviuscula",
+     "score": 3.723,
+     "positives_above": 179
+    },
+    {
+     "gene": "Chromosome_1570",
+     "kind": "other",
+     "name": "",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 136.4,
+     "gap": 14.4,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Pseudocohnilembus persalinus",
+     "score": 3.182,
+     "positives_above": 186
+    },
+    {
+     "gene": "Chromosome_549",
+     "kind": "other",
+     "name": "",
+     "category": "eukaryote",
+     "confidence": "high",
+     "AI": 121.4,
+     "gap": 13.9,
+     "donor_group": "Eukaryota, other",
+     "best_taxon": "Acrasis kona",
+     "score": 3.135,
+     "positives_above": 188
+    },
+    {
+     "gene": "Chromosome_720",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -76.1,
+     "gap": 0.0,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Candidatus Xenohaliotis californiensis",
+     "score": 3.064,
+     "positives_above": 190
+    },
+    {
+     "gene": "Chromosome_202",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 50.4,
+     "gap": 6.9,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Lishizhenia tianjinensis",
+     "score": 3.061,
+     "positives_above": 190
+    },
+    {
+     "gene": "Chromosome_1534",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 133.0,
+     "gap": 20.3,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Hydrotalea sandarakina",
+     "score": 3.035,
+     "positives_above": 191
+    },
+    {
+     "gene": "Chromosome_611",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 41.8,
+     "gap": null,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Protochlamydia naegleriophila",
+     "score": 2.938,
+     "positives_above": 192
+    },
+    {
+     "gene": "Chromosome_2276",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -109.6,
+     "gap": 0.0,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Candidatus Megaera venefica",
+     "score": 2.897,
+     "positives_above": 192
+    },
+    {
+     "gene": "Chromosome_1434",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -441.8,
+     "gap": 0.0,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Verticiella sediminum",
+     "score": 2.83,
+     "positives_above": 193
+    },
+    {
+     "gene": "Chromosome_285",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "low",
+     "AI": 23.4,
+     "gap": 4.7,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Xanthomarina arctica",
+     "score": 2.723,
+     "positives_above": 195
+    },
+    {
+     "gene": "Chromosome_3151",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "high",
+     "AI": 45.0,
+     "gap": 10.9,
+     "donor_group": "Cyanobacteriota",
+     "best_taxon": "Zarconia navalis LEGE 11467",
+     "score": 2.53,
+     "positives_above": 198
+    },
+    {
+     "gene": "Chromosome_2279",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -46.2,
+     "gap": 0.0,
+     "donor_group": "Pseudomonadota, other",
+     "best_taxon": "Candidatus Megaera venefica",
+     "score": 2.427,
+     "positives_above": 199
+    },
+    {
+     "gene": "Chromosome_1791",
+     "kind": "other",
+     "name": "",
+     "category": "repeat",
+     "confidence": "",
+     "AI": null,
+     "gap": null,
+     "donor_group": "",
+     "best_taxon": "",
+     "score": 2.308,
+     "positives_above": 204
+    },
+    {
+     "gene": "Chromosome_2790",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 36.5,
+     "gap": 7.7,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Candidatus Amoebophilus asiaticus 5a2",
+     "score": 2.282,
+     "positives_above": 204
+    },
+    {
+     "gene": "Chromosome_3199",
+     "kind": "other",
+     "name": "",
+     "category": "repeat",
+     "confidence": "",
+     "AI": null,
+     "gap": null,
+     "donor_group": "",
+     "best_taxon": "",
+     "score": 2.047,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_1152",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -143.6,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pseudoduganella namucuonensis",
+     "score": 1.961,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_48",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 142.4,
+     "gap": 9.7,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Saprospira grandis str. Lewin",
+     "score": 1.885,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_1352",
+     "kind": "other",
+     "name": "",
+     "category": "prokaryote",
+     "confidence": "medium",
+     "AI": 37.6,
+     "gap": 6.9,
+     "donor_group": "Bacteroidota",
+     "best_taxon": "Negadavirga shengliensis",
+     "score": 1.87,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_1444",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": 6.3,
+     "gap": -0.3,
+     "donor_group": "Fungi",
+     "best_taxon": "Stylonychia lemnae",
+     "score": 1.866,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_2548",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -129.7,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pseudoduganella namucuonensis",
+     "score": 1.855,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_876",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -21.4,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Govanella unica",
+     "score": 1.83,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_2776",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -7.7,
+     "gap": 0.0,
+     "donor_group": "Phage (Caudoviricetes)",
+     "best_taxon": "Sapientia aquatica",
+     "score": 1.823,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_719",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -259.6,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pseudundibacterium arcticum",
+     "score": 1.819,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_1690",
+     "kind": "other",
+     "name": "",
+     "category": "native",
+     "confidence": "",
+     "AI": -65.1,
+     "gap": 0.0,
+     "donor_group": "Bacteria, other",
+     "best_taxon": "Pelagibius litoralis",
+     "score": 1.809,
+     "positives_above": 207
+    },
+    {
+     "gene": "Chromosome_1852",
+     "kind": "other",
+     "name": "",
+     "category": "orphan",
+     "confidence": "",
+     "AI": null,
+     "gap": null,
+     "donor_group": "",
+     "best_taxon": "",
+     "score": 1.799,
+     "positives_above": 207
+    }
+   ]
+  }
+ }
+}

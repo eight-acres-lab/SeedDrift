@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""How much signal the trials hold, measured with statistics that learn nothing.
+"""Fixed statistics on the saved trials: what scores that learn nothing reach, and which trials no visible row can decide.
 
 Every saved trial of fit.py is rebuilt (same seeds, checked against the saved table) and the query is scored by:
 
@@ -11,8 +11,9 @@ Every saved trial of fit.py is rebuilt (same seeds, checked against the saved ta
   ctx_shown     misfit to a profile estimated from the 12 shown genes only, over the 32 shown rows: a fixed
                 statistic on exactly the model's input
   oracle_all    misfit to the genome's profile minus misfit to the donor's profile, every visible panel row.
-                It is told who the donor is, so it is not a method: it shows how much the similarities could
-                give if the right alternative were known.
+                It is told who the donor is, so it is not a method. It is this one misfit statistic with the
+                right alternative supplied, not an upper bound: it ignores which cells are missing, and the
+                trained models beat it on most trials.
   oracle_shown  the same over the 32 shown rows
 
 It also records, per trial, whether any visible row could tell the donor from the genome at all:
@@ -23,8 +24,10 @@ It also records, per trial, whether any visible row could tell the donor from th
   genome_side   the genome's distance to the donor's proteome minus its distance to its nearest visible row.
                 Positive: some visible row is closer to the genome than the donor is.
 
-When both are at or below zero the genome and the donor are each other's nearest neighbours among what is
-visible: every row is about equally far from both, and no method can separate the two from these rows.
+When both are at most 0.05 the genome and the donor are each other's nearest neighbours among what is
+visible: every panel row is about equally far from both, and none of the scores here separates the two. A side
+is undefined when the two genomes have no measurable distance to each other (they are far apart); such trials
+count as separable.
 
 usage:
   python research/array/ceiling.py --data DIR --names a b --profiles DIR/profiles.npz --library LIB \
@@ -48,6 +51,7 @@ from report import auroc  # noqa: E402
 CAP = 2.5            # distance used where a genome has no measurable distance to a proteome
 STATS = ("top_all", "own_all", "own_shown", "ctx_shown", "oracle_all", "oracle_shown", "donor_side", "genome_side")
 SCORES = STATS[:6]
+CHECK = ("k_g", "k_t", "n_c", "n_present", "rule_ai")      # recomputed with the trial and compared with the saved table
 REC, ST, DS = {}, None, None
 
 
@@ -131,7 +135,7 @@ def work(span):
         s["oracle_shown"] = s["own_shown"] - misfit(ds[ok], capped(st.D[t][rows[ok]]))
         X = np.stack([members(st, int(c), rows) for c in REC["ctx"]])
         s["ctx_shown"] = misfit(ds[ok], capped(rank_one(X))[ok])
-        out.append([int(ex["x"]), g, t, float(ex["label"])] + [s[k] for k in STATS])
+        out.append([int(ex["x"]), g, t, float(ex["label"])] + [s[k] for k in STATS] + [float(ex[k]) for k in CHECK])
     return np.array(out, dtype=np.float64)
 
 
@@ -166,6 +170,9 @@ def main():
     for j, key in enumerate(("x", "g", "donor", "label")):
         if not np.array_equal(R[:, j], t[key].astype(np.float64)):
             sys.exit("rebuilt trials differ from the saved table (%s)" % key)
+    for j, key in enumerate(CHECK):                            # the later draws too: hiding, other genes, rows
+        if not np.allclose(R[:, 4 + len(STATS) + j], t[key].astype(np.float64), atol=1e-5):
+            sys.exit("rebuilt trials differ from the saved table (%s)" % key)
     y = t["label"] > 0.5
     scores = {}
     for j, key in enumerate(SCORES):
@@ -173,6 +180,8 @@ def main():
         scores[key] = (np.where(np.isfinite(v), v, np.nanmedian(v)), float(np.isfinite(v).mean()))
     for name, d in runs:
         z = np.load(os.path.join(d, "trials_%s.npz" % a.which))
+        if not (np.array_equal(z["x"], t["x"]) and np.array_equal(z["label"], t["label"])):
+            sys.exit("%s scores other trials" % name)
         scores["model: " + name] = (z["logit"].astype(np.float64), 1.0)
     scores["rule_ai (shown rows)"] = (t["rule_ai"].astype(np.float64), 1.0)
     near = t["d_gt"] < 0.8
@@ -188,14 +197,14 @@ def main():
         L.append("| %s | %.0f%% | %s |" % (key, 100 * frac, " | ".join("%.3f" % auroc(v[m], y[m]) for _, m in cells)))
     L += ["", "- Trials per cell: " + ", ".join("%s %d" % (c, int(m.sum())) for c, m in cells) + ".",
           "- A score that is not defined for a trial (fewer than three rows) is set to the median, so such trials tie.",
-          "- `oracle_*` is told who the donor is. It is a reference for the signal in the similarities, not a method."]
+          "- `oracle_*` is told who the donor is. It is one misfit statistic with the right alternative supplied: not a method and not an upper bound."]
     ds_, gs_ = R[:, 4 + STATS.index("donor_side")], R[:, 4 + STATS.index("genome_side")]
     strata = [("no visible row tells them apart (both sides <= 0.05)", (ds_ <= 0.05) & (gs_ <= 0.05)),
-              ("a row closer to the genome only", (ds_ <= 0.05) & (gs_ > 0.05)),
+              ("a row closer to the genome only", (ds_ <= 0.05) & ~(gs_ <= 0.05)),
               ("a row closer to the donor, by 0.05 to 0.3", (ds_ > 0.05) & (ds_ <= 0.3)),
               ("a row closer to the donor, by 0.3 to 0.6", (ds_ > 0.3) & (ds_ <= 0.6)),
               ("a row closer to the donor, by more than 0.6", ds_ > 0.6),
-              ("no measurable distance between the two", ~np.isfinite(ds_) | ~np.isfinite(gs_))]
+              ("no measurable distance between the two (far apart)", ~np.isfinite(ds_))]
     keys = [k for k in scores if k.startswith("model") or k.startswith("rule") or k in ("top_all", "oracle_shown")]
     L += ["", "## By whether a visible row can tell the donor from the genome", "",
           "Split by the two profiles only (no query is looked at). This split was made after the first results were seen.", "",
@@ -214,7 +223,7 @@ def main():
         if m.sum() < 20:
             continue
         L.append("| %s | %d | %s |" % (name, int(m.sum()), " | ".join("%.3f" % auroc(scores[k][0][m], y[m]) for k in keys)))
-    np.savez(os.path.splitext(a.out)[0] + ".npz", stats=R, names=np.array(STATS))
+    np.savez(os.path.splitext(a.out)[0] + ".npz", stats=R[:, :4 + len(STATS)], names=np.array(STATS))
     open(a.out, "w").write("\n".join(L) + "\n")
     print("\n".join(L))
 

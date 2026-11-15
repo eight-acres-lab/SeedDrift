@@ -15,7 +15,11 @@ near the donors are hidden at random, and the outputs are a probability per gene
 row of the gene's origin.
 
 Scoring uses the saved trials of the second version (same query, genome, donor and hiding), with the query as
-one of the N genes, so both versions are compared on the same queries.
+one of the N genes, so both versions are compared on the same queries. The other genes and the rows are drawn
+anew (the saved table does not hold them).
+
+Controls: --show 13 builds the same 64-gene example, rows included, and shows the network only 13 of the gene
+columns; --blank 1 leaves the cells without numbers (only whether they exist).
 
 usage (GPU box, repo root):
   python research/array/wide.py --data DIR --names a b --profiles DIR/profiles.npz --library LIB \
@@ -96,15 +100,20 @@ class Cfg:
     N: int = 64                   # genes per example
     R_near: int = 32              # rows nearest to the genome
     R_strat: int = 32             # rows spread over the rest of the genome's distance range
-    R_top: int = 96               # rows brought in by the genes themselves (their best visible members)
-    T: int = 2                    # how many rows a gene may bring in
+    T: int = 2                    # the T best visible rows of every gene are always in the table
+    show: int = 0                 # control: gene columns shown to the network (0 = all N); the rows still come from all N genes
+    blank: bool = False           # control: cells carry no numbers, only whether they exist
     panel: bool = False           # rows only from the panel of the second version
     hide: tuple = (0, 0, 0, 1, 2, 4, 8, 16, 32)       # radius of what is hidden, in panel proteomes, around the genome and around a donor
-    repl: tuple = (0, 0, 1, 1, 2, 3, 4, 6, 8, 12, 16)  # how many of the genes are replaced
+    repl: tuple = (0, 0, 1, 1, 2, 3, 4, 6, 8, 12, 16, 20)  # how many of 64 genes are replaced (scaled to the number of genes)
 
     @property
     def R(self):
-        return self.R_near + self.R_strat + self.R_top
+        return self.R_near + self.R_strat + self.T * self.N
+
+    @property
+    def G(self):
+        return self.show or self.N
 
 
 def hide(st, h, genome, k):
@@ -133,23 +142,25 @@ def choose_rows(st, cfg, rng, g, genes, hidden):
     taken = np.zeros(st.n_prot, dtype=bool)
     taken[chosen] = True
     extra = []
-    for i in rng.permutation(len(genes)):                     # every gene may bring in its best visible rows
-        t = st.best[st.off[genes[i]]:st.off[genes[i] + 1]]
-        t = t[avail[t] & ~taken[t]][:cfg.T]
+    for gene in genes:                                        # the T best visible rows of every gene (many are in the table already)
+        t = st.best[st.off[gene]:st.off[gene + 1]]
+        t = t[avail[t]][:cfg.T]
+        t = t[~taken[t]]
         taken[t] = True
         extra += list(t)
-        if len(extra) >= cfg.R_top:
-            break
-    rows = np.array(chosen + extra[:cfg.R_top], dtype=np.int64)
+    rows = np.array(chosen + extra, dtype=np.int64)
     near = np.arange(len(rows)) < n_near
     perm = rng.permutation(len(rows))
     return rows[perm], near[perm]
 
 
-def table(st, cfg, rng, g, genes, hidden, origin):
-    """Arrays of one example. origin[i] is the genome gene i really comes from."""
+def table(st, cfg, rng, g, genes, hidden, origin, keep=None):
+    """Arrays of one example. origin[i] is the genome gene i really comes from. The rows are chosen by all the
+    genes; with keep, only those genes become columns (the control that shows fewer genes)."""
     rows, near = choose_rows(st, cfg, rng, g, genes, hidden)
-    N, R, n, r = cfg.N, cfg.R, len(genes), len(rows)
+    if keep is not None:
+        genes, origin = genes[keep], origin[keep]
+    N, R, n, r = cfg.G, cfg.R, len(genes), len(rows)
     x = np.zeros((N, R, NF), dtype=np.float16)
     present = np.zeros((N, R), dtype=bool)
     ptr = np.full(N, -1, dtype=np.int64)
@@ -171,32 +182,56 @@ def table(st, cfg, rng, g, genes, hidden, origin):
     row_ok[:r], gene_ok[:n], nr[:r] = True, True, near
     s = x[..., 0].astype(np.float32)
     rule = np.where(present & ~nr, s, 0).max(1) - np.where(present & nr, s, 0).max(1)     # best outside the genome's nearest rows minus best inside
-    glen = np.zeros(N, dtype=np.float32)
-    glen[:n] = np.log1p(st.L[genes]) / 8.0
     ptr_rule = np.where(present.any(1), np.where(present, s, -1.0).argmax(1), -2).astype(np.int64)      # the most similar row
-    return dict(x=x, present=present, row_ok=row_ok, gene_ok=gene_ok, ptr=ptr, ptr_rule=ptr_rule, glen=glen,
+    if cfg.blank:
+        x[:] = 0
+    return dict(x=x, present=present, row_ok=row_ok, gene_ok=gene_ok, ptr=ptr, ptr_rule=ptr_rule,
                 rule_ai=rule.astype(np.float32), n_present=present.sum(1).astype(np.int64))
 
 
+def other_gene(st, rng, src, used):
+    """A gene of genome src that is not in the example yet."""
+    pool = st.genes_of[src]
+    c = int(rng.choice(pool))
+    for _ in range(8):
+        if c not in used:
+            break
+        c = int(rng.choice(pool))
+    used.add(c)
+    return c
+
+
 def draw(st, cfg, rng, g, donors):
-    """A training example: genes of genome g, some replaced by genes of one to three donors. The surroundings of
-    the donors are hidden whether or not any gene is replaced, so what is hidden says nothing about the labels."""
+    """A training example: genes of genome g, some replaced. Replaced genes come from one to three donors whose
+    surroundings are hidden to a random radius, and, in half of the examples, also singly from other genomes
+    of which only the own proteome is hidden (the scheme of the saved trials). The donors' surroundings are
+    hidden whether or not any gene is replaced, so what is hidden says nothing about the labels."""
     mine = st.genes_of[g]
     n = min(cfg.N, len(mine))
     genes = mine[rng.permutation(len(mine))[:n]].copy()
     origin = np.full(n, g, dtype=np.int64)
-    label, dist = np.zeros(cfg.N, dtype=np.float32), np.full(cfg.N, -1.0, dtype=np.float32)
+    label, dist = np.zeros(n, dtype=np.float32), np.full(n, -1.0, dtype=np.float32)
     hidden = np.zeros(st.n_prot, dtype=bool)
     hide(st, hidden, g, int(rng.choice(cfg.hide)))
-    n_f = min(int(rng.choice(cfg.repl)), n // 3)
-    pos = rng.choice(n, n_f, replace=False)
-    for part in np.array_split(pos, int(rng.choice((1, 1, 2, 3)))):
-        t, d = donors.pick(rng, g, int(rng.integers(3)))
+    main = [donors.pick(rng, g, int(rng.integers(3))) for _ in range(int(rng.choice((1, 1, 2, 3))))]
+    for t, _ in main:
         hide(st, hidden, t, int(rng.choice(cfg.hide)))
-        for i in part:
-            genes[i], origin[i], label[i], dist[i] = int(rng.choice(st.genes_of[t])), t, 1.0, (d if np.isfinite(d) else 9.0)
-    out = table(st, cfg, rng, g, genes, hidden, origin)
-    out.update(label=label, d_gt=dist)
+    r = int(rng.choice(cfg.repl)) * n / 64.0
+    n_f = min(int(r) + int(rng.random() < r - int(r)), n // 3)          # the same share of the genes whatever their number
+    p_single, used = float(rng.choice((0.0, 0.0, 0.5, 0.5))), set()
+    for i in rng.choice(n, n_f, replace=False):
+        if rng.random() < p_single:
+            t, d = donors.pick(rng, g, int(rng.integers(3)))
+            hide(st, hidden, t, 0)
+        else:
+            t, d = main[int(rng.integers(len(main)))]
+        genes[i], origin[i], label[i], dist[i] = other_gene(st, rng, t, used), t, 1.0, (d if np.isfinite(d) else 9.0)
+    keep = np.sort(rng.choice(n, min(cfg.show, n), replace=False)) if cfg.show else None
+    out = table(st, cfg, rng, g, genes, hidden, origin, keep)
+    lab, dg = np.zeros(cfg.G, dtype=np.float32), np.full(cfg.G, -1.0, dtype=np.float32)
+    k = len(label) if keep is None else len(keep)
+    lab[:k], dg[:k] = (label, dist) if keep is None else (label[keep], dist[keep])
+    out.update(label=lab, d_gt=dg)
     return out
 
 
@@ -225,24 +260,28 @@ class Compat(torch.utils.data.Dataset):
     def __getitem__(self, i):
         st, cfg, t = self.st, self.cfg, self.t
         g, x, d, lab = int(t["g"][i]), int(t["x"][i]), int(t["donor"][i]), int(t["label"][i] > 0.5)
-        rng = np.random.default_rng([self.seed, i // 2])       # a native trial and its foreign partner share the other genes
+        x0 = int(t["x"][i - i % 2])                            # the native partner's query: left out of the other genes in both trials
+        rng = np.random.default_rng([self.seed, i // 2])       # so a native trial and its foreign partner share the other genes
         mine = st.genes_of[g]
         perm = mine[rng.permutation(len(mine))]
-        others = perm[perm != x][:cfg.N - 1]
+        others = perm[perm != x0][:cfg.N - 1]
         genes = np.r_[x, others].astype(np.int64)
         origin = np.r_[d if lab else g, np.full(len(others), g)].astype(np.int64)
-        m = int(round(int(t["n_c"][i]) * len(others) / 12.0))
-        for j in 1 + rng.choice(len(others), m, replace=False):
-            src = d if rng.random() < 0.5 else self.donors.pick(rng, g, int(rng.integers(3)))[0]
-            pool = st.genes_of[src]
-            c = int(rng.choice(pool))
-            if c == x:
-                c = int(pool[(int(np.flatnonzero(pool == c)[0]) + 1) % len(pool)])
-            genes[j], origin[j] = c, src
         hidden = np.zeros(st.n_prot, dtype=bool)
         hide(st, hidden, g, int(t["k_g"][i]))
         hide(st, hidden, d, int(t["k_t"][i]))
-        out = table(st, cfg, rng, g, genes, hidden, origin)
+        m, used = int(round(int(t["n_c"][i]) * len(others) / 12.0)), {x, x0}
+        for j in 1 + rng.choice(len(others), m, replace=False):
+            if rng.random() < 0.5:
+                src = d
+            else:                                              # a gene of some other genome; its own proteome is hidden, as in training
+                src = self.donors.pick(rng, g, int(rng.integers(3)))[0]
+                hide(st, hidden, src, 0)
+            genes[j], origin[j] = other_gene(st, rng, src, used), src
+        keep = None
+        if cfg.show:
+            keep = np.r_[0, 1 + np.sort(rng.choice(len(others), min(cfg.show - 1, len(others)), replace=False))]
+        out = table(st, cfg, rng, g, genes, hidden, origin, keep)
         out.update(i=np.int64(i))
         return out
 
@@ -310,30 +349,38 @@ class WideNet(nn.Module):
         super().__init__()
         self.cfg = dict(d=d, layers=layers, heads=heads, dropout=dropout)
         self.cell = nn.Sequential(nn.Linear(NF, d), nn.GELU(), nn.Linear(d, d))
-        self.absent, self.summary, self.glen = nn.Parameter(torch.zeros(d)), nn.Parameter(torch.zeros(d)), nn.Linear(1, d)
+        self.absent, self.summary = nn.Parameter(torch.zeros(d)), nn.Parameter(torch.zeros(d))
         self.blocks = nn.ModuleList(Block(d, heads, dropout) for _ in range(layers))
         self.norm = nn.LayerNorm(d)
         self.out = nn.Sequential(nn.Linear(2 * d, d), nn.GELU(), nn.Linear(d, 1))
         self.ptr = nn.Linear(d, 1)
 
-    def forward(self, x, present, row_ok, gene_ok, glen):
+    def forward(self, x, present, row_ok, gene_ok):
         B, N, R, _ = x.shape
         c = torch.where(present.unsqueeze(-1), self.cell(x), self.absent.expand(B, N, R, -1))
-        s = (self.summary + self.glen(glen.unsqueeze(-1))).unsqueeze(2)       # one summary position per gene, ahead of its rows
-        h = torch.cat([s, c], 2)
+        s = self.summary.expand(B, N, 1, -1)                                  # one summary position per gene, ahead of its rows
+        h = torch.cat([s, c.to(s.dtype) if c.dtype != s.dtype else c], 2)
         ok = torch.cat([torch.ones(B, 1, dtype=torch.bool, device=x.device), row_ok], 1)
         for blk in self.blocks:
             h = blk(h, ok, gene_ok)
-        h = self.norm(h)
-        s = h[:, :, 0]
-        w = gene_ok.unsqueeze(-1).float()
-        mean = (s * w).sum(1, keepdim=True) / w.sum(1, keepdim=True).clamp(min=1)
-        return self.out(torch.cat([s, mean.expand(-1, N, -1)], -1)).squeeze(-1), self.ptr(h[:, :, 1:]).squeeze(-1)
+        with torch.autocast("cuda", enabled=False):                          # the two outputs in full precision
+            h = self.norm(h.float())
+            s = h[:, :, 0]
+            w = gene_ok.unsqueeze(-1).float()
+            mean = (s * w).sum(1, keepdim=True) / w.sum(1, keepdim=True).clamp(min=1)
+            return self.out(torch.cat([s, mean.expand(-1, N, -1)], -1)).squeeze(-1), self.ptr(h[:, :, 1:]).squeeze(-1)
+
+
+def trim(b):
+    """Drop the padded rows that no example of the batch uses (used rows come first in every example)."""
+    r = int(b["row_ok"].any(0).nonzero().max()) + 1
+    b["x"], b["present"], b["row_ok"] = b["x"][:, :, :r], b["present"][:, :, :r], b["row_ok"][:, :r]
+    return b
 
 
 def forward(model, b, dev):
     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=dev == "cuda"):
-        logit, ptr = model(b["x"].to(dev).float(), b["present"].to(dev), b["row_ok"].to(dev), b["gene_ok"].to(dev), b["glen"].to(dev))
+        logit, ptr = model(b["x"].to(dev).float(), b["present"].to(dev), b["row_ok"].to(dev), b["gene_ok"].to(dev))
     return logit.float(), ptr.float()
 
 
@@ -347,7 +394,7 @@ def run_compat(model, ds, kw, dev):
     ok = np.zeros(n, dtype=bool)
     with torch.no_grad():
         for b in torch.utils.data.DataLoader(ds, **kw):
-            logit, ptr = forward(model, b, dev)
+            logit, ptr = forward(model, trim(b), dev)
             i = b["i"].numpy()
             out["logit"][i] = logit[:, 0].cpu().numpy()
             for k in ("rule_ai", "n_present", "ptr", "ptr_rule"):
@@ -364,24 +411,33 @@ def main():
     ap.add_argument("--profiles", required=True); ap.add_argument("--library", required=True); ap.add_argument("--out", required=True)
     ap.add_argument("--trials", required=True, help="a run directory of the second version (trials_validation.npz, trials_unseen.npz)")
     ap.add_argument("--universe", default="all", choices=("all", "panel")); ap.add_argument("--genes", type=int, default=64)
-    ap.add_argument("--steps", type=int, default=20000); ap.add_argument("--batch", type=int, default=16)
+    ap.add_argument("--show", type=int, default=0, help="control: show the network only this many of the genes (rows still come from all)")
+    ap.add_argument("--blank", type=int, default=0, help="control: cells without numbers")
+    ap.add_argument("--steps", type=int, default=8000); ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--d", type=int, default=128); ap.add_argument("--layers", type=int, default=6)
-    ap.add_argument("--seed", type=int, default=0); ap.add_argument("--eval-every", type=int, default=2000)
+    ap.add_argument("--seed", type=int, default=0); ap.add_argument("--eval-every", type=int, default=1000)
     ap.add_argument("--bench", nargs="*", default=[], help="name=job.npz (the job file gives the genome's own genus)")
     ap.add_argument("--repeats", type=int, default=3)
     a = ap.parse_args()
+    if a.show and a.bench:
+        sys.exit("the control that shows fewer genes is not scored on whole genomes")
     os.makedirs(a.out, exist_ok=True)
     torch.manual_seed(a.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     bench = dict(x.split("=", 1) for x in a.bench)
     st = Cols(a.data, a.names + list(bench), a.profiles)
-    cfg = Cfg(N=a.genes, panel=a.universe == "panel")
+    cfg = Cfg(N=a.genes, show=a.show, blank=bool(a.blank), panel=a.universe == "panel")
     sp = splits(st, a.library)
     enough = {g for g, genes in st.genes_of.items() if len(genes) > 13}        # the same genomes as in the second version
     grp = {k: sorted(g for g, s in sp.items() if s == k and g in enough) for k in range(4)}
     print("genomes: train %d, validation %d, unseen classes %d, benchmark lineages %d (kept out)" % tuple(len(grp[k]) for k in range(4)), flush=True)
     tabs = {w: dict(np.load(os.path.join(a.trials, "trials_%s.npz" % w))) for w in ("validation", "unseen")}
+    for w, tab in tabs.items():                               # the saved gene indices must mean the same genes here
+        if not np.array_equal(st.genome[tab["x"]], np.where(tab["label"] > 0.5, tab["donor"], tab["g"])):
+            sys.exit("%s trials: gene indices do not match this store (other --names or order than the run that saved them)" % w)
+        for k in ("ptr", "ptr_ok", "ptr_rule", "logit"):      # fields of the run that saved the table; this run writes its own
+            tab.pop(k, None)
     val = Compat(st, cfg, tabs["validation"], Donors(st, grp[1]), 101)
     test = Compat(st, cfg, tabs["unseen"], Donors(st, grp[2]), 202)
     kw = dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False)
@@ -399,7 +455,7 @@ def main():
 
     model.train()
     for b in torch.utils.data.DataLoader(data, **kw):
-        logit, ptr = forward(model, b, dev)
+        logit, ptr = forward(model, trim(b), dev)
         ok, y, tgt = b["gene_ok"].to(dev), b["label"].to(dev), b["ptr"].to(dev)
         loss = F.binary_cross_entropy_with_logits(logit[ok], y[ok])
         has = (tgt >= 0) & ok
@@ -426,7 +482,8 @@ def main():
     for name, ds in (("validation", val), ("unseen", test)):
         r, res[name], res[name + "_rule_ai"] = stats(ds, tabs[name])
         full = dict(tabs[name])
-        full.update(logit=r["logit"], wide_rule_ai=r["rule_ai"], wide_n_present=r["n_present"], wide_ptr_ok=r["ptr_ok"], wide_ptr=r["ptr"])
+        full.update(logit=r["logit"], wide_rule_ai=r["rule_ai"], wide_n_present=r["n_present"], wide_ptr_ok=r["ptr_ok"], wide_ptr=r["ptr"],
+                    wide_ptr_rule=r["ptr_rule"])
         np.savez(os.path.join(a.out, "trials_%s.npz" % name), **full)      # the saved table with this model's score in place of the old one
     r, v = res["unseen"], res["unseen_rule_ai"]
     print("unseen classes: auroc %.4f, recall at 5%% %.3f; near %.4f, mid %.4f, far %.4f; pointer %.3f" % (
@@ -445,7 +502,7 @@ def main():
         model.eval()
         with torch.no_grad():
             for b in torch.utils.data.DataLoader(Whole(st, cfg, g, extra, a.repeats, 7), **kw):
-                logit, _ = forward(model, b, dev)
+                logit, _ = forward(model, trim(b), dev)
                 for gene, lg, ru, n in zip(b["gene"].numpy().ravel(), logit.cpu().numpy().ravel(), b["rule_ai"].numpy().ravel(), b["n_present"].numpy().ravel()):
                     if gene >= 0:
                         score.setdefault(int(gene), []).append((float(lg), float(ru)))

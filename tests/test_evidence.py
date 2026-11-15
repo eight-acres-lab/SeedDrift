@@ -65,5 +65,6 @@ class TestEvidence(unittest.TestCase):
         self.assertEqual(confidence(dict(no_home, contig_flag="prokaryote-like contig")), "low")
         self.assertEqual(confidence(dict(no_home, category="native")), "")
 
+
 if __name__ == "__main__":
     unittest.main()

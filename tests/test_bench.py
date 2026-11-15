@@ -10,6 +10,8 @@ class TestBenchMetrics(unittest.TestCase):
     def test_auprc(self):
         self.assertEqual(auprc([10, 9], [1, 0]), 1.0)               # perfect ranking
         self.assertLess(auprc([1, 0], [10, 9]), 0.5)
+        # one spike called, one not: the uncalled spike shares the lowest score with three uncalled natives
+        self.assertEqual(auprc([5, -1e9], [-1e9, -1e9, -1e9]), 0.7)
 
     def test_match_transplant(self):
         pred = [dict(gene_id="a", contig="c", start="100", end="400", category="mammal", confidence="high",

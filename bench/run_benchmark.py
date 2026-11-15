@@ -8,6 +8,7 @@
             confidence tiers, contamination contigs, time per stage; 95% bootstrap intervals
 
 usage:  python bench/run_benchmark.py --api http://127.0.0.1:8600 --out bench/results [--only spike_ecoli]
+        python bench/run_benchmark.py --label broad --reeval      # metrics again from the stored jobs
 """
 from __future__ import annotations
 
@@ -79,19 +80,21 @@ def frac(xs):
 
 
 def auprc(pos, neg):
-    """pos / neg: lists of scores (higher = more foreign); average precision."""
+    """pos / neg: lists of scores (higher = more foreign); average precision. Genes with the same score are
+    taken together: the uncalled genes all share the lowest score, and counting the uncalled spikes ahead of
+    the uncalled natives would credit recall that no threshold can reach."""
     items = sorted([(s, 1) for s in pos] + [(s, 0) for s in neg], key=lambda x: -x[0])
-    tp = fp = 0
+    tp = fp = i = 0
     ap, last_r = 0.0, 0.0
-    for s, y in items:
-        if y:
-            tp += 1
-        else:
-            fp += 1
-        if y:
-            r = tp / len(pos)
-            ap += (tp / (tp + fp)) * (r - last_r)
-            last_r = r
+    while i < len(items):
+        j = i
+        while j < len(items) and items[j][0] == items[i][0]:
+            tp += items[j][1]
+            fp += 1 - items[j][1]
+            j += 1
+        r = tp / len(pos)
+        ap += (tp / (tp + fp)) * (r - last_r)
+        last_r, i = r, j
     return round(ap, 3)
 
 
@@ -273,6 +276,8 @@ def main():
     ap.add_argument("--only", default="", help="comma-separated dataset names")
     ap.add_argument("--configs", default=",".join(CONFIGS))
     ap.add_argument("--label", default="", help="suffix for the result keys, e.g. the reference library version")
+    ap.add_argument("--reeval", action="store_true",
+                    help="recompute the metrics of the stored runs from their jobs (which must still exist); runs nothing")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     rpath = os.path.join(a.out, "results.json")
@@ -285,10 +290,16 @@ def main():
         truth = list(csv.DictReader(open(os.path.join(d, "truth.tsv")), delimiter="\t"))
         cfgs = a.configs.split(",") if ds["kind"] in ("spikein", "transplant") else ["full"]
         for cfg in cfgs:
-            fields = dict(name="bench %s %s" % (ds["name"], cfg), self_taxon=ds.get("self_taxon", ""),
-                          domain=ds.get("domain", "auto"), structure="false", **CONFIGS[cfg])
+            key = cfg + ("@" + a.label if a.label else "")
             print("[bench] %s / %s" % (ds["name"], cfg), file=sys.stderr, flush=True)
-            jid = post_job(a.api, {"file": os.path.join(d, ds["input"])}, fields)
+            if a.reeval:
+                jid = res.get(ds["name"], {}).get(key, {}).get("job")
+                if not jid:
+                    continue
+            else:
+                fields = dict(name="bench %s %s" % (ds["name"], cfg), self_taxon=ds.get("self_taxon", ""),
+                              domain=ds.get("domain", "auto"), structure="false", **CONFIGS[cfg])
+                jid = post_job(a.api, {"file": os.path.join(d, ds["input"])}, fields)
             st = wait(a.api, jid)
             run = dict(job=jid, status=st["status"], error=st.get("error"))
             if st["status"] == "done":
@@ -298,7 +309,7 @@ def main():
                            metrics=(eval_spikein(pred, truth) if ds["kind"] == "spikein" else
                                     eval_transplant(pred, truth) if ds["kind"] == "transplant" else
                                     eval_contam(pred, s, truth)))
-            res.setdefault(ds["name"], {})[cfg + ("@" + a.label if a.label else "")] = run
+            res.setdefault(ds["name"], {})[key] = run
             json.dump(res, open(rpath, "w"), indent=1)
             report(res, os.path.join(root, "docs", "benchmark-results.md"))
     print("[bench] report: docs/benchmark-results.md", file=sys.stderr)

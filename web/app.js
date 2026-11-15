@@ -175,7 +175,7 @@ function renderResult(s) {
   const cf = s.confidence || {};
   $(".conf").innerHTML = `<span class="muted">外来候选的置信度：</span>` + ["high", "medium", "low"].map((l) =>
     `<span class="pill ${state.level === l ? "on" : ""}" data-l="${l}">${LEVEL[l]} ${cf[l] || 0}</span>`).join("") +
-    `<span class="muted" title="高：AI ≥ 45、建树支持外来、至少两个供体物种；中：AI ≥ 45 或建树支持外来；低：其余">ⓘ</span>`;
+    `<span class="muted" title="高：AI ≥ 45、至少两个供体物种，且本谱系补搜后仍无同源，或建树支持外来且一致度高出本谱系 ≥ 10 个百分点；中：AI ≥ 45 或建树支持外来，且本谱系无同源或一致度高出 ≥ 5；低：其余（包括疑似污染 contig 上的候选）">ⓘ</span>`;
   document.querySelectorAll(".conf .pill").forEach((el) => el.addEventListener("click", () => {
     state.level = state.level === el.dataset.l ? "" : el.dataset.l;
     document.querySelectorAll(".conf .pill").forEach((x) => x.classList.toggle("on", x.dataset.l === state.level));

@@ -6,7 +6,7 @@ SeedDrift 是一个检测水平基因转移（HGT）的开源工具：给它一�
 
 *SeedDrift finds genes in a genome that were likely acquired by horizontal gene transfer and shows the evidence for each call. Self-hosted, with a web page, an HTTP API and a command line.*
 
-[当前版本 v0.1.0](https://github.com/eight-acres-lab/SeedDrift/releases/tag/v0.1.0) · [MIT 许可](LICENSE) · [数据与第三方软件的来源](REFERENCES.md)
+[版本发布](https://github.com/eight-acres-lab/SeedDrift/releases) · [MIT 许可](LICENSE) · [数据与第三方软件的来源](REFERENCES.md)
 
 ## 功能
 
@@ -24,19 +24,23 @@ SeedDrift 是一个检测水平基因转移（HGT）的开源工具：给它一�
 服务器需要：
 
 - Linux，NVIDIA GPU（`nvidia-smi` 显示的 CUDA Version 为 12 或更高）；
-- 约 120 GB 磁盘；
+- 约 120 GB 磁盘用于参考数据和索引，运行环境、临时文件和任务结果另计；
 - 装有 `git`、`curl`、`bzip2`；
-- 能访问 conda-forge、PyPI、GitHub、EBI、NCBI 和 HuggingFace。
+- 能访问 conda-forge 和 bioconda、micro.mamba.pm、PyPI、download.pytorch.org、GitHub、EBI、NCBI 和 HuggingFace。
 
 不需要 root。
 
 ```bash
-git clone https://github.com/eight-acres-lab/SeedDrift.git && cd SeedDrift && ./seeddrift.sh up
+git clone https://github.com/eight-acres-lab/SeedDrift.git && cd SeedDrift
 ```
 
-`up` 依次安装运行环境、下载并索引参考数据、启动服务、检查状态。所有内容都放在仓库目录里（运行环境在 `.mamba/`，数据在 `store/`，日志在 `.run/`），不改动系统环境。每一步都可以单独执行（`install`、`data`、`start`、`status`），中断后重跑会接着做。
+默认把数据放在仓库目录下的 `store/`，用 16 个线程，直接从官方源下载。要换数据目录、改线程数或使用国内镜像，现在就编辑配置（见[配置](#配置)），然后运行：
 
-下载和建索引要几个小时，建议在 `tmux` 或 `screen` 里运行。要换数据目录、改线程数（默认 16）或使用国内镜像，在运行 `up` 之前先编辑配置，见[配置](#配置)。
+```bash
+./seeddrift.sh up
+```
+
+`up` 依次安装运行环境、下载并索引参考数据、启动服务、检查状态，要几个小时，建议在 `tmux` 或 `screen` 里运行。所有内容都放在仓库目录里（运行环境在 `.mamba/`，数据在 `store/`，日志在 `.run/`），不改动系统环境。每一步都可以单独执行（`install`、`data`、`start`、`status`），中断后重跑会接着做。
 
 完成后检查：
 
@@ -44,7 +48,7 @@ git clone https://github.com/eight-acres-lab/SeedDrift.git && cd SeedDrift && ./
 ./seeddrift.sh status
 ```
 
-`tools`、`esmfold`、`api` 三行都应是 `running`。刚启动时 ESMFold 模型还在加载，过一两分钟再查。出错时看 `./seeddrift.sh logs api`（或 `tools`、`esmfold`）。
+`tools`、`esmfold`、`api` 三行都应是 `running`；哪一行是 `stopped`，就看它的日志：`./seeddrift.sh logs api`（或 `tools`、`esmfold`）。三行下面还会打印一段 JSON，其中 `esmfold` 的 `ready` 为 `true` 才表示模型加载完毕，刚启动时要等一两分钟。
 
 ### 2. 打开网页
 
@@ -54,7 +58,9 @@ git clone https://github.com/eight-acres-lab/SeedDrift.git && cd SeedDrift && ./
 ssh -N -L 8600:127.0.0.1:8600 user@your-server
 ```
 
-浏览器访问 <http://localhost:8600>。页面右上角的圆点为绿色表示服务和数据都已就绪；黄色表示 ESMFold 模型还在加载；红色表示连不上或缺数据，鼠标悬停可以看到原因。
+浏览器访问 <http://localhost:8600>。页面右上角的圆点：绿色表示服务和数据都已就绪；黄色表示 ESMFold 服务还没就绪（刚启动的一两分钟是模型在加载；一直是黄色说明加载失败，看 `./seeddrift.sh logs esmfold`）；红色表示连不上或缺数据。鼠标悬停可以看到原因。
+
+在配置里改过接口端口的话，只换命令里冒号后面的端口，本地端口仍用 8600：`ssh -N -L 8600:127.0.0.1:<端口> user@your-server`。
 
 接口没有登录验证：能连上这个端口的人都可以提交任务、让服务器下载任意地址、删除任务。请通过 SSH 隧道访问，不要把端口直接开放到公网。
 
@@ -71,7 +77,7 @@ ssh -N -L 8600:127.0.0.1:8600 user@your-server
 
 结果页顶部是各类别的基因数；点置信度“高”筛出最可靠的候选，点某一行展开它的证据。
 
-一个 4,000 到 5,000 个基因的细菌基因组约 20 分钟出结果（16 线程、A800 80 GB、不做结构检索时的参考值）。
+一个 4,000 到 5,000 个基因的细菌基因组，不做结构检索时约 20 到 45 分钟出结果（16 个 CPU 线程、NVIDIA A800 80 GB 显存的服务器上实测 4 个基因组）。网页默认勾选结构检索，会对最多 400 个外部无同源的基因逐个预测结构，时间相应变长；想先尽快看到结果，提交前取消勾选。ESMFold 服务没有就绪时也请取消勾选，否则任务会在结构检索一步失败。
 
 ## 读懂结果
 
@@ -79,7 +85,7 @@ ssh -N -L 8600:127.0.0.1:8600 user@your-server
 
 | 类别 | 结果文件里的取值 | 含义 |
 |---|---|---|
-| 疑似哺乳动物 / 原核 / 其他真核 / 病毒来源 | `mammal` / `prokaryote` / `eukaryote` / `virus` | 最近的同源明显在本谱系之外（Alien Index ≥ 15，定义见[工作原理](#工作原理)）。来源类别由本谱系以外的前 10 个命中按得分加权得出 |
+| 疑似哺乳动物 / 原核 / 其他真核 / 病毒来源 | `mammal` / `prokaryote` / `eukaryote` / `virus` | 最近的同源明显在本谱系之外（Alien Index ≥ 15，定义见[工作原理](#工作原理)）。类别取本谱系以外最佳命中所属的大类；更细的来源类群（`donor_group`，如 Bacillota、Fungi）由本谱系以外的前 10 个命中按比对得分加权得出 |
 | 本谱系 | `native` | 外部同源没有明显优于本谱系的同源。本谱系的默认范围：原核按门；动物、真菌、植物按界；原生生物按所在的真核超类群 |
 | 外部无同源 | `orphan` | 排除自身所在的属之后，深度检索也没有命中。可选做结构检索 |
 | 仅重复结构命中 | `repeat` | 命中主要落在重复结构上，不做判定 |
@@ -92,13 +98,13 @@ ssh -N -L 8600:127.0.0.1:8600 user@your-server
 | 中 | `medium` | Alien Index ≥ 45 或建树支持外来；建树没有落在本谱系；并且本谱系无同源，或上述一致度之差至少 5 个百分点 |
 | 低 | `low` | 其余候选，以及位于疑似污染 contig 上的候选 |
 
-“支持物种”是外部前 10 个命中里的不同物种数。建议先看“高”和“中”两档。真核来源的候选如果支持物种只有 1，要小心：这时命中的往往不是真正的真核基因，而是那个真核物种的参考组装里混入的细菌序列。
+“支持物种”是本谱系以外前 10 个命中里，属于该来源类群的不同物种数。建议先看“高”和“中”两档。真核来源的候选如果支持物种只有 1，要小心：这时命中的往往不是真正的真核基因，而是那个真核物种的参考组装里混入的细菌序列。
 
 ### 结果文件
 
 | 文件 | 内容 |
 |---|---|
-| `genes.tsv` | 每个基因一行。主要的列：`category`（类别）、`confidence`（置信度）、`AI`（Alien Index）、`donor_group`（来源类群）、`support`（支持物种数）、`tree`（建树结论：`outside` / `home` / `mixed`）、`gc`、`gc3`、`comp_z`（组成偏离）、`island`（所在外来基因簇的大小）、`contig_flag`（疑似污染 contig），以及最佳命中和结构检索的各列 |
+| `genes.tsv` | 每个基因一行。主要的列：`category`（类别）、`confidence`（置信度）、`AI`（Alien Index）、`donor_group`（来源类群）、`support`（支持物种数）、`tree`（建树结论：`outside` 支持外来 / `home` 落在本谱系 / `mixed` 不确定；`na` 或空表示没有建树）、`gc`、`gc3`、`comp_z`（组成偏离）、`island`（所在外来基因簇的大小）、`contig_flag`（疑似污染 contig），以及最佳命中和结构检索的各列 |
 | `summary.json` | 整体摘要：基因数、各类别数量、自身类群、参数、各步用时 |
 | `hits.tsv` | 参考库比对结果 |
 | `proteins.faa` | 分析所用的蛋白序列 |
@@ -181,7 +187,7 @@ curl -F file=@proteins.faa -F name=my-genome -F structure=false http://localhost
 
 怎么读这张表：
 
-- **召回率**：被找回并归对来源类别的外源基因所占的比例。前两行的四个数依次对应外源蛋白被随机替换 0%、30%、50%、70% 位点后的结果，替换越多越接近年代久远、已经高度分化的转移。第三行的三个数对应插入基因的密码子用法向受体同化的三个程度；同化只换同义密码子，不改变蛋白序列，所以召回率不随它下降。
+- **召回率**：被找回并归对来源类别的外源基因所占的比例。前两行的四个数依次对应外源蛋白被随机替换 0%、30%、50%、70% 位点后的结果，替换越多越接近年代久远、已经高度分化的转移。第三行的三个数依次对应插入基因的密码子用法向受体同化 0%、50%、100% 的结果；同化只换同义密码子，不改变蛋白序列，所以召回率不随它下降。
 - **阴性对照**：受体自身的核糖体蛋白和 RNA 聚合酶亚基，它们不应被判为外来。
 - **高置信档的精确率**：把所有不是人为加入的基因都算作阴性。真实基因组里本来就有转移基因，所以它是下限。
 - 置信度的阈值是参照前两组数据定的，这两组的数字因此偏乐观；后两组没有参与调参。
@@ -191,7 +197,7 @@ curl -F file=@proteins.faa -F name=my-genome -F structure=false http://localhost
 - **给出的是候选，不是定论。** 筛查以序列相似性为主，不能完全区分转移、古老保守、谱系特异丢失和参考库污染。重要的候选请结合系统发育树和基因组上下文判断。
 - **默认只报远距离的转移。** 原核基因组默认只报来自其他门的基因；动物、真菌、植物默认只报来自本界以外的基因，原生生物只报来自所在真核超类群以外的基因。更近的转移要把本谱系的范围改窄（例如到科）才会出现。
 - **准确性数字只覆盖远距离的转移。** 上面的测试用例都是来自本谱系以外的外源基因。原噬菌体、基因组岛、同一门内的转移等场景还没有评估，表里的数字不能外推到这些场景。
-- **尚未用文献报道的真实转移验证，也没有和其他工具（如 HGTector、AvP）比较。**
+- **准确性数字全部来自构造数据。** 目前没有在文献报道的真实转移上的验证结果，也没有与其他工具（如 HGTector、AvP）的对比数据。
 - **高度分化的外源基因容易漏掉。** 测试中，序列被随机替换掉 70% 位点的外源蛋白只找回约一半。
 - **采样稀疏、演化快的真核谱系误报偏高**，例如阿米巴；这类基因组请以高置信档为主。
 - **未注释的真核基因组**用 MetaEuk 预测基因，没有任何已知同源蛋白的基因不会被预测出来。
@@ -219,12 +225,14 @@ curl -F file=@proteins.faa -F name=my-genome -F structure=false http://localhost
 cp deploy/seeddrift.env.example deploy/seeddrift.env
 ```
 
-可以设置数据目录、线程数、端口、代理、是否复用系统自带的 PyTorch。国内网络可以用镜像：`SD_CONDA_MIRROR=tuna`，`HF_ENDPOINT=https://hf-mirror.com`。
+可以设置数据目录、线程数、端口、代理、是否复用系统自带的 PyTorch。
+
+国内网络：`SD_CONDA_MIRROR=tuna` 让 conda-forge 和 bioconda 走清华镜像，`HF_ENDPOINT=https://hf-mirror.com` 让 ESMFold 权重走镜像；机器上已有 micromamba 时用 `MAMBA_EXE` 指向它，就不必再下载。PyPI、PyTorch 和 EBI 的参考数据没有内置镜像，连不上时在这个文件里设置 `https_proxy`。
 
 | 资源 | 需求 |
 |---|---|
 | 磁盘 | 下载约 60 GB，建好索引后共约 120 GB，另需临时空间 |
-| 显存 | ESMFold 服务常驻约 8 GB；深度检索的 GPU 版 MMseqs2 另外占用一些，不可用时自动改在 CPU 上用 DIAMOND |
+| 显存 | ESMFold 服务常驻约 8 GB，预测长蛋白（上限 1,000 个氨基酸）时还要更多；显存不够时任务会在结构检索一步失败，取消结构检索后重新提交即可，已完成的比对有缓存。深度检索的 GPU 版 MMseqs2 只在检索期间占用显存，不可用时自动改在 CPU 上用 DIAMOND |
 | 内存 | 可用内存超过 64 GB 时检索明显更快（DIAMOND 自动换用更大的分块，160 GB 和 400 GB 以上再各快一档）；更小的内存用 DIAMOND 的默认分块 |
 
 已经下载过的数据（另一份 SeedDrift 的数据目录，或 AlphaFold Swiss-Prot、Pfam-A、Swiss-Prot、NCBI taxdump、ESMFold 权重这些标准文件）可以链接过来，不必重下。数据集名称和各自需要的文件见 `data/datasets.json`：
@@ -235,7 +243,7 @@ SEEDDRIFT_DATA=$PWD/store python3 -m seeddrift data link alphafold-swissprot --f
 
 之后照常运行 `./seeddrift.sh up`，已有的部分会跳过。
 
-也可以用 Docker 代替 `./seeddrift.sh up`（需要 NVIDIA Container Toolkit）。第一条命令把数据下载并索引到 `store/`，第二条构建并启动三个服务；接口和网页同样在本机的 8600 端口：
+也可以用 Docker 代替 `./seeddrift.sh up`（需要 NVIDIA Container Toolkit）。这条路径测试得比脚本部署少，遇到问题请提 issue。第一条命令把数据下载并索引到 `store/`，第二条构建并启动三个服务；接口和网页同样在本机的 8600 端口：
 
 ```bash
 docker compose -f deploy/docker/compose.yml --profile data run --rm data
@@ -266,7 +274,7 @@ docker compose -f deploy/docker/compose.yml up -d --build
 | `services/` | 三个 HTTP 服务：接口、工具、ESMFold |
 | `web/` | 纯静态网页，不需要构建 |
 | `data/` | 每个数据集的来源、许可证和获取方式；数据本身不在仓库里 |
-| `deploy/` | 运行环境（锁定版本）、Docker 文件、配置模板 |
+| `deploy/` | 运行环境定义（第三方工具固定版本）、Docker 文件、配置模板 |
 | `tests/` | 单元测试 |
 | `bench/`、`docs/` | 基准测试的脚本、结果和报告 |
 | `examples/` | 多基因组扫描的示例脚本 |
@@ -274,16 +282,28 @@ docker compose -f deploy/docker/compose.yml up -d --build
 
 ## 版本与路线图
 
-- **当前版本**：[v0.1.0](https://github.com/eight-acres-lab/SeedDrift/releases/tag/v0.1.0)。`main` 分支在它之后只多了一处修复（ESMFold 服务的显存占用不再随任务增长），部署请用 `main`。
-- **计划中**：在原噬菌体、基因组岛、同一门内的转移等更难的场景上评估准确性；用学习模型改进判定。相关代码在 `bench/hard/` 和 `research/`，还在开发，不属于当前发布的功能。
+- **版本**：发布的版本和各自的改动见 [Releases](https://github.com/eight-acres-lab/SeedDrift/releases)。`main` 分支包含最新的修复，新部署建议用 `main`。
+- **计划中**：评估原噬菌体、基因组岛、同一门内转移等场景下的准确性，并改进这些场景下的判定。
 
 ## 开发
+
+单元测试用部署时建好的环境，先运行过 `./seeddrift.sh install` 即可：
 
 ```bash
 ./seeddrift.sh test
 ```
 
-基准结果可以重新生成：先按 `bench/benchmark.json` 里每个数据集的 `build` 命令生成测试数据，再在部署了服务的机器上运行 `bench/run_benchmark.py`，它会重写 `docs/benchmark-results.md`。
+基准结果可以在部署了服务的机器上重新生成。在仓库目录里先生成四组测试数据，再运行基准，它会重写 `docs/benchmark-results.md`：
+
+```bash
+export SEEDDRIFT_DATA=$PWD/store
+PY=.mamba/envs/sd-app/bin/python
+$PY bench/spikein.py --recipient Bacteria/UP000000625_83333 --out bench/work/spike_ecoli
+$PY bench/spikein.py --recipient Eukaryota/UP000001926_294381 --out bench/work/spike_entamoeba
+$PY bench/transplant.py --out bench/work/transplant_legionella
+$PY bench/contamination.py --out bench/work/contam_ecuniculi
+$PY bench/run_benchmark.py --label broad
+```
 
 欢迎通过 [issue](https://github.com/eight-acres-lab/SeedDrift/issues) 反馈问题和建议，也欢迎提交 pull request。报告判定问题时，附上输入的来源和 `genes.tsv` 里相关的行会很有帮助。
 

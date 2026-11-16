@@ -7,10 +7,12 @@ services:
     <<: *data
     build: {context: ../.., dockerfile: deploy/docker/tools.Dockerfile}
     profiles: [data]
+    user: "0:0"            # the data folder is a bind mount shared with the api container, which runs as root
     command: ["sh", "-c", "python -m seeddrift data fetch && python -m seeddrift data build && python -m seeddrift data status"]
   tools:
     <<: *data
     build: {context: ../.., dockerfile: deploy/docker/tools.Dockerfile}
+    user: "0:0"
     environment: {SEEDDRIFT_THREADS: "${SEEDDRIFT_THREADS:-16}"}
   esmfold:
     <<: *data

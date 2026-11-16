@@ -34,7 +34,7 @@ mamba_exe() {
       Linux-x86_64) p=linux-64;; Linux-aarch64) p=linux-aarch64;; Darwin-arm64) p=osx-arm64;; Darwin-x86_64) p=osx-64;;
       *) echo "unsupported platform $os-$arch" >&2; exit 1;;
     esac
-    say "downloading micromamba ($p)"
+    say "downloading micromamba ($p)" >&2          # stdout of this function is the path of the binary
     mkdir -p "$SD_MAMBA_ROOT/bin"
     curl -fsSL "https://micro.mamba.pm/api/micromamba/$p/latest" | tar -xj -C "$SD_MAMBA_ROOT" bin/micromamba
   fi

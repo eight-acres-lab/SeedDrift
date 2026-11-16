@@ -92,6 +92,9 @@ def _worker():
     while True:
         jid = Q.get()
         d = os.path.join(config.JOBS, jid)
+        if not os.path.isdir(d):                # deleted while it waited in the queue
+            Q.task_done()
+            continue
         try:
             st = _status(d)
             _write_status(d, status="running", started=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -112,8 +115,11 @@ def _worker():
             summary = pipeline.run(d, files, params, clients.tools(), folder, progress)
             _write_status(d, status="done", summary=summary, finished=time.strftime("%Y-%m-%d %H:%M:%S"))
         except Exception as e:                  # noqa: BLE001 - the job records the error
-            _write_status(d, status="failed", error="%s: %s" % (type(e).__name__, e),
-                          trace=traceback.format_exc()[-4000:])
+            try:
+                _write_status(d, status="failed", error="%s: %s" % (type(e).__name__, e),
+                              trace=traceback.format_exc()[-4000:])
+            except OSError:                     # the job folder is gone: nothing to record, the worker goes on
+                pass
         finally:
             Q.task_done()
 

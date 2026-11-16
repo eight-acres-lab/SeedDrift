@@ -434,7 +434,7 @@ def score_genomes(model, st, cfg, bench, lib, out, repeats, kw, dev, hidden=None
                     n_out += 1
                     continue
                 fh.write("%s\t%.4f\t%.4f\n" % ((st.gene_id[x],) + tuple(np.mean(s, axis=0))))
-        print("scored %s: %d genes, %d more without any visible member (rank last); own genus hidden: %d proteomes" % (
+        print("scored %s: %d genes, %d more without any visible member (rank last); reference proteomes hidden: %d" % (
             name, len(score) - n_out, n_out, int(extra.sum())), flush=True)
 
 
@@ -474,7 +474,7 @@ def main():
         model = WideNet(**ck["cfg"]).to(dev)
         model.load_state_dict(ck["state"])
         score_genomes(model, st, cfg, bench, np.load(a.library), a.out, a.repeats,
-                      dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False), dev)
+                      dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False), dev, dict(x.split("=", 1) for x in a.hidden))
         return
     if not a.names or not a.trials:
         sys.exit("--names and --trials are needed for training and for --rescore")

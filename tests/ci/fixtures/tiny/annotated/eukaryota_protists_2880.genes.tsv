@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+eukaryota_protists_2880_g1	eukaryota_protists_2880_contig1	151	1584	+	A0A1L3HS58
+eukaryota_protists_2880_g2	eukaryota_protists_2880_contig1	1735	3267	-	D8LQS7
+eukaryota_protists_2880_g3	eukaryota_protists_2880_contig1	3418	4182	+	A0A5J6CE66
+eukaryota_protists_2880_g4	eukaryota_protists_2880_contig1	4333	6093	-	D7FIR3
+eukaryota_protists_2880_g5	eukaryota_protists_2880_contig1	6244	7845	+	D7FIT3
+eukaryota_protists_2880_g6	eukaryota_protists_2880_contig1	7996	8319	-	D7FJ38
+eukaryota_protists_2880_g7	eukaryota_protists_2880_contig1	8470	9756	+	D7FKF1
+eukaryota_protists_2880_g8	eukaryota_protists_2880_contig1	9907	10722	-	D7FLR1

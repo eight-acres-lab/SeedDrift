@@ -1,5 +1,6 @@
 # Taxa and genomes that no future model may use for training (genomes, queries, donors). Dated, append-only.
-# A training run may start only when the entries of the benchmark stage it will be judged on are complete.
+# A training run (pilots included) may start only when the entries for EVERY scenario of the public-event catalogue it will be judged on are locked;
+# a single benchmark stage never satisfies this. Test recipients are excluded to the deepest taxon the source reports as sharing the event (at least the genus).
 date	kind	name	reason
 2026-11-16	genus	Acinetobacter	sealed genus of the island anchor (and its family)
 2026-11-16	genus	Bacillus	sealed genus of the island anchor (and its family)
@@ -21,3 +22,7 @@ date	kind	name	reason
 2026-11-16	genus	Vibrio	sealed genus of the island anchor (and its family)
 2026-11-16	rule	panel genomes	every assembly listed in a panel.tsv of the genus panels (written with freeze F1)
 2026-11-16	rule	generators	training code may not import bench/hard generators, seeds or donors (gene-specific loss, false reference cell, relocation placebo)
+2026-11-17	genus	Ensifer	NCBI genus (106591) of the sealed Sinorhizobium meliloti chromosome NC_003047.1 (its family Rhizobiaceae is excluded already)
+2026-11-17	order	Enterobacterales	the development order (all 24 open chromosomes); excluded from training corpora
+2026-11-17	rule	test recipients	every recipient lineage of every catalogued event of grade A, B or C, to the deepest shared taxon the source reports (at least the genus); a conservative superset, locked before the first training run; entries are only added
+2026-11-17	rule	test donors	donor species of a catalogued event, only for the scenarios whose test is donor identification

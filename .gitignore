@@ -12,3 +12,9 @@ bench/work/
 # internal notes (never committed)
 strategy/
 bench/results/old/
+
+# CI runs (records stay on the machine that ran them; summaries go to runs-index/ on runs/* branches)
+runs/
+*.pt
+*.ckpt
+tests/ci/fixtures/tiny/.work/

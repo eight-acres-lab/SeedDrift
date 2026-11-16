@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+eukaryota_mammals_9258_g1	eukaryota_mammals_9258_contig1	151	1011	+	Q07E00
+eukaryota_mammals_9258_g2	eukaryota_mammals_9258_contig1	1162	2586	-	Q07DZ7
+eukaryota_mammals_9258_g3	eukaryota_mammals_9258_contig1	2737	3876	+	Q36461
+eukaryota_mammals_9258_g4	eukaryota_mammals_9258_contig1	4027	4812	-	Q36455
+eukaryota_mammals_9258_g5	eukaryota_mammals_9258_contig1	4963	6006	+	Q36451
+eukaryota_mammals_9258_g6	eukaryota_mammals_9258_contig1	6157	6657	-	Q36460
+eukaryota_mammals_9258_g7	eukaryota_mammals_9258_contig1	6808	7488	+	Q36454
+eukaryota_mammals_9258_g8	eukaryota_mammals_9258_contig1	7639	9021	-	Q36458

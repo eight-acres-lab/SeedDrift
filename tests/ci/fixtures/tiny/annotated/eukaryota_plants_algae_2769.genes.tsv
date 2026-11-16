@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+eukaryota_plants_algae_2769_g1	eukaryota_plants_algae_2769_contig1	151	1791	+	P93762
+eukaryota_plants_algae_2769_g2	eukaryota_plants_algae_2769_contig1	1942	2799	-	R7Q2X0
+eukaryota_plants_algae_2769_g3	eukaryota_plants_algae_2769_contig1	2950	3861	+	R7Q3P0
+eukaryota_plants_algae_2769_g4	eukaryota_plants_algae_2769_contig1	4012	4779	-	R7Q4U9
+eukaryota_plants_algae_2769_g5	eukaryota_plants_algae_2769_contig1	4930	6579	+	R7Q547
+eukaryota_plants_algae_2769_g6	eukaryota_plants_algae_2769_contig1	6730	7515	-	R7Q5C3
+eukaryota_plants_algae_2769_g7	eukaryota_plants_algae_2769_contig1	7666	8214	+	R7Q5V4
+eukaryota_plants_algae_2769_g8	eukaryota_plants_algae_2769_contig1	8365	8748	-	R7Q657

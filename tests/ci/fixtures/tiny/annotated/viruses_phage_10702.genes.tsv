@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+viruses_phage_10702_g1	viruses_phage_10702_contig1	151	1434	+	Q6VY35
+viruses_phage_10702_g2	viruses_phage_10702_contig1	1585	2232	-	Q6VY36
+viruses_phage_10702_g3	viruses_phage_10702_contig1	2383	3291	+	Q6VY37
+viruses_phage_10702_g4	viruses_phage_10702_contig1	3442	4035	-	Q6VY38
+viruses_phage_10702_g5	viruses_phage_10702_contig1	4186	4632	+	Q6VY39
+viruses_phage_10702_g6	viruses_phage_10702_contig1	4783	5904	-	Q6VY40
+viruses_phage_10702_g7	viruses_phage_10702_contig1	6055	6405	+	Q6VY44
+viruses_phage_10702_g8	viruses_phage_10702_contig1	6556	7110	-	Q6VY45

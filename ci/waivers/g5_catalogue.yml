@@ -1,0 +1,8 @@
+gate: G5
+scope: "*"
+reason: >-
+  The final judge (a catalogue of public, independently confirmed transfer events, bench/catalogue/events.tsv) does
+  not exist yet. Until it does, every run report states "no final judge yet". Building it is a first-class milestone.
+approved_by: project lead (CI design approved 2026-11-17)
+date: 2026-11-17
+expires: 2027-01-16

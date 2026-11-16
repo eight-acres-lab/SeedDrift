@@ -1,0 +1,5 @@
+# Patterns that must not appear in any tracked text file (checked in T0). One regular expression per line.
+# Internal notes are never referenced from the public repository.
+strategy/[a-z_-]+\.md
+# Home directories of a developer machine
+/Users/[A-Za-z0-9_.-]+/

@@ -1,0 +1,15 @@
+# The CI's own environment: workflow engine, gates, tests, and the tools of the pipeline stages.
+# The exact build of every package is pinned in ci.lock.yml (micromamba env export); its sha256 is part of the CI version.
+name: sd-ci
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - numpy>=1.26,<3
+  - pyyaml>=6
+  - jsonschema>=4
+  - pytest>=8
+  - ruff
+  - snakemake-minimal=8.27.1
+  - biopython=1.88
+  - pyrodigal=3.7.1
+  - diamond=2.2.8

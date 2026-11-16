@@ -1,0 +1,31 @@
+# T1 on GitHub (and anywhere): the whole pipeline on the committed fixture (tests/ci/fixtures/tiny, under 2 MB).
+# Run twice and compared; every stage must reproduce exactly.
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 1
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/ci-tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+reference:
+  faa: tests/ci/fixtures/tiny/reference.faa
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 2
+  block_size: 1
+  nearest: 32
+train:
+  model: toy_source_id
+  seed: 1
+  steps: 20
+  batch: 32
+  lr: 0.5
+  eval_every: 5
+  ckpt_every: 5

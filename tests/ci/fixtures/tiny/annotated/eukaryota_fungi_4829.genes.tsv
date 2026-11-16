@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+eukaryota_fungi_4829_g1	eukaryota_fungi_4829_contig1	151	621	+	A0A163IRH8
+eukaryota_fungi_4829_g2	eukaryota_fungi_4829_contig1	772	1497	-	A0A163IWD1
+eukaryota_fungi_4829_g3	eukaryota_fungi_4829_contig1	1648	2304	+	A0A163IX51
+eukaryota_fungi_4829_g4	eukaryota_fungi_4829_contig1	2455	3906	-	A0A163IYE5
+eukaryota_fungi_4829_g5	eukaryota_fungi_4829_contig1	4057	5079	+	A0A163J083
+eukaryota_fungi_4829_g6	eukaryota_fungi_4829_contig1	5230	5943	-	A0A163J4L1
+eukaryota_fungi_4829_g7	eukaryota_fungi_4829_contig1	6094	6633	+	A0A163J7R7
+eukaryota_fungi_4829_g8	eukaryota_fungi_4829_contig1	6784	7560	-	A0A163J9J7

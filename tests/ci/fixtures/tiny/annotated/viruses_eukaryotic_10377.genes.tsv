@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+viruses_eukaryotic_10377_g1	viruses_eukaryotic_10377_contig1	151	663	+	P03180
+viruses_eukaryotic_10377_g2	viruses_eukaryotic_10377_contig1	814	1389	-	P03182
+viruses_eukaryotic_10377_g3	viruses_eukaryotic_10377_contig1	1540	3117	+	P03184
+viruses_eukaryotic_10377_g4	viruses_eukaryotic_10377_contig1	3268	4278	-	P03185
+viruses_eukaryotic_10377_g5	viruses_eukaryotic_10377_contig1	4429	5523	+	P03187
+viruses_eukaryotic_10377_g6	viruses_eukaryotic_10377_contig1	5674	6888	-	P03191
+viruses_eukaryotic_10377_g7	viruses_eukaryotic_10377_contig1	7039	8112	+	P03192
+viruses_eukaryotic_10377_g8	viruses_eukaryotic_10377_contig1	8263	9099	-	P03195

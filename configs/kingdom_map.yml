@@ -1,0 +1,41 @@
+# Genome groups of the multi-kingdom quota gate (G1). The first group whose `include` taxa appear in a genome's lineage
+# (and none of its `exclude` taxa) wins. Taxids checked against the NCBI taxdump of 2026-11 (names in comments).
+# Phage groups list the prokaryote-virus taxa; a virus that matches none of them counts as a eukaryotic virus.
+groups:
+  - name: viruses.phage
+    include: [2731619,   # Caudoviricetes (tailed phages)
+              10841,     # Microviricetes (phiX174 and relatives)
+              10860,     # Inoviridae
+              10656,     # Tectiviridae
+              10659,     # Corticoviridae
+              10877,     # Cystoviridae
+              2842243,   # Leviviricetes
+              10472]     # Plasmaviridae
+  - name: viruses.giant
+    include: [2732007]   # Nucleocytoviricota
+  - name: viruses.eukaryotic
+    include: [10239]     # Viruses (all others)
+  - name: eukaryota.mammals
+    include: [40674]     # Mammalia
+  - name: eukaryota.other_vertebrates
+    include: [7742]      # Vertebrata
+    exclude: [40674]
+  - name: eukaryota.invertebrates
+    include: [33208]     # Metazoa
+    exclude: [7742]
+  - name: eukaryota.plants_algae
+    include: [33090,     # Viridiplantae
+              2763,      # Rhodophyta
+              38254]     # Glaucocystophyceae
+  - name: eukaryota.fungi
+    include: [4751]      # Fungi
+  - name: eukaryota.protists
+    include: [2759]      # Eukaryota (everything not above)
+    exclude: [33208, 33090, 2763, 38254, 4751]
+  - name: archaea
+    include: [2157]
+  - name: bacteria
+    include: [2]
+# Groups decided by the kind of source, not by taxid (a plasmid carries its host's taxid).
+by_source:
+  plasmid: mobile.plasmid

@@ -1,0 +1,76 @@
+# SeedDrift CI pipeline. Started only by `python -m ci run` (ci/__main__.py), which creates the run directory, writes
+# config.resolved.yaml and the run record, and runs Snakemake with the run directory as working directory.
+# Every rule calls one stage script; gate sentinels (gates/*.ok) are inputs of every later rule, so nothing runs
+# before the gates pass, and the gates are recomputed in every run (their outputs live in the run directory).
+
+import os
+
+PY = config["tools"]["python"]
+STAGE = PY + " -m ci.stages.{name} " + os.getcwd()
+
+
+rule all:
+    input:
+        "data/eval/eval_report.json",
+        "data/model/model.npz",
+
+
+rule gates_pre:
+    output: "gates/pre.ok"
+    shell: STAGE.format(name="gates") + " pre"
+
+
+rule corpus:
+    input: "gates/pre.ok"
+    output: "data/corpus/manifest.json"
+    shell: STAGE.format(name="corpus")
+
+
+rule gates_corpus:
+    input: "data/corpus/manifest.json"
+    output: "gates/corpus.ok"
+    shell: STAGE.format(name="gates") + " corpus"
+
+
+rule eval_inputs:
+    input: "gates/pre.ok"
+    output: "data/eval_inputs/manifest.json"
+    shell: STAGE.format(name="eval_inputs")
+
+
+rule reference:
+    input: "gates/pre.ok"
+    output: "data/reference/manifest.json", "data/reference/index.npz", "data/reference/library.npz"
+    shell: STAGE.format(name="reference")
+
+
+rule search:
+    input: "gates/corpus.ok", "data/reference/manifest.json", "data/eval_inputs/manifest.json"
+    output: "data/hits/manifest.json"
+    resources: diamond=1
+    shell: STAGE.format(name="search")
+
+
+rule train_ids:
+    input: "gates/corpus.ok"
+    output: "data/train/ids.json"
+    shell: STAGE.format(name="train") + " ids"
+
+
+rule gates_train:
+    input: "data/train/ids.json"
+    output: "gates/train.ok"
+    shell: STAGE.format(name="gates") + " train"
+
+
+rule train:
+    input: "gates/train.ok", "data/hits/manifest.json"
+    output: "data/model/model.npz"
+    resources: gpu=1
+    shell: STAGE.format(name="train") + " fit"
+
+
+rule eval:
+    input: "data/model/model.npz", "data/hits/manifest.json", "data/eval_inputs/manifest.json"
+    output: "data/eval/eval_report.json"
+    shell: STAGE.format(name="eval")

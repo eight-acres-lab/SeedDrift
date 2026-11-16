@@ -1,0 +1,17 @@
+# Corpus of the ci-tiny profile: one small genome or proteome per group, from the committed fixture.
+name: ci-tiny
+tier: tiny
+sources_table: tests/ci/fixtures/tiny/sources.tsv
+groups:
+  bacteria: {min_genomes: 1}
+  archaea: {min_genomes: 1}
+  eukaryota.mammals: {min_genomes: 1}
+  eukaryota.other_vertebrates: {min_genomes: 1}
+  eukaryota.invertebrates: {min_genomes: 1}
+  eukaryota.plants_algae: {min_genomes: 1}
+  eukaryota.fungi: {min_genomes: 1}
+  eukaryota.protists: {min_genomes: 1}
+  viruses.phage: {min_genomes: 1}
+  viruses.eukaryotic: {min_genomes: 1}
+  viruses.giant: {min_genomes: 1}
+  mobile.plasmid: {min_genomes: 1}

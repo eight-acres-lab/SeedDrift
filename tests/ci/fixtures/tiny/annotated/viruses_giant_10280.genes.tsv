@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+viruses_giant_10280_g1	viruses_giant_10280_contig1	151	594	+	Q98185
+viruses_giant_10280_g2	viruses_giant_10280_contig1	745	1434	-	Q98298
+viruses_giant_10280_g3	viruses_giant_10280_contig1	1585	2010	+	Q98300
+viruses_giant_10280_g4	viruses_giant_10280_contig1	2161	3276	-	Q98326
+viruses_giant_10280_g5	viruses_giant_10280_contig1	3427	4593	+	P26579
+viruses_giant_10280_g6	viruses_giant_10280_contig1	4744	5397	-	Q98178
+viruses_giant_10280_g7	viruses_giant_10280_contig1	5548	6960	+	Q98199
+viruses_giant_10280_g8	viruses_giant_10280_contig1	7111	8892	-	Q98224

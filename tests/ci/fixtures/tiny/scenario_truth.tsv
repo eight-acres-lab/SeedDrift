@@ -1,0 +1,4 @@
+replicon	start	end	strand	class	donor_taxid	protein_source
+scenario_host_insert	20589	21239	+	insert	865	A0ACT2X9X3
+scenario_host_insert	21320	22237	+	insert	865	A0ACT2X9Y6
+scenario_host_insert	22318	22797	+	insert	865	A0ACT2XA14

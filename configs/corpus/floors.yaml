@@ -1,0 +1,24 @@
+# Minimum genome counts per group for a full (T3) training corpus, and protein-share rules. Agreed on 2026-11-17 as
+# the starting values; changes need a CI version bump. Smaller tiers (ci-tiny, smoke) must contain every group with at
+# least one genome but are not held to these numbers.
+min_genomes:
+  bacteria: 2000
+  archaea: 250
+  eukaryota.mammals: 20
+  eukaryota.other_vertebrates: 30
+  eukaryota.invertebrates: 60
+  eukaryota.plants_algae: 60
+  eukaryota.fungi: 60
+  eukaryota.protists: 60
+  viruses.phage: 3000
+  viruses.eukaryotic: 2000
+  viruses.giant: 50
+  mobile.plasmid: 2000
+protein_share:
+  # major classes: prokaryotes = bacteria + archaea; eukaryotes = eukaryota.*; viral_mobile = viruses.* + mobile.*
+  max_any_major: 0.60
+  min_eukaryotes: 0.20
+  min_viral_mobile: 0.05
+# A group may fall short only through an unexpired waiver in ci/waivers/. Below half of its floor no training starts and
+# no search runs for groups that already meet theirs.
+start_fraction: 0.5

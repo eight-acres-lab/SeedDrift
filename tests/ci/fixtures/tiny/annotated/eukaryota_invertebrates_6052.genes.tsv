@@ -1,0 +1,9 @@
+gene_id	replicon	start	end	strand	protein_source
+eukaryota_invertebrates_6052_g1	eukaryota_invertebrates_6052_contig1	151	909	+	A0ACS2EXE0
+eukaryota_invertebrates_6052_g2	eukaryota_invertebrates_6052_contig1	1060	1752	-	A0ACS2EYM8
+eukaryota_invertebrates_6052_g3	eukaryota_invertebrates_6052_contig1	1903	2553	+	A0ACS2EZD5
+eukaryota_invertebrates_6052_g4	eukaryota_invertebrates_6052_contig1	2704	3954	-	A0ACS2F0C2
+eukaryota_invertebrates_6052_g5	eukaryota_invertebrates_6052_contig1	4105	5619	+	A0ACS2F1P8
+eukaryota_invertebrates_6052_g6	eukaryota_invertebrates_6052_contig1	5770	6771	-	A0ACS2F308
+eukaryota_invertebrates_6052_g7	eukaryota_invertebrates_6052_contig1	6922	8517	+	A0ACS2F475
+eukaryota_invertebrates_6052_g8	eukaryota_invertebrates_6052_contig1	8668	10323	-	A0ACS2F6I4

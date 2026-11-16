@@ -1,0 +1,74 @@
+# SeedDrift CI, tiers T0 and T1 (see ci/README.md). Runs on GitHub's machines only: no secrets, read-only token,
+# actions pinned by commit. T2 and above run on the project server from a clean pushed commit (ci/launch.sh).
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  t0:
+    name: T0 static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4
+        with:
+          fetch-depth: 0
+      - uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462   # v2
+        with:
+          environment-file: ci/envs/ci.lock.yml
+          environment-name: sd-ci
+          cache-environment: true
+      - name: lint the CI code
+        run: ruff check --select E9,F ci tests/ci seeddrift/train
+      - name: hygiene, gates G1 G2 G8 on the specs, Snakemake dry runs
+        run: python -m ci check
+  t1:
+    name: T1 tests and the ci-tiny pipeline twice
+    needs: t0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4
+        with:
+          fetch-depth: 0
+      - uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462   # v2
+        with:
+          environment-file: ci/envs/ci.lock.yml
+          environment-name: sd-ci
+          cache-environment: true
+      - name: unit and gate tests
+        run: python -m pytest -q tests/ci
+      - name: ci-tiny, first run
+        run: python -m ci run --profile ci-tiny --run-dir runs/t1-a
+      - name: ci-tiny, second run
+        run: python -m ci run --profile ci-tiny --run-dir runs/t1-b
+      - name: the second run reproduces the first exactly
+        run: python -m ci compare runs/t1-a runs/t1-b --expect exact
+      - name: kill and resume the training of a third run
+        run: |
+          CI_STOP_AFTER_STEPS=10 python -m ci run --profile ci-tiny --run-dir runs/t1-c || true
+          python -m ci run --profile ci-tiny --run-dir runs/t1-c --resume
+          python -m ci compare runs/t1-a runs/t1-c --expect exact
+      - name: keep the summaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4
+        with:
+          name: ci-tiny-summaries
+          path: |
+            runs/*/record.json
+            runs/*/summary.*
+            runs/*/curve.csv
+            runs/*/gates/*.json
+            runs/*/logs/*.log
+          retention-days: 30

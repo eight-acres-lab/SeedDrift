@@ -21,4 +21,4 @@ bench = ["scikit-learn>=1.3"]          # bench/fusion_probe.py only
 seeddrift = "seeddrift.__main__:main"
 
 [tool.setuptools]
-packages = ["seeddrift"]
+packages = ["seeddrift", "seeddrift.train"]

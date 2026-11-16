@@ -1,0 +1,6 @@
+# test copy of the exclusion list
+date	kind	name	reason
+2026-11-16	genus	Pseudomonas	sealed genus (and its family)
+2026-11-16	genus	Bacillus	sealed genus (and its family)
+2026-11-16	order	Enterobacterales	development order
+2026-11-16	rule	generators	training code may not import generators

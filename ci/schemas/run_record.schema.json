@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SeedDrift CI run record",
+  "type": "object",
+  "required": ["run_id", "ci_version", "launcher_version", "pipeline_hash", "profile", "tier", "git", "config_sha256", "env_lock_sha256",
+               "seeds", "hardware", "status", "started", "heartbeat", "stages", "gates", "metrics", "artifacts", "waivers_used", "deviations"],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1},
+    "ci_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+    "pipeline_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "env_lock_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "git": {"type": "object", "required": ["sha", "branch", "clean", "provenance"],
+            "properties": {"sha": {"type": "string"}, "clean": {"type": "boolean"}, "provenance": {"enum": ["github", "bundle", "server", "local"]}}},
+    "status": {"enum": ["running", "passed", "failed", "gate_failed", "interrupted", "diverged"]},
+    "stages": {"type": "array", "items": {"type": "object", "required": ["name", "status", "started", "ended", "wall_s", "outputs"]}},
+    "gates": {"type": "object", "additionalProperties": {"enum": ["pass", "fail", "waived"]}},
+    "metrics": {"type": "object"},
+    "seeds": {"type": "object"},
+    "hardware": {"type": "object"},
+    "waivers_used": {"type": "array"},
+    "deviations": {"type": "array"},
+    "artifacts": {"type": "array"}
+  }
+}

@@ -3,7 +3,8 @@
 
 A gene is "island" when at least half of its coding region lies in one island region, "backbone" when at least half
 lies in one backbone region, otherwise unlabelled ("none"). A gene with at least half in both (the two region sets
-come from different published runs and can overlap) is unlabelled and counted. No score of any method is read here.
+come from different published runs and can overlap) is written as "both": unlabelled in every comparison, but never
+a native and never inside a native block. No score of any method is read here.
 
 Writes, per chromosome, labels/<accession>.tsv (gene_id as the pipeline names it, contig, start, end, strand, label,
 region, product), genes/<accession>.tsv (the same genes without label, region and product: the only gene table a
@@ -95,7 +96,6 @@ def main():
             fo.write("gene_id\tcontig\tstart\tend\tstrand\tlabel\tregion\tproduct\n")
             fg.write("gene_id\tcontig\tstart\tend\tstrand\n")
             for r in rows:
-                r = r[:5] + ("none" if r[5] == "both" else r[5],) + r[6:]
                 fo.write("\t".join(str(x) for x in r) + "\n")
                 fg.write("\t".join(str(x) for x in r[:5]) + "\n")
         counts.append((acc, len(rows), n["island"], n["backbone"], n["none"] + n["both"], n["both"], dropped))

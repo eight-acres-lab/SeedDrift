@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import warnings
 
 import numpy as np
 
@@ -90,7 +91,9 @@ def chromosome(acc, labels, published):
               single=col("copies", "single") == "single", n_other=int(rows[0].get("n_other") or 0) if rows else 0,
               pub=np.array([pub.get(r["gene_id"], {}).get("label", r.get("published", "none")) for r in rows], dtype=object),
               pub_unit=np.array([pub.get(r["gene_id"], {}).get("region", "") for r in rows], dtype=object))
-    ch["closed"] = len(set(ch["contig"].tolist())) == 1
+    if len(set(ch["contig"].tolist())) > 1:
+        sys.exit("%s: more than one contig in the gene table" % acc)
+    ch["closed"] = bool(rows) and str(rows[0].get("closed", "1")) == "1"
     return ch
 
 
@@ -103,9 +106,11 @@ def label_set(ch, name):
     nu = np.where(nat & is_block, unit, "")
     if name == "gated":
         return isl, nat, pu, nu
-    if name == "pub":
+    if name == "pub":                                      # a published region is a unit when at least 3 genes carry its label
         p, n = ch["pub"] == "island", ch["pub"] == "backbone"
-        return p, n, np.where(p, ch["pub_unit"], ""), np.where(n, ch["pub_unit"], "")
+        ids, counts = np.unique(ch["pub_unit"][p | n], return_counts=True)
+        big = np.isin(ch["pub_unit"], ids[counts >= 3])
+        return p, n, np.where(p & big, ch["pub_unit"], ""), np.where(n & big, ch["pub_unit"], "")
     if name == "absent":                                   # S-a: positives absent from every other species; regions at least half absent
         keep = [u for u in set(pu.tolist()) - {""} if np.mean(ch["absent"][pu == u]) >= 0.5]
         return isl & ch["absent"], nat, np.where(np.isin(pu, keep), pu, ""), nu
@@ -127,7 +132,10 @@ def eligibility(ch):
     regions = len(units) - blocks
     panel_ok = ch["n_other"] >= 3 and pc == pc and pc >= 0.7 and (c != c or c <= 0.2)
     n_pb, n_pi = int((ch["pub"] == "backbone").sum()), int(pi.sum())
-    pub_reg = {k: len(set(ch["pub_unit"][ch["pub"] == k].tolist()) - {""}) for k in ("island", "backbone")}
+    pub_reg = {}
+    for k in ("island", "backbone"):
+        _, counts = np.unique(ch["pub_unit"][(ch["pub"] == k) & (ch["pub_unit"] != "")], return_counts=True)
+        pub_reg[k] = int((counts >= 3).sum())
     return dict(natives=int(nat.sum()), island_genes=int(isl.sum()), island_regions=regions, native_blocks=blocks, other_species=ch["n_other"],
                 backbone_positional_core=None if pc != pc else round(pc, 4), conflict_share=None if c != c else round(c, 4),
                 deep_natives=int((nat & ch["deep"]).sum()), published_island=n_pi, published_backbone=n_pb,
@@ -146,23 +154,29 @@ def unit_index(unit_of_gene, mask):
     return idx
 
 
-def unit_scores(w, idx, shift=0):
-    """Median of w over the scored genes of every unit; -inf for a unit with fewer than 3 scored genes."""
+def unit_scores(w, scored, idx, shift=0, need=3):
+    """Per unit: the median of the window values of its genes; -inf (unscored) when fewer than `need` of its genes are
+    scored by the method itself. w: window value per gene (nan = none); scored: the gene has an own score."""
     if not len(idx):
         return np.zeros(0)
-    v = np.where(idx >= 0, w[(idx - shift) % len(w)], np.nan)
-    n = np.isfinite(v).sum(1)
-    with np.errstate(all="ignore"):
-        med = np.nanmedian(np.where(n[:, None] >= 3, v, np.nan), axis=1)
-    return np.where(n >= 3, med, -np.inf)
+    pos = (idx - shift) % len(w)
+    v = np.where(idx >= 0, w[pos], np.nan)
+    own = np.where(idx >= 0, scored[pos], False).sum(1)
+    ok = (own >= need) & np.isfinite(v).any(1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        med = np.nanmedian(np.where(ok[:, None], v, np.nan), axis=1)
+    return np.where(ok, med, -np.inf)
 
 
 def found(pos, neg, allowed):
-    """Share of positive units strictly above the (allowed + 1)-th highest negative unit."""
+    """Share of positive units strictly above the (allowed + 1)-th highest scored negative unit. An unscored positive
+    unit is missed; with fewer than allowed + 1 scored negative units every scored positive unit is found."""
     if not len(pos):
         return float("nan")
+    neg = neg[np.isfinite(neg)]
     if len(neg) <= allowed:
-        return 1.0
+        return float(np.mean(np.isfinite(pos)))
     return float(np.mean(pos > np.sort(neg)[::-1][allowed]))
 
 
@@ -170,10 +184,11 @@ def gene_metrics(x, pos, neg):
     """x: one value per gene, nan = unscored (ranks last, never called)."""
     v = np.where(np.isfinite(x), x, -1.0)
     p, n = v[pos], v[neg]
-    out = dict(r1=M.recall_at(p, n, 0.01), mr5=M.mean_recall(p, n, 0.05), auroc=M.auroc(p, n), scored_pos=float(np.isfinite(x[pos]).mean()),
-               scored_neg=float(np.isfinite(x[neg]).mean()))
+    sp, sn = np.isfinite(x[pos]), np.isfinite(x[neg])
+    out = dict(r1=M.recall_never(p, n, sp, sn, 0.01), mr5=M.mean_recall_never(p, n, sp, sn, 0.05), auroc=M.auroc(p, n), scored_pos=float(sp.mean()),
+               scored_neg=float(sn.mean()))
     if len(n) >= 1000:
-        out["r03"] = M.recall_at(p, n, 0.003)
+        out["r03"] = M.recall_never(p, n, sp, sn, 0.003)
     return out, M.threshold_at(n, 0.01), v
 
 
@@ -208,15 +223,19 @@ def evaluate_chromosome(ch, scores, sets, shifts, rng_seed=1):
         for k, x in w.items():
             m, _, v = gene_metrics(x, pos, neg)
             if len(offsets):
-                m["r1_shifted"] = float(np.mean([M.recall_at(v[(pidx - o) % n], v[(nidx - o) % n], 0.01) for o in offsets[:100]]))
+                fin = np.isfinite(x)
+                m["r1_shifted"] = float(np.mean([M.recall_never(v[(pidx - o) % n], v[(nidx - o) % n], fin[(pidx - o) % n], fin[(nidx - o) % n], 0.01) for o in offsets[:100]]))
             if has_units:
-                a, b = unit_scores(x, pi), unit_scores(x, ni)
-                fin = lambda z: np.where(np.isfinite(z), z, -1.0)
+                own = np.isfinite(q[k[:-3]])
+                everyone = np.ones(n, dtype=bool)
+                a, b = unit_scores(x, own, pi), unit_scores(x, own, ni)
+                low1 = lambda z: np.where(np.isfinite(z), z, -1.0)
                 m.update(lr2=found(a, b, allowed), lr1=found(a, b, 1 if s == "pub" else int(np.floor(0.01 * n_blk))), lr0=found(a, b, 0),
-                         region_auroc=M.auroc(fin(a), fin(b)), regions=n_reg, blocks=n_blk, allowed=allowed,
-                         lr2_sw=found(unit_scores(sw[k], pi), unit_scores(sw[k], ni), allowed))
+                         region_auroc=M.auroc(low1(a), low1(b)), regions=n_reg, blocks=n_blk, allowed=allowed,
+                         regions_unscored=int((~np.isfinite(a)).sum()), blocks_unscored=int((~np.isfinite(b)).sum()),
+                         lr2_sw=found(unit_scores(sw[k], everyone, pi, 0, 1), unit_scores(sw[k], everyone, ni, 0, 1), allowed))
                 if len(offsets):
-                    m["lr2_shifted"] = float(np.mean([found(unit_scores(x, pi, int(o)), unit_scores(x, ni, int(o)), allowed) for o in offsets]))
+                    m["lr2_shifted"] = float(np.mean([found(unit_scores(x, own, pi, int(o)), unit_scores(x, own, ni, int(o)), allowed) for o in offsets]))
             res[k] = m
         res["_n"] = dict(pos=int(pos.sum()), neg=int(neg.sum()), regions=n_reg, blocks=n_blk)
         out[s] = res
@@ -242,12 +261,16 @@ def contrast(vals, a, bset, units):
         if not len(d):
             return None
         m, lo, hi = M.t_interval(d)
-        r = dict(against=b, mean=m, lo=lo, hi=hi, p=M.sign_flip_p(d), n=len(d), wins=int((d > 0).sum()))
+        elo, ehi = M.sign_flip_interval(d)
+        p = M.sign_flip_p(d)
+        if len(bset) > 1 and not m > 0:                       # a member of a set that is not beaten cannot make the set significant
+            p = 1.0
+        r = dict(against=b, mean=m, lo=lo, hi=hi, p=p, n=len(d), wins=int((d > 0).sum()), eq_lo=elo, eq_hi=ehi)
         if best is None:
             best = r
         else:
             keep = r if r["mean"] < best["mean"] else best
-            best = dict(keep, lo=min(lo, best["lo"]), p=max(r["p"], best["p"]))
+            best = dict(keep, lo=min(lo, best["lo"]), p=max(r["p"], best["p"]), eq_lo=min(elo, best["eq_lo"]), eq_hi=max(ehi, best["eq_hi"]))
     return best
 
 
@@ -322,8 +345,10 @@ def main():
     for ep, (metric, flag, contrasts, pub_flag) in endpoints.items():
         main_vals = unit_values("v1", "gated", metric, flag)
         eligible = sorted(main_vals)
-        analyses = dict(S_pub=unit_values("v1", "pub", metric, pub_flag), S_a=unit_values("v1", "absent", metric, flag),
-                        S_f=unit_values("v1", "deep", metric, flag, lambda x: elig[x]["deep_natives"] >= 300),
+        size = lambda x, lset, key: per[x]["v1"].get(lset, {}).get("_n", {}).get(key, 0)
+        analyses = dict(S_pub=unit_values("v1", "pub", metric, pub_flag),
+                        S_a=unit_values("v1", "absent", metric, flag, (lambda x: size(x, "absent", "pos") >= 20) if ep == "P1" else (lambda x: size(x, "absent", "regions") >= 3)),
+                        S_f=unit_values("v1", "deep", metric, flag, (lambda x: elig[x]["deep_natives"] >= 300) if ep == "P1" else (lambda x: size(x, "deep", "blocks") >= 20)),
                         V2=unit_values("v2", "gated", metric, flag),
                         S_b={u: v for u, v in main_vals.items() if not any(elig[x]["count_flagged"] for x in per if unit_of[x] == u)})
         rows = []
@@ -346,43 +371,64 @@ def main():
         for row, p in zip(rows, M.holm(np.array([r["p"] for r in rows])) if rows else []):
             row["p_holm"] = float(p)
             sign = np.sign(row["mean"])
-            open_ = []
-            if not excludes_zero(row) or (len(row["b"]) > 1 and not row["lo"] > 0):
-                open_.append("interval includes 0")
+            is_set = len(row["b"]) > 1
+            classes_a, classes_b = input_class(row["a"]), {input_class(b) for b in row["b"]}
+            winner_class = {classes_a} if sign > 0 else classes_b
+            same_side = lambda s_: s_["lo"] == s_["lo"] and ((s_["lo"] > 0 and sign > 0) or (s_["hi"] < 0 and sign < 0))
+            first, later, notes = [], [], []
+            if not excludes_zero(row) or (is_set and not row["lo"] > 0):
+                first.append("interval includes 0")
             if abs(row["mean"]) < 0.05:
-                open_.append("difference under 0.05")
+                first.append("difference under 0.05")
             if not row["p_holm"] < 0.05:
-                open_.append("Holm p %.3f" % row["p_holm"])
+                first.append("Holm p %.3f" % row["p_holm"])
+            if is_set and sign <= 0:
+                first.append("the set is not beaten")
             for name in ("S_pub", "S_a", "S_b"):
-                s = row["analyses"].get(name)
-                if s is None:
-                    open_.append(name.replace("_", "-") + " has no unit")
-                elif np.sign(s["mean"]) != sign:
-                    open_.append(name.replace("_", "-") + " opposite sign")
-            classes = {input_class(row["a"])} | {input_class(b) for b in row["b"]}
-            if classes != {"dna"}:
-                s = row["analyses"].get("V2")
-                if s is None:
-                    open_.append("V2 not run")
-                elif np.sign(s["mean"]) != sign or (s["n"] >= 7 and not excludes_zero(s)):
-                    open_.append("V2 does not agree")
-                elif s["n"] < 7:
-                    row["note"] = "V2 not tested (sign only, %d units)" % s["n"]
-            if len(classes) > 1:
-                s = row["analyses"].get("S_f")
-                if s is None:
-                    open_.append("S-f has no unit")
-                elif np.sign(s["mean"]) != sign or (s["n"] >= 7 and not excludes_zero(s)):
-                    open_.append("S-f does not agree")
+                s_ = row["analyses"].get(name)
+                label = name.replace("_", "-")
+                if s_ is None:
+                    later.append(label + " has no genus")
+                elif np.sign(s_["mean"]) != sign or s_["mean"] == 0:
+                    later.append(label + " not the same sign")
+                elif s_["n"] < 5:
+                    notes.append("%s on %d genera" % (label, s_["n"]))
+            if "similarity" in {classes_a} | classes_b or "both" in {classes_a} | classes_b:
+                s_ = row["analyses"].get("V2")
+                if s_ is None:
+                    if winner_class & {"similarity", "both"}:
+                        later.append("V2 not evaluable")
+                    else:
+                        notes.append("V2 not evaluable")
+                elif np.sign(s_["mean"]) != sign or (s_["n"] >= 7 and not same_side(s_)):
+                    later.append("V2 does not agree")
+                elif s_["n"] < 7:
+                    notes.append("V2 not tested (sign only, %d genera)" % s_["n"])
+            if classes_b != {classes_a}:
+                s_ = row["analyses"].get("S_f")
+                if s_ is None:
+                    if winner_class == {"dna"}:
+                        later.append("S-f not evaluable")
+                    else:
+                        notes.append("S-f not evaluable")
+                elif np.sign(s_["mean"]) != sign or (s_["n"] >= 7 and not same_side(s_)):
+                    later.append("S-f does not agree")
+                elif s_["n"] < 7:
+                    notes.append("S-f not tested (sign only, %d genera)" % s_["n"])
             lost = [t for t, v in row["trivial"].items() if v is not None and not (v["mean"] > 0 and v["lo"] > 0)]
-            if sign > 0 and lost:
-                open_.append("not above trivial: " + ", ".join(lost))
             winner = (row["a"], "+".join(row["b"])) if sign > 0 else ("+".join(row["b"]), row["a"])
-            if sign < 0 and len(row["b"]) > 1:
-                open_.append("a set contrast gives no verdict for the set")
-            row["verdict"] = "%s better than %s" % winner if not open_ else \
-                "equivalent at this resolution" if (row["lo"] > -0.05 and row["hi"] < 0.05) else "unresolved"
-            row["open"] = open_
+            if first:
+                row["verdict"] = "equivalent at this resolution" if (row["eq_lo"] > -0.05 and row["eq_hi"] < 0.05) else "unresolved"
+            elif later:
+                row["verdict"] = "unresolved"
+            elif sign > 0 and lost:
+                row["verdict"] = "%s above %s, but %s" % (winner[0], winner[1], "fusion not shown to add to composition plus a trivial similarity proxy"
+                                                         if lost == ["fuse_triv" + ("_nb" if row["a"].endswith("_nb") else "")] else "not shown to detect origin beyond a trivial proxy")
+            else:
+                row["verdict"] = "%s better than %s" % winner
+            if sign > 0 and lost:
+                later.append("not above trivial: " + ", ".join(lost))
+            row["open"], row["notes"] = first + later, notes
         report[ep] = dict(units=eligible, values=main_vals, contrasts=rows, min_p=None if not eligible else 2 / 2 ** len(eligible))
 
     def cand_mean(t):
@@ -433,7 +479,7 @@ def main():
                 an = lambda k: "" if c["analyses"].get(k) is None else "%+.3f (n %d)" % (c["analyses"][k]["mean"], c["analyses"][k]["n"])
                 L.append("| %s - %s | %+.3f (%+.3f to %+.3f) | %d of %d | %.4f (%.4f) | %s | %s | %s | %s | %s | %s | %s |" % (
                     c["a"], "min of " + ", ".join(c["b"]) if len(c["b"]) > 1 else c["b"][0], c["mean"], c["lo"], c["hi"], c["wins"], c["n"], c["p"], c["p_holm"],
-                    an("S_pub"), an("S_a"), an("S_b"), an("S_f"), an("V2"), c["verdict"], "; ".join(c["open"] + ([c["note"]] if c.get("note") else []))))
+                    an("S_pub"), an("S_a"), an("S_b"), an("S_f"), an("V2"), c["verdict"], "; ".join(c["open"] + c.get("notes", []))))
         L.append("")
     if fusion_table:
         L += ["Fusion candidates (P1 metric, mean over eligible units): " + ", ".join(

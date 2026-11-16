@@ -37,6 +37,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
@@ -63,6 +64,40 @@ def fetch(url, tries=4, pause=3.0):
             err = e
             time.sleep(pause * (k + 1))
     raise RuntimeError("%s: %s" % (url[:120], err))
+
+
+class NotAnnotated(Exception):
+    pass
+
+
+def fetch_record(acc, tries=3, pause=5.0, probe=400000):
+    """EMBL flat file of one sequence, read as a stream. The feature table precedes the sequence, so a record whose
+    first `probe` bytes hold no coding sequence is given up at once instead of being downloaded whole."""
+    for k in range(tries):
+        try:
+            req = urllib.request.Request("%s/embl/%s" % (BROWSER, acc), headers={"User-Agent": "python-urllib", "Accept-Encoding": "gzip"})
+            buf, z, checked = bytearray(), None, False
+            with urllib.request.urlopen(req, timeout=300) as r:
+                first = True
+                while True:
+                    b = r.read(1 << 17)
+                    if not b:
+                        break
+                    if first:
+                        z = zlib.decompressobj(16 + zlib.MAX_WBITS) if b[:2] == b"\x1f\x8b" else None
+                        first = False
+                    buf += z.decompress(b) if z else b
+                    if not checked and len(buf) >= probe:
+                        checked = True
+                        if b"FT   CDS  " not in buf:
+                            raise NotAnnotated(acc)
+            return bytes(buf).decode(errors="replace")
+        except NotAnnotated:
+            raise
+        except Exception as e:                       # noqa: BLE001
+            err = e
+            time.sleep(pause * (k + 1))
+    raise RuntimeError("%s: %s" % (acc, err))
 
 
 def order_key(acc):
@@ -207,7 +242,13 @@ def main():
                         reps = replicons(c["assembly"])
                         if not reps:
                             raise RuntimeError("no replicon list")
-                        text = "".join(fetch("%s/embl/%s" % (BROWSER, r)).decode(errors="replace") for r, _ in reps)
+                        reps = sorted(reps, key=lambda x: x[1] != "Chromosome")          # a chromosome first: it shows at once whether the assembly is annotated
+                        text = "".join(fetch_record(r) for r, _ in reps)
+                    except NotAnnotated:
+                        info["skipped"]["not annotated"] = info["skipped"].get("not annotated", 0) + 1
+                        bad[c["assembly"]] = "not annotated"
+                        json.dump(bad, open(bad_path, "w"), indent=1)
+                        continue
                     except Exception as e:           # noqa: BLE001
                         why = "no replicon list" if "no replicon list" in str(e) else "download failed"
                         info["skipped"][why] = info["skipped"].get(why, 0) + 1

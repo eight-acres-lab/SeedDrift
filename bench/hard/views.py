@@ -27,7 +27,7 @@ Scores, one row per gene of --genes (higher = more foreign; empty = the gene has
   ai_gene    Alien Index with the home rank chosen per gene: the narrowest of family, order, class, phylum in which
              the gene has a visible covering hit
   nohit      1 when no visible hit is left (a control: it knows nothing else)
-  n_rows     minus the number of visible proteomes with a covering hit
+  n_rows     minus the number of visible proteomes with a covering hit (0, its highest value, for a gene without one)
   absent_near  1 minus the best bit score per residue (relative to 2 bits per residue, clipped to 0-1) among the 12
              visible proteomes that are closest to the genome; 1 for a gene without a hit there
   best_id    minus the best visible identity
@@ -165,7 +165,7 @@ def gene_random(name):
     return int.from_bytes(hashlib.sha256(("%s|random-v1" % name).encode()).digest()[:8], "big") / 2.0 ** 64
 
 
-def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distance=True, deep=(), deep_limit=4000):
+def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distance=True, deep=(), deep_limit=4000, taxid=None):
     """({gene: {column: value}} for the genes that have a stored hit, information on the view, mask of the hits kept)."""
     depth = shared_depth(lineage, ranks)
     close = closeness(h, n_genes or len(names), len(ranks))
@@ -175,7 +175,8 @@ def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distan
     with np.errstate(invalid="ignore"):
         cand = np.flatnonzero(~hidden & np.isfinite(close))
     near = np.zeros(len(ranks), dtype=bool)
-    near[cand[np.argsort(-close[cand], kind="stable")[:NEAR_ROWS]]] = True       # the visible proteomes closest to the genome
+    tie = taxid[cand] if taxid is not None else cand
+    near[cand[np.lexsort((tie, -close[cand]))[:NEAR_ROWS]]] = True               # the visible proteomes closest to the genome; ties to the lower taxid
     order = np.lexsort((-h["bits"], h["q"]))
     q = h["q"][order]
     starts = np.r_[0, np.flatnonzero(np.diff(q)) + 1, len(q)] if len(q) else np.zeros(1, dtype=np.int64)
@@ -188,7 +189,7 @@ def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distan
         vis_all = ix[~hidden[h["p"][ix]]]
         vis = vis_all[:limit]
         kept[vis] = True
-        row = dict(full=float(b - a >= cap), exact=float(len(vis_all) >= limit or b - a < cap), absent_near=1.0)
+        row = dict(full=float(b - a >= cap), exact=float(len(vis_all) >= limit or b - a < cap), absent_near=1.0, n_rows=0.0)
         if not len(vis):
             row["nohit"] = 1.0
             out[name] = row
@@ -239,7 +240,7 @@ def main():
     names, h, unknown, deep = read_hits(a.hits, taxid_index, a.deep_hits)
     lineage = np.load(a.lineage)["genome_ranks"]
     genes = [r["gene_id"] for r in csv.DictReader(open(a.genes), delimiter="\t")]
-    sc, info, kept = view_scores(names, h, lib["ranks"], lineage, a.hide, a.limit, len(genes), not a.by_name, deep, a.deep_limit)
+    sc, info, kept = view_scores(names, h, lib["ranks"], lineage, a.hide, a.limit, len(genes), not a.by_name, deep, a.deep_limit, lib["taxid"])
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     if a.hidden_out:
         with open(a.hidden_out, "w") as fo:
@@ -249,7 +250,7 @@ def main():
     with open(a.out, "w") as fo:
         fo.write("gene_id\t" + "\t".join(COLS) + "\n")
         for g in genes:
-            r = dict(sc.get(g, dict(full=0.0, exact=1.0, nohit=1.0, absent_near=1.0)), random=gene_random(g))
+            r = dict(sc.get(g, dict(full=0.0, exact=1.0, nohit=1.0, absent_near=1.0, n_rows=0.0)), random=gene_random(g))
             fo.write(g + "\t" + "\t".join("" if c not in r else "%.4f" % r[c] for c in COLS) + "\n")
     if a.hits_out:
         with open(a.hits_out, "w") as fo:

@@ -22,6 +22,8 @@ import numpy as np
 def roc(pos, neg):
     pos, neg = np.asarray(pos, dtype=float), np.asarray(neg, dtype=float)
     s = np.r_[pos, neg]
+    if not len(s):
+        return np.zeros(1), np.zeros(1)
     y = np.r_[np.ones(len(pos)), np.zeros(len(neg))]
     order = np.argsort(-s, kind="stable")
     s, y = s[order], y[order]
@@ -263,3 +265,47 @@ def holm(ps):
         run = max(run, min(1.0, (len(ok) - i) * ps[j]))
         out[j] = run
     return out
+
+
+def sign_flip_interval(d, alpha=0.05):
+    """(lower, upper): the shifts d0 for which the two-sided exact sign-flip p of d - d0 is at least alpha (the test
+    inverted). Infinite when the number of units cannot reach alpha (2 / 2^n > alpha)."""
+    d = np.asarray(d, dtype=float)
+    n = len(d)
+    if n == 0 or 2.0 / 2 ** n > alpha:
+        return float("-inf"), float("inf")
+    m, span = float(d.mean()), float(np.abs(d - d.mean()).max()) * n + 1.0
+    out = []
+    for side in (-1.0, 1.0):
+        inside, outside = m, m + side * span                  # p is 1 at the mean and below alpha far away
+        for _ in range(60):
+            mid = (inside + outside) / 2
+            if sign_flip_p(d - mid) >= alpha:
+                inside = mid
+            else:
+                outside = mid
+        out.append(inside)
+    return out[0], out[1]
+
+
+def recall_curve(pos, neg, pos_scored, neg_scored):
+    """ROC points when unscored genes are never called: the curve of the scored genes (ties at their expectation), in units
+    of ALL genes of each class, then flat. pos, neg: values; *_scored: which of them the method scores."""
+    pos_scored, neg_scored = np.asarray(pos_scored, dtype=bool), np.asarray(neg_scored, dtype=bool)
+    x, y = roc(np.asarray(pos, dtype=float)[pos_scored], np.asarray(neg, dtype=float)[neg_scored])
+    x = x * neg_scored.sum() / max(len(neg), 1)
+    y = y * pos_scored.sum() / max(len(pos), 1)
+    return np.r_[x, 1.0], np.r_[y, y[-1]]
+
+
+def recall_never(pos, neg, pos_scored, neg_scored, fpr):
+    x, y = recall_curve(pos, neg, pos_scored, neg_scored)
+    return float(np.interp(fpr, x, y))
+
+
+def mean_recall_never(pos, neg, pos_scored, neg_scored, fpr):
+    x, y = recall_curve(pos, neg, pos_scored, neg_scored)
+    cut = np.interp(fpr, x, y)
+    keep = x < fpr
+    xs, ys = np.r_[x[keep], fpr], np.r_[y[keep], cut]
+    return float(np.sum((xs[1:] - xs[:-1]) * (ys[1:] + ys[:-1]) / 2) / fpr)

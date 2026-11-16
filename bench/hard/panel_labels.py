@@ -17,7 +17,9 @@ the chromosome's own genus, which every method under test has hidden.
                         island gene                                              (negative, "positional core")
             conflict    published island gene with f >= 0.8 (the other species keep it in place)
             edge        positional core within 5 genes of a published island gene
-            unresolved  everything else: never counted as native or as transferred
+            unresolved  everything else: never counted as native or as transferred. A gene that lies in a published
+                        island region and in a published backbone region (label "both") is unresolved, and counts as
+                        island-labelled for the native class, the 5-gene margin and the native blocks
   units     island region   a published island region with at least 3 labelled genes, at least half of them class island
             native block    11 consecutive genes, none a published island gene or within 5 genes of one, at least 9
                             of them class native; tiled without overlap
@@ -75,18 +77,21 @@ def diamond(exe, query, db_fasta, out, threads, tmp, k=500):
                     "--outfmt", "6", "qseqid", "sseqid", "pident", "qstart", "qend", "qlen", "sstart", "send", "slen", "bitscore"], check=True)
 
 
-def classify(genes, contig, published, hits, panel, self_multi):
+def classify(genes, contig, published, hits, panel, self_multi, closed=True, block_min=BLOCK - 2):
     """genes: ids in chromosome order; contig: their contig; published: their published label; hits: {(gene, genome): (bits,
-    identity, replicon, index, coverage)} best covering hit; panel: {genome: role}; self_multi: set of multi-copy genes."""
+    identity, replicon, index, coverage)} best covering hit; panel: {genome: role}; self_multi: set of multi-copy genes;
+    closed: the chromosome is circular (neighbours and margins wrap around the origin; the tiling of blocks does not)."""
     n = len(genes)
-    ix = {g: i for i, g in enumerate(genes)}
     contig = np.asarray(contig)
     start = {c: int(np.flatnonzero(contig == c)[0]) for c in np.unique(contig)}
     size = {c: int((contig == c).sum()) for c in np.unique(contig)}
 
-    def neighbour(i, d):                                      # the gene d places away on the same contig (circular)
+    def neighbour(i, d):                                      # the gene d places away on the same contig; None beyond the end of a linear one
         c = contig[i]
-        return start[c] + (i - start[c] + d) % size[c]
+        j = i - start[c] + d
+        if closed:
+            return start[c] + j % size[c]
+        return start[c] + j if 0 <= j < size[c] else None
 
     others = [p for p, r in panel.items() if r == "other"]
     sibs = [p for p, r in panel.items() if r == "sibling"]
@@ -101,19 +106,25 @@ def classify(genes, contig, published, hits, panel, self_multi):
             good = False
             for d in side:
                 j = neighbour(i, d)
-                if j == i:
+                if j is None or j == i:
                     continue
                 hj = hits.get((genes[j], p))
-                if hj is not None and hj[2] == h[2] and abs(hj[3] - h[3]) <= NEAR:
-                    good = True
+                if hj is not None and hj[2] == h[2]:
+                    dist = abs(hj[3] - h[3])
+                    if len(h) > 5 and h[5]:                   # the panel replicon is circular: distance around its origin as well
+                        dist = min(dist, h[5] - dist)
+                    good = good or dist <= NEAR
             ok.append(good)
         return all(ok)
 
     isl = np.array([x == "island" for x in published])
-    near_isl = isl.copy()
-    for i in np.flatnonzero(isl):
+    isl_any = np.array([x in ("island", "both") for x in published])      # a gene in both region sets is island-labelled for natives, margins and blocks
+    near_isl = isl_any.copy()
+    for i in np.flatnonzero(isl_any):
         for d in range(-NEAR, NEAR + 1):
-            near_isl[neighbour(int(i), d)] = True
+            j = neighbour(int(i), d)
+            if j is not None:
+                near_isl[j] = True
     rows = []
     for i, g in enumerate(genes):
         pos_o = [p for p in others if positional(i, p)]
@@ -131,6 +142,8 @@ def classify(genes, contig, published, hits, panel, self_multi):
             c = "unresolved"
         elif isl[i]:
             c = "island" if f <= 0.5 else "conflict" if f >= 0.8 else "unresolved"
+        elif isl_any[i]:
+            c = "unresolved"
         elif f >= 0.8 and not r["multi"]:
             c = "edge" if near_isl[i] else "native"
         else:
@@ -144,7 +157,7 @@ def classify(genes, contig, published, hits, panel, self_multi):
         i, end = start[c], start[c] + size[c]
         while i + BLOCK <= end:
             w = slice(i, i + BLOCK)
-            if not near_isl[w].any() and (cls[w] == "native").sum() >= BLOCK - 2:
+            if not near_isl[w].any() and (cls[w] == "native").sum() >= block_min:
                 unit[w] = "NB%d" % b
                 b += 1
                 i += BLOCK
@@ -160,6 +173,8 @@ def main():
     ap.add_argument("--labels", required=True, help="folder of bench/islands/labels.py (published labels)")
     ap.add_argument("--panel", required=True); ap.add_argument("--out", required=True)
     ap.add_argument("--diamond", default="diamond"); ap.add_argument("--threads", type=int, default=8)
+    ap.add_argument("--block-min", type=int, default=BLOCK - 2, help="natives a native block needs among its 11 genes (9; 7 under the second step of the ladder)")
+    ap.add_argument("--reuse", action="store_true", help="reuse the alignments of an earlier run of this chromosome")
     a = ap.parse_args()
     from seeddrift.inputs import from_genbank
     from seeddrift.pipeline import clean_proteins
@@ -187,8 +202,12 @@ def main():
                     name = "P%d_%d" % (pi, j)
                     where[name] = (pi, rep, idx)
                     fo.write(">%s\n%s\n" % (name, seq))
-        diamond(a.diamond, os.path.join(work, "query.faa"), os.path.join(work, "panel.faa"), os.path.join(work, "panel_hits.tsv"), a.threads, work)
-        diamond(a.diamond, os.path.join(work, "query.faa"), os.path.join(work, "query.faa"), os.path.join(work, "self_hits.tsv"), a.threads, work, k=50)
+        if not (a.reuse and os.path.exists(os.path.join(work, "panel_hits.tsv")) and os.path.exists(os.path.join(work, "self_hits.tsv"))):
+            diamond(a.diamond, os.path.join(work, "query.faa"), os.path.join(work, "panel.faa"), os.path.join(work, "panel_hits.tsv"), a.threads, work)
+            diamond(a.diamond, os.path.join(work, "query.faa"), os.path.join(work, "query.faa"), os.path.join(work, "self_hits.tsv"), a.threads, work, k=50)
+        rep_size = {}
+        for pi, rep, idx in where.values():
+            rep_size[(pi, rep)] = max(rep_size.get((pi, rep), 0), idx + 1)
         hits, loose, strong = {}, set(), set()
         for line in open(os.path.join(work, "panel_hits.tsv")):
             q, s, pid, qs, qe, ql, _, _, _, bits = line.rstrip("\n").split("\t")
@@ -199,14 +218,16 @@ def main():
             if pid >= 70.0 and cov >= 0.7:
                 strong.add((q, pi))
             if pid >= MIN_ID and cov >= MIN_COV and ((q, pi) not in hits or bits > hits[(q, pi)][0]):
-                hits[(q, pi)] = (bits, pid, rep, idx, cov)
+                hits[(q, pi)] = (bits, pid, rep, idx, cov, rep_size[(pi, rep)])
         multi = set()
         for line in open(os.path.join(work, "self_hits.tsv")):
             q, s, pid, qs, qe, ql, ss, se, sl, _ = line.rstrip("\n").split("\t")
             if q != s and float(pid) >= MIN_ID and (int(qe) - int(qs) + 1) / int(ql) >= 0.8 and (int(se) - int(ss) + 1) / int(sl) >= 0.8:
                 multi.add(q)
         published = [lab[k]["label"] if k in lab else "none" for k in genes]
-        rows, cls, unit, near_isl = classify(genes, contig, published, hits, role, multi)
+        locus = open(gb).readline()
+        closed = "circular" in locus and len(set(contig)) == 1
+        rows, cls, unit, near_isl = classify(genes, contig, published, hits, role, multi, closed, a.block_min)
         others = [p for p, r in role.items() if r == "other"]
         sibs = [p for p, r in role.items() if r == "sibling"]
         # island regions as units: published regions with at least 3 labelled genes, at least half of them class island
@@ -223,7 +244,7 @@ def main():
         ident = np.array([rows[i]["identity"] for i in nat])
         fast = set(nat[ident <= np.nanquantile(ident, 0.1)].tolist()) if len(nat) else set()
         with open(os.path.join(a.out, acc + ".tsv"), "w") as fo:
-            fo.write("gene_id\tcontig\tstart\tend\tstrand\tlabel\tregion\tproduct\tclass\tpublished\tf\tf_same\tpos_other\tn_other\thit_sibling\tidentity\tcopies\tflags\n")
+            fo.write("gene_id\tcontig\tstart\tend\tstrand\tlabel\tregion\tproduct\tclass\tpublished\tf\tf_same\tpos_other\tn_other\thit_sibling\tidentity\tcopies\tflags\tclosed\n")
             for i, k in enumerate(genes):
                 r, c = rows[i], cls[i]
                 flags = []
@@ -242,12 +263,12 @@ def main():
                     k, contig_i, s, e, strand, "island" if c == "island" else "backbone" if c == "native" else "none", unit[i],
                     "", c, published[i], "" if r["f"] != r["f"] else "%.2f" % r["f"], "" if r["f_same"] != r["f_same"] else "%.2f" % r["f_same"],
                     r["pos_other"], r["n_other"], r["hit_sibling"], "" if r["identity"] != r["identity"] else "%.1f" % r["identity"],
-                    "multi" if r["multi"] else "single", ",".join(flags))) + "\n")
+                    "multi" if r["multi"] else "single", ",".join(flags), int(closed))) + "\n")
         pub = np.array(published, dtype=object)
         single = np.array([not r["multi"] for r in rows])
         pc = np.array([c in ("native", "edge") for c in cls])
         bb_single = (pub == "backbone") & single
-        info = dict(accession=acc, genes=len(genes), panel={k: sum(1 for r in role.values() if r == k) for k in ("same", "other", "sibling")},
+        info = dict(accession=acc, genes=len(genes), closed=bool(closed), contigs=len(set(contig)), block_min=a.block_min, panel={k: sum(1 for r in role.values() if r == k) for k in ("same", "other", "sibling")},
                     classes={k: int((cls == k).sum()) for k in ("island", "native", "conflict", "edge", "unresolved")},
                     published={k: int((pub == k).sum()) for k in ("island", "backbone", "none")},
                     native_blocks=len({u for u in unit if u.startswith("NB")}), island_regions=len({u for u in unit if u and not u.startswith("NB")}),

@@ -1,0 +1,101 @@
+{
+ "date": "2026-11-16",
+ "tables_url": "https://www.pathogenomics.sfu.ca/islandviewer/download/datasets/Sup_tables.tar.gz",
+ "tables_sha256": "812a9893d9368f482ba515784d94f9926307e9a73961724c9b43e68fb3ae577a",
+ "n_island_regions": 1845,
+ "n_backbone_regions": 3266,
+ "genome_source": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=<accession.version>&rettype=gbwithparts&retmode=text&tool=seeddrift-bench",
+ "genomes": {
+  "NC_010410.1": {
+   "sha256": "f8fb5d361a3fbe6968367acaf930dbca11e9059cc62c0d8baef6a29ebfed505f",
+   "bytes": 10099733,
+   "cds": 3691
+  },
+  "NC_005945.1": {
+   "sha256": "4b4114a89eeec02cb1680d5e14a8503d5cfb69f465675f487ca30ceb20c79204",
+   "bytes": 13525297,
+   "cds": 5384
+  },
+  "NC_009485.1": {
+   "sha256": "7d0e29cb2d87778550317cd4c8eb4d1f16beba993a43fd21a6e622ff35a7b902",
+   "bytes": 20604444,
+   "cds": 7411
+  },
+  "NC_010167.1": {
+   "sha256": "1c396168581daae0a55c616afb478aeec991cbc2588becae1b445e01b16c1d16",
+   "bytes": 3588935,
+   "cds": 1329
+  },
+  "NC_008060.1": {
+   "sha256": "e2473ce615203c61a1db31220eae55d0d1ee53e973aea74bb3df2e864cf145d8",
+   "bytes": 7856151,
+   "cds": 2979
+  },
+  "NC_009342.1": {
+   "sha256": "bad9117ff67cad235f44aabf3a0678c7c99faa3da763c01924def395bbb5bf86",
+   "bytes": 8386419,
+   "cds": 3012
+  },
+  "NC_007146.2": {
+   "sha256": "178eb4609a2771e4404923d80c8a6426bab2a065a4281d7e57eedd8af8ffb99f",
+   "bytes": 5077639,
+   "cds": 1842
+  },
+  "NC_010612.1": {
+   "sha256": "901e4c1acaba459d856eb5e36abacd706231d839ae2d2a82336936886e5c77ad",
+   "bytes": 16200970,
+   "cds": 5510
+  },
+  "NC_005071.1": {
+   "sha256": "1c62121de935e38066a2fbd37dd42dbf684738d2b1ad174ab973718ca4115633",
+   "bytes": 6634135,
+   "cds": 2421
+  },
+  "NC_007005.1": {
+   "sha256": "da1f2c5df6fea47aef5eaee80e71e7eaf8f219b226464d150ddb5afd4802f850",
+   "bytes": 15110165,
+   "cds": 5219
+  },
+  "NC_007761.1": {
+   "sha256": "0811bb37868bb747a227a3138557c933f269b0ab371ded74185513b3bf7ede7d",
+   "bytes": 11285148,
+   "cds": 4213
+  },
+  "NC_007778.1": {
+   "sha256": "46875f0b362670da52b8fec827979d8a7999c00de060b5a1f2a646dc88bb5c68",
+   "bytes": 13399768,
+   "cds": 4777
+  },
+  "NC_009879.1": {
+   "sha256": "3444da1045285c5d138e2ff954e9a6a9996fe5e8099961592a705bf8173e841d",
+   "bytes": 2869767,
+   "cds": 1052
+  },
+  "NC_009997.1": {
+   "sha256": "714fdf8db0af47c3c94a56a1685739b620a070bf8a4a22435f99fb869749ebc2",
+   "bytes": 13227567,
+   "cds": 4510
+  },
+  "NC_003047.1": {
+   "sha256": "b054363e8cd136842fba489d22c8b0cb0fe132c37038515c3bdf055ff13e9322",
+   "bytes": 9514529,
+   "cds": 3396
+  },
+  "NC_009632.1": {
+   "sha256": "96c589d2e6dba8301e865f867b3812b41f4dae05ef3aed62418da8db8fc83a22",
+   "bytes": 7118329,
+   "cds": 2840
+  },
+  "NC_007432.1": {
+   "sha256": "42d18100e9eccf736c4d8802be7859a9e02cb70e7838beaec35f44c4d9dc83ac",
+   "bytes": 5600589,
+   "cds": 2073
+  },
+  "NC_004603.1": {
+   "sha256": "be64a413dc5e4e3cb423c6afc7b0c7a7fdc8b8ca4fa96afaa29d96034e2a3a94",
+   "bytes": 8633808,
+   "cds": 2891
+  }
+ },
+ "replaced": []
+}

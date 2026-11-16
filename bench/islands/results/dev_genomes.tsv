@@ -1,0 +1,25 @@
+genus	accession	organism	islands	backbone	cds	sha256
+Escherichia	NC_008253.1	Escherichia coli 536	25	47	4608	173b1a3979011c2a3783454547c582768f18b886008b599a55e5e20baa33c3b0
+Escherichia	NC_008563.1	Escherichia coli APEC O1	32	48	4920	a18365f9bebc8ee272a73296e4b4ca01a9f3c7fea560f9fba8772a96ec29a046
+Escherichia	NC_004431.1	Escherichia coli CFT073	40	45	4995	22a9eae0eb60cb28db39744026d3a83a6c6b2acc6541f4afb113eebadc963b3a
+Escherichia	NC_009801.1	Escherichia coli E24377A	20	40	4745	084010963cc9978a90efbaece54fafb3a705eb5c07f739a59bd96b7ef234e6fc
+Escherichia	NC_009800.1	Escherichia coli HS	5	48	4373	d5ca14e8334e9a527adbfcaa82966c484fca95754792083c35862ae284dc4275
+Escherichia	NC_002695.1	Escherichia coli O157:H7 str. Sakai	44	42	5200	4294e86c553660f4626a39b58845c7492db2c1ee08381066d9561b3a27aa66c8
+Escherichia	NC_010498.1	Escherichia coli SECEC SMS-3-5	17	48	4744	6b9ba23842e04a8df66e54462236f37c4106d3e8243c4889815954b78d97391f
+Escherichia	NC_007946.1	Escherichia coli UTI89	41	45	4815	cffb8b7b8a5c6a05aa1a68484a4767bb59eb7283880b94947fe5248e945f8953
+Escherichia	NC_010473.1	Escherichia coli str. K-12 substr. DH10B	4	44	4468	c4a66616cc7179637be56482ba40734426ed4ae2acac572ef48720483a3369b8
+Salmonella	NC_006905.1	Salmonella enterica subsp. enterica serovar Choleraesuis str. SC-B67	11	49	4563	189c7458a546c6f2d7b0031a4a55b49b9c071a741bfae1165edcd6cacf754fd5
+Salmonella	NC_006511.1	Salmonella enterica subsp. enterica serovar Paratyphi A str. ATCC 9150	6	44	4371	676db9b9099a0fb65ce54c71b2142c2ed3e6f7b156de31493a66beecc5939f5b
+Salmonella	NC_010102.1	Salmonella enterica subsp. enterica serovar Paratyphi B str. SPB7	15	44	4639	3f6f85b2a68a8dd6df8d5af267b89ccb0c295c6e5919e13b09840eb2882c858c
+Salmonella	NC_004631.1	Salmonella enterica subsp. enterica serovar Typhi Ty2	13	43	4610	52dc1b6f6fd764d0d4e87b53b109f2faccd98309e6e10d38b0c921229ee64536
+Salmonella	NC_003198.1	Salmonella enterica subsp. enterica serovar Typhi str. CT18	15	45	4660	0c0db73d2d4a636ef10be239cf4491ed2ee80045a8924458910276f771f57c7f
+Shigella	NC_007613.1	Shigella boydii Sb227	8	34	4517	15e2465f70bc8781a30585303793d0586325c989fed3cb60eeca7fa066ac9d96
+Shigella	NC_007606.1	Shigella dysenteriae Sd197	14	33	4540	4eda5a742ef8c4f16c59389c8c077e03bd0595098936e4cf5aa495f8eed7bca3
+Shigella	NC_004741.1	Shigella flexneri 2a str. 2457T	14	38	4508	5061a0b07f73211b13d6a80bb95397ebaae13d05caf59094e958690d57989401
+Shigella	NC_008258.1	Shigella flexneri 5 str. 8401	8	48	4499	abc6b7ff3efed3858ce8feb4398fbafac69f9811a3b83ba1d70396a91fc56378
+Shigella	NC_007384.1	Shigella sonnei Ss046	15	44	4771	81d5b49d2b8ed374112d1ed482bd88c5a174c31ad8d8a14ef54410f62c80cb4f
+Yersinia	NC_010159.1	Yersinia pestis Angola	9	60	4027	d9e0c85e4bbd4c5ce8688eb25763d3cfe2732a43f1fa945ac134e9ff70fc9568
+Yersinia	NC_004088.1	Yersinia pestis KIM	7	67	4045	0d3cb459a5ab282c9d5fbc1d263c71ede779070ce80ad78239c52e50f41f0a58
+Yersinia	NC_009708.1	Yersinia pseudotuberculosis IP 31758	15	12	4064	f7a13a09c93d6d24b2681779f5176e3bab53476aea39455371357a813df14e34
+Yersinia	NC_006155.1	Yersinia pseudotuberculosis IP 32953	13	20	4122	bd7def6c1626346ad2bca039e1d4c0721361c2a11695e532fafefe3e3b361ca4
+Yersinia	NC_010465.1	Yersinia pseudotuberculosis YPIII	19	9	4087	e4d18cc552608994410d76837ff0b7c8b4961fd03fff623bf8ef96e8474e84c0

@@ -1,0 +1,19 @@
+genus	accession	organism	islands	backbone	cds	rank_in_genus
+Acinetobacter	NC_010410.1	Acinetobacter baumannii AYE	7	70	3691	1
+Bacillus	NC_005945.1	Bacillus anthracis str. Sterne	7	83	5384	1
+Bradyrhizobium	NC_009485.1	Bradyrhizobium sp. BTAi1	77	30	7411	1
+Brucella	NC_010167.1	Brucella suis ATCC 23445 chromosome II, complete sequence.	33	13	1329	1
+Burkholderia	NC_008060.1	Burkholderia cenocepacia AU 1054 chromosome 1, complete sequence.	40	49	2979	1
+Corynebacterium	NC_009342.1	Corynebacterium glutamicum R	9	90	3012	1
+Haemophilus	NC_007146.2	Haemophilus influenzae 86-028NP	4	1	1842	1
+Mycobacterium	NC_010612.1	Mycobacterium marinum M	35	63	5510	1
+Prochlorococcus	NC_005071.1	Prochlorococcus marinus str. MIT 9313	6	15	2421	1
+Pseudomonas	NC_007005.1	Pseudomonas syringae pv. syringae B728a	38	39	5219	1
+Rhizobium	NC_007761.1	Rhizobium etli CFN 42	13	50	4213	1
+Rhodopseudomonas	NC_007778.1	Rhodopseudomonas palustris HaA2	29	9	4777	1
+Rickettsia	NC_009879.1	Rickettsia canadensis str. McKiel	2	1	1052	1
+Shewanella	NC_009997.1	Shewanella baltica OS195	21	10	4510	1
+Sinorhizobium	NC_003047.1	Sinorhizobium meliloti 1021	8	52	3396	1
+Staphylococcus	NC_009632.1	Staphylococcus aureus subsp. aureus JH1	4	20	2840	1
+Streptococcus	NC_007432.1	Streptococcus agalactiae A909	8	18	2073	1
+Vibrio	NC_004603.1	Vibrio parahaemolyticus RIMD 2210633 chromosome I, complete sequence.	21	12	2891	1

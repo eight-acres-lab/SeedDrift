@@ -1,0 +1,1852 @@
+{
+ "per_genome": [
+  {
+   "accession": "NC_008253.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli 536",
+   "n_island": 206,
+   "n_backbone": 518,
+   "island_mobile_words": 0.083,
+   "backbone_mobile_words": 0.004,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7153,
+     "recall_5": 0.3544,
+     "fp_5": 0.0483,
+     "recall_1": 0.0971,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8767,
+     "recall_5": 0.6019,
+     "fp_5": 0.0483,
+     "recall_1": 0.3932,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8838,
+     "recall_5": 0.6117,
+     "fp_5": 0.0483,
+     "recall_1": 0.3835,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8672,
+     "recall_5": 0.5874,
+     "fp_5": 0.0483,
+     "recall_1": 0.2621,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9699,
+     "recall_5": 0.8495,
+     "fp_5": 0.0483,
+     "recall_1": 0.7233,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9661,
+     "recall_5": 0.8738,
+     "fp_5": 0.0483,
+     "recall_1": 0.7087,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5363,
+     "recall_5": 0.0825,
+     "fp_5": 0.0483,
+     "recall_1": 0.0,
+     "fp_1": 0.0097,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_008563.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli APEC O1",
+   "n_island": 304,
+   "n_backbone": 527,
+   "island_mobile_words": 0.266,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7236,
+     "recall_5": 0.352,
+     "fp_5": 0.0493,
+     "recall_1": 0.0855,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8348,
+     "recall_5": 0.4868,
+     "fp_5": 0.0493,
+     "recall_1": 0.273,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.84,
+     "recall_5": 0.4836,
+     "fp_5": 0.0493,
+     "recall_1": 0.2862,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8609,
+     "recall_5": 0.5658,
+     "fp_5": 0.0493,
+     "recall_1": 0.1743,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9559,
+     "recall_5": 0.7599,
+     "fp_5": 0.0493,
+     "recall_1": 0.5164,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9561,
+     "recall_5": 0.7336,
+     "fp_5": 0.0493,
+     "recall_1": 0.5132,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6321,
+     "recall_5": 0.1086,
+     "fp_5": 0.0474,
+     "recall_1": 0.0,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_004431.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli CFT073",
+   "n_island": 433,
+   "n_backbone": 470,
+   "island_mobile_words": 0.164,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7212,
+     "recall_5": 0.3718,
+     "fp_5": 0.0489,
+     "recall_1": 0.261,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8596,
+     "recall_5": 0.5358,
+     "fp_5": 0.0489,
+     "recall_1": 0.4134,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8896,
+     "recall_5": 0.5566,
+     "fp_5": 0.0489,
+     "recall_1": 0.3741,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.904,
+     "recall_5": 0.6443,
+     "fp_5": 0.0489,
+     "recall_1": 0.3672,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9767,
+     "recall_5": 0.8707,
+     "fp_5": 0.0489,
+     "recall_1": 0.6905,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9877,
+     "recall_5": 0.9261,
+     "fp_5": 0.0489,
+     "recall_1": 0.8222,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.592,
+     "recall_5": 0.1363,
+     "fp_5": 0.0489,
+     "recall_1": 0.0046,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_009801.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli E24377A",
+   "n_island": 226,
+   "n_backbone": 469,
+   "island_mobile_words": 0.221,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7119,
+     "recall_5": 0.3584,
+     "fp_5": 0.049,
+     "recall_1": 0.0619,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8966,
+     "recall_5": 0.6062,
+     "fp_5": 0.049,
+     "recall_1": 0.3142,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.9128,
+     "recall_5": 0.6283,
+     "fp_5": 0.049,
+     "recall_1": 0.2611,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.9035,
+     "recall_5": 0.5929,
+     "fp_5": 0.049,
+     "recall_1": 0.1062,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9915,
+     "recall_5": 0.9956,
+     "fp_5": 0.049,
+     "recall_1": 0.5664,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9914,
+     "recall_5": 0.9867,
+     "fp_5": 0.049,
+     "recall_1": 0.615,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6345,
+     "recall_5": 0.1239,
+     "fp_5": 0.049,
+     "recall_1": 0.0,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_009800.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli HS",
+   "n_island": 36,
+   "n_backbone": 532,
+   "island_mobile_words": 0.194,
+   "backbone_mobile_words": 0.006,
+   "in_summary": false,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.5921,
+     "recall_5": 0.1111,
+     "fp_5": 0.0489,
+     "recall_1": 0.0556,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.7682,
+     "recall_5": 0.4722,
+     "fp_5": 0.0489,
+     "recall_1": 0.25,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.7935,
+     "recall_5": 0.4722,
+     "fp_5": 0.0489,
+     "recall_1": 0.25,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.7325,
+     "recall_5": 0.3611,
+     "fp_5": 0.0489,
+     "recall_1": 0.0,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.8356,
+     "recall_5": 0.75,
+     "fp_5": 0.0489,
+     "recall_1": 0.4722,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9014,
+     "recall_5": 0.75,
+     "fp_5": 0.0489,
+     "recall_1": 0.5556,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.4565,
+     "recall_5": 0.0278,
+     "fp_5": 0.0489,
+     "recall_1": 0.0,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_002695.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli O157:H7 str. Sakai",
+   "n_island": 718,
+   "n_backbone": 465,
+   "island_mobile_words": 0.216,
+   "backbone_mobile_words": 0.004,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7117,
+     "recall_5": 0.3579,
+     "fp_5": 0.0495,
+     "recall_1": 0.1685,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8381,
+     "recall_5": 0.5056,
+     "fp_5": 0.0495,
+     "recall_1": 0.2284,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8449,
+     "recall_5": 0.4903,
+     "fp_5": 0.0495,
+     "recall_1": 0.2242,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.892,
+     "recall_5": 0.5557,
+     "fp_5": 0.0495,
+     "recall_1": 0.2117,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9512,
+     "recall_5": 0.7869,
+     "fp_5": 0.0495,
+     "recall_1": 0.7284,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9568,
+     "recall_5": 0.7981,
+     "fp_5": 0.0495,
+     "recall_1": 0.7117,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6899,
+     "recall_5": 0.1922,
+     "fp_5": 0.0495,
+     "recall_1": 0.0292,
+     "fp_1": 0.0086,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_010498.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli SECEC SMS-3-5",
+   "n_island": 102,
+   "n_backbone": 526,
+   "island_mobile_words": 0.167,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7444,
+     "recall_5": 0.402,
+     "fp_5": 0.0494,
+     "recall_1": 0.1471,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.9142,
+     "recall_5": 0.7353,
+     "fp_5": 0.0494,
+     "recall_1": 0.4804,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.9299,
+     "recall_5": 0.7451,
+     "fp_5": 0.0494,
+     "recall_1": 0.5098,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8987,
+     "recall_5": 0.6569,
+     "fp_5": 0.0494,
+     "recall_1": 0.1471,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9948,
+     "recall_5": 0.9902,
+     "fp_5": 0.0494,
+     "recall_1": 0.8137,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9961,
+     "recall_5": 1.0,
+     "fp_5": 0.0494,
+     "recall_1": 0.8333,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.4979,
+     "recall_5": 0.0784,
+     "fp_5": 0.0475,
+     "recall_1": 0.0,
+     "fp_1": 0.0095,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_007946.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli UTI89",
+   "n_island": 474,
+   "n_backbone": 511,
+   "island_mobile_words": 0.213,
+   "backbone_mobile_words": 0.004,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7082,
+     "recall_5": 0.3228,
+     "fp_5": 0.0489,
+     "recall_1": 0.0844,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8434,
+     "recall_5": 0.5148,
+     "fp_5": 0.0489,
+     "recall_1": 0.2954,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8541,
+     "recall_5": 0.5042,
+     "fp_5": 0.0489,
+     "recall_1": 0.3059,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8515,
+     "recall_5": 0.6139,
+     "fp_5": 0.0489,
+     "recall_1": 0.1456,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9553,
+     "recall_5": 0.7932,
+     "fp_5": 0.0489,
+     "recall_1": 0.5485,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9594,
+     "recall_5": 0.8101,
+     "fp_5": 0.0489,
+     "recall_1": 0.5359,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5694,
+     "recall_5": 0.0717,
+     "fp_5": 0.045,
+     "recall_1": 0.0021,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_010473.1",
+   "genus": "Escherichia",
+   "organism": "Escherichia coli str. K-12 substr. DH10B",
+   "n_island": 44,
+   "n_backbone": 480,
+   "island_mobile_words": 0.295,
+   "backbone_mobile_words": 0.004,
+   "in_summary": false,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7174,
+     "recall_5": 0.4318,
+     "fp_5": 0.0479,
+     "recall_1": 0.0,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.9371,
+     "recall_5": 0.6364,
+     "fp_5": 0.05,
+     "recall_1": 0.2045,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.9508,
+     "recall_5": 0.75,
+     "fp_5": 0.05,
+     "recall_1": 0.2727,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.9388,
+     "recall_5": 0.6818,
+     "fp_5": 0.05,
+     "recall_1": 0.0,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9792,
+     "recall_5": 0.9773,
+     "fp_5": 0.05,
+     "recall_1": 0.0909,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9768,
+     "recall_5": 0.9545,
+     "fp_5": 0.05,
+     "recall_1": 0.1364,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6958,
+     "recall_5": 0.25,
+     "fp_5": 0.0479,
+     "recall_1": 0.0,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_006905.1",
+   "genus": "Salmonella",
+   "organism": "Salmonella enterica subsp. enterica serovar Choleraesuis str. SC-B67",
+   "n_island": 117,
+   "n_backbone": 493,
+   "island_mobile_words": 0.299,
+   "backbone_mobile_words": 0.006,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6883,
+     "recall_5": 0.2735,
+     "fp_5": 0.0487,
+     "recall_1": 0.1197,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8824,
+     "recall_5": 0.5897,
+     "fp_5": 0.0487,
+     "recall_1": 0.3077,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8742,
+     "recall_5": 0.547,
+     "fp_5": 0.0487,
+     "recall_1": 0.1795,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8573,
+     "recall_5": 0.453,
+     "fp_5": 0.0487,
+     "recall_1": 0.2308,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9518,
+     "recall_5": 0.8632,
+     "fp_5": 0.0487,
+     "recall_1": 0.8291,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9568,
+     "recall_5": 0.8547,
+     "fp_5": 0.0487,
+     "recall_1": 0.7949,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6825,
+     "recall_5": 0.1026,
+     "fp_5": 0.0487,
+     "recall_1": 0.0,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_006511.1",
+   "genus": "Salmonella",
+   "organism": "Salmonella enterica subsp. enterica serovar Paratyphi A str. ATCC 9150",
+   "n_island": 48,
+   "n_backbone": 471,
+   "island_mobile_words": 0.312,
+   "backbone_mobile_words": 0.002,
+   "in_summary": false,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7388,
+     "recall_5": 0.4167,
+     "fp_5": 0.0488,
+     "recall_1": 0.2292,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8477,
+     "recall_5": 0.4167,
+     "fp_5": 0.0488,
+     "recall_1": 0.3125,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8413,
+     "recall_5": 0.3958,
+     "fp_5": 0.0488,
+     "recall_1": 0.2708,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.9053,
+     "recall_5": 0.7292,
+     "fp_5": 0.0488,
+     "recall_1": 0.125,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9552,
+     "recall_5": 0.7708,
+     "fp_5": 0.0488,
+     "recall_1": 0.4167,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.933,
+     "recall_5": 0.6042,
+     "fp_5": 0.0488,
+     "recall_1": 0.375,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6093,
+     "recall_5": 0.0833,
+     "fp_5": 0.0446,
+     "recall_1": 0.0,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_010102.1",
+   "genus": "Salmonella",
+   "organism": "Salmonella enterica subsp. enterica serovar Paratyphi B str. SPB7",
+   "n_island": 129,
+   "n_backbone": 475,
+   "island_mobile_words": 0.186,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.735,
+     "recall_5": 0.3721,
+     "fp_5": 0.0484,
+     "recall_1": 0.1938,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.9287,
+     "recall_5": 0.6899,
+     "fp_5": 0.0484,
+     "recall_1": 0.4496,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.9417,
+     "recall_5": 0.7364,
+     "fp_5": 0.0484,
+     "recall_1": 0.3798,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.907,
+     "recall_5": 0.4496,
+     "fp_5": 0.0484,
+     "recall_1": 0.3411,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.989,
+     "recall_5": 0.9457,
+     "fp_5": 0.0484,
+     "recall_1": 0.8992,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9848,
+     "recall_5": 0.9535,
+     "fp_5": 0.0484,
+     "recall_1": 0.8992,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5445,
+     "recall_5": 0.0465,
+     "fp_5": 0.0442,
+     "recall_1": 0.0,
+     "fp_1": 0.0084,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_004631.1",
+   "genus": "Salmonella",
+   "organism": "Salmonella enterica subsp. enterica serovar Typhi Ty2",
+   "n_island": 212,
+   "n_backbone": 487,
+   "island_mobile_words": 0.321,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7324,
+     "recall_5": 0.3585,
+     "fp_5": 0.0493,
+     "recall_1": 0.2028,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8757,
+     "recall_5": 0.5472,
+     "fp_5": 0.0493,
+     "recall_1": 0.3538,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8954,
+     "recall_5": 0.6085,
+     "fp_5": 0.0493,
+     "recall_1": 0.3019,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8477,
+     "recall_5": 0.4434,
+     "fp_5": 0.0493,
+     "recall_1": 0.3491,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9741,
+     "recall_5": 0.8726,
+     "fp_5": 0.0493,
+     "recall_1": 0.7264,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9831,
+     "recall_5": 0.8726,
+     "fp_5": 0.0493,
+     "recall_1": 0.7311,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6127,
+     "recall_5": 0.1179,
+     "fp_5": 0.0493,
+     "recall_1": 0.0094,
+     "fp_1": 0.0082,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_003198.1",
+   "genus": "Salmonella",
+   "organism": "Salmonella enterica subsp. enterica serovar Typhi str. CT18",
+   "n_island": 214,
+   "n_backbone": 491,
+   "island_mobile_words": 0.341,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7153,
+     "recall_5": 0.3364,
+     "fp_5": 0.0489,
+     "recall_1": 0.1776,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8817,
+     "recall_5": 0.5467,
+     "fp_5": 0.0489,
+     "recall_1": 0.3505,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8982,
+     "recall_5": 0.5654,
+     "fp_5": 0.0489,
+     "recall_1": 0.3037,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8447,
+     "recall_5": 0.4393,
+     "fp_5": 0.0489,
+     "recall_1": 0.3318,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9773,
+     "recall_5": 0.8879,
+     "fp_5": 0.0489,
+     "recall_1": 0.771,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9841,
+     "recall_5": 0.8832,
+     "fp_5": 0.0489,
+     "recall_1": 0.715,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6363,
+     "recall_5": 0.1121,
+     "fp_5": 0.0489,
+     "recall_1": 0.0093,
+     "fp_1": 0.0081,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_007613.1",
+   "genus": "Shigella",
+   "organism": "Shigella boydii Sb227",
+   "n_island": 49,
+   "n_backbone": 377,
+   "island_mobile_words": 0.51,
+   "backbone_mobile_words": 0.005,
+   "in_summary": false,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.5854,
+     "recall_5": 0.2041,
+     "fp_5": 0.0477,
+     "recall_1": 0.1429,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.846,
+     "recall_5": 0.3265,
+     "fp_5": 0.0477,
+     "recall_1": 0.1837,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8467,
+     "recall_5": 0.3673,
+     "fp_5": 0.0477,
+     "recall_1": 0.2041,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8636,
+     "recall_5": 0.3265,
+     "fp_5": 0.0477,
+     "recall_1": 0.1633,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9918,
+     "recall_5": 0.9592,
+     "fp_5": 0.0477,
+     "recall_1": 0.6327,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9961,
+     "recall_5": 0.9796,
+     "fp_5": 0.0477,
+     "recall_1": 0.8776,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5823,
+     "recall_5": 0.1224,
+     "fp_5": 0.0477,
+     "recall_1": 0.0,
+     "fp_1": 0.008,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_007606.1",
+   "genus": "Shigella",
+   "organism": "Shigella dysenteriae Sd197",
+   "n_island": 71,
+   "n_backbone": 375,
+   "island_mobile_words": 0.423,
+   "backbone_mobile_words": 0.003,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6209,
+     "recall_5": 0.1408,
+     "fp_5": 0.048,
+     "recall_1": 0.0845,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.9122,
+     "recall_5": 0.493,
+     "fp_5": 0.048,
+     "recall_1": 0.2535,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.905,
+     "recall_5": 0.493,
+     "fp_5": 0.048,
+     "recall_1": 0.2535,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8154,
+     "recall_5": 0.2676,
+     "fp_5": 0.048,
+     "recall_1": 0.0845,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9878,
+     "recall_5": 0.9014,
+     "fp_5": 0.048,
+     "recall_1": 0.7746,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9808,
+     "recall_5": 0.8732,
+     "fp_5": 0.048,
+     "recall_1": 0.8592,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6352,
+     "recall_5": 0.1268,
+     "fp_5": 0.048,
+     "recall_1": 0.0,
+     "fp_1": 0.008,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_004741.1",
+   "genus": "Shigella",
+   "organism": "Shigella flexneri 2a str. 2457T",
+   "n_island": 98,
+   "n_backbone": 407,
+   "island_mobile_words": 0.449,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6071,
+     "recall_5": 0.1531,
+     "fp_5": 0.0491,
+     "recall_1": 0.102,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8856,
+     "recall_5": 0.5204,
+     "fp_5": 0.0491,
+     "recall_1": 0.3469,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8925,
+     "recall_5": 0.5408,
+     "fp_5": 0.0491,
+     "recall_1": 0.3878,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.7747,
+     "recall_5": 0.3163,
+     "fp_5": 0.0491,
+     "recall_1": 0.0612,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9836,
+     "recall_5": 0.9184,
+     "fp_5": 0.0491,
+     "recall_1": 0.8061,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9917,
+     "recall_5": 0.9592,
+     "fp_5": 0.0491,
+     "recall_1": 0.8163,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6,
+     "recall_5": 0.1531,
+     "fp_5": 0.0491,
+     "recall_1": 0.0,
+     "fp_1": 0.0098,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_008258.1",
+   "genus": "Shigella",
+   "organism": "Shigella flexneri 5 str. 8401",
+   "n_island": 68,
+   "n_backbone": 497,
+   "island_mobile_words": 0.382,
+   "backbone_mobile_words": 0.004,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6913,
+     "recall_5": 0.3088,
+     "fp_5": 0.0483,
+     "recall_1": 0.0882,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.9104,
+     "recall_5": 0.5441,
+     "fp_5": 0.0483,
+     "recall_1": 0.0882,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.9116,
+     "recall_5": 0.5294,
+     "fp_5": 0.0483,
+     "recall_1": 0.2206,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.871,
+     "recall_5": 0.4706,
+     "fp_5": 0.0483,
+     "recall_1": 0.0,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9784,
+     "recall_5": 0.8971,
+     "fp_5": 0.0483,
+     "recall_1": 0.0294,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9772,
+     "recall_5": 0.9265,
+     "fp_5": 0.0483,
+     "recall_1": 0.0147,
+     "fp_1": 0.008,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6847,
+     "recall_5": 0.2206,
+     "fp_5": 0.0483,
+     "recall_1": 0.0,
+     "fp_1": 0.006,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_007384.1",
+   "genus": "Shigella",
+   "organism": "Shigella sonnei Ss046",
+   "n_island": 128,
+   "n_backbone": 469,
+   "island_mobile_words": 0.461,
+   "backbone_mobile_words": 0.002,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6787,
+     "recall_5": 0.2344,
+     "fp_5": 0.049,
+     "recall_1": 0.1719,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8828,
+     "recall_5": 0.5078,
+     "fp_5": 0.049,
+     "recall_1": 0.3125,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8885,
+     "recall_5": 0.5469,
+     "fp_5": 0.049,
+     "recall_1": 0.2891,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.8277,
+     "recall_5": 0.4688,
+     "fp_5": 0.049,
+     "recall_1": 0.2969,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9859,
+     "recall_5": 0.9297,
+     "fp_5": 0.049,
+     "recall_1": 0.9141,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.988,
+     "recall_5": 0.9375,
+     "fp_5": 0.049,
+     "recall_1": 0.9219,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.6284,
+     "recall_5": 0.1016,
+     "fp_5": 0.049,
+     "recall_1": 0.0,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_010159.1",
+   "genus": "Yersinia",
+   "organism": "Yersinia pestis Angola",
+   "n_island": 48,
+   "n_backbone": 655,
+   "island_mobile_words": 0.292,
+   "backbone_mobile_words": 0.003,
+   "in_summary": false,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.7358,
+     "recall_5": 0.3125,
+     "fp_5": 0.0489,
+     "recall_1": 0.1875,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.9247,
+     "recall_5": 0.7083,
+     "fp_5": 0.0489,
+     "recall_1": 0.5417,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.9041,
+     "recall_5": 0.6667,
+     "fp_5": 0.0489,
+     "recall_1": 0.3958,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.9241,
+     "recall_5": 0.6458,
+     "fp_5": 0.0489,
+     "recall_1": 0.1458,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9747,
+     "recall_5": 0.9167,
+     "fp_5": 0.0489,
+     "recall_1": 0.875,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9628,
+     "recall_5": 0.9167,
+     "fp_5": 0.0489,
+     "recall_1": 0.875,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5611,
+     "recall_5": 0.1458,
+     "fp_5": 0.0489,
+     "recall_1": 0.0,
+     "fp_1": 0.0092,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_004088.1",
+   "genus": "Yersinia",
+   "organism": "Yersinia pestis KIM",
+   "n_island": 41,
+   "n_backbone": 769,
+   "island_mobile_words": 0.195,
+   "backbone_mobile_words": 0.001,
+   "in_summary": false,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.642,
+     "recall_5": 0.2439,
+     "fp_5": 0.0494,
+     "recall_1": 0.1707,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8439,
+     "recall_5": 0.561,
+     "fp_5": 0.0494,
+     "recall_1": 0.3171,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8336,
+     "recall_5": 0.5366,
+     "fp_5": 0.0494,
+     "recall_1": 0.1707,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.822,
+     "recall_5": 0.3659,
+     "fp_5": 0.0494,
+     "recall_1": 0.1951,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9903,
+     "recall_5": 0.9268,
+     "fp_5": 0.0494,
+     "recall_1": 0.9024,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9851,
+     "recall_5": 0.9268,
+     "fp_5": 0.0494,
+     "recall_1": 0.878,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5611,
+     "recall_5": 0.1951,
+     "fp_5": 0.0481,
+     "recall_1": 0.0244,
+     "fp_1": 0.0091,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_009708.1",
+   "genus": "Yersinia",
+   "organism": "Yersinia pseudotuberculosis IP 31758",
+   "n_island": 216,
+   "n_backbone": 121,
+   "island_mobile_words": 0.218,
+   "backbone_mobile_words": 0.0,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.5607,
+     "recall_5": 0.1667,
+     "fp_5": 0.0496,
+     "recall_1": 0.1157,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8545,
+     "recall_5": 0.5278,
+     "fp_5": 0.0496,
+     "recall_1": 0.2454,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.8042,
+     "recall_5": 0.4074,
+     "fp_5": 0.0496,
+     "recall_1": 0.2639,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.6614,
+     "recall_5": 0.0972,
+     "fp_5": 0.0496,
+     "recall_1": 0.0694,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9774,
+     "recall_5": 0.8472,
+     "fp_5": 0.0496,
+     "recall_1": 0.7731,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9437,
+     "recall_5": 0.6852,
+     "fp_5": 0.0496,
+     "recall_1": 0.6296,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5813,
+     "recall_5": 0.1389,
+     "fp_5": 0.0496,
+     "recall_1": 0.0093,
+     "fp_1": 0.0083,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_006155.1",
+   "genus": "Yersinia",
+   "organism": "Yersinia pseudotuberculosis IP 32953",
+   "n_island": 198,
+   "n_backbone": 212,
+   "island_mobile_words": 0.192,
+   "backbone_mobile_words": 0.0,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6111,
+     "recall_5": 0.1818,
+     "fp_5": 0.0472,
+     "recall_1": 0.1263,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8388,
+     "recall_5": 0.4444,
+     "fp_5": 0.0472,
+     "recall_1": 0.2576,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.7487,
+     "recall_5": 0.2879,
+     "fp_5": 0.0472,
+     "recall_1": 0.1818,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.7781,
+     "recall_5": 0.2222,
+     "fp_5": 0.0472,
+     "recall_1": 0.1566,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9788,
+     "recall_5": 0.9545,
+     "fp_5": 0.0472,
+     "recall_1": 0.8232,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.9241,
+     "recall_5": 0.5909,
+     "fp_5": 0.0472,
+     "recall_1": 0.404,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.571,
+     "recall_5": 0.1313,
+     "fp_5": 0.0472,
+     "recall_1": 0.0202,
+     "fp_1": 0.0094,
+     "listed": 1.0
+    }
+   }
+  },
+  {
+   "accession": "NC_010465.1",
+   "genus": "Yersinia",
+   "organism": "Yersinia pseudotuberculosis YPIII",
+   "n_island": 246,
+   "n_backbone": 118,
+   "island_mobile_words": 0.199,
+   "backbone_mobile_words": 0.008,
+   "in_summary": true,
+   "scores": {
+    "comp.gc3": {
+     "auroc": 0.6103,
+     "recall_5": 0.1667,
+     "fp_5": 0.0424,
+     "recall_1": 0.1057,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon": {
+     "auroc": 0.8295,
+     "recall_5": 0.4675,
+     "fp_5": 0.0424,
+     "recall_1": 0.3252,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer": {
+     "auroc": 0.7477,
+     "recall_5": 0.3211,
+     "fp_5": 0.0424,
+     "recall_1": 0.2154,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.gc3_nb": {
+     "auroc": 0.7325,
+     "recall_5": 0.1463,
+     "fp_5": 0.0424,
+     "recall_1": 0.1057,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.codon_nb": {
+     "auroc": 0.9478,
+     "recall_5": 0.8415,
+     "fp_5": 0.0424,
+     "recall_1": 0.6829,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.kmer_nb": {
+     "auroc": 0.8591,
+     "recall_5": 0.5935,
+     "fp_5": 0.0424,
+     "recall_1": 0.4837,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    },
+    "comp.short": {
+     "auroc": 0.5621,
+     "recall_5": 0.0488,
+     "fp_5": 0.0254,
+     "recall_1": 0.0244,
+     "fp_1": 0.0085,
+     "listed": 1.0
+    }
+   }
+  }
+ ],
+ "summary": {
+  "comp.gc3": {
+   "auroc": {
+    "mean": 0.6826,
+    "median": 0.71,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.2896,
+    "median": 0.3296,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.133,
+    "median": 0.1177,
+    "n": 18
+   }
+  },
+  "comp.codon": {
+   "auroc": {
+    "mean": 0.8748,
+    "median": 0.8792,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.548,
+    "median": 0.5318,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.316,
+    "median": 0.3134,
+    "n": 18
+   }
+  },
+  "comp.kmer": {
+   "auroc": {
+    "mean": 0.8702,
+    "median": 0.889,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.5335,
+    "median": 0.5438,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.2957,
+    "median": 0.2877,
+    "n": 18
+   }
+  },
+  "comp.gc3_nb": {
+   "auroc": {
+    "mean": 0.8386,
+    "median": 0.8544,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.444,
+    "median": 0.4609,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.1912,
+    "median": 0.1654,
+    "n": 18
+   }
+  },
+  "comp.codon_nb": {
+   "auroc": {
+    "mean": 0.9737,
+    "median": 0.9773,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.8836,
+    "median": 0.8802,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.7009,
+    "median": 0.7497,
+    "n": 18
+   }
+  },
+  "comp.kmer_nb": {
+   "auroc": {
+    "mean": 0.9659,
+    "median": 0.979,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.8477,
+    "median": 0.8735,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.6672,
+    "median": 0.7133,
+    "n": 18
+   }
+  },
+  "comp.short": {
+   "auroc": {
+    "mean": 0.605,
+    "median": 0.6063,
+    "n": 18
+   },
+   "recall_5": {
+    "mean": 0.1163,
+    "median": 0.115,
+    "n": 18
+   },
+   "recall_1": {
+    "mean": 0.006,
+    "median": 0.0,
+    "n": 18
+   }
+  }
+ },
+ "contrasts": {
+  "comp.kmer_nb-comp.kmer": {
+   "auroc": {
+    "mean": 0.0958,
+    "lo": 0.0828,
+    "hi": 0.1097,
+    "n": 18,
+    "wins": 18
+   },
+   "recall_5": {
+    "mean": 0.3142,
+    "lo": 0.2882,
+    "hi": 0.3407,
+    "n": 18,
+    "wins": 18
+   },
+   "recall_1": {
+    "mean": 0.3715,
+    "lo": 0.2778,
+    "hi": 0.4506,
+    "n": 18,
+    "wins": 17
+   }
+  },
+  "comp.kmer_nb-comp.gc3_nb": {
+   "auroc": {
+    "mean": 0.1273,
+    "lo": 0.1053,
+    "hi": 0.1523,
+    "n": 18,
+    "wins": 18
+   },
+   "recall_5": {
+    "mean": 0.4037,
+    "lo": 0.342,
+    "hi": 0.4662,
+    "n": 18,
+    "wins": 18
+   },
+   "recall_1": {
+    "mean": 0.476,
+    "lo": 0.3885,
+    "hi": 0.5558,
+    "n": 18,
+    "wins": 18
+   }
+  },
+  "comp.kmer-comp.gc3": {
+   "auroc": {
+    "mean": 0.1875,
+    "lo": 0.1666,
+    "hi": 0.2094,
+    "n": 18,
+    "wins": 18
+   },
+   "recall_5": {
+    "mean": 0.244,
+    "lo": 0.2064,
+    "hi": 0.2808,
+    "n": 18,
+    "wins": 18
+   },
+   "recall_1": {
+    "mean": 0.1627,
+    "lo": 0.1264,
+    "hi": 0.2015,
+    "n": 18,
+    "wins": 18
+   }
+  },
+  "comp.kmer-comp.codon": {
+   "auroc": {
+    "mean": -0.0046,
+    "lo": -0.0207,
+    "hi": 0.009,
+    "n": 18,
+    "wins": 13
+   },
+   "recall_5": {
+    "mean": -0.0145,
+    "lo": -0.0453,
+    "hi": 0.0113,
+    "n": 18,
+    "wins": 9
+   },
+   "recall_1": {
+    "mean": -0.0204,
+    "lo": -0.0464,
+    "hi": 0.0072,
+    "n": 18,
+    "wins": 6
+   }
+  }
+ },
+ "min_genes": 50
+}

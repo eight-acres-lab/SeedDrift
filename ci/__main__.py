@@ -23,10 +23,16 @@ import tempfile
 import yaml
 
 from ci import ROOT, version
-from ci.hashing import canonical_json, files_hash, pipeline_hash, sha256_file, sha256_json, walk
+from ci.hashing import pipeline_hash, sha256_file, sha256_json
 from ci.record import Record, atomic_write_json, status_of, validate
 
 LAUNCHER_VERSION = "0.1"
+# --set may change only these (prefixes): never a gate input such as the corpus spec, taxonomy, disk or GPU limits,
+# the CI root or the read-only requirement
+SETTABLE = ("train.", "search.threads", "search.block_size", "cores", "blas_threads")
+# a run passes only when every one of these gates is present and passed (or waived)
+REQUIRED_GATES = ("G6", "G7", "G7_resources", "G8", "G1_spec", "G2_static", "G1_corpus", "G2_corpus", "G1_train", "G2_train", "G2_holdout")
+TAXDUMP_FILES = ("nodes.dmp", "names.dmp", "merged.dmp", "delnodes.dmp")
 
 
 def _git(*args):
@@ -36,7 +42,7 @@ def _git(*args):
 
 def git_info():
     sha = _git("rev-parse", "HEAD")
-    branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or _git("branch", "--show-current") or "detached"
+    branch = os.environ.get("CI_BRANCH") or os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or _git("branch", "--show-current") or "detached"
     clean = not _git("status", "--porcelain", "--untracked-files=all")
     return dict(sha=sha, tree_sha=_git("rev-parse", "HEAD^{tree}"), branch=branch, describe=_git("describe", "--tags", "--always"),
                 nearest_ci_tag=_git("describe", "--tags", "--abbrev=0", "--match", "ci-v*") or None, clean=clean,
@@ -49,6 +55,8 @@ def load_profile(name, overrides=()):
         cfg = yaml.safe_load(f)
     for kv in overrides:
         key, _, val = kv.partition("=")
+        if not key.startswith(SETTABLE):
+            raise SystemExit("--set %s: only %s may be overridden" % (key, ", ".join(SETTABLE)))
         node = cfg
         parts = key.split(".")
         for p in parts[:-1]:
@@ -87,24 +95,41 @@ def env_snapshot(run_dir, cfg):
         with open(os.path.join(d, name), "w") as f:
             f.write(text)
         out[name] = sha256_file(os.path.join(d, name), use_sidecar=False)
-    mm = shutil.which("micromamba") or os.environ.get("MAMBA_EXE", "")
-    prefix = os.environ.get("CONDA_PREFIX", "")
-    if mm and prefix:
-        r = subprocess.run([mm, "env", "export", "-p", prefix, "--no-md5"], capture_output=True, text=True)
+    mm = os.environ.get("MAMBA_EXE") or shutil.which("micromamba") or ""
+    if mm:
+        r = subprocess.run([mm, "env", "export", "-p", sys.prefix, "--no-md5"], capture_output=True, text=True)     # the interpreter running the pipeline
         if r.returncode == 0:
             p = os.path.join(d, "env_export.yml")
             with open(p, "w") as f:
-                f.write(r.stdout)
+                f.write("\n".join(l for l in r.stdout.splitlines() if not l.startswith("prefix:")) + "\n")
             out["env_export.yml"] = sha256_file(p, use_sidecar=False)
             cfg["env_export"] = p
     return out
 
 
+def taxdump_hash(path):
+    full = path if os.path.isabs(path) else os.path.join(ROOT, path)
+    rows = []
+    for name in TAXDUMP_FILES:
+        for cand in (name, name + ".gz"):
+            if os.path.exists(os.path.join(full, cand)):
+                rows.append([cand, sha256_file(os.path.join(full, cand))])
+    if not rows:
+        raise SystemExit("no taxdump files in %s" % full)
+    return sha256_json(rows)
+
+
 def resolve(profile, run_dir, overrides=()):
     cfg = load_profile(profile, overrides)
     cfg["profile"] = profile
+    cfg.setdefault("require_lock", True)
     cfg["config_sha256"] = sha256_json(cfg)
     cfg["git"] = git_info()
+    cfg["expect_sha"] = os.environ.get("CI_EXPECT_SHA") or os.environ.get("GITHUB_SHA") or ""
+    if os.environ.get("CI_ROOT"):
+        cfg["ci_root"] = os.environ["CI_ROOT"]
+        cfg["require_readonly"] = True
+        cfg["data_root"] = os.environ["CI_ROOT"]
     cfg["tools"] = dict(python=sys.executable, diamond=shutil.which("diamond") or "diamond")
     cfg.setdefault("data_root", os.path.dirname(os.path.abspath(run_dir)))
     cfg["run_dir"] = os.path.abspath(run_dir)
@@ -145,75 +170,138 @@ def summary(run_dir, rec):
         f.write("\n".join(lines) + "\n")
 
 
-def cmd_run(a):
-    run_dir = os.path.abspath(a.run_dir)
-    if os.path.exists(os.path.join(run_dir, "record.json")) and not a.resume:
-        raise SystemExit("%s already holds a run; a run id is used once (use --resume to continue it)" % run_dir)
-    os.makedirs(run_dir, exist_ok=True)
-    cfg = resolve(a.profile, run_dir, a.set)
-    if a.resume:
-        cfg.setdefault("train", {})["resume"] = True
-    env_hashes = env_snapshot(run_dir, cfg)
+def _resume_check(run_dir, a):
+    """A resume continues the same run: same commit, clean tree, same pipeline, configuration and environment lock."""
+    if a.set:
+        raise SystemExit("--set cannot be combined with --resume (the configuration of a run is fixed)")
+    rec = Record.open(run_dir)
+    if status_of(run_dir) == "running":
+        raise SystemExit("the run is still running (fresh heartbeat); not resuming")
+    with open(os.path.join(run_dir, "config.resolved.yaml")) as f:
+        cfg = yaml.safe_load(f)
+    now_git = git_info()
+    problems = []
+    if now_git["sha"] != rec.data["git"]["sha"]:
+        problems.append("HEAD %s is not the run's commit %s" % (now_git["sha"], rec.data["git"]["sha"]))
+    if not now_git["clean"]:
+        problems.append("the worktree is not clean")
+    if pipeline_hash(ROOT) != rec.data["pipeline_hash"]:
+        problems.append("pipeline hash changed")
+    if sha256_file(os.path.join(ROOT, "ci", "envs", "ci.lock.yml"), use_sidecar=False) != rec.data["env_lock_sha256"]:
+        problems.append("environment lock changed")
+    if a.profile != rec.data["profile"]:
+        problems.append("profile %s is not the run's profile %s" % (a.profile, rec.data["profile"]))
+    if problems:
+        raise SystemExit("refusing to resume: " + "; ".join(problems))
+    # every gate is decided again; sentinels whose verdict does not change keep their time stamps (gates.py)
+    for name in os.listdir(os.path.join(run_dir, "gates")):
+        if name.endswith(".json"):
+            os.remove(os.path.join(run_dir, "gates", name))
+    cfg.setdefault("train", {})["resume"] = True
+    env_snapshot(run_dir, cfg)
     with open(os.path.join(run_dir, "config.resolved.yaml"), "w") as f:
         yaml.safe_dump(cfg, f, sort_keys=True)
-    seeds = dict(master=cfg.get("seed", 1), train=cfg.get("train", {}).get("seed"), numpy="per stage from master", torch=None, deterministic=True)
-    atomic_write_json(os.path.join(run_dir, "seeds.json"), seeds)
-    atomic_write_json(os.path.join(run_dir, "hardware.json"), hardware())
-    lock = os.path.join(ROOT, "ci", "envs", "ci.lock.yml")
-    taxdump = cfg.get("taxdump")
-    tax_hash = files_hash(ROOT, walk(ROOT, [taxdump])) if taxdump and not os.path.isabs(taxdump) else (taxdump or "")
-    if a.resume and os.path.exists(os.path.join(run_dir, "record.json")):
-        rec = Record.open(run_dir)
-        rec.update(status="running", resumed=True)
-    else:
-        rec = Record.create(run_dir, run_id=os.path.basename(run_dir), ci_version=version(), launcher_version=LAUNCHER_VERSION, pipeline_hash=pipeline_hash(ROOT),
-                            profile=a.profile, tier=cfg.get("tier", ""), parent_run=a.parent or None, git=cfg["git"], config_sha256=cfg["config_sha256"],
-                            env_lock_sha256=sha256_file(lock, use_sidecar=False), env_snapshot=env_hashes, taxdump_sha256=tax_hash, seeds=seeds,
-                            hardware=hardware())
-    rec.start_heartbeat()
-    env = dict(os.environ, PYTHONPATH=ROOT + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONHASHSEED="0")
-    for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-        env[k] = str(cfg.get("blas_threads", 1))
-    root = os.path.realpath(cfg["data_root"])
-    for var, default in (("TMPDIR", os.path.join(root, "tmp")), ("XDG_CACHE_HOME", os.path.join(root, "cache")), ("PIP_CACHE_DIR", os.path.join(root, "cache", "pip"))):
-        if not os.path.realpath(env.get(var, "") or "/nonexistent").startswith(root + os.sep):
-            env[var] = default                     # temporary files and caches stay on the run's data disk (G7)
-        os.makedirs(env[var], exist_ok=True)
-    os.environ.update({k: env[k] for k in ("TMPDIR", "XDG_CACHE_HOME", "PIP_CACHE_DIR")})
-    os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
-    cmd = [sys.executable, "-m", "snakemake", "-s", os.path.join(ROOT, "ci", "Snakefile"), "--directory", run_dir, "--configfile",
-           os.path.join(run_dir, "config.resolved.yaml"), "--cores", str(cfg.get("cores", 2)), "--resources", "gpu=1", "diamond=1",
-           "--rerun-triggers", "mtime", "--printshellcmds", "--nocolor", "--keep-going"]
+    rec.update(status="running", resumed=(rec.data.get("resumed") or 0) + 1)
+    return rec, cfg
+
+
+def cmd_run(a):
+    run_dir = os.path.abspath(a.run_dir)
     if a.resume:
-        cmd += ["--rerun-incomplete"]
-    with open(os.path.join(run_dir, "logs", "snakemake.log"), "a") as log:
-        rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
-    rec.merge_stages()
-    gates_failed = any(v == "fail" for v in rec.data["gates"].values())
-    diverged = any(s.get("status_note") == "diverged" or s.get("status") == "diverged" for s in rec.data["stages"])
-    status = "passed" if rc == 0 else ("gate_failed" if gates_failed else ("diverged" if diverged else "failed"))
-    ids, mids, metrics = [], [], {}
-    for name in ("corpus", "reference", "eval_inputs", "hits"):
-        p = os.path.join(run_dir, "data", name, "manifest.json")
-        if os.path.exists(p):
-            with open(p) as f:
-                ids.append(json.load(f)["dataset_id"])
-    mj = os.path.join(run_dir, "data", "model", "model.json")
-    if os.path.exists(mj):
-        with open(mj) as f:
-            mids.append(json.load(f)["model_id"])
-    rep = os.path.join(run_dir, "data", "eval", "eval_report.json")
-    if os.path.exists(rep):
-        with open(rep) as f:
-            r = json.load(f)
-        metrics = {sc["name"]: {row["method"]: dict(auroc=row["auroc"], recall_at_lowest_fpr=row["recall_at_lowest_fpr"]) for row in sc["rows"]} for sc in r["scenarios"]}
-    from ci.gates import waivers
-    used = [dict(gate=w["gate"], scope=w["scope"], expires=str(w["expires"]), file=w["file"]) for w in waivers()]
-    rec.update(dataset_ids=ids, model_ids=mids, metrics=metrics, waivers_used=used, snakemake_exit=rc)
-    rec.finish(status)
-    summary(run_dir, rec)
-    validate(rec.data)
-    print(json.dumps(dict(run_id=rec.data["run_id"], status=status, gates=rec.data["gates"]), indent=1))
+        if not os.path.exists(os.path.join(run_dir, "record.json")):
+            raise SystemExit("nothing to resume in %s" % run_dir)
+        rec, cfg = _resume_check(run_dir, a)
+    else:
+        if os.path.exists(os.path.join(run_dir, "record.json")):
+            raise SystemExit("%s already holds a run; a run id is used once (use --resume to continue it)" % run_dir)
+        os.makedirs(run_dir, exist_ok=True)
+        cfg = resolve(a.profile, run_dir, a.set)
+        env_hashes = env_snapshot(run_dir, cfg)
+        with open(os.path.join(run_dir, "config.resolved.yaml"), "w") as f:
+            yaml.safe_dump(cfg, f, sort_keys=True)
+        seeds = dict(master=cfg.get("seed", 1), train=cfg.get("train", {}).get("seed"), numpy="per stage from master", torch=None, deterministic=True)
+        atomic_write_json(os.path.join(run_dir, "seeds.json"), seeds)
+        hw = hardware()
+        atomic_write_json(os.path.join(run_dir, "hardware.json"), hw)
+        rec = Record.create(run_dir, run_id=os.path.basename(run_dir), ci_version=version(), launcher_version=LAUNCHER_VERSION, pipeline_hash=pipeline_hash(ROOT),
+                            profile=a.profile, tier=cfg.get("tier", ""), parent_run=a.parent or None, git=cfg["git"], expect_sha=cfg["expect_sha"],
+                            config_sha256=cfg["config_sha256"], env_lock_sha256=sha256_file(os.path.join(ROOT, "ci", "envs", "ci.lock.yml"), use_sidecar=False),
+                            env_snapshot=env_hashes, taxdump_sha256=taxdump_hash(cfg["taxdump"]), seeds=seeds, hardware=hw)
+    rec.start_heartbeat()
+    status, rc = "failed", None
+    try:
+        env = dict(os.environ, PYTHONPATH=ROOT + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONHASHSEED="0")
+        for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+            env[k] = str(cfg.get("blas_threads", 1))
+        root = os.path.realpath(cfg["data_root"])
+        for var, default in (("TMPDIR", os.path.join(root, "tmp")), ("XDG_CACHE_HOME", os.path.join(root, "cache")), ("PIP_CACHE_DIR", os.path.join(root, "cache", "pip"))):
+            if not os.path.realpath(env.get(var, "") or "/nonexistent").startswith(root + os.sep):
+                env[var] = default                     # temporary files and caches stay on the run's data disk (G7)
+            os.makedirs(env[var], exist_ok=True)
+        os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
+        cmd = [sys.executable, "-m", "snakemake", "-s", os.path.join(ROOT, "ci", "Snakefile"), "--directory", run_dir, "--configfile",
+               os.path.join(run_dir, "config.resolved.yaml"), "--cores", str(cfg.get("cores", 2)), "--resources", "gpu=1", "diamond=1",
+               "--rerun-triggers", "mtime", "--printshellcmds", "--nocolor", "--keep-going"]
+        if a.resume:
+            # re-decide every gate whose inputs exist before anything continues; sentinels are left as they are
+            for phase, need in (("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json")):
+                if need and not os.path.exists(os.path.join(run_dir, need)):
+                    continue
+                if phase == "eval" and not os.path.exists(os.path.join(run_dir, "data", "corpus", "manifest.json")):
+                    continue
+                r = subprocess.run([sys.executable, "-m", "ci.stages.gates", run_dir, phase, "--check-only"], env=env, capture_output=True, text=True)
+                if r.returncode != 0:
+                    rec.merge_stages()
+                    status = "gate_failed"
+                    raise SystemExit("resume refused, gate phase %s failed: %s" % (phase, (r.stderr or r.stdout)[-1500:]))
+            cmd += ["--rerun-incomplete"]
+        with open(os.path.join(run_dir, "logs", "snakemake.log"), "a") as log:
+            rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
+        rec.merge_stages()
+        gates = rec.data["gates"]
+        missing = [g for g in REQUIRED_GATES if g not in gates]
+        failed = [g for g, v in gates.items() if v == "fail"]
+        diverged = any(s.get("status_note") == "diverged" for s in rec.data["stages"])
+        if rc == 0 and not missing and not failed:
+            status = "passed"
+        elif failed:
+            status = "gate_failed"
+        elif diverged:
+            status = "diverged"
+        ids, mids, metrics = [], [], {}
+        for name in ("corpus", "reference", "eval_inputs", "hits"):
+            mp = os.path.join(run_dir, "data", name, "manifest.json")
+            if os.path.exists(mp):
+                with open(mp) as f:
+                    ids.append(json.load(f)["dataset_id"])
+        mj = os.path.join(run_dir, "data", "model", "model.json")
+        if os.path.exists(mj):
+            with open(mj) as f:
+                mids.append(json.load(f)["model_id"])
+        rep = os.path.join(run_dir, "data", "eval", "eval_report.json")
+        if os.path.exists(rep):
+            with open(rep) as f:
+                r = json.load(f)
+            metrics = {sc["name"]: {row["method"]: dict(auroc=row["auroc"], recall_at_lowest_fpr=row["recall_at_lowest_fpr"], status=row["status"]) for row in sc["rows"]}
+                       for sc in r["scenarios"]}
+        used = {}
+        for name in sorted(os.listdir(os.path.join(run_dir, "gates"))):
+            if name.endswith(".json"):
+                with open(os.path.join(run_dir, "gates", name)) as f:
+                    for w in json.load(f).get("waivers_matched", []):
+                        used[(w["gate"], w["scope"])] = w
+        rec.update(dataset_ids=ids, model_ids=mids, metrics=metrics, waivers_used=list(used.values()), snakemake_exit=rc, missing_gates=missing)
+    except BaseException as err:  # noqa: BLE001 - the record must never stay "running"
+        rec.update(deviations=rec.data.get("deviations", []) + ["driver error: %s: %s" % (type(err).__name__, str(err)[:500])])
+        status = "failed"
+        raise
+    finally:
+        rec.finish(status)
+        try:
+            summary(run_dir, rec)
+        finally:
+            validate(rec.data)
+    print(json.dumps(dict(run_id=rec.data["run_id"], status=status, gates=rec.data["gates"], missing_gates=rec.data.get("missing_gates")), indent=1))
     return 0 if status == "passed" else 1
 
 
@@ -241,6 +329,9 @@ VOLATILE = {("reference", "database")}          # tool-built binaries; their inp
 def cmd_compare(a):
     ra, rb = Record.open(a.a), Record.open(a.b)
     diffs = []
+    for r in (ra, rb):
+        if r.data["status"] != "passed":
+            diffs.append(dict(run=r.data["run_id"], error="status is %s, not passed" % r.data["status"]))
     for key in ("ci_version", "pipeline_hash", "config_sha256", "env_lock_sha256", "taxdump_sha256"):
         if ra.data.get(key) != rb.data.get(key):
             diffs.append(dict(field=key, a=ra.data.get(key), b=rb.data.get(key)))
@@ -248,8 +339,20 @@ def cmd_compare(a):
         diffs.append(dict(field="git.sha", a=ra.data["git"]["sha"], b=rb.data["git"]["sha"]))
     if ra.data["gates"] != rb.data["gates"]:
         diffs.append(dict(field="gates", a=ra.data["gates"], b=rb.data["gates"]))
-    sa = {s["name"]: s for s in ra.data["stages"]}
-    sb = {s["name"]: s for s in rb.data["stages"]}
+    for key in ("pip_freeze.txt", "diamond_version.txt"):
+        if ra.data.get("env_snapshot", {}).get(key) != rb.data.get("env_snapshot", {}).get(key):
+            diffs.append(dict(field="env_snapshot." + key))
+    from ci.gates.g7_env import packages
+    pa, pb = [packages(open(os.path.join(x, "env", "env_export.yml")).read()) if os.path.exists(os.path.join(x, "env", "env_export.yml")) else None for x in (a.a, a.b)]
+    if pa != pb:
+        diffs.append(dict(field="environment packages"))
+    sa = {s["name"]: s for s in ra.data["stages"] if not s["name"].endswith("_recheck")}
+    sb = {s["name"]: s for s in rb.data["stages"] if not s["name"].endswith("_recheck")}
+    if set(sa) != set(sb) or not sa:
+        diffs.append(dict(field="stages", a=sorted(sa), b=sorted(sb)))
+    for name in sorted(set(sa) & set(sb)):
+        if sa[name]["status"] != sb[name]["status"]:
+            diffs.append(dict(stage=name, field="status", a=sa[name]["status"], b=sb[name]["status"]))
     for name in sorted(set(sa) | set(sb)):
         oa = {o["name"]: o["path"] for o in sa.get(name, {}).get("outputs", [])}
         ob = {o["name"]: o["path"] for o in sb.get(name, {}).get("outputs", [])}
@@ -265,9 +368,7 @@ def cmd_compare(a):
     verdict = "exact" if not diffs else "diverged"
     rb.update(reproduces=dict(of_run_id=ra.data["run_id"], verdict=verdict, diffs=diffs[:100]))
     print(json.dumps(dict(verdict=verdict, diffs=diffs[:20]), indent=1))
-    if a.expect == "exact" and verdict != "exact":
-        return 1
-    return 0
+    return 0 if verdict == "exact" else 1
 
 
 def cmd_check(a):
@@ -279,7 +380,8 @@ def cmd_check(a):
     for p in sorted(os.listdir(os.path.join(ROOT, "configs", "corpus"))):
         if p.endswith(".yaml") and p != "floors.yaml":
             with open(os.path.join(ROOT, "configs", "corpus", p)) as f:
-                r = g1_kingdom.static(yaml.safe_load(f))
+                spec = yaml.safe_load(f)
+            r = g1_kingdom.static(spec, spec.get("tier"))
             g1[p] = r.status if r.status != "fail" else r.evidence
     report["G1_static"] = g1
     g2 = g2_exclusion.static(ROOT)
@@ -319,7 +421,7 @@ def main(argv=None):
     c = sub.add_parser("compare")
     c.add_argument("a")
     c.add_argument("b")
-    c.add_argument("--expect", default="exact")
+    c.add_argument("--expect", default="exact", choices=["exact"])
     s = sub.add_parser("status")
     s.add_argument("run_dir")
     a = ap.parse_args(argv)

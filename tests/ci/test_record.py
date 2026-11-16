@@ -22,3 +22,8 @@ def test_stale_heartbeat_fails_as_interrupted(tmp_path):
     r.update(heartbeat="2000-01-01T00:00:00Z")
     assert status_of(str(tmp_path / "run")) == "interrupted"
     assert os.path.exists(tmp_path / "run" / "record.json")
+
+
+def test_stage_extra_cannot_overwrite_status(tmp_path):
+    with pytest.raises(ValueError):
+        stage_report(str(tmp_path), "train", "", 0.0, [], status="diverged")

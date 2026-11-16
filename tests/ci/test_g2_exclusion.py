@@ -59,3 +59,24 @@ def test_generator_import_in_training_code_fails(tmp_path):
     (tmp_path / "research" / "y.py").write_text("import numpy\n")
     bad = g2_exclusion.generator_imports(str(tmp_path), training=("research",))
     assert [b["file"] for b in bad] == [os.path.join("research", "x.py")]
+
+
+def test_missing_required_rule_fails(tax, tmp_path):
+    exc = tmp_path / "exc.tsv"
+    exc.write_text("".join(l for l in open(EXC) if "panel genomes" not in l))
+    p = tmp_path / "panels.tsv"
+    p.write_text("assembly\tspecies_taxid\trole\tpanel_of\n")
+    r = g2_exclusion.entries([{"id": "aceto", "taxid": 481146}], tax, exclude_path=str(exc), panels_path=str(p), catalogue_path=str(tmp_path / "none"))
+    assert r.status == "fail"
+
+
+def test_relative_and_dynamic_generator_imports_fail(tmp_path):
+    (tmp_path / "research" / "sub").mkdir(parents=True)
+    (tmp_path / "research" / "sub" / "a.py").write_text("from . import construct\n")
+    (tmp_path / "research" / "b.py").write_text("import importlib\nm = importlib.import_module('bench.hard.construct')\n")
+    bad = g2_exclusion.generator_imports(str(tmp_path), training=("research",))
+    assert sorted(b["file"] for b in bad) == [os.path.join("research", "b.py"), os.path.join("research", "sub", "a.py")]
+
+
+def test_taxid_above_species_fails(tax, tmp_path):
+    assert run([{"id": "genus_only", "taxid": 434}], tax, tmp_path).status == "fail"

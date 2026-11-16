@@ -118,7 +118,11 @@ def stage_report(run_dir: str, rule: str, key: str, started: float, outputs, exi
     import resource
     peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     row = dict(name=rule, key=key, status="passed" if exit_code == 0 else "failed", started=_dt.datetime.fromtimestamp(started, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-               ended=now(), wall_s=round(time.time() - started, 2), exit_code=exit_code, peak_rss_mb=round(peak_kb / 1024, 1), outputs=outputs, **extra)
+               ended=now(), wall_s=round(time.time() - started, 2), exit_code=exit_code, peak_rss_mb=round(peak_kb / 1024, 1), outputs=outputs)
+    clash = set(extra) & set(row)
+    if clash:
+        raise ValueError("stage extras may not overwrite %s" % sorted(clash))
+    row.update(extra)
     folder = os.path.join(run_dir, "stages")
     os.makedirs(folder, exist_ok=True)
     atomic_write_json(os.path.join(folder, rule + ".json"), row)

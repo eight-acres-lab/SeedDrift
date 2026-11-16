@@ -1,7 +1,8 @@
 # SeedDrift CI pipeline. Started only by `python -m ci run` (ci/__main__.py), which creates the run directory, writes
 # config.resolved.yaml and the run record, and runs Snakemake with the run directory as working directory.
 # Every rule calls one stage script; gate sentinels (gates/*.ok) are inputs of every later rule, so nothing runs
-# before the gates pass, and the gates are recomputed in every run (their outputs live in the run directory).
+# before the gates pass. Gates are decided in every run (their outputs live in the run directory); a resume decides
+# them again before Snakemake continues (ci/__main__.py).
 
 import os
 
@@ -70,7 +71,13 @@ rule train:
     shell: STAGE.format(name="train") + " fit"
 
 
+rule gates_eval:
+    input: "data/corpus/manifest.json", "data/eval_inputs/manifest.json"
+    output: "gates/eval.ok"
+    shell: STAGE.format(name="gates") + " eval"
+
+
 rule eval:
-    input: "data/model/model.npz", "data/hits/manifest.json", "data/eval_inputs/manifest.json"
+    input: "gates/eval.ok", "data/model/model.npz", "data/hits/manifest.json", "data/eval_inputs/manifest.json"
     output: "data/eval/eval_report.json"
     shell: STAGE.format(name="eval")

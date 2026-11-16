@@ -26,13 +26,17 @@ def revcomp(s):
 
 
 def sources_of(spec, repo):
-    rows = list(spec.get("sources") or [])
+    rows = [dict(r, files=[repo(x) for x in r["files"]]) for r in (spec.get("sources") or [])]
     if spec.get("sources_table"):
         base = os.path.dirname(repo(spec["sources_table"]))
         with open(repo(spec["sources_table"])) as f:
             for r in csv.DictReader(f, delimiter="\t"):
                 rows.append(dict(id=r["id"], source_kind=r["source_kind"], taxid=int(r["taxid"]), table=int(r.get("table") or 11),
+                                 accession=r.get("accession", ""), paired_accession=r.get("paired_accession", ""), synthetic=r.get("synthetic", "no"),
                                  files=[os.path.join(base, x) for x in r["files"].split(";")]))
+    for r in rows:
+        if r["source_kind"] != "annotated" and r.get("synthetic", "no") == "no" and not str(r.get("accession", "")).startswith(("GCA_", "GCF_")):
+            raise SystemExit("source %s comes from an assembly but has no assembly accession (needed by gate G2)" % r["id"])
     return rows
 
 
@@ -99,7 +103,7 @@ def build_one(src, out_dir):
 
 def main():
     run_dir = main_args()
-    with Stage(run_dir, "corpus") as st:
+    with Stage(run_dir, "corpus", requires=("pre",)) as st:
         with open(st.repo(st.config["corpus_spec"])) as f:
             spec = yaml.safe_load(f)
         entries = []

@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(ROOT, "bench", "islands"))
 
 def auroc(pos, neg):
     pos, neg = np.asarray(pos, float), np.asarray(neg, float)
-    if not len(pos) or not len(neg):
+    if not len(pos) or not len(neg) or not np.isfinite(pos).all() or not np.isfinite(neg).all():
         return None
     allv = np.concatenate([pos, neg])
     order = allv.argsort(kind="mergesort")
@@ -50,14 +50,14 @@ def auroc(pos, neg):
 
 
 def recall_at_lowest_fpr(pos, neg):
-    if not len(pos) or not len(neg):
+    if not len(pos) or not len(neg) or not np.isfinite(pos).all() or not np.isfinite(neg).all():
         return None
     return float(np.mean(np.asarray(pos) > np.max(neg)))
 
 
 def main():
     run_dir = main_args()
-    with Stage(run_dir, "eval") as st:
+    with Stage(run_dir, "eval", requires=("pre", "corpus", "train", "eval")) as st:
         cfg = st.config
         tax = Taxonomy(st.repo(cfg["taxdump"]))
         lib = np.load(os.path.join(run_dir, "data", "reference", "library.npz"))
@@ -81,7 +81,8 @@ def main():
             off, prot, pid, bits = hits["off"], hits["prot"], hits["pid"], hits["bits"]
             host_phylum = tax.at_rank(e["host_taxid"], "phylum")
             host_species = tax.at_rank(e["host_taxid"], "species")
-            hidden_genera = {tax.at_rank(int(t["donor_taxid"]), "genus") for t in truth_rows if t.get("donor_taxid")} - {0}
+            mine = [t for t in truth_rows if t["scenario"] == e["id"]]
+            hidden_genera = {tax.at_rank(int(t["donor_taxid"]), "genus") for t in mine if t.get("donor_taxid")} - {0}
             ai, best, counts = [], [], []
             for i in range(len(genes)):
                 rows = range(off[i], off[i + 1])
@@ -101,9 +102,11 @@ def main():
             for name, sc in (("model", model_score), ("alien_index", np.array(ai)), ("best_hit", np.array(best)), ("counts", np.array(counts, float)),
                              ("composition", comp)):
                 pos, neg = sc[truth], sc[~truth]
-                rows.append(dict(method=name, auroc=auroc(pos, neg), recall_at_lowest_fpr=recall_at_lowest_fpr(pos, neg), status="computed"))
+                ok = np.isfinite(sc).all()
+                rows.append(dict(method=name, auroc=auroc(pos, neg) if ok else None, recall_at_lowest_fpr=recall_at_lowest_fpr(pos, neg) if ok else None,
+                                 status="computed" if ok else "not_applicable (no score for every gene)"))
             rows.append(dict(method="released_v0.1.0", auroc=None, recall_at_lowest_fpr=None, status="pending: gate G4 recomputes it in a later CI version"))
-            donors = sorted({int(t["donor_taxid"]) for t in truth_rows if t.get("donor_taxid")})
+            donors = sorted({int(t["donor_taxid"]) for t in mine if t.get("donor_taxid")})
             covers = "into %s (%s); donors %s" % (tax.name(e["host_taxid"]), tax.name(host_phylum) if host_phylum else "?",
                                                  ", ".join("%s (%s)" % (tax.name(d), tax.name(tax.at_rank(d, "phylum")) if tax.at_rank(d, "phylum") else "?") for d in donors))
             scenarios.append(dict(name=e["id"], kind="constructed (fixture)", covers=covers, n_pos=int(truth.sum()), n_neg=int((~truth).sum()), rows=rows))

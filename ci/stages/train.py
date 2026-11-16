@@ -19,7 +19,7 @@ from itertools import product
 
 import numpy as np
 
-from ci.hashing import sha256_json
+from ci.hashing import sha256_file, sha256_json
 from ci.kingdom import KingdomMap
 from ci.stages.common import Stage, read_fasta, write_json
 from ci.taxonomy import Taxonomy
@@ -65,7 +65,7 @@ def model_id(cfg, dataset_ids):
 
 
 def do_ids(run_dir):
-    with Stage(run_dir, "train_ids") as st:
+    with Stage(run_dir, "train_ids", requires=("pre", "corpus")) as st:
         with open(os.path.join(run_dir, "data", "corpus", "manifest.json")) as f:
             man = json.load(f)
         ids = [e["id"] for e in man["entries"]]
@@ -75,14 +75,24 @@ def do_ids(run_dir):
 
 
 def do_fit(run_dir):
-    with Stage(run_dir, "train") as st:
+    with Stage(run_dir, "train", requires=("pre", "corpus", "train")) as st:
         cfg = st.config
         tc = cfg["train"]
-        with open(os.path.join(run_dir, "data", "train", "ids.json")) as f:
+        ids_path = os.path.join(run_dir, "data", "train", "ids.json")
+        with open(ids_path) as f:
             ids_doc = json.load(f)
         ids = ids_doc["genomes"]
+        with open(os.path.join(run_dir, "gates", "train.ok")) as f:
+            gate = json.load(f)
         with open(os.path.join(run_dir, "data", "corpus", "manifest.json")) as f:
             man = json.load(f)
+        if gate.get("inputs") != sha256_json([man["sha256"], sha256_file(ids_path, use_sidecar=False)]):
+            raise SystemExit("the training ids or the corpus changed after gate G2_train decided on them")
+        from ci import manifest as M
+        used = dict(man, entries=[e for e in man["entries"] if e["id"] in set(ids)])
+        bad = M.verify(used, run_dir)
+        if bad:
+            raise SystemExit("corpus files differ from their manifest: %s" % bad[:5])
         tax = Taxonomy(st.repo(cfg["taxdump"]))
         km = KingdomMap()
         group_of = {e["id"]: km.group(tax, e["taxid"], e["source_kind"]) for e in man["entries"]}
@@ -127,7 +137,7 @@ def do_fit(run_dir):
                 log.step(step, loss, lr=lr, grad_norm=float(np.linalg.norm(grad)), examples_per_s=len(b) / max(time.time() - t, 1e-9),
                          loss_by_group={k: float(np.mean(v)) for k, v in sorted(by_group.items())})
             except Diverged:
-                st.extra["status"] = "diverged"
+                st.extra["status_note"] = "diverged"
                 raise
             if step % int(tc.get("eval_every", 5)) == 0 or step == steps:
                 Pv = softmax(X[va] @ W)
@@ -144,10 +154,10 @@ def do_fit(run_dir):
                 raise SystemExit("stopped after step %d on request (kill-and-resume test)" % step)
         log.save_seen(order.hexdigest())
         out = st.path("model", "model.npz")
-        save_npz(out, W=W, classes=np.array(ids))
         mid = model_id(cfg, [ids_doc["corpus_dataset"]])
         write_json(st.path("model", "model.json"), dict(model_id=mid, kind="toy_source_id", note="pipeline check, not a scientific model", steps=steps,
                                                      classes=ids, corpus_dataset=ids_doc["corpus_dataset"]))
+        save_npz(out, W=W, classes=np.array(ids))                  # the rule's target last
         st.output("model", out)
         st.output("data_seen", os.path.join(folder, "data_seen.json"))
         st.extra.update(model_id=mid, steps=steps)

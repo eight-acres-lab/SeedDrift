@@ -18,6 +18,8 @@ from ci import ROOT
 from ci.record import atomic_write_json, now
 
 WAIVERS = os.path.join(ROOT, "ci", "waivers")
+WILDCARD_GATES = {"G5"}            # only these gates may be waived with scope "*"
+MAX_DAYS = 90                      # a waiver lives at most this long
 
 
 @dataclass
@@ -29,7 +31,8 @@ class GateResult:
     waiver: dict = None
 
     def as_dict(self):
-        return dict(gate=self.gate, status=self.status, evidence=self.evidence, inputs_hash=self.inputs_hash, waiver=self.waiver, checked=now())
+        return dict(gate=self.gate, status=self.status, evidence=self.evidence, inputs_hash=self.inputs_hash, waiver=self.waiver,
+                    waivers_matched=list(MATCHED), checked=now())
 
 
 class GateFailure(RuntimeError):
@@ -47,16 +50,25 @@ def waivers(today=None, folder=WAIVERS):
             if not w.get(k):
                 raise GateFailure("waiver %s lacks %s" % (p, k))
         exp = w["expires"] if isinstance(w["expires"], _dt.date) else _dt.date.fromisoformat(str(w["expires"]))
+        start = w["date"] if isinstance(w["date"], _dt.date) else _dt.date.fromisoformat(str(w["date"]))
         if exp < today:
             raise GateFailure("waiver %s expired on %s" % (p, exp))
+        if (exp - start).days > MAX_DAYS:
+            raise GateFailure("waiver %s runs %d days; at most %d are allowed" % (p, (exp - start).days, MAX_DAYS))
+        if w["scope"] == "*" and w["gate"] not in WILDCARD_GATES:
+            raise GateFailure("waiver %s: scope '*' is not allowed for gate %s" % (p, w["gate"]))
         w["file"] = os.path.relpath(p, ROOT)
         out.append(w)
     return out
 
 
+MATCHED = []                       # waivers matched in this process (recorded in the gate results and the run record)
+
+
 def find_waiver(gate: str, scope: str, folder=WAIVERS):
     for w in waivers(folder=folder):
-        if w["gate"] == gate and (w["scope"] == scope or w["scope"] == "*"):
+        if w["gate"] == gate and (w["scope"] == scope or (w["scope"] == "*" and gate in WILDCARD_GATES)):
+            MATCHED.append(dict(gate=w["gate"], scope=scope, file=w["file"], expires=str(w["expires"])))
             return w
     return None
 

@@ -127,16 +127,19 @@ def main():
         name = "%s_%s" % (label, r["accession"])
         write_fasta(os.path.join(out, "genomes", name + ".fna"), [("%s:100001-140000" % chrom[0], seg)])
         sources.append(dict(id=name, source_kind="raw_prokaryote", taxid=r["taxid"], files="genomes/%s.fna" % name, synthetic="no",
+                            accession=r["accession"], paired_accession=ok[r["accession"]].get("gca", ""),
                             origin="%s %s, %s positions 100001-140000" % (r["accession"], r["species"], chrom[0])))
         queries += [("%s_%d" % (name, i), p) for i, (_, _, _, p) in enumerate(call(seg), 1) if len(p) >= 60]
         if label == "bacterium":
-            bac_seg, bac_name = seg, name
+            bac_name, bac_chrom = name, chrom
+            scen_seg = chrom[1][160000:200000]               # evaluation region: no overlap with the training segment
             ptypes = ok[r["accession"]]["types"]
             plas = [k for k, t in zip(seqs, ptypes) if t == "Plasmid"]
             pseq = seqs[plas[0]][:20000]
             pname = "plasmid_%s" % plas[0].replace(".", "_")
             write_fasta(os.path.join(out, "genomes", pname + ".fna"), [(plas[0] + ":1-%d" % len(pseq), pseq)])
             sources.append(dict(id=pname, source_kind="plasmid", taxid=r["taxid"], files="genomes/%s.fna" % pname, synthetic="no",
+                                accession=r["accession"], paired_accession=ok[r["accession"]].get("gca", ""),
                                 origin="plasmid %s of %s, first %d bp" % (plas[0], r["accession"], len(pseq))))
             queries += [("%s_%d" % (pname, i), p) for i, (_, _, _, p) in enumerate(call(pseq), 1) if len(p) >= 60]
 
@@ -174,11 +177,11 @@ def main():
                 f.write("%(gene_id)s\t%(replicon)s\t%(start)d\t%(end)d\t%(strand)s\t%(protein_source)s\n" % x)
         write_fasta(os.path.join(out, "annotated", name + ".faa"), faa)
         sources.append(dict(id=name, source_kind="annotated", taxid=t, files="annotated/%s.fna;annotated/%s.genes.tsv;annotated/%s.faa" % (name, name, name),
-                            synthetic="coding DNA and spacers", origin="proteins of reference proteome taxid %d (%s)" % (t, tax.name(t))))
+                            synthetic="coding DNA and spacers", accession="", paired_accession="", origin="proteins of reference proteome taxid %d (%s)" % (t, tax.name(t))))
         queries += faa
 
     # scenario: three consecutive real genes of a Bacillota corpus genome spliced into the bacterial segment
-    calls = call(bac_seg)
+    calls = call(scen_seg)
     gaps = [(calls[i][1], calls[i + 1][0]) for i in range(len(calls) - 1) if calls[i + 1][0] - calls[i][1] > 30]
     cut_a, cut_b = min(gaps, key=lambda g: abs((g[0] + g[1]) // 2 - 20000))
     cut = (cut_a + cut_b) // 2
@@ -192,19 +195,19 @@ def main():
     trio = dcalls[i:i + 3]
     seg_lo, seg_hi = trio[0][0] - 1 - 20, trio[-1][1] + 20
     segment = window[seg_lo:seg_hi]
-    host = bac_seg[:cut] + segment + bac_seg[cut:]
+    host = scen_seg[:cut] + segment + scen_seg[cut:]
     truth = [dict(start=cut + (b - 1 - seg_lo) + 1, end=cut + (e - seg_lo), strand="+" if st == 1 else "-", donor_taxid=donor_taxid,
                   protein_source="%s:%d-%d" % (don["accession"], 200000 + b, 200000 + e)) for b, e, st, _ in trio]
     write_fasta(os.path.join(out, "genomes", "scenario_host_insert.fna"), [("scenario_host_insert", host)])
     with open(os.path.join(out, "scenario_truth.tsv"), "w") as f:
-        f.write("replicon\tstart\tend\tstrand\tclass\tdonor_taxid\tprotein_source\n")
+        f.write("scenario\treplicon\tstart\tend\tstrand\tclass\tdonor_taxid\tprotein_source\n")
         for x in truth:
-            f.write("scenario_host_insert\t%(start)d\t%(end)d\t%(strand)s\tinsert\t%(donor_taxid)d\t%(protein_source)s\n" % x)
+            f.write("scenario_host_insert\tscenario_host_insert\t%(start)d\t%(end)d\t%(strand)s\tinsert\t%(donor_taxid)d\t%(protein_source)s\n" % x)
     queries += [("donor_%d" % k, p) for k, (_, _, _, p) in enumerate(trio, 1)]
     with open(os.path.join(out, "scenario.tsv"), "w") as f:
         f.write("id\thost\thost_taxid\tinsert_after\tfiles\tnote\n")
-        f.write("scenario_host_insert\t%s\t%s\t%d\tgenomes/scenario_host_insert.fna\treal DNA by construction: three consecutive genes of %s (%s) spliced in\n"
-                % (bac_name, bac["taxid"], cut, don["accession"], don["species"]))
+        f.write("scenario_host_insert\t%s\t%s\t%d\tgenomes/scenario_host_insert.fna\treal DNA by construction: positions 160001-200000 of %s %s (not in the training corpus) with three consecutive genes of %s (%s) spliced in\n"
+                % (bac_name, bac["taxid"], cut, bac["accession"], bac_chrom[0], don["accession"], don["species"]))
 
     # mini reference: the targets these queries hit (closest 20 plus the best of every genus), at most 2,000 proteins
     work = os.path.join(out, ".work")
@@ -275,7 +278,7 @@ def main():
             f.write("%d\t|\t%s\t|\t\t|\tscientific name\t|\n" % (t, tax.sci.get(t, str(t))))
 
     with open(os.path.join(out, "sources.tsv"), "w") as f:
-        cols = ["id", "source_kind", "taxid", "files", "synthetic", "origin"]
+        cols = ["id", "source_kind", "taxid", "accession", "paired_accession", "files", "synthetic", "origin"]
         f.write("\t".join(cols) + "\n")
         for s in sources:
             f.write("\t".join(str(s[c]) for c in cols) + "\n")

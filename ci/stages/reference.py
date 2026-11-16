@@ -34,7 +34,7 @@ def headers(faa):
 
 def main():
     run_dir = main_args()
-    with Stage(run_dir, "reference") as st:
+    with Stage(run_dir, "reference", requires=("pre",)) as st:
         cfg = st.config["reference"]
         faa = st.repo(cfg["faa"])
         out = st.path("reference", "index.npz")

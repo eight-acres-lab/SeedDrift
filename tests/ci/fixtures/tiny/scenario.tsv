@@ -1,2 +1,2 @@
 id	host	host_taxid	insert_after	files	note
-scenario_host_insert	bacterium_GCF_000007765.2	227377	20508	genomes/scenario_host_insert.fna	real DNA by construction: three consecutive genes of GCF_000007085.1 (Caldanaerobacter subterraneus subsp. tengcongensis MB4) spliced in
+scenario_host_insert	bacterium_GCF_000007765.2	227377	21297	genomes/scenario_host_insert.fna	real DNA by construction: positions 160001-200000 of GCF_000007765.2 AE016828.3 (not in the training corpus) with three consecutive genes of GCF_000007085.1 (Caldanaerobacter subterraneus subsp. tengcongensis MB4) spliced in

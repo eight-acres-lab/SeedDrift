@@ -14,7 +14,7 @@ from ci import ROOT
 from ci.gates import GateResult
 from ci.hashing import sha256_json
 
-WATCHED = ("ci/", "configs/", "deploy/envs/")
+WATCHED = ("ci/", "configs/", "deploy/envs/", "seeddrift/train/", "bench/hard/EXCLUDE.tsv")
 
 
 def _git(root, *args):
@@ -29,12 +29,15 @@ def check(root: str = ROOT) -> GateResult:
         problems.append(dict(error="ci/VERSION must be MAJOR.MINOR, found %r" % version))
     tag = _git(root, "describe", "--tags", "--abbrev=0", "--match", "ci-v*", "HEAD")
     if tag.returncode != 0:
-        note = "bootstrap: no ci-v* tag yet"
+        if _git(root, "tag", "-l", "ci-v*").stdout.strip():
+            problems.append(dict(error="ci-v* tags exist but none is an ancestor of HEAD"))
+            return GateResult("G8", "fail", dict(version=version, problems=problems), sha256_json([version, "no ancestor tag"]))
+        note = "bootstrap: no ci-v* tag in this repository"
         if version != "0.1":
             problems.append(dict(error="before the first tag VERSION must be 0.1, found %s" % version))
         return GateResult("G8", "fail" if problems else "pass", dict(note=note, version=version, problems=problems), sha256_json([version, "bootstrap"]))
     tag = tag.stdout.strip()
-    changed = _git(root, "diff", "--name-only", tag, "HEAD").stdout.split()
+    changed = [p for p in _git(root, "diff", "--name-only", "-z", tag, "HEAD").stdout.split("\0") if p]
     watched = [p for p in changed if p.startswith(WATCHED)]
     old = _git(root, "show", "%s:ci/VERSION" % tag).stdout.strip()
     if watched and old == version:

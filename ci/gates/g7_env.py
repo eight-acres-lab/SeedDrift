@@ -20,6 +20,7 @@ LOCK = os.path.join(ROOT, "ci", "envs", "ci.lock.yml")
 
 
 def packages(text: str) -> set:
+    """(name, version, build) of the conda packages and (name, version, "pip") of pip packages in an env export."""
     d = yaml.safe_load(text) or {}
     out = set()
     for dep in d.get("dependencies", []):
@@ -27,6 +28,10 @@ def packages(text: str) -> set:
             parts = dep.split("=")
             if len(parts) >= 3:
                 out.add((parts[0].split("::")[-1], parts[1], parts[2]))
+        elif isinstance(dep, dict):
+            for p in dep.get("pip", []):
+                name, _, ver = p.partition("==")
+                out.add((name.lower(), ver, "pip"))
     return out
 
 
@@ -35,7 +40,7 @@ def lock_matches(exported: str, lock_path: str = LOCK) -> GateResult:
         want = packages(f.read())
     have = packages(exported)
     missing, extra = sorted(want - have), sorted(have - want)
-    ok = not missing and not extra
+    ok = bool(want) and bool(have) and not missing and not extra
     return GateResult("G7", "pass" if ok else "fail", dict(check="lock", lock=os.path.relpath(lock_path, ROOT), missing=missing[:50], extra=extra[:50]),
                       sha256_file(lock_path))
 
@@ -58,7 +63,8 @@ def resources(data_root: str, need_disk_gb: float, reserve_gb: float = 30.0, roo
     problems = []
     for var in ("TMPDIR", "XDG_CACHE_HOME", "PIP_CACHE_DIR"):
         v = os.environ.get(var, "")
-        if not v or not os.path.realpath(v).startswith(os.path.realpath(data_root)):
+        root = os.path.realpath(data_root)
+        if not v or not (os.path.realpath(v) == root or os.path.realpath(v).startswith(root + os.sep)):
             problems.append(dict(var=var, value=v, must_be_under=data_root))
     free_gb = shutil.disk_usage(data_root).free / 1e9
     if free_gb - need_disk_gb < reserve_gb:

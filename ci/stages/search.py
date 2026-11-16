@@ -86,7 +86,7 @@ def flush(path, genes, by_gene, nraw, genus_of_prot, nearest):
 
 def main():
     run_dir = main_args()
-    with Stage(run_dir, "search") as st:
+    with Stage(run_dir, "search", requires=("pre", "corpus")) as st:
         cfg = st.config
         sc = cfg["search"]
         with open(os.path.join(run_dir, "data", "reference", "manifest.json")) as f:

@@ -28,8 +28,9 @@ EXCLUDE = os.path.join(ROOT, "bench", "hard", "EXCLUDE.tsv")
 PANELS = os.path.join(ROOT, "configs", "exclusions", "panel_assemblies.tsv")
 CATALOGUE = os.path.join(ROOT, "bench", "catalogue", "events.tsv")
 GENERATOR_MODULES = ("bench.hard.construct",)                 # evaluation generators: never imported by training code
-TRAINING_CODE = ("research", "seeddrift/train", "ci/stages/train.py")
+TRAINING_CODE = ("research", "seeddrift", "ci/stages/train.py", "ci/stages/corpus.py")
 KNOWN_RULES = ("panel genomes", "generators", "test recipients", "test donors")
+REQUIRED_RULES = ("panel genomes", "generators")                 # removing either would switch a check off
 
 
 def parse_exclude(text: str):
@@ -93,25 +94,39 @@ def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_p
         rows = parse_exclude(f.read())
     nodes, problems = resolve(tax, rows)
     rules = {r["name"] for r in rows if r["kind"] == "rule"}
+    for rule in REQUIRED_RULES:
+        if rule not in rules:
+            problems.append(dict(error="EXCLUDE.tsv lacks the rule %r" % rule))
     pan_acc, pan_species = set(), set()
     if "panel genomes" in rules:
         if not os.path.exists(panels_path):
             problems.append(dict(error="EXCLUDE.tsv has the panel rule but %s is missing" % os.path.relpath(panels_path, ROOT)))
         else:
-            pan_acc, pan_species = read_panels(panels_path)
+            pan_acc, raw_species = read_panels(panels_path)
+            for t in raw_species:                                # merged ids follow their new node; unknown ones stay as given
+                try:
+                    pan_species.add(tax.resolve(t))
+                except Exception:  # noqa: BLE001
+                    pan_species.add(t)
     cat = read_catalogue(catalogue_path)
     radius_nodes = {}
     if cat:
         for ev in cat:
             for col in ("recipient_exclusion_taxid",):
                 if ev.get(col):
-                    radius_nodes[int(ev[col])] = "test recipient of %s" % ev.get("event_id", "?")
+                    try:
+                        radius_nodes[tax.resolve(int(ev[col]))] = "test recipient of %s" % ev.get("event_id", "?")
+                    except Exception:  # noqa: BLE001 - a catalogue taxid that does not resolve fails the gate
+                        problems.append(dict(error="catalogue taxid %s does not resolve" % ev[col]))
     hits = []
     for e in entries_:
         try:
             lin = tax.lineage(int(e["taxid"]))
         except (UnknownTaxid, KeyError, ValueError) as err:
             hits.append(dict(id=e.get("id"), reason="taxid does not resolve: %s" % err))
+            continue
+        if not tax.at_rank(int(e["taxid"]), "species"):
+            hits.append(dict(id=e.get("id"), taxid=int(e["taxid"]), reason="taxid is above species rank (the panel-species check needs a species)"))
             continue
         for t in lin:
             if t in nodes or t in radius_nodes:
@@ -129,17 +144,31 @@ def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_p
     return GateResult("G2", status, ev, sha256_json([sha256_file(exclude_path), sorted((e.get("id"), int(e.get("taxid", 0))) for e in entries_)]))
 
 
-def _imports(path):
+def _imports(path, root):
+    """Module names imported by a file: absolute and relative imports (resolved against the file's package) and
+    literal importlib.import_module / __import__ calls."""
     with open(path) as f:
         tree = ast.parse(f.read(), filename=path)
+    pkg = os.path.relpath(os.path.dirname(path), root).replace(os.sep, ".")
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
                 yield a.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            yield node.module
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                parts = pkg.split(".")
+                parts = parts[:len(parts) - (node.level - 1)] if node.level > 1 else parts
+                base = ".".join([p for p in parts if p and p != "."] + ([node.module] if node.module else []))
+            if base:
+                yield base
             for a in node.names:
-                yield node.module + "." + a.name
+                yield (base + "." if base else "") + a.name
+        elif isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
+            if name in ("import_module", "__import__", "run_module") and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                yield node.args[0].value
 
 
 def generator_imports(root=ROOT, training=TRAINING_CODE):
@@ -149,7 +178,7 @@ def generator_imports(root=ROOT, training=TRAINING_CODE):
         files = [full] if os.path.isfile(full) else [os.path.join(d, f) for d, _, fs in os.walk(full) for f in fs if f.endswith(".py")] if os.path.isdir(full) else []
         for p in files:
             try:
-                for name in _imports(p):
+                for name in _imports(p, root):
                     tails = {g.split(".")[-1] for g in GENERATOR_MODULES}          # also catches "import construct" after a path hack
                     if any(name == g or name.startswith(g + ".") for g in GENERATOR_MODULES) or name.split(".")[-1] in tails:
                         bad.append(dict(file=os.path.relpath(p, root), imports=name))

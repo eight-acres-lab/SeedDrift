@@ -21,7 +21,21 @@ def _git(worktree, *args):
     return subprocess.run(["git", *args], cwd=worktree, capture_output=True, text=True)
 
 
+IGNORED_OK = ("runs/", "__pycache__/", ".pytest_cache/", ".snakemake/")
+
+
+def _writable(path):
+    import stat
+    for d, dirs, files in os.walk(path):
+        for name in files[:20] + dirs[:5]:
+            if os.lstat(os.path.join(d, name)).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+                return os.path.join(d, name)
+        break
+    return ""
+
+
 def check(worktree: str, sha: str, ci_root: str = "", require_readonly: bool = False) -> GateResult:
+    """sha: the commit the launcher asked for (not read back from this worktree)."""
     problems = []
     head = _git(worktree, "rev-parse", "HEAD")
     if head.returncode != 0:
@@ -37,12 +51,18 @@ def check(worktree: str, sha: str, ci_root: str = "", require_readonly: bool = F
             problems.append(dict(error="worktree not clean", files=status.stdout.strip().splitlines()[:50]))
         if _git(worktree, "diff-index", "--quiet", "HEAD").returncode != 0:
             problems.append(dict(error="index differs from HEAD"))
+        ignored = [l[3:] for l in _git(worktree, "status", "--porcelain", "--ignored").stdout.splitlines() if l.startswith("!! ")]
+        stray = [p for p in ignored if not any(p == ok or p.startswith(ok) or ("/" + ok) in ("/" + p) for ok in IGNORED_OK)]
+        if stray:
+            problems.append(dict(error="ignored files inside the worktree", files=stray[:30]))
     if ci_root:
         wt = os.path.realpath(worktree)
         if not wt.startswith(os.path.realpath(os.path.join(ci_root, "wt")) + os.sep):
             problems.append(dict(error="worktree %s is not under %s/wt" % (wt, ci_root)))
-    if require_readonly and os.access(os.path.join(worktree, "ci", "VERSION"), os.W_OK):
-        problems.append(dict(error="worktree is writable"))
+    if require_readonly:
+        w = _writable(worktree) or _writable(os.path.join(worktree, "ci"))
+        if w:
+            problems.append(dict(error="worktree is writable (write bit on %s)" % w))
     return GateResult("G6", "fail" if problems else "pass", dict(worktree=worktree, sha=sha, problems=problems), sha256_json([worktree, sha]))
 
 

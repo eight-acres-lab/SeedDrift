@@ -60,7 +60,7 @@ def sha256_file(path):
 
 
 class TrainLogger:
-    def __init__(self, folder, commit="", dataset_ids=(), keep_last=3, keep_every=10, resume=False):
+    def __init__(self, folder, commit="", dataset_ids=(), keep_last=3, keep_every=50, resume=False):
         self.dir = folder
         os.makedirs(folder, exist_ok=True)
         self.commit, self.dataset_ids = commit, list(dataset_ids)
@@ -73,6 +73,20 @@ class TrainLogger:
                 p = os.path.join(folder, name)
                 if os.path.exists(p):
                     raise FileExistsError("%s exists: start a new run directory or resume" % p)
+        else:
+            last = os.path.join(folder, "last.json")
+            step = json.load(open(last))["step"] if os.path.exists(last) else 0
+            for name in ("metrics.jsonl", "eval.jsonl", "probes.jsonl"):     # drop what was logged after the last checkpoint
+                p = os.path.join(folder, name)
+                if os.path.exists(p):
+                    with open(p) as f:
+                        rows = [l for l in f if l.strip() and json.loads(l).get("step", 0) <= step]
+                    with open(p + ".part", "w") as f:
+                        f.writelines(rows)
+                    os.replace(p + ".part", p)
+            best = os.path.join(folder, "best.json")
+            if os.path.exists(best):
+                self.best = json.load(open(best)).get("val_metric")
 
     def step(self, step, loss, **fields):
         if not math.isfinite(float(loss)):
@@ -121,8 +135,9 @@ class TrainLogger:
         return path
 
     def _thin(self):
+        """Keep the last keep_last checkpoints and every one whose step is a multiple of keep_every."""
         steps = sorted(int(n[9:-4]) for n in os.listdir(self.dir) if n.startswith("ckpt_step") and n.endswith(".npz"))
-        keep = set(steps[-self.keep_last:]) | {s for i, s in enumerate(steps) if i % self.keep_every == 0}
+        keep = set(steps[-self.keep_last:]) | {s for s in steps if s % self.keep_every == 0}
         for s in steps:
             if s not in keep:
                 for ext in (".npz", ".json"):

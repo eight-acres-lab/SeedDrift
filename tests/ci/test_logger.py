@@ -28,8 +28,19 @@ def test_checkpoints_are_thinned_and_resumable(tmp_path):
     for s in range(1, 6):
         log.checkpoint(s, {"W": np.full(2, s)}, val_metric=float(s))
     kept = sorted(n for n in os.listdir(tmp_path) if n.startswith("ckpt_step") and n.endswith(".npz"))
-    assert kept == ["ckpt_step1.npz", "ckpt_step4.npz", "ckpt_step5.npz"]
+    assert kept == ["ckpt_step4.npz", "ckpt_step5.npz"]
     assert int(log.last()["step"]) == 5 and json.load(open(tmp_path / "best.json"))["step"] == 5
     (tmp_path / "metrics.jsonl").write_text("")
     with pytest.raises(FileExistsError):
         TrainLogger(str(tmp_path))
+
+
+def test_resume_drops_rows_after_the_last_checkpoint(tmp_path):
+    log = TrainLogger(str(tmp_path))
+    for s in range(1, 8):
+        log.step(s, 1.0 / s)
+        if s == 5:
+            log.checkpoint(s, {"W": np.zeros(1)}, val_metric=0.9)
+    again = TrainLogger(str(tmp_path), resume=True)
+    steps = [json.loads(l)["step"] for l in open(tmp_path / "metrics.jsonl")]
+    assert steps == [1, 2, 3, 4, 5] and again.best == 0.9

@@ -1,7 +1,8 @@
 """Stage eval_inputs: the genomes the evaluation scores (never part of the training corpus), with their truth.
 
-For ci-tiny and smoke this is the scenario of the fixture (a real chromosome segment with donor genes spliced in;
-scenario_truth.tsv gives their coordinates). Genes are called the same way as for raw prokaryotes in the corpus; a
+For ci-tiny and smoke this is the scenario of the fixture (a region of a corpus genome that is not in the corpus, with
+real donor genes spliced in; scenario_truth.tsv gives their coordinates per scenario). Gate G2_holdout checks that
+no evaluation sequence occurs in the training corpus. Genes are called the same way as for raw prokaryotes in the corpus; a
 called gene is a positive when at least half of it lies in a truth interval. Later profiles add the public-event
 catalogue here (gate G5).
 """
@@ -18,7 +19,7 @@ from ci.stages.common import write_fasta
 
 def main():
     run_dir = main_args()
-    with Stage(run_dir, "eval_inputs") as st:
+    with Stage(run_dir, "eval_inputs", requires=("pre",)) as st:
         sc = st.config["scenario"]
         base = os.path.dirname(st.repo(sc["table"]))
         entries = []
@@ -33,16 +34,24 @@ def main():
                 contigs.update(read_fasta(os.path.join(base, p)))
             genes, mode = call_genes(contigs, 11)
             out = st.path("eval_inputs", s["id"], "x")[:-2]
-            iv = [(t["replicon"], int(t["start"]), int(t["end"]), t["class"]) for t in truth]
-            with open(os.path.join(out, "genes.tsv"), "w") as f:
+            iv = [(t["replicon"], int(t["start"]), int(t["end"]), t["class"]) for t in truth if t["scenario"] == s["id"]]
+            if not iv:
+                raise SystemExit("scenario %s has no truth rows" % s["id"])
+            hit = set()
+            gp = os.path.join(out, "genes.tsv")
+            with open(gp + ".part", "w") as f:
                 f.write("gene_id\treplicon\tstart\tend\tstrand\tpartial\ttruth\n")
                 for g in genes:
                     label = "native"
-                    for rep, a, b, c in iv:
+                    for k, (rep, a, b, c) in enumerate(iv):
                         ov = min(b, g["end"]) - max(a, g["start"]) + 1
                         if rep == g["replicon"] and ov >= 0.5 * (g["end"] - g["start"] + 1):
                             label = c
+                            hit.add(k)
                     f.write("%s\t%s\t%d\t%d\t%s\t%s\t%s\n" % (g["gene_id"], g["replicon"], g["start"], g["end"], g["strand"], g["partial"], label))
+            os.replace(gp + ".part", gp)
+            if len(hit) != len(iv):
+                raise SystemExit("scenario %s: %d of %d truth intervals have no called gene covering half of it" % (s["id"], len(iv) - len(hit), len(iv)))
             write_fasta(os.path.join(out, "proteins.faa"), [("%s__%s" % (s["id"], g["gene_id"]), g["protein"]) for g in genes])
             write_fasta(os.path.join(out, "cds.fna"), [("%s__%s" % (s["id"], g["gene_id"]), g["cds"]) for g in genes])
             files = [M.file_entry(os.path.join(out, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]

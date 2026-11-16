@@ -18,8 +18,9 @@ from ci.record import stage_report
 class Stage:
     """with Stage(run_dir, "corpus") as st: ... st.output(name, path) ...  writes the stage report at exit."""
 
-    def __init__(self, run_dir: str, name: str, key: str = ""):
+    def __init__(self, run_dir: str, name: str, key: str = "", requires=()):
         self.run_dir, self.name, self.key = run_dir, name, key
+        self.requires = requires
         self.outputs = []
         self.extra = {}
         self.t0 = time.time()
@@ -30,6 +31,9 @@ class Stage:
         bad = imports_under(ROOT)
         if bad:
             raise SystemExit("G6: modules loaded from outside the worktree: %s" % bad[:5])
+        for s in self.requires:                       # a stage never runs without the gates behind it, even outside Snakemake
+            if not os.path.exists(os.path.join(self.run_dir, "gates", s + ".ok")):
+                raise SystemExit("stage %s needs gates/%s.ok" % (self.name, s))
         return self
 
     def __exit__(self, exc_type, exc, tb):

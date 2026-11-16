@@ -1,3 +1,4 @@
+import datetime as dt
 import os
 
 import pytest
@@ -57,16 +58,44 @@ def test_static_full_tier_fails_below_the_floors(tmp_path):
     assert ok.status == "pass"
 
 
+def waiver(tmp_path, scope="t:archaea", days=30, start=None):
+    start = start or dt.date.today()
+    (tmp_path / "w.yml").write_text("gate: G1\nscope: '%s'\nreason: test\napproved_by: test\ndate: %s\nexpires: %s\n" % (scope, start, start + dt.timedelta(days=days)))
+
+
 def test_waiver_lets_a_missing_group_pass(tmp_path):
-    (tmp_path / "w.yml").write_text("gate: G1\nscope: t:archaea\nreason: test\napproved_by: test\ndate: 2026-11-17\nexpires: 2999-01-01\n")
+    waiver(tmp_path)
     groups = dict(ALL)
     del groups["archaea"]
     assert g1_kingdom.static(spec(groups=groups), waiver_dir=str(tmp_path)).status == "waived"
 
 
+def test_wildcard_or_long_waiver_fails(tmp_path):
+    from ci.gates import GateFailure
+    groups = dict(ALL)
+    del groups["archaea"]
+    waiver(tmp_path, scope="*")
+    with pytest.raises(GateFailure):
+        g1_kingdom.static(spec(groups=groups), waiver_dir=str(tmp_path))
+    waiver(tmp_path, days=200)
+    with pytest.raises(GateFailure):
+        g1_kingdom.static(spec(groups=groups), waiver_dir=str(tmp_path))
+
+
+def test_tier_mismatch_fails():
+    assert g1_kingdom.static(spec(), tier="full").status == "fail"
+
+
+def test_full_tier_built_fails_below_the_floors(tax, tmp_path):
+    floors = yaml.safe_load(open(os.path.join(ROOT, "configs", "corpus", "floors.yaml")))
+    full = {g: {"min_genomes": 1} for g in floors["min_genomes"]}
+    r = g1_kingdom.built(spec(tier="full", groups=full), entries(), tax, tier="full", waiver_dir=str(tmp_path))
+    assert r.status == "fail" and any(p.get("need") == 2000 for p in r.evidence["problems"])
+
+
 def test_expired_waiver_fails(tmp_path):
     from ci.gates import GateFailure
-    (tmp_path / "w.yml").write_text("gate: G1\nscope: t:archaea\nreason: test\napproved_by: test\ndate: 2020-01-01\nexpires: 2020-02-01\n")
+    waiver(tmp_path, start=dt.date(2020, 1, 1), days=30)
     groups = dict(ALL)
     del groups["archaea"]
     with pytest.raises(GateFailure):

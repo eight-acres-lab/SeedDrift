@@ -7,8 +7,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}      # never cancel the checks of a pushed commit
 jobs:
   t0:
     name: T0 static checks
@@ -23,6 +23,7 @@ jobs:
           fetch-depth: 0
       - uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462   # v2
         with:
+          micromamba-version: 1.5.10-0
           environment-file: ci/envs/ci.lock.yml
           environment-name: sd-ci
           cache-environment: true
@@ -44,6 +45,7 @@ jobs:
           fetch-depth: 0
       - uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462   # v2
         with:
+          micromamba-version: 1.5.10-0
           environment-file: ci/envs/ci.lock.yml
           environment-name: sd-ci
           cache-environment: true
@@ -55,11 +57,18 @@ jobs:
         run: python -m ci run --profile ci-tiny --run-dir runs/t1-b
       - name: the second run reproduces the first exactly
         run: python -m ci compare runs/t1-a runs/t1-b --expect exact
-      - name: kill and resume the training of a third run
+      - name: kill the training at a checkpoint (step 10) and between checkpoints (step 12), resume, compare
         run: |
-          CI_STOP_AFTER_STEPS=10 python -m ci run --profile ci-tiny --run-dir runs/t1-c || true
-          python -m ci run --profile ci-tiny --run-dir runs/t1-c --resume
-          python -m ci compare runs/t1-a runs/t1-c --expect exact
+          for stop in 10 12; do
+            d=runs/t1-stop$stop
+            if CI_STOP_AFTER_STEPS=$stop python -m ci run --profile ci-tiny --run-dir $d; then echo "the stopped run must fail"; exit 1; fi
+            test "$(python -m ci status $d)" != passed
+            test ! -e $d/data/model/model.npz
+            python -c "import json,sys; s=json.load(open('$d/stages/train.json')); sys.exit(0 if s.get('stopped_at_step') == $stop else 1)"
+            python -m ci run --profile ci-tiny --run-dir $d --resume
+            python -c "import json,sys; s=json.load(open('$d/stages/train.json')); sys.exit(0 if s.get('resumed_from_step') == 10 else 1)"
+            python -m ci compare runs/t1-a $d --expect exact
+          done
       - name: keep the summaries
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4

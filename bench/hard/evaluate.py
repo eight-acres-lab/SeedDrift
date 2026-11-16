@@ -143,7 +143,8 @@ def eligibility(ch):
                 deep_natives=int((nat & ch["deep"]).sum()), published_island=n_pi, published_backbone=n_pb,
                 p1=bool(panel_ok and nat.sum() >= 500 and isl.sum() >= 40), p2=bool(panel_ok and regions >= 5 and blocks >= 50),
                 pub_gene=bool(n_pb >= 300 and n_pi >= 50), pub_block=bool(pub_reg["backbone"] >= 20 and pub_reg["island"] >= 5),
-                count_flagged=bool(n_pi > n_pb))
+                count_flagged=bool(n_pi > n_pb),
+                dev_gene=bool(nat.sum() >= 100 and isl.sum() >= 20), dev_block=bool(nat.sum() >= 100 and isl.sum() >= 20 and regions >= 1 and blocks >= 1))
 
 
 def unit_index(unit_of_gene, mask):
@@ -370,7 +371,8 @@ def main():
             out[u] = {k: float(np.mean([per[x][regime][lset][k][metric] for x in accs])) for k in names if all(metric in per[x][regime][lset][k] for x in accs)}
         return out
 
-    endpoints = {"P1": ("r1", "p1", P1, "pub_gene"), "P2": ("lr2", "p2", P2, "pub_block")}
+    # at an unsealing the eligibility rules of section 3 decide; a development chromosome enters a unit mean with at least 100 natives and 20 island genes
+    endpoints = {"P1": ("r1", "p1" if a.unseal else "dev_gene", P1, "pub_gene"), "P2": ("lr2", "p2" if a.unseal else "dev_block", P2, "pub_block")}
     report = {}
     for ep, (metric, flag, contrasts, pub_flag) in endpoints.items():
         main_vals = unit_values("v1", "gated", metric, flag)
@@ -472,7 +474,7 @@ def main():
         report[ep] = dict(units=eligible, values=main_vals, contrasts=rows, min_p=None if not eligible else 2 / 2 ** len(eligible), floor=floor)
 
     def cand_mean(t):
-        v = [np.mean([x for acc, x in t.items() if unit_of[acc] == u and elig[acc]["p1"]]) for u in units if any(unit_of[acc] == u and elig[acc]["p1"] for acc in t)]
+        v = [np.mean([x for acc, x in t.items() if unit_of[acc] == u and elig[acc]["dev_gene"]]) for u in units if any(unit_of[acc] == u and elig[acc]["dev_gene"] for acc in t)]
         return float(np.mean(v)) if v else None
 
     result = dict(endpoints=report, eligibility=elig, units=unit_of, per_chromosome=per, fusion=a.fusion,

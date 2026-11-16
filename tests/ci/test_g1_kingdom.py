@@ -5,7 +5,7 @@ import pytest
 import yaml
 
 from ci.gates import g1_kingdom
-from ci.kingdom import KingdomMap, NoGroup
+from ci.kingdom import KingdomMap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ALL = {g: {"min_genomes": 1} for g in KingdomMap().names}

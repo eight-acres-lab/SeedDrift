@@ -13,7 +13,7 @@ import subprocess
 
 import numpy as np
 
-from ci import manifest as M
+from ci import ROOT, manifest as M
 from ci.stages.common import Stage, main_args, write_json
 from ci.taxonomy import Taxonomy
 from seeddrift.train.logger import save_npz
@@ -58,7 +58,8 @@ def main():
             db = st.path("reference", "ref.dmnd")
             subprocess.run([st.config["tools"]["diamond"], "makedb", "--in", faa, "-d", db[:-5], "--quiet"], check=True)
             st.output("database", db)
-        entries = [dict(id="reference", files=[M.file_entry(faa)], proteins=len(acc), proteomes=len(utax))]
+        root = ROOT if faa.startswith(ROOT + os.sep) else ""                # repository files by relative path (same on every machine)
+        entries = [dict(id="reference", files=[M.file_entry(faa, root)], proteins=len(acc), proteomes=len(utax))]
         man = M.build("reference", "reference", entries, meta=dict(database=os.path.relpath(db, run_dir) if db.startswith(run_dir) else db))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("reference", "manifest.json")

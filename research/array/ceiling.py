@@ -16,7 +16,8 @@ Every saved trial of fit.py is rebuilt (same seeds, checked against the saved ta
                 trained models beat it on most trials.
   oracle_shown  the same over the 32 shown rows
 
-It also records, per trial, whether any visible row could tell the donor from the genome at all:
+It also records, per trial, whether any visible row could tell the donor from the genome at all (on the panel
+rows of the trial, and again with every reference proteome as a possible row, the *_all pair):
 
   donor_side    the donor's distance to the genome's own proteome minus its distance to its nearest visible row.
                 Positive: some visible row is closer to the donor than the genome is, so a gene of the donor can
@@ -49,7 +50,8 @@ from fit import splits  # noqa: E402
 from report import auroc  # noqa: E402
 
 CAP = 2.5            # distance used where a genome has no measurable distance to a proteome
-STATS = ("top_all", "own_all", "own_shown", "ctx_shown", "oracle_all", "oracle_shown", "donor_side", "genome_side")
+STATS = ("top_all", "own_all", "own_shown", "ctx_shown", "oracle_all", "oracle_shown", "donor_side", "genome_side",
+         "donor_side_all", "genome_side_all")
 SCORES = STATS[:6]
 CHECK = ("k_g", "k_t", "n_c", "n_present", "rule_ai")      # recomputed with the trial and compared with the saved table
 REC, ST, DS = {}, None, None
@@ -82,6 +84,25 @@ def rank_one(X):
             r = np.where(np.isfinite(r) & (r > 0), r, 1.0)
             r = r / np.median(r)
     return D
+
+
+def sides_all(st, g, t, k_g, k_t):
+    """donor_side and genome_side when every reference proteome can be a row and hiding is by radius (wide.py hide)."""
+    h = np.zeros(st.n_prot, dtype=bool)
+    for genome, k in ((g, k_g), (t, k_t)):
+        if st.own[genome] >= 0:
+            h[st.own[genome]] = True
+        order = st.near(genome)
+        if k and len(order):
+            with np.errstate(invalid="ignore"):
+                h |= st.D[genome] <= st.D[genome][order[min(k, len(order)) - 1]]
+    out = []
+    for p, q in ((t, g), (g, t)):
+        D = st.D[p]
+        vis = np.isfinite(D) & ~h
+        ok = vis.any() and st.own[q] >= 0 and np.isfinite(D[st.own[q]])
+        out.append(float(D[st.own[q]] - D[vis].min()) if ok else np.nan)
+    return out
 
 
 def _example(st, cfg, rng, g, x, ctx, hidden, truth):
@@ -127,6 +148,7 @@ def work(span):
             order = order[~hidden[order]]
             if len(order) and st.own[q] >= 0 and np.isfinite(st.D[p][st.own[q]]):
                 s[key] = float(st.D[p][st.own[q]] - st.D[p][order[0]])
+        s["donor_side_all"], s["genome_side_all"] = sides_all(st, g, t, int(ex["k_g"]), int(ex["k_t"]))
         s["own_all"] = misfit(dx, Dg)
         s["oracle_all"] = s["own_all"] - misfit(dx, Dt)
         ds = members(st, x, rows)
@@ -223,6 +245,9 @@ def main():
         if m.sum() < 20:
             continue
         L.append("| %s | %d | %s |" % (name, int(m.sum()), " | ".join("%.3f" % auroc(scores[k][0][m], y[m]) for k in keys)))
+    da, ga = R[:, 4 + STATS.index("donor_side_all")], R[:, 4 + STATS.index("genome_side_all")]
+    L += ["", "- With every reference proteome as a possible row and hiding by radius (the wide table), %.0f%% of the trials have no visible row that "
+          "tells the donor from the genome (%.0f%% with panel rows only)." % (100 * ((da <= 0.05) & (ga <= 0.05)).mean(), 100 * ((ds_ <= 0.05) & (gs_ <= 0.05)).mean())]
     np.savez(os.path.splitext(a.out)[0] + ".npz", stats=R[:, :4 + len(STATS)], names=np.array(STATS))
     open(a.out, "w").write("\n".join(L) + "\n")
     print("\n".join(L))

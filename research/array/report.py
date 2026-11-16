@@ -197,7 +197,7 @@ def main():
         t, scores, info = load(a.runs, which)
         if t is None:
             continue
-        sep = None
+        sep = sep_all = None
         if which == "unseen" and a.ceiling:
             z = np.load(a.ceiling)
             st, names = z["stats"], [str(x) for x in z["names"]]
@@ -205,6 +205,8 @@ def main():
                 raise SystemExit("the ceiling file is not for these trials")
             ds, gs = st[:, 4 + names.index("donor_side")], st[:, 4 + names.index("genome_side")]
             sep = ~((ds <= 0.05) & (gs <= 0.05))                   # an undefined side (the two genomes have no measurable distance) counts as separable
+            if "donor_side_all" in names:
+                sep_all = ~((st[:, 4 + names.index("donor_side_all")] <= 0.05) & (st[:, 4 + names.index("genome_side_all")] <= 0.05))
         y, unit, M = t["label"] > 0.5, cls[t["g"]], masks(t, sep)
         S = Stats(scores, y, unit, a.boot)
         n_cls = len(set(unit.tolist()))
@@ -258,6 +260,13 @@ def main():
                       "| input | separable | not separable |", "|---|---|---|"]
                 for k, d in rows:
                     L.append("| %s | %.3f | %.3f |" % (d, mean_auroc(scores[k], y, M["separable"]), mean_auroc(scores[k], y, M["not separable"])))
+            if sep_all is not None and any(k.startswith("wide_all") for k in scores):
+                L += ["", "The same split with every reference proteome as a possible row and hiding by radius, as the wide table on all reference proteomes sees it "
+                      "(separable %d, not separable %d):" % (int(sep_all.sum()), int((~sep_all).sum())), "",
+                      "| input | separable | not separable |", "|---|---|---|"]
+                for k, d in rows:
+                    if "wide_all" in k:
+                        L.append("| %s | %.3f | %.3f |" % (d, mean_auroc(scores[k], y, sep_all), mean_auroc(scores[k], y, ~sep_all)))
             near = [k for k in M if k.startswith("near,")]
             L += ["", "### Near donors in detail (AUROC)", "", "| input | " + " | ".join(k[6:] for k in near) + " |", "|---|" + "---|" * len(near)]
             for k, d in rows:

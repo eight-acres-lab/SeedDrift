@@ -134,7 +134,14 @@ def main():
     ap.add_argument("--bench", nargs="*", default=[], help="name=job.npz (the job file gives the genome's own genus)")
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--untrained", action="store_true")
+    ap.add_argument("--rescore", type=int, default=0, help="score the saved model of --out on a fresh draw of unseen-class trials "
+                    "(this seed), write trials_fresh.npz, and stop")
     a = ap.parse_args()
+    ck = None
+    if a.rescore:                                             # the settings of the saved run, not of this command line
+        ck = torch.load(os.path.join(a.out, "model.pt"), weights_only=False)
+        a.mode, a.pairs, a.comp = ck["cfg"]["mode"], int(ck["cfg"]["pairs"]), int(ck["cfg"]["comp"])
+        a.blind, a.bench = json.load(open(os.path.join(a.out, "result.json")))["args"]["blind"], []
     os.makedirs(a.out, exist_ok=True)
     torch.manual_seed(a.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -150,6 +157,19 @@ def main():
     val = Trials(st, cfg, grp[1], Donors(st, grp[1]), a.per_genome, 101)
     test = Trials(st, cfg, grp[2], Donors(st, grp[2]), a.per_genome, 202)
     kw = dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False)
+    if ck is not None:
+        model = ArrayNet(**ck["cfg"]).to(dev)
+        model.load_state_dict(ck["state"])
+        r = run(model, torch.utils.data.DataLoader(Trials(st, cfg, grp[2], Donors(st, grp[2]), a.per_genome, a.rescore), **kw), dev)
+        np.savez(os.path.join(a.out, "trials_fresh.npz"), **r)
+        res = json.load(open(os.path.join(a.out, "result.json")))
+        res["fresh"], res["fresh_seed"] = trial_stats(r), a.rescore
+        res["fresh_rules"] = {k: trial_stats(r, k) for k in ("rule_ai", "rule_ctx")}
+        json.dump(res, open(os.path.join(a.out, "result.json"), "w"), indent=1)
+        v = res["fresh"]
+        print("fresh trials (seed %d): auroc %.4f; near %.4f, mid %.4f, far %.4f" % (
+            a.rescore, v["auroc"], v["donor_near"]["auroc"], v["donor_mid"]["auroc"], v["donor_far"]["auroc"]), flush=True)
+        return
     model = ArrayNet(a.mode, bool(a.pairs), bool(a.comp), a.d, a.layers).to(dev)
     print("parameters %.2f M" % (sum(p.numel() for p in model.parameters()) / 1e6), flush=True)
     log = []

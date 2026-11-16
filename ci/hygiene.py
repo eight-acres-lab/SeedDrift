@@ -15,7 +15,7 @@ from ci import ROOT
 
 MAX_BYTES = 2_000_000
 BINARY = (".pt", ".pth", ".ckpt", ".safetensors", ".h5", ".onnx", ".bin", ".npy", ".npz", ".parquet", ".dmnd", ".pkl", ".zip", ".tar")
-EXEMPT = (".gitignore", "ci/denylist.txt")
+EXEMPT = (".gitignore", "ci/denylist.txt", "ci/hygiene.py")   # these must name the patterns they check
 ALLOW_LARGE = ()
 SUMMARY_MAX = 200_000
 

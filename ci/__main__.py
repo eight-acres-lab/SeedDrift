@@ -174,11 +174,12 @@ def cmd_run(a):
     env = dict(os.environ, PYTHONPATH=ROOT + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONHASHSEED="0")
     for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         env[k] = str(cfg.get("blas_threads", 1))
-    tmp = os.path.join(cfg["data_root"], "tmp")
-    os.makedirs(tmp, exist_ok=True)
-    env.setdefault("TMPDIR", tmp)
-    env.setdefault("XDG_CACHE_HOME", os.path.join(cfg["data_root"], "cache"))
-    env.setdefault("PIP_CACHE_DIR", os.path.join(cfg["data_root"], "cache", "pip"))
+    root = os.path.realpath(cfg["data_root"])
+    for var, default in (("TMPDIR", os.path.join(root, "tmp")), ("XDG_CACHE_HOME", os.path.join(root, "cache")), ("PIP_CACHE_DIR", os.path.join(root, "cache", "pip"))):
+        if not os.path.realpath(env.get(var, "") or "/nonexistent").startswith(root + os.sep):
+            env[var] = default                     # temporary files and caches stay on the run's data disk (G7)
+        os.makedirs(env[var], exist_ok=True)
+    os.environ.update({k: env[k] for k in ("TMPDIR", "XDG_CACHE_HOME", "PIP_CACHE_DIR")})
     os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
     cmd = [sys.executable, "-m", "snakemake", "-s", os.path.join(ROOT, "ci", "Snakefile"), "--directory", run_dir, "--configfile",
            os.path.join(run_dir, "config.resolved.yaml"), "--cores", str(cfg.get("cores", 2)), "--resources", "gpu=1", "diamond=1",

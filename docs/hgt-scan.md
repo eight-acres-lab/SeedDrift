@@ -1,6 +1,6 @@
 > 这份文档说明多基因组 HGT 扫描（`seeddrift prepare / scan / donors / structure`）的方法与结果，沿用 SeedDrift 的前身 hgtscan 的写法。这项功能只有命令行，是原型；需要另行安装 OrthoFinder 和 IQ-TREE。示例脚本在 `examples/`。单基因组筛查、服务和网页见仓库根目录的 README。
 
-# hgtscan：全基因组水平基因转移扫描（原型 v0.5）
+# 多基因组 HGT 扫描（原型）
 
 **输入**：物种树、每个基因家族的基因树（ML 树 + bootstrap 树）、基因坐标、移动元件注释，可选 CDS 组成（GC、GC3）。
 **输出**：每个候选转移事件的受体分支、`P(HGT)`、供体候选排序及各自概率（供体在数据集之外时报为 `unsampled`），以及逐项证据。
@@ -76,11 +76,10 @@ python3 -m seeddrift scan \
 
 ## 从原始基因组准备输入（`prepare`）
 
-`hgtscan prepare` 从 Ensembl Genomes 下载基因组，生成 `scan` 需要的全部输入：
+`python3 -m seeddrift prepare` 从 Ensembl Genomes 下载基因组，生成 `scan` 需要的全部输入：
 
 ```bash
-# 一次性安装工具（独立环境，不影响系统 Python）
-brew install micromamba
+# 一次性安装工具（独立环境，不影响系统 Python）；用 ./seeddrift.sh install 装过的话，micromamba 在 .mamba/bin/micromamba
 MAMBA_ROOT_PREFIX=~/mamba micromamba create -y -n hgt -c conda-forge -c bioconda orthofinder mafft iqtree diamond
 
 python3 -m seeddrift prepare --genomes genomes.tsv --index species_EnsemblBacteria.txt \
@@ -99,7 +98,7 @@ python3 -m seeddrift prepare --genomes genomes.tsv --index species_EnsemblBacter
 | `speciestree` | 最多 300 个单拷贝家族串联，IQ-TREE（LG+F+R4），外群定根，再用 MPL 转成带相对时间的树 | `species_tree.nwk` |
 
 注意：
-- 在当前网络下 NCBI 连不上，所以数据源用的是 Ensembl Genomes。其他分区可以用 `--division fungi` 等切换。
+- 基因组从 Ensembl Genomes 下载；其他分区可以用 `--division fungi` 等切换。
 - Ensembl 对 Prokka 注释的细菌基因组不提供 tRNA 特征，这些基因组缺少 tRNA 这一项。
 - 移动元件按注释关键词识别，不如 ISEScan 或 geNomad 全面。
 - MPL 时间化很粗略。如果有化石或速率校准，最好换成 LSD2 或 MCMCTree 得到的时间树。
@@ -516,19 +515,10 @@ v0.5 又加入了**隐性旁系同源**：12–15% 的家族在根之前已有 2
 - 移动元件权重和供体打分的 γ 都是手设的；clock 模型的训练样本很少。
 - 模拟器较简化：没有 ILS，没有序列层面的模拟，建树误差用随机 NNI 近似，没有长枝吸引。在本数据集里长枝吸引的信号也很弱：相对速率检验中，变形杆菌只比平均快 6%。
 
-## 下一步建议
-
-1. 用真实数据的阳性、阴性对照集（已知岛屿；核糖体蛋白等核心单拷贝基因）做一次校准，替代纯模拟校准，同时检验校准权重与默认权重孰优孰劣。
-2. **按基因座分组的 gain 和拆分**：先把家族成员按邻域共线性分成位置同源组，再做获得/丢失简约和旁系同源拆分，这样 SPI-1 与 ETT2 就能分开。
-3. **把重复过滤前移到 `donors`**：DIAMOND 默认屏蔽重复区，结果一部分重复蛋白被误归为“外部无同源”。可以对这类基因关闭屏蔽（`--masking 0`）重搜一次，再用同样的重复过滤判断命中是否可信。
-4. 接入 ALE（dated）、AleRax 或 GeneRax 作为调和后端；本项目的特征和打分层可以直接复用。
-5. 分子钟检验改用多序列比对的成对距离，或带松弛钟的时间树，以减少拓扑错误带来的伪信号。
-6. 对高分候选自动跑 IQ-TREE AU 检验；真核污染检查加入测序深度和 GC 偏离。
-
 ## 代码结构
 
 ```
-hgtscan/
+seeddrift/
   __main__.py    命令行：prepare / scan / donors / structure / simulate / evaluate / calibrate / rescore
   tree.py        Newick 读写、剪枝、去根、NNI、带索引和时间区间的物种树
   reconcile.py   DTL 调和（时间约束、所有定根、随机与偏向转移的回溯、禁止某类群转移的替代代价）、

@@ -17,8 +17,8 @@ ever sees a panel genome: the genome's own genus is hidden from every method.
                <dir>/<accession>/panel.tsv          (one row per chosen assembly: role, species, replicons, CDS)
                <dir>/panel_log.json                 (candidate counts and what was skipped, per chromosome)
 
-Records come from ENA (the mirror that is fast from the server); the assembly sets of INSDC and RefSeq are the same
-genomes, the annotation is the submitters'.
+Records come from ENA (the mirror that is fast from the server); --source ncbi takes the same INSDC records from the
+NCBI mirror when the ENA record service does not answer. The annotation is the submitters'.
 
 usage (repo root, on the machine with the data store; needs the seeddrift package):
   python bench/hard/panel.py --genomes bench/islands/results/genomes.tsv --genbank DIR/genomes --dir DIR/panel
@@ -46,6 +46,8 @@ PORTAL = "https://www.ebi.ac.uk/ena/portal/api/search"
 BROWSER = "https://www.ebi.ac.uk/ena/browser/api"
 UNIPROT = "https://rest.uniprot.org/proteomes/stream?query=%s&fields=upid,organism_id,genome_assembly&format=tsv"
 ESUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=nuccore&retmode=json&id=%s"
+NCBI_REPORT = "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/%s/sequence_reports"
+NCBI_RECORD = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=%s&rettype=gbwithparts&retmode=text"
 QUOTA = {"same": 5, "other": 5, "sibling": 4}
 SALT = "panel-v2"
 MIN_CDS = 300
@@ -70,12 +72,14 @@ class NotAnnotated(Exception):
     pass
 
 
-def fetch_record(acc, tries=3, pause=5.0, probe=400000):
-    """EMBL flat file of one sequence, read as a stream. The feature table precedes the sequence, so a record whose
-    first `probe` bytes hold no coding sequence is given up at once instead of being downloaded whole."""
+def fetch_record(acc, tries=3, pause=5.0, probe=400000, source="ena"):
+    """Flat file of one sequence (EMBL format from ENA, GenBank format from NCBI: the same INSDC record), read as a
+    stream. The feature table precedes the sequence, so a record whose first `probe` bytes hold no coding sequence is
+    given up at once instead of being downloaded whole."""
     for k in range(tries):
         try:
-            req = urllib.request.Request("%s/embl/%s" % (BROWSER, acc), headers={"User-Agent": "python-urllib", "Accept-Encoding": "gzip"})
+            url = "%s/embl/%s" % (BROWSER, acc) if source == "ena" else NCBI_RECORD % acc
+            req = urllib.request.Request(url, headers={"User-Agent": "python-urllib", "Accept-Encoding": "gzip"})
             buf, z, checked = bytearray(), None, False
             with urllib.request.urlopen(req, timeout=300) as r:
                 first = True
@@ -87,9 +91,9 @@ def fetch_record(acc, tries=3, pause=5.0, probe=400000):
                         z = zlib.decompressobj(16 + zlib.MAX_WBITS) if b[:2] == b"\x1f\x8b" else None
                         first = False
                     buf += z.decompress(b) if z else b
-                    if not checked and len(buf) >= probe:
+                    if probe and not checked and len(buf) >= probe:
                         checked = True
-                        if b"FT   CDS  " not in buf:
+                        if b"FT   CDS  " not in buf and b"     CDS  " not in buf:
                             raise NotAnnotated(acc)
             return bytes(buf).decode(errors="replace")
         except NotAnnotated:
@@ -121,8 +125,16 @@ def replicons(assembly):
     return re.findall(r'<CHROMOSOME accession="([^"]+)">\s*(?:<NAME>[^<]*</NAME>\s*)?<TYPE>([^<]*)</TYPE>', xml)
 
 
+def replicons_ncbi(assembly):
+    """The same list from the NCBI mirror of the INSDC assembly (used when the ENA record service does not answer)."""
+    j = json.loads(fetch(NCBI_REPORT % assembly))
+    return [(r["genbank_accession"], "Chromosome" if r.get("assigned_molecule_location_type") == "Chromosome" else "Plasmid")
+            for r in j.get("reports", []) if r.get("role") == "assembled-molecule" and r.get("genbank_accession")]
+
+
 def n_cds(text):
-    return sum(1 for line in text.split("\n") if line.startswith("FT   CDS  ")), text.count('/translation="')
+    """(coding sequences, translated coding sequences) of EMBL or GenBank flat file text."""
+    return sum(1 for line in text.split("\n") if line.startswith("FT   CDS  ") or line.startswith("     CDS  ")), text.count('/translation="')
 
 
 def library_assemblies(cache):
@@ -160,9 +172,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--genomes", nargs="+", required=True, help="tables with the columns genus and accession (test and development chromosomes)")
     ap.add_argument("--genbank", nargs="+", required=True, help="folders with <accession>.gb (searched in order)")
-    ap.add_argument("--tables", nargs="*", default=[], help="SupTable1.txt SupTable2.txt of the island set (strains to leave out)")
+    ap.add_argument("--tables", nargs="+", required=True, help="SupTable1.txt SupTable2.txt of the island set (strains to leave out)")
     ap.add_argument("--dir", required=True)
     ap.add_argument("--only", nargs="*", default=[], help="only these accessions")
+    ap.add_argument("--source", default="ena", choices=["ena", "ncbi"], help="mirror for the records of the chosen assemblies (the candidate list always comes from ENA)")
     a = ap.parse_args()
     from seeddrift.pipeline import get_taxonomy
     tax = get_taxonomy()
@@ -233,28 +246,32 @@ def main():
                 if c["assembly"] in bad:
                     info["skipped"][bad[c["assembly"]]] = info["skipped"].get(bad[c["assembly"]], 0) + 1
                     continue
-                dest, meta = os.path.join(store, c["assembly"] + ".embl.gz"), os.path.join(store, c["assembly"] + ".json")
-                if os.path.exists(dest) and os.path.exists(meta):
+                meta = os.path.join(store, c["assembly"] + ".json")
+                dest = os.path.join(store, c["assembly"] + (".embl.gz" if a.source == "ena" else ".gb.gz"))
+                have = [x for x in (os.path.join(store, c["assembly"] + e) for e in (".embl.gz", ".gb.gz")) if os.path.exists(x)]
+                if have and os.path.exists(meta):
                     m = json.load(open(meta))
                     reps, tr = [tuple(x) for x in m["replicons"]], m["cds"]
                 else:
                     try:
-                        reps = replicons(c["assembly"])
+                        reps = replicons(c["assembly"]) if a.source == "ena" else replicons_ncbi(c["assembly"])
                         if not reps:
                             raise RuntimeError("no replicon list")
                         reps = sorted(reps, key=lambda x: x[1] != "Chromosome")          # a chromosome first: it shows at once whether the assembly is annotated
-                        text = "".join(fetch_record(r) for r, _ in reps)
+                        text = "".join(fetch_record(r, probe=400000 if i == 0 else 0, source=a.source) for i, (r, _) in enumerate(reps))
+                        if a.source == "ncbi":
+                            time.sleep(0.4)
                     except NotAnnotated:
                         info["skipped"]["not annotated"] = info["skipped"].get("not annotated", 0) + 1
                         bad[c["assembly"]] = "not annotated"
                         json.dump(bad, open(bad_path, "w"), indent=1)
                         continue
                     except Exception as e:           # noqa: BLE001
-                        why = "no replicon list" if "no replicon list" in str(e) else "download failed"
-                        info["skipped"][why] = info["skipped"].get(why, 0) + 1
-                        if why == "no replicon list":
-                            bad[c["assembly"]] = why
-                            json.dump(bad, open(bad_path, "w"), indent=1)
+                        if "no replicon list" not in str(e):         # a failed download must not change which assemblies the rule picks: stop, rerun later
+                            sys.exit("%s: download of %s failed (%s); no panel written for this chromosome, rerun" % (acc, c["assembly"], str(e)[:80]))
+                        info["skipped"]["no replicon list"] = info["skipped"].get("no replicon list", 0) + 1
+                        bad[c["assembly"]] = "no replicon list"
+                        json.dump(bad, open(bad_path, "w"), indent=1)
                         continue
                     cds, tr = n_cds(text)
                     if tr < MIN_CDS or tr < 0.8 * cds:

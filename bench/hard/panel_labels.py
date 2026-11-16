@@ -4,7 +4,8 @@
 Nothing here reads a score, the reference library or sequence composition. The evidence is gene order in genomes of
 the chromosome's own genus, which every method under test has hidden.
 
-  hit of gene g in panel genome P   best alignment of g in P with at least 40% identity over at least 70% of g
+  hit of gene g in panel genome P   best alignment of g in P with at least 40% identity over at least 70% of g (highest bit
+                                    score; among equal scores the first line of the search output)
   positional orthologue             g has a hit h in P, and at least one of the 2 genes before g and at least one of
                                     the 2 genes after g has its own hit in P within 5 genes of h on the same replicon
   f                                 share of the panel genomes of OTHER species of the genus with a positional
@@ -20,7 +21,8 @@ the chromosome's own genus, which every method under test has hidden.
             unresolved  everything else: never counted as native or as transferred. A gene that lies in a published
                         island region and in a published backbone region (label "both") is unresolved, and counts as
                         island-labelled for the native class, the 5-gene margin and the native blocks
-  units     island region   a published island region with at least 3 labelled genes, at least half of them class island
+  units     island region   a published island region with at least 3 genes of class island that are at least half of
+                            its island-labelled genes; only those genes carry the region
             native block    11 consecutive genes, none a published island gene or within 5 genes of one, at least 9
                             of them class native; tiled without overlap
   flags     absent      island-class gene without any alignment (40% identity over 50% of the gene) in any other species
@@ -40,6 +42,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import hashlib
 import json
 import os
 import subprocess
@@ -58,7 +61,9 @@ BLOCK = 11
 def panel_genome(path):
     """Proteins of one panel assembly in replicon order: [(id, replicon, index on the replicon, sequence)]."""
     from seeddrift.inputs import from_genbank
-    g = from_genbank(gzip.open(path, "rt").read(), fmt="embl")
+    path = next(p for p in (path, path.replace(".embl.gz", ".gb.gz")) if os.path.exists(p))
+    text = gzip.open(path, "rt").read()
+    g = from_genbank(text, fmt="genbank" if text.startswith("LOCUS") else "embl")
     by = {}
     for gid, seq in g.proteins.items():
         contig, s, e, _, _ = g.coords[gid]
@@ -202,9 +207,13 @@ def main():
                     name = "P%d_%d" % (pi, j)
                     where[name] = (pi, rep, idx)
                     fo.write(">%s\n%s\n" % (name, seq))
-        if not (a.reuse and os.path.exists(os.path.join(work, "panel_hits.tsv")) and os.path.exists(os.path.join(work, "self_hits.tsv"))):
+        digest = hashlib.sha256(open(os.path.join(work, "query.faa"), "rb").read() + open(os.path.join(work, "panel.faa"), "rb").read()).hexdigest()
+        stamp = os.path.join(work, "inputs.sha256")
+        same = os.path.exists(stamp) and open(stamp).read().strip() == digest
+        if not (a.reuse and same and os.path.exists(os.path.join(work, "panel_hits.tsv")) and os.path.exists(os.path.join(work, "self_hits.tsv"))):
             diamond(a.diamond, os.path.join(work, "query.faa"), os.path.join(work, "panel.faa"), os.path.join(work, "panel_hits.tsv"), a.threads, work)
             diamond(a.diamond, os.path.join(work, "query.faa"), os.path.join(work, "query.faa"), os.path.join(work, "self_hits.tsv"), a.threads, work, k=50)
+            open(stamp, "w").write(digest + "\n")
         rep_size = {}
         for pi, rep, idx in where.values():
             rep_size[(pi, rep)] = max(rep_size.get((pi, rep), 0), idx + 1)
@@ -223,8 +232,12 @@ def main():
         for line in open(os.path.join(work, "self_hits.tsv")):
             q, s, pid, qs, qe, ql, ss, se, sl, _ = line.rstrip("\n").split("\t")
             if q != s and float(pid) >= MIN_ID and (int(qe) - int(qs) + 1) / int(ql) >= 0.8 and (int(se) - int(ss) + 1) / int(sl) >= 0.8:
-                multi.add(q)
-        published = [lab[k]["label"] if k in lab else "none" for k in genes]
+                multi.update((q, s))
+        if set(lab) != set(genes):
+            sys.exit("%s: the published label file and the record do not hold the same genes (%d against %d); rerun bench/islands/labels.py" % (acc, len(lab), len(genes)))
+        if any(r["label"] == "island" and not r["region"] for r in lab.values()):
+            sys.exit("%s: an island-labelled gene without a region id" % acc)
+        published = [lab[k]["label"] for k in genes]
         locus = open(gb).readline()
         closed = "circular" in locus and len(set(contig)) == 1
         rows, cls, unit, near_isl = classify(genes, contig, published, hits, role, multi, closed, a.block_min)
@@ -236,7 +249,8 @@ def main():
             if published[i] == "island":
                 reg.setdefault(lab[k]["region"], []).append(i)
         for rid, idx in reg.items():
-            if len(idx) >= 3 and np.mean(cls[idx] == "island") >= 0.5:
+            n_isl = int((cls[idx] == "island").sum())
+            if n_isl >= 3 and n_isl >= 0.5 * len(idx):          # at least 3 island-class genes that are at least half of its island-labelled genes
                 for i in idx:
                     if cls[i] == "island":
                         unit[i] = rid

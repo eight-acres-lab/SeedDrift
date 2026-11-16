@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import hashlib
 import json
 import os
@@ -60,7 +61,7 @@ def read_scores(spec, acc):
     if not os.path.exists(path):
         return {}
     rows = list(csv.DictReader(open(path), delimiter="\t"))
-    want = cols.split(",") if cols else [c for c in rows[0] if c not in ("gene_id", "full")]
+    want = cols.split(",") if cols else [c for c in rows[0] if c not in ("gene_id", "full", "exact")]
     out = {}
     for c in want:
         m = {}
@@ -98,25 +99,26 @@ def chromosome(acc, labels, published):
 
 
 def label_set(ch, name):
-    """(positive genes, negative genes, unit id per gene for positives, unit id per gene for negatives)."""
+    """Classes and units of one analysis: pos / neg = the genes of the gene-level comparison; pu / nu = unit id per gene
+    ("" = none); pm / nm = the genes that carry a unit and enter its score."""
     isl, nat = ch["cls"] == "island", ch["cls"] == "native"
     unit = ch["unit"]
     is_block = np.array([str(u).startswith("NB") for u in unit])
     pu = np.where(isl & ~is_block, unit, "")
     nu = np.where(nat & is_block, unit, "")
     if name == "gated":
-        return isl, nat, pu, nu
+        return dict(pos=isl, neg=nat, pu=pu, nu=nu, pm=isl, nm=nat)
     if name == "pub":                                      # a published region is a unit when at least 3 genes carry its label
         p, n = ch["pub"] == "island", ch["pub"] == "backbone"
-        ids, counts = np.unique(ch["pub_unit"][p | n], return_counts=True)
+        ids, counts = np.unique(ch["pub_unit"][(p | n) & (ch["pub_unit"] != "")], return_counts=True)
         big = np.isin(ch["pub_unit"], ids[counts >= 3])
-        return p, n, np.where(p & big, ch["pub_unit"], ""), np.where(n & big, ch["pub_unit"], "")
-    if name == "absent":                                   # S-a: positives absent from every other species; regions at least half absent
+        return dict(pos=p, neg=n, pu=np.where(p & big, ch["pub_unit"], ""), nu=np.where(n & big, ch["pub_unit"], ""), pm=p, nm=n)
+    if name == "absent":                                   # S-a: positives absent from every other species; regions at least half absent, scored from all their island genes
         keep = [u for u in set(pu.tolist()) - {""} if np.mean(ch["absent"][pu == u]) >= 0.5]
-        return isl & ch["absent"], nat, np.where(np.isin(pu, keep), pu, ""), nu
+        return dict(pos=isl & ch["absent"], neg=nat, pu=np.where(np.isin(pu, keep), pu, ""), nu=nu, pm=isl, nm=nat)
     if name == "deep":                                     # S-f: thresholds from deep natives; blocks whose natives are all deep
         keep = [u for u in set(nu.tolist()) - {""} if ch["deep"][nu == u].all()]
-        return isl, nat & ch["deep"], pu, np.where(np.isin(nu, keep), nu, "")
+        return dict(pos=isl, neg=nat & ch["deep"], pu=pu, nu=np.where(np.isin(nu, keep), nu, ""), pm=isl, nm=nat & ch["deep"])
     raise ValueError(name)
 
 
@@ -203,11 +205,12 @@ def evaluate_chromosome(ch, scores, sets, shifts, rng_seed=1):
     offsets = rng.integers(1, n, shifts) if shifts and n > 1 else np.zeros(0, dtype=np.int64)
     out = {}
     for s in sets:
-        pos, neg, pu, nu = label_set(ch, s)
+        ls = label_set(ch, s)
+        pos, neg, pu, nu = ls["pos"], ls["neg"], ls["pu"], ls["nu"]
         if pos.sum() == 0 or neg.sum() == 0:
             continue
         has_units = (pu != "").any() and (nu != "").any()
-        pi, ni = (unit_index(pu, pos), unit_index(nu, neg)) if has_units else (np.zeros((0, 1), dtype=np.int64),) * 2
+        pi, ni = (unit_index(pu, ls["pm"]), unit_index(nu, ls["nm"])) if has_units else (np.zeros((0, 1), dtype=np.int64),) * 2
         n_reg, n_blk = len(pi), len(ni)
         allowed = 1 if s == "pub" else max(1, int(np.floor(0.02 * n_blk)))
         pidx, nidx = np.flatnonzero(pos), np.flatnonzero(neg)
@@ -224,7 +227,7 @@ def evaluate_chromosome(ch, scores, sets, shifts, rng_seed=1):
             m, _, v = gene_metrics(x, pos, neg)
             if len(offsets):
                 fin = np.isfinite(x)
-                m["r1_shifted"] = float(np.mean([M.recall_never(v[(pidx - o) % n], v[(nidx - o) % n], fin[(pidx - o) % n], fin[(nidx - o) % n], 0.01) for o in offsets[:100]]))
+                m["r1_shifted"] = float(np.mean([M.recall_never(v[(pidx - o) % n], v[(nidx - o) % n], fin[(pidx - o) % n], fin[(nidx - o) % n], 0.01) for o in offsets]))
             if has_units:
                 own = np.isfinite(q[k[:-3]])
                 everyone = np.ones(n, dtype=bool)
@@ -289,7 +292,9 @@ def main():
     ap.add_argument("--scores-v2", nargs="*", default=[], help="DIR[:col,col] of the similarity scores with the family hidden; the other scores come from --scores")
     ap.add_argument("--fusion", default="max", choices=M.FUSIONS)
     ap.add_argument("--choose-fusion", action="store_true", help="development: print the P1 metric of all fusion candidates")
-    ap.add_argument("--shifts", type=int, default=200, help="offsets of the label-shift null")
+    ap.add_argument("--shifts", type=int, default=1000, help="offsets of the label-shift null")
+    ap.add_argument("--hidden-v1", default="", help="folder with hidden_<accession>.tsv of the V1 views"); ap.add_argument("--hidden-v2", default="", help="the same for V2")
+    ap.add_argument("--development", default=os.path.join(os.path.dirname(HERE), "islands", "results", "dev_genomes.tsv"), help="the chromosomes that are open")
     ap.add_argument("--sealed", default=os.path.join(HERE, "results", "sealed.tsv")); ap.add_argument("--unseal", default="")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
@@ -297,9 +302,28 @@ def main():
     genomes = [g for g in csv.DictReader(open(a.genomes), delimiter="\t") if not a.accessions or g["accession"] in a.accessions]
     genomes = [g for g in genomes if os.path.exists(os.path.join(a.labels, g["accession"] + ".tsv"))]
     sealed = {r["accession"]: r["tier"] for r in csv.DictReader(open(a.sealed), delimiter="\t")} if os.path.exists(a.sealed) else {}
-    locked = sorted(g["accession"] for g in genomes if sealed.get(g["accession"], "open") not in ("open", a.unseal[:1]))
+    open_acc = {r["accession"] for r in csv.DictReader(open(a.development), delimiter="\t")} - set(sealed)
+    locked = sorted(g["accession"] for g in genomes if g["accession"] not in open_acc and sealed.get(g["accession"], "sealed") != (a.unseal[:1] or "none"))
     if locked:
-        sys.exit("sealed chromosomes without the matching --unseal: " + " ".join(locked))
+        sys.exit("chromosomes that are not development and have no matching --unseal: " + " ".join(locked))
+    log_path = os.path.join(HERE, "results", "unseal.log")
+    if a.unseal:
+        if os.path.exists(log_path) and any(json.loads(line)["unseal"] == a.unseal for line in open(log_path) if line.strip()):
+            sys.exit("unsealing %s has already been run (see %s)" % (a.unseal, log_path))
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=HERE).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", HERE], capture_output=True, text=True, cwd=HERE).stdout.strip()
+        if not commit or dirty:
+            sys.exit("an unsealing needs a clean, committed bench/hard")
+        h = hashlib.sha256()
+        files = [os.path.join(a.labels, g["accession"] + ".tsv") for g in genomes]
+        for spec in list(a.scores) + list(a.scores_v2):
+            files += [os.path.join(spec.partition(":")[0], "scores_%s.tsv" % g["accession"]) for g in genomes]
+        for f in sorted(files) + [os.path.abspath(__file__), os.path.join(HERE, "metrics.py")]:
+            if os.path.exists(f):
+                h.update(open(f, "rb").read())
+        with open(log_path, "a") as fo:
+            fo.write(json.dumps(dict(unseal=a.unseal, date=datetime.datetime.now().isoformat(timespec="seconds"), commit=commit,
+                                     labels_scores_evaluator_sha256=h.hexdigest(), chromosomes=[g["accession"] for g in genomes], out=os.path.basename(a.out))) + "\n")
     per, elig, unit_of, fusion_table = {}, {}, {}, {}
     for g in genomes:
         acc = g["accession"]
@@ -314,11 +338,17 @@ def main():
                 raw[k] = np.array([m.get(x, np.nan) for x in ch["gene"]])
         if not raw:
             continue
-        raw2, has_v2 = dict(raw), False
+        raw2, has_v2 = {k: v for k, v in raw.items() if input_class(k) == "dna"}, False
         for spec in a.scores_v2:
             for k, m in read_scores(spec, acc).items():
                 raw2[k] = np.array([m.get(x, np.nan) for x in ch["gene"]])
                 has_v2 = True
+        if a.hidden_v1 and a.hidden_v2:
+            hid = [sum(1 for line in open(os.path.join(d, "hidden_%s.tsv" % acc))) - 1 for d in (a.hidden_v1, a.hidden_v2)]
+            elig[acc]["hidden_v1"], elig[acc]["hidden_v2"] = hid
+            elig[acc]["v2_evaluable"] = bool(hid[1] - hid[0] >= 3)
+        else:
+            elig[acc]["v2_evaluable"] = True
         if a.choose_fusion and "codon" in raw and "wide" in raw:
             for cand in M.FUSIONS:
                 r = evaluate_chromosome(ch, {"fuse": add_fusions(dict(raw), cand)["fuse"]}, ("gated",), 0)
@@ -349,12 +379,14 @@ def main():
         analyses = dict(S_pub=unit_values("v1", "pub", metric, pub_flag),
                         S_a=unit_values("v1", "absent", metric, flag, (lambda x: size(x, "absent", "pos") >= 20) if ep == "P1" else (lambda x: size(x, "absent", "regions") >= 3)),
                         S_f=unit_values("v1", "deep", metric, flag, (lambda x: elig[x]["deep_natives"] >= 300) if ep == "P1" else (lambda x: size(x, "deep", "blocks") >= 20)),
-                        V2=unit_values("v2", "gated", metric, flag),
+                        V2=unit_values("v2", "gated", metric, flag, lambda x: elig[x]["v2_evaluable"]),
                         S_b={u: v for u, v in main_vals.items() if not any(elig[x]["count_flagged"] for x in per if unit_of[x] == u)})
         rows = []
         for A, Bset in contrasts:
             c = contrast(main_vals, A, Bset, eligible)
-            if c is None:
+            if c is None:                                     # the family keeps its registered size
+                rows.append(dict(a=A, b=list(Bset), mean=float("nan"), lo=float("nan"), hi=float("nan"), p=1.0, n=0, wins=0, eq_lo=float("-inf"), eq_hi=float("inf"),
+                                 analyses={}, trivial={}, missing=True))
                 continue
             row = dict(a=A, b=list(Bset), **c)
             row["analyses"] = {}
@@ -362,14 +394,18 @@ def main():
                 cc = contrast(vals, A, Bset, sorted(vals))
                 row["analyses"][name] = None if cc is None else dict(mean=cc["mean"], lo=cc["lo"], hi=cc["hi"], n=cc["n"])
             suffix = "_nb" if A.endswith("_nb") else ""
-            triv = [t + suffix for t in TRIVIAL] + (["fuse_triv" + suffix] if input_class(A) == "both" else [])
-            row["trivial"] = {}
+            W = A if (c["mean"] > 0 or len(Bset) > 1) else Bset[0]            # the winner must beat every trivial score of its window
+            triv = [t + suffix for t in TRIVIAL] + (["fuse_triv" + suffix] if input_class(W) == "both" else [])
+            row["winner"], row["trivial"] = W, {}
             for t in triv:
-                c2 = contrast(main_vals, A, (t,), eligible)
+                c2 = contrast(main_vals, W, (t,), eligible)
                 row["trivial"][t] = None if c2 is None else dict(mean=c2["mean"], lo=c2["lo"])
             rows.append(row)
         for row, p in zip(rows, M.holm(np.array([r["p"] for r in rows])) if rows else []):
             row["p_holm"] = float(p)
+            if row.get("missing"):
+                row.update(verdict="not computable: a method has no score", open=["scores missing"], notes=[])
+                continue
             sign = np.sign(row["mean"])
             is_set = len(row["b"]) > 1
             classes_a, classes_b = input_class(row["a"]), {input_class(b) for b in row["b"]}
@@ -415,21 +451,25 @@ def main():
                     later.append("S-f does not agree")
                 elif s_["n"] < 7:
                     notes.append("S-f not tested (sign only, %d genera)" % s_["n"])
-            lost = [t for t, v in row["trivial"].items() if v is not None and not (v["mean"] > 0 and v["lo"] > 0)]
+            lost = [t for t, v in row["trivial"].items() if v is None or not (v["mean"] > 0 and v["lo"] > 0)]
             winner = (row["a"], "+".join(row["b"])) if sign > 0 else ("+".join(row["b"]), row["a"])
             if first:
                 row["verdict"] = "equivalent at this resolution" if (row["eq_lo"] > -0.05 and row["eq_hi"] < 0.05) else "unresolved"
             elif later:
                 row["verdict"] = "unresolved"
-            elif sign > 0 and lost:
+            elif lost:
                 row["verdict"] = "%s above %s, but %s" % (winner[0], winner[1], "fusion not shown to add to composition plus a trivial similarity proxy"
                                                          if lost == ["fuse_triv" + ("_nb" if row["a"].endswith("_nb") else "")] else "not shown to detect origin beyond a trivial proxy")
             else:
                 row["verdict"] = "%s better than %s" % winner
-            if sign > 0 and lost:
-                later.append("not above trivial: " + ", ".join(lost))
+            if lost:
+                later.append("%s not above trivial: %s" % (row["winner"], ", ".join(lost)))
             row["open"], row["notes"] = first + later, notes
-        report[ep] = dict(units=eligible, values=main_vals, contrasts=rows, min_p=None if not eligible else 2 / 2 ** len(eligible))
+        floor = {"P1": 9, "P2": 8}[ep]
+        if a.unseal and len(eligible) < floor:
+            for row in rows:
+                row.update(verdict="no verdict: %d eligible genera, the floor is %d" % (len(eligible), floor))
+        report[ep] = dict(units=eligible, values=main_vals, contrasts=rows, min_p=None if not eligible else 2 / 2 ** len(eligible), floor=floor)
 
     def cand_mean(t):
         v = [np.mean([x for acc, x in t.items() if unit_of[acc] == u and elig[acc]["p1"]]) for u in units if any(unit_of[acc] == u and elig[acc]["p1"] for acc in t)]
@@ -453,14 +493,6 @@ def main():
         return o
 
     json.dump(clean(result), open(a.out + ".json", "w"), indent=1)
-    if a.unseal:
-        h = hashlib.sha256()
-        for f in sorted(os.path.join(a.labels, g["accession"] + ".tsv") for g in genomes) + [os.path.abspath(__file__), os.path.join(HERE, "metrics.py")]:
-            h.update(open(f, "rb").read())
-        commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=HERE).stdout.strip()
-        with open(os.path.join(HERE, "results", "unseal.log"), "a") as fo:
-            fo.write(json.dumps(dict(unseal=a.unseal, commit=commit, labels_and_evaluator_sha256=h.hexdigest(),
-                                     chromosomes=[g["accession"] for g in genomes], out=os.path.basename(a.out))) + "\n")
     f3 = lambda x: "" if x is None or x != x else "%.3f" % x
     L = ["Chromosomes %d, units %d. Fusion candidate: %s." % (len(per), len(units), a.fusion), ""]
     for ep, r in report.items():
@@ -477,6 +509,9 @@ def main():
             L += ["", "| contrast | difference (95% t-interval) | units won | p (Holm) | S-pub | S-a | S-b | S-f | V2 | verdict | open conditions |", "|---|---|---|---|---|---|---|---|---|---|---|"]
             for c in r["contrasts"]:
                 an = lambda k: "" if c["analyses"].get(k) is None else "%+.3f (n %d)" % (c["analyses"][k]["mean"], c["analyses"][k]["n"])
+                if c.get("missing"):
+                    L.append("| %s - %s | | | | | | | | | %s | |" % (c["a"], "min of " + ", ".join(c["b"]) if len(c["b"]) > 1 else c["b"][0], c["verdict"]))
+                    continue
                 L.append("| %s - %s | %+.3f (%+.3f to %+.3f) | %d of %d | %.4f (%.4f) | %s | %s | %s | %s | %s | %s | %s |" % (
                     c["a"], "min of " + ", ".join(c["b"]) if len(c["b"]) > 1 else c["b"][0], c["mean"], c["lo"], c["hi"], c["wins"], c["n"], c["p"], c["p_holm"],
                     an("S_pub"), an("S_a"), an("S_b"), an("S_f"), an("V2"), c["verdict"], "; ".join(c["open"] + c.get("notes", []))))

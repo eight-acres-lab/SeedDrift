@@ -7,7 +7,6 @@ Each score says how unlike the rest of the chromosome a gene's coding sequence i
   codon    synonymous codon usage: excess cross-entropy of the gene's codons under the chromosome's usage,
            standardised by its model variance (about N(0, 1) for a typical gene of any length)
   kmer     the same for a third-order Markov chain with one table per codon position
-  *_nb     the mean of a score over the gene and its 5 neighbours on each side (islands are contiguous)
   short    minus the log length (control: a score that knows nothing about composition)
 
 Writes <out>/scores_<accession>.tsv (gene ids as the pipeline names them).
@@ -144,7 +143,7 @@ def main():
     for acc in a.accessions:
         ids, cds = chromosome(os.path.join(a.genbank, acc + ".gb"))
         sc = genome_scores(cds)
-        cols = ["gc3", "codon", "kmer", "gc3_nb", "codon_nb", "kmer_nb", "short"]
+        cols = ["gc3", "codon", "kmer", "short"]            # windows are the evaluator's business (one rule for every score)
         with open(os.path.join(a.out, "scores_%s.tsv" % acc), "w") as fo:
             fo.write("gene_id\t" + "\t".join(cols) + "\n")
             for i, gid in enumerate(ids):

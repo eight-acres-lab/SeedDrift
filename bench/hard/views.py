@@ -39,7 +39,7 @@ Scores, one row per gene of --genes (higher = more foreign; empty = the gene has
 --hits-out writes the visible hits themselves (the same 12 columns), for methods that build their own tables.
 
 usage:
-  python bench/hard/views.py --hits hits_ACC.tsv --library library.npz --lineage job_ACC.npz --genes labels/ACC.tsv \\
+  python bench/hard/views.py --hits hits_ACC.tsv --library library.npz --lineage job_ACC.npz --genes genes/ACC.tsv --prefix ACC__ \\
       --hide genus --out DIR/scores_ACC.tsv
 """
 from __future__ import annotations
@@ -50,6 +50,7 @@ import csv
 import hashlib
 import math
 import os
+import sys
 
 import numpy as np
 
@@ -70,10 +71,11 @@ def shared_depth(lineage, ranks):
     return depth
 
 
-def read_hits(path, taxid_index, deep_path=""):
+def read_hits(path, taxid_index, deep_path="", prefix=""):
     """Hits as arrays (query number, proteome, identity, E-value, bit score, covered share, query length, source file,
-    line). Genes that the deeper file lists take their hits from it."""
-    qid, qno = {}, array.array("i")
+    line), and the number of stored lines per gene before any taxon filter. Genes that the deeper file lists take their
+    hits from it. prefix: the "<accession>__" that the search put before the gene ids."""
+    qid, qno, stored = {}, array.array("i"), {}
     p, pid, bits, cov, qlen = array.array("i"), array.array("f"), array.array("f"), array.array("f"), array.array("i")
     loge, src, line_no = array.array("f"), array.array("b"), array.array("i")
     unknown, deep = 0, set()
@@ -83,11 +85,12 @@ def read_hits(path, taxid_index, deep_path=""):
         with open(fp) as fh:
             for i, line in enumerate(fh):
                 f = line.rstrip("\n").split("\t")
-                name = f[0].partition("__")[2] or f[0]
+                name = f[0][len(prefix):] if prefix and f[0].startswith(prefix) else f[0]
                 if name in skip:
                     continue
                 if source == 1:
                     deep.add(name)
+                stored[name] = stored.get(name, 0) + 1
                 tt = f[1].rpartition("|")[2]
                 pi = taxid_index.get(int(tt)) if tt.isdigit() else None
                 if pi is None:
@@ -106,7 +109,7 @@ def read_hits(path, taxid_index, deep_path=""):
     arr = lambda a, t: np.frombuffer(a, dtype=t) if len(a) else np.zeros(0, dtype=t)
     return list(qid), dict(q=arr(qno, np.int32), p=arr(p, np.int32), pid=arr(pid, np.float32), bits=arr(bits, np.float32),
                            cov=arr(cov, np.float32), qlen=arr(qlen, np.int32), loge=arr(loge, np.float32), src=arr(src, np.int8),
-                           line=arr(line_no, np.int32)), unknown, deep
+                           line=arr(line_no, np.int32)), unknown, deep, stored
 
 
 def closeness(h, n_genes, n_prot, min_cov=0.7, min_share=0.3):
@@ -134,9 +137,9 @@ def hidden_set(depth, close, hide, by_distance=True):
     hidden = depth >= LEVEL[hide]
     info = dict(by_rank=int(hidden.sum()), as_close_as_genus=0, identity_90=0, closest_own_genus=None)
     if by_distance:
-        own = depth >= 6
         with np.errstate(invalid="ignore"):
-            if own.any() and np.isfinite(close[own]).any():
+            own = (depth >= 6) & (close < 99.0)               # the genome's own strain may or may not be a library proteome: rows at 99 or more set no reference
+            if own.any():
                 ref = float(np.nanmax(close[own]))
                 add = (close >= ref) & ~hidden
                 info.update(as_close_as_genus=int(add.sum()), closest_own_genus=round(ref, 2))
@@ -165,7 +168,7 @@ def gene_random(name):
     return int.from_bytes(hashlib.sha256(("%s|random-v1" % name).encode()).digest()[:8], "big") / 2.0 ** 64
 
 
-def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distance=True, deep=(), deep_limit=4000, taxid=None):
+def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distance=True, deep=(), deep_limit=4000, taxid=None, stored=None):
     """({gene: {column: value}} for the genes that have a stored hit, information on the view, mask of the hits kept)."""
     depth = shared_depth(lineage, ranks)
     close = closeness(h, n_genes or len(names), len(ranks))
@@ -186,10 +189,11 @@ def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distan
         ix = order[a:b]
         name = names[int(q[a])]
         cap = deep_limit if name in deep else limit
+        n_stored = stored.get(name, b - a) if stored else b - a   # lines of the search output, counted before any taxon filter
         vis_all = ix[~hidden[h["p"][ix]]]
         vis = vis_all[:limit]
         kept[vis] = True
-        row = dict(full=float(b - a >= cap), exact=float(len(vis_all) >= limit or b - a < cap), absent_near=1.0, n_rows=0.0)
+        row = dict(full=float(n_stored >= cap), exact=float(len(vis_all) >= limit or n_stored < cap), absent_near=1.0, n_rows=0.0)
         if not len(vis):
             row["nohit"] = 1.0
             out[name] = row
@@ -225,7 +229,8 @@ def main():
     ap.add_argument("--hits", required=True, help="deep hits of one chromosome (12 DIAMOND columns, targets named accession|taxid)")
     ap.add_argument("--library", required=True)
     ap.add_argument("--lineage", required=True, help="npz with genome_ranks (domain, phylum, class, order, family, genus)")
-    ap.add_argument("--genes", required=True, help="table with a gene_id column: every gene of the chromosome")
+    ap.add_argument("--genes", required=True, help="the label-free gene table of the chromosome (genes/<accession>.tsv of bench/islands/labels.py)")
+    ap.add_argument("--prefix", default="", help="what the search put before the gene ids, e.g. NC_000000.1__")
     ap.add_argument("--hide", default="genus", choices=list(LEVEL))
     ap.add_argument("--limit", type=int, default=1000, help="--max-target-seqs of the search, and the number of visible hits a view keeps")
     ap.add_argument("--deep-hits", default="", help="the deeper search of the genes whose list was full (same format)")
@@ -237,10 +242,18 @@ def main():
     a = ap.parse_args()
     lib = np.load(a.library)
     taxid_index = {int(t): i for i, t in reversed(list(enumerate(lib["taxid"])))}
-    names, h, unknown, deep = read_hits(a.hits, taxid_index, a.deep_hits)
+    table = list(csv.DictReader(open(a.genes), delimiter="\t"))
+    if table and ("label" in table[0] or "product" in table[0] or "class" in table[0]):
+        sys.exit("--genes must be the label-free gene table (genes/<accession>.tsv), not a label file")
+    genes = [r["gene_id"] for r in table]
+    names, h, unknown, deep, stored = read_hits(a.hits, taxid_index, a.deep_hits, a.prefix)
     lineage = np.load(a.lineage)["genome_ranks"]
-    genes = [r["gene_id"] for r in csv.DictReader(open(a.genes), delimiter="\t")]
-    sc, info, kept = view_scores(names, h, lib["ranks"], lineage, a.hide, a.limit, len(genes), not a.by_name, deep, a.deep_limit, lib["taxid"])
+    if not int(lineage[5]):
+        sys.exit("the lineage gives no genus: nothing of the genome's own lineage would be hidden")
+    strangers = set(names) - set(genes)
+    if strangers:
+        sys.exit("%d query ids of the hit file are not in the gene table (for example %s); is --prefix right?" % (len(strangers), sorted(strangers)[0]))
+    sc, info, kept = view_scores(names, h, lib["ranks"], lineage, a.hide, a.limit, len(genes), not a.by_name, deep, a.deep_limit, lib["taxid"], stored)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     if a.hidden_out:
         with open(a.hidden_out, "w") as fo:

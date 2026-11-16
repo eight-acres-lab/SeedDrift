@@ -6,7 +6,7 @@ set -euo pipefail
 sha=$1; tree=$2; profile=$3; run_id=$4; provenance=$5; parent=${6:-}
 root=$(pwd)
 [ "$(git -C repo.git rev-parse "$sha^{tree}")" = "$tree" ] || { echo "tree of $sha differs from the developer's" >&2; exit 1; }
-git -C repo.git worktree add -q --detach "wt/$run_id" "$sha"
+git -C repo.git worktree add -q --detach "$root/wt/$run_id" "$sha"
 [ -z "$(git -C "wt/$run_id" status --porcelain --untracked-files=all)" ] || { echo "worktree not clean" >&2; exit 1; }
 chmod -R a-w "wt/$run_id"
 lock="wt/$run_id/ci/envs/ci.lock.yml"

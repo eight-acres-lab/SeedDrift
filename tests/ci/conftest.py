@@ -16,6 +16,22 @@ def tax():
     return Taxonomy(os.path.join(FIX, "mini_taxdump"))
 
 
+class Repo:
+    """A temporary git repository: str(repo), repo / "file" and repo.git(*args)."""
+
+    def __init__(self, path, git):
+        self.path, self.git = path, git
+
+    def __truediv__(self, other):
+        return self.path / other
+
+    def __str__(self):
+        return str(self.path)
+
+    def __fspath__(self):
+        return str(self.path)
+
+
 @pytest.fixture
 def git_repo(tmp_path):
     def git(*a):
@@ -28,5 +44,4 @@ def git_repo(tmp_path):
     (tmp_path / "README").write_text("x\n")
     git("add", "-A")
     git("commit", "-q", "-m", "init")
-    tmp_path.git = git
-    return tmp_path
+    return Repo(tmp_path, git)

@@ -69,7 +69,7 @@ def resolve(tax, rows):
 def read_panels(path=PANELS):
     acc, species = set(), set()
     with open(path) as f:
-        for r in csv.DictReader(f, delimiter="\t"):
+        for r in csv.DictReader((l for l in f if not l.startswith("#")), delimiter="\t"):
             acc.add(r["assembly"].split(".")[0][4:])
             if r.get("species_taxid"):
                 species.add(int(r["species_taxid"]))

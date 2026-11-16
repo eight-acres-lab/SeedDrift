@@ -8,7 +8,7 @@ EXC = os.path.join(FIX, "mini_exclude.tsv")
 
 def run(entries, tax, tmp_path, panels=""):
     p = tmp_path / "panels.tsv"
-    p.write_text("assembly\tspecies_taxid\trole\tpanel_of\n" + panels)
+    p.write_text("# comment line, as in the real table\nassembly\tspecies_taxid\trole\tpanel_of\n" + panels)
     return g2_exclusion.entries(entries, tax, exclude_path=EXC, panels_path=str(p), catalogue_path=str(tmp_path / "none.tsv"))
 
 

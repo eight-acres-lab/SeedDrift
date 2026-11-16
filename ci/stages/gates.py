@@ -68,6 +68,11 @@ def main():
         except GateFailure as err:
             st.extra["gate_failure"] = str(err)[:2000]
             raise SystemExit(str(err)[:2000])
+        except Exception as err:  # noqa: BLE001 - a gate that cannot run has failed (fail closed)
+            from ci.gates import GateResult, run
+            run(GateResult("gates_%s_error" % phase, "fail", dict(error="%s: %s" % (type(err).__name__, err))), run_dir)
+            st.extra["gate_failure"] = "%s: %s" % (type(err).__name__, err)
+            raise
         sentinel = os.path.join(run_dir, "gates", "%s.ok" % phase)
         atomic_write_json(sentinel, {"phase": phase, "passed": True})
         st.output("sentinel", sentinel)

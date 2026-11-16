@@ -111,6 +111,8 @@ start_one() {
          export SEEDDRIFT_TOOLS_URL="http://127.0.0.1:$SD_TOOLS_PORT" SEEDDRIFT_ESMFOLD_URL="http://127.0.0.1:$SD_ESMFOLD_PORT";;
     tools) port=$SD_TOOLS_PORT; tool_env;;
     esmfold) port=$SD_ESMFOLD_PORT
+             # keeps the GPU memory of the service from growing with the longest proteins it has folded
+             export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
              [ "$SD_ESMFOLD_TORCH" = system ] && export PYTHONPATH="$SD_ROOT/.pylibs/esmfold:$PYTHONPATH";;
   esac
   ( cd "$SD_ROOT"

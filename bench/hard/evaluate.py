@@ -124,7 +124,7 @@ def main():
         acc = g["accession"]
         ch = chromosome(a.labels, acc)
         isl, bb = ch["label"] == "island", ch["label"] == "backbone"
-        n_reg = {k: len(set(ch["region"][ch["label"] == k])) for k in ("island", "backbone")}
+        n_reg = {k: len(set(ch["region"][ch["label"] == k]) - {""}) for k in ("island", "backbone")}
         x = G.setdefault(g["genus"], dict(chromosomes=[], n_island=0, n_backbone=0, region_ok=False, pos={}, neg={}, scored={}, found={}, null={}))
         x["chromosomes"].append(acc); x["n_island"] += int(isl.sum()); x["n_backbone"] += int(bb.sum())
         reg_ok = n_reg["backbone"] >= a.min_backbone_regions and n_reg["island"] >= a.min_island_regions

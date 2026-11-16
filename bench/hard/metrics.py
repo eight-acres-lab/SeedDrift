@@ -95,7 +95,7 @@ def region_units(v, region, label):
     v, region, label = np.asarray(v, dtype=float), np.asarray(region), np.asarray(label)
     out = {"island": [], "backbone": []}
     for kind in out:
-        m = label == kind
+        m = (label == kind) & (region != "")                  # a labelled gene outside every unit belongs to no region
         for r in np.unique(region[m]):
             out[kind].append(float(np.median(v[m & (region == r)])))
     return np.array(out["island"]), np.array(out["backbone"])
@@ -114,7 +114,7 @@ def region_index(region, label):
     region, label = np.asarray(region), np.asarray(label)
     rows, isl = [], []
     for kind in ("island", "backbone"):
-        m = label == kind
+        m = (label == kind) & (region != "")
         for r in np.unique(region[m]):
             rows.append(np.flatnonzero(m & (region == r))); isl.append(kind == "island")
     idx = np.full((len(rows), max((len(r) for r in rows), default=1)), -1, dtype=np.int64)

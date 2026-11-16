@@ -2,10 +2,12 @@
 """Gene labels of the test chromosomes from the genomic-island reference set (protocol: README.md).
 
 A gene is "island" when at least half of its coding region lies in one island region, "backbone" when at least half
-lies in one backbone region, otherwise unlabelled ("none"). No score of any method is read here.
+lies in one backbone region, otherwise unlabelled ("none"). A gene with at least half in both (the two region sets
+come from different published runs and can overlap) is unlabelled and counted. No score of any method is read here.
 
 Writes, per chromosome, labels/<accession>.tsv (gene_id as the pipeline names it, contig, start, end, strand, label,
-region, product) and results/label_counts.tsv.
+region, product), genes/<accession>.tsv (the same genes without label, region and product: the only gene table a
+scoring script may read) and results/label_counts.tsv.
 
 usage (repo root, on the machine with the data; needs the seeddrift package and Biopython):
   python bench/islands/labels.py [--dir $SEEDDRIFT_DATA/evalsets/islandpick] [--accessions NC_... ...]
@@ -69,9 +71,9 @@ def label_genome(gb_path, islands, backbone):
         contig, s, e, strand, _ = g.coords[gid]
         ri, fi = best_region(s, e, islands)
         rb, fb = best_region(s, e, backbone)
-        lab, reg = ("island", ri) if fi >= 0.5 and fi > fb else ("backbone", rb) if fb >= 0.5 and fb > fi else ("none", "")
+        lab, reg = ("both", "") if fi >= 0.5 and fb >= 0.5 else ("island", ri) if fi >= 0.5 else ("backbone", rb) if fb >= 0.5 else ("none", "")
         rows.append((new, contig, s, e, strand, lab, reg, prod.get(gid, "")))
-    return rows
+    return rows, len(g.proteins) - len(ren)
 
 
 def main():
@@ -84,19 +86,23 @@ def main():
     isl, back = read_regions(os.path.join(a.dir, "SupTable1.txt")), read_regions(os.path.join(a.dir, "SupTable2.txt"))
     accs = a.accessions or [r["accession"] for r in csv.DictReader(open(os.path.join(a.out, "genomes.tsv")), delimiter="\t")]
     os.makedirs(os.path.join(a.dir, "labels"), exist_ok=True)
+    os.makedirs(os.path.join(a.dir, "genes"), exist_ok=True)
     counts = []
     for acc in accs:
-        rows = label_genome(os.path.join(a.genbank or os.path.join(a.dir, "genomes"), acc + ".gb"), isl.get(acc, []), back.get(acc, []))
-        with open(os.path.join(a.dir, "labels", acc + ".tsv"), "w") as fo:
+        rows, dropped = label_genome(os.path.join(a.genbank or os.path.join(a.dir, "genomes"), acc + ".gb"), isl.get(acc, []), back.get(acc, []))
+        n = {k: sum(1 for r in rows if r[5] == k) for k in ("island", "backbone", "none", "both")}
+        with open(os.path.join(a.dir, "labels", acc + ".tsv"), "w") as fo, open(os.path.join(a.dir, "genes", acc + ".tsv"), "w") as fg:
             fo.write("gene_id\tcontig\tstart\tend\tstrand\tlabel\tregion\tproduct\n")
+            fg.write("gene_id\tcontig\tstart\tend\tstrand\n")
             for r in rows:
+                r = r[:5] + ("none" if r[5] == "both" else r[5],) + r[6:]
                 fo.write("\t".join(str(x) for x in r) + "\n")
-        n = {k: sum(1 for r in rows if r[5] == k) for k in ("island", "backbone", "none")}
-        counts.append((acc, len(rows), n["island"], n["backbone"], n["none"]))
-        print("%s genes %d island %d backbone %d unlabelled %d" % counts[-1], flush=True)
+                fg.write("\t".join(str(x) for x in r[:5]) + "\n")
+        counts.append((acc, len(rows), n["island"], n["backbone"], n["none"] + n["both"], n["both"], dropped))
+        print("%s genes %d island %d backbone %d unlabelled %d (of which in both region sets %d); coding sequences without a usable protein %d" % counts[-1], flush=True)
     if not a.accessions:
         with open(os.path.join(a.out, "label_counts.tsv"), "w") as fo:
-            fo.write("accession\tgenes\tisland\tbackbone\tunlabelled\n")
+            fo.write("accession\tgenes\tisland\tbackbone\tunlabelled\tin_both_region_sets\tcds_without_usable_protein\n")
             for c in counts:
                 fo.write("\t".join(str(x) for x in c) + "\n")
 

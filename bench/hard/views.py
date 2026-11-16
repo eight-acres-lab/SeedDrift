@@ -3,9 +3,14 @@
 
 A view hides reference proteomes that are close to the genome before any method reads the table:
 
-  genus    proteomes of the genome's own genus (how every method is deployed: the genome's own taxon is its genus)
-  family   proteomes of its family (the same genes as if the lineage were poorly sampled)
-  order    proteomes of its order
+  genus    proteomes of the genome's own genus (how every method is deployed: the genome's own taxon is its genus),
+           and every proteome that is measurably as close as that: closeness s(r) of a reference proteome r = the
+           median, over the genes with a hit covering at least 70% of the gene in r, of the best such identity
+           (defined when at least 30% of the genes have such a hit). Hidden are the own genus, every r with s(r) at
+           least that of the closest own-genus proteome, and every r with s(r) >= 90. A genus name alone would
+           leave Shigella visible to an Escherichia genome. --by-name switches the distance part off.
+  family   the same plus the proteomes of its family (the same genes as if the lineage were poorly sampled)
+  order    the same plus the proteomes of its order
 
 Hiding is by filtering the stored list. A gene whose stored list is full (--limit hits) may have lost visible hits
 that a search without the hidden taxa would have returned; such genes are flagged (full = 1) and can be searched
@@ -80,6 +85,44 @@ def read_hits(path, taxid_index):
                            cov=arr(cov, np.float32), qlen=arr(qlen, np.int32), loge=arr(loge, np.float32)), unknown
 
 
+def closeness(h, n_genes, n_prot, min_cov=0.7, min_share=0.3):
+    """s(r) per reference proteome (nan where fewer than min_share of the genes have a covering hit)."""
+    out = np.full(n_prot, np.nan)
+    ok = h["cov"] >= min_cov
+    if not ok.any():
+        return out
+    q, p, pid = h["q"][ok].astype(np.int64), h["p"][ok].astype(np.int64), h["pid"][ok]
+    order = np.lexsort((-pid, q * n_prot + p))
+    key = (q * n_prot + p)[order]
+    first = np.r_[True, key[1:] != key[:-1]]                  # best identity of every gene in every proteome
+    bp, bid = p[order][first], pid[order][first]
+    o2 = np.argsort(bp, kind="stable")
+    bp, bid = bp[o2], bid[o2]
+    cuts = np.r_[0, np.flatnonzero(np.diff(bp)) + 1, len(bp)]
+    for a, b in zip(cuts[:-1], cuts[1:]):
+        if b - a >= min_share * n_genes:
+            out[bp[a]] = float(np.median(bid[a:b]))
+    return out
+
+
+def hidden_set(depth, close, hide, by_distance=True):
+    """Rows hidden in a view, and why: own genus (or family / order), as close as the own genus, identity >= 90."""
+    hidden = depth >= LEVEL[hide]
+    info = dict(by_rank=int(hidden.sum()), as_close_as_genus=0, identity_90=0, closest_own_genus=None)
+    if by_distance:
+        own = depth >= 6
+        with np.errstate(invalid="ignore"):
+            if own.any() and np.isfinite(close[own]).any():
+                ref = float(np.nanmax(close[own]))
+                add = (close >= ref) & ~hidden
+                info.update(as_close_as_genus=int(add.sum()), closest_own_genus=round(ref, 2))
+                hidden = hidden | add
+            add = (close >= 90.0) & ~hidden
+        info["identity_90"] = int(add.sum())
+        hidden = hidden | add
+    return hidden, info
+
+
 def narrow_home(depth, hidden, genus_of, own_genus, need=10):
     """Narrowest home depth among family, order, class with at least `need` visible genera besides the genome's own; else phylum."""
     for d in (5, 4, 3):
@@ -94,10 +137,11 @@ def alien(loge, home):
     return math.log(10.0) * ((loge[away].max() if away.any() else 0.0) - (loge[home].max() if home.any() else 0.0))
 
 
-def view_scores(names, h, ranks, lineage, hide, limit=1000):
+def view_scores(names, h, ranks, lineage, hide, limit=1000, n_genes=0, by_distance=True):
     """{gene: {column: value}} for the genes that have a stored hit."""
     depth = shared_depth(lineage, ranks)
-    hidden = depth >= LEVEL[hide]
+    close = closeness(h, n_genes or len(names), len(ranks))
+    hidden, hinfo = hidden_set(depth, close, hide, by_distance)
     viral = ranks[:, 0] == VIRUSES
     home_narrow = narrow_home(depth, hidden, ranks[:, 5], int(lineage[5]))
     order = np.lexsort((-h["bits"], h["q"]))
@@ -130,7 +174,8 @@ def view_scores(names, h, ranks, lineage, hide, limit=1000):
         if "bres" in r:
             r["sim_anom"] = abs(r.pop("bres") - med)
     return out, dict(hidden=int(hidden.sum()), home_narrow_depth=int(home_narrow), genes_with_hits=len(out),
-                     genes_full=int(sum(r["full"] for r in out.values())), genes_no_visible_hit=int(sum(r.get("nohit", 0) for r in out.values())))
+                     genes_full=int(sum(r["full"] for r in out.values())), genes_no_visible_hit=int(sum(r.get("nohit", 0) for r in out.values())),
+                     hidden_rows=np.flatnonzero(hidden), closeness=close, depth=depth, **hinfo)
 
 
 def main():
@@ -141,15 +186,22 @@ def main():
     ap.add_argument("--genes", required=True, help="table with a gene_id column: every gene of the chromosome")
     ap.add_argument("--hide", default="genus", choices=list(LEVEL))
     ap.add_argument("--limit", type=int, default=1000, help="--max-target-seqs of the search")
+    ap.add_argument("--by-name", action="store_true", help="hide by taxonomic rank only, not also by measured closeness")
+    ap.add_argument("--hidden-out", default="", help="write the hidden reference proteomes (taxid, shared depth, closeness) to this table")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     lib = np.load(a.library)
     taxid_index = {int(t): i for i, t in reversed(list(enumerate(lib["taxid"])))}
     names, h, unknown = read_hits(a.hits, taxid_index)
     lineage = np.load(a.lineage)["genome_ranks"]
-    sc, info = view_scores(names, h, lib["ranks"], lineage, a.hide, a.limit)
     genes = [r["gene_id"] for r in csv.DictReader(open(a.genes), delimiter="\t")]
+    sc, info = view_scores(names, h, lib["ranks"], lineage, a.hide, a.limit, len(genes), not a.by_name)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
+    if a.hidden_out:
+        with open(a.hidden_out, "w") as fo:
+            fo.write("taxid\tshared_depth\tcloseness\n")
+            for i in info["hidden_rows"]:
+                fo.write("%d\t%d\t%s\n" % (int(lib["taxid"][i]), int(info["depth"][i]), "" if info["closeness"][i] != info["closeness"][i] else "%.2f" % info["closeness"][i]))
     with open(a.out, "w") as fo:
         fo.write("gene_id\t" + "\t".join(COLS) + "\n")
         for g in genes:
@@ -157,9 +209,9 @@ def main():
             fo.write(g + "\t" + "\t".join("" if c not in r else "%.4f" % r[c] for c in COLS) + "\n")
     missing = len(set(sc) - set(genes))
     print("%s hide=%s: genes %d, with stored hits %d (%d not in the gene table), full lists %d, no visible hit %d of those with hits; "
-          "hidden proteomes %d; narrow home depth %d; hits to taxa outside the library %d" % (
+          "hidden proteomes %d (by rank %d, as close as the own genus [%s] %d, identity >= 90 %d); narrow home depth %d; hits to taxa outside the library %d" % (
               os.path.basename(a.hits), a.hide, len(genes), info["genes_with_hits"], missing, info["genes_full"], info["genes_no_visible_hit"],
-              info["hidden"], info["home_narrow_depth"], unknown), flush=True)
+              info["hidden"], info["by_rank"], info["closest_own_genus"], info["as_close_as_genus"], info["identity_90"], info["home_narrow_depth"], unknown), flush=True)
 
 
 if __name__ == "__main__":

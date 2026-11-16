@@ -1,0 +1,23 @@
+# Taxa and genomes that no future model may use for training (genomes, queries, donors). Dated, append-only.
+# A training run may start only when the entries of the benchmark stage it will be judged on are complete.
+date	kind	name	reason
+2026-11-16	genus	Acinetobacter	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Bacillus	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Bradyrhizobium	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Brucella	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Burkholderia	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Corynebacterium	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Haemophilus	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Mycobacterium	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Prochlorococcus	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Pseudomonas	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Rhizobium	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Rhodopseudomonas	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Rickettsia	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Shewanella	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Sinorhizobium	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Staphylococcus	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Streptococcus	sealed genus of the island anchor (and its family)
+2026-11-16	genus	Vibrio	sealed genus of the island anchor (and its family)
+2026-11-16	rule	panel genomes	every assembly listed in a panel.tsv of the genus panels (written with freeze F1)
+2026-11-16	rule	generators	training code may not import bench/hard generators, seeds or donors (gene-specific loss, false reference cell, relocation placebo)

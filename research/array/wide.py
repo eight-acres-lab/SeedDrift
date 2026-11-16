@@ -405,21 +405,83 @@ def run_compat(model, ds, kw, dev):
     return out
 
 
+def score_genomes(model, st, cfg, bench, lib, out, repeats, kw, dev, hidden=None):
+    """Scores of every gene of whole genomes (name -> job file that gives the genome's genus): scores_<name>.tsv in out.
+    hidden: name -> table with a taxid column; these reference proteomes are hidden instead of the own genus alone."""
+    for name, job in bench.items():
+        g = st.genomes.index(name)
+        genus = int(np.load(job)["genome_ranks"][5])
+        if not genus:
+            sys.exit("%s: the job gives no genus, so nothing of the genome's own lineage would be hidden" % name)
+        extra = lib["ranks"][:, 5] == genus
+        if hidden and name in hidden:
+            taxa = {int(line.split("\t")[0]) for line in open(hidden[name]).read().splitlines()[1:] if line.strip()}
+            extra = extra | np.isin(lib["taxid"], list(taxa))
+        score, seen = {}, {}
+        model.eval()
+        with torch.no_grad():
+            for b in torch.utils.data.DataLoader(Whole(st, cfg, g, extra, repeats, 7), **kw):
+                logit, _ = forward(model, trim(b), dev)
+                for gene, lg, ru, n in zip(b["gene"].numpy().ravel(), logit.cpu().numpy().ravel(), b["rule_ai"].numpy().ravel(), b["n_present"].numpy().ravel()):
+                    if gene >= 0:
+                        score.setdefault(int(gene), []).append((float(lg), float(ru)))
+                        seen[int(gene)] = seen.get(int(gene), 0) + int(n)
+        n_out = 0
+        with open(os.path.join(out, "scores_%s.tsv" % name), "w") as fh:
+            fh.write("gene_id\twide\twide_rule_ai\n")
+            for x, s in score.items():
+                if seen[x] == 0:                              # no member of the gene in any row shown: no evidence, ranks last like everywhere else
+                    n_out += 1
+                    continue
+                fh.write("%s\t%.4f\t%.4f\n" % ((st.gene_id[x],) + tuple(np.mean(s, axis=0))))
+        print("scored %s: %d genes, %d more without any visible member (rank last); own genus hidden: %d proteomes" % (
+            name, len(score) - n_out, n_out, int(extra.sum())), flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data", required=True); ap.add_argument("--names", nargs="+", required=True)
+    ap.add_argument("--data", required=True); ap.add_argument("--names", nargs="+", default=[])
     ap.add_argument("--profiles", required=True); ap.add_argument("--library", required=True); ap.add_argument("--out", required=True)
-    ap.add_argument("--trials", required=True, help="a run directory of the second version (trials_validation.npz, trials_unseen.npz)")
+    ap.add_argument("--trials", default="", help="a run directory of the second version (trials_validation.npz, trials_unseen.npz)")
     ap.add_argument("--universe", default="all", choices=("all", "panel")); ap.add_argument("--genes", type=int, default=64)
     ap.add_argument("--show", type=int, default=0, help="control: show the network only this many of the genes (rows still come from all)")
     ap.add_argument("--blank", type=int, default=0, help="control: cells without numbers")
+    ap.add_argument("--top", type=int, default=2, help="how many of its best visible rows every gene brings into the table")
+    ap.add_argument("--train-frac", type=float, default=1.0, help="train on this share of the training genomes (learning curve)")
     ap.add_argument("--steps", type=int, default=8000); ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-4); ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--d", type=int, default=128); ap.add_argument("--layers", type=int, default=6)
     ap.add_argument("--seed", type=int, default=0); ap.add_argument("--eval-every", type=int, default=1000)
     ap.add_argument("--bench", nargs="*", default=[], help="name=job.npz (the job file gives the genome's own genus)")
     ap.add_argument("--repeats", type=int, default=3)
+    ap.add_argument("--rescore", default="", help="a second-version run directory holding trials_fresh.npz: score the saved model of --out "
+                    "on those trials, write trials_fresh.npz, and stop")
+    ap.add_argument("--hidden", nargs="*", default=[], help="with --score: name=table with a taxid column (bench/hard/views.py --hidden-out); "
+                    "these reference proteomes are hidden for that genome, on top of its own genus")
+    ap.add_argument("--score", default="", help="a run directory of this script: score the genomes of --bench with its saved model, "
+                    "write scores_<name>.tsv to --out, and stop (needs only the columns and profiles of those genomes)")
     a = ap.parse_args()
+    if a.score:                                               # whole genomes with a saved model: no training data, no trials
+        old = json.load(open(os.path.join(a.score, "result.json")))["args"]
+        if old["show"]:
+            sys.exit("the control that shows fewer genes is not scored on whole genomes")
+        os.makedirs(a.out, exist_ok=True)
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        bench = dict(x.split("=", 1) for x in a.bench)
+        st = Cols(a.data, list(bench), a.profiles)
+        cfg = Cfg(N=old["genes"], T=old.get("top", 2), blank=bool(old["blank"]), panel=old["universe"] == "panel")
+        ck = torch.load(os.path.join(a.score, "model.pt"), weights_only=False, map_location=dev)
+        model = WideNet(**ck["cfg"]).to(dev)
+        model.load_state_dict(ck["state"])
+        score_genomes(model, st, cfg, bench, np.load(a.library), a.out, a.repeats,
+                      dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False), dev)
+        return
+    if not a.names or not a.trials:
+        sys.exit("--names and --trials are needed for training and for --rescore")
+    if a.rescore:                                             # the settings of the saved run, not of this command line
+        old = json.load(open(os.path.join(a.out, "result.json")))["args"]
+        a.universe, a.genes, a.show, a.blank, a.bench = old["universe"], old["genes"], old["show"], old["blank"], []
+        a.top = old.get("top", 2)
     if a.show and a.bench:
         sys.exit("the control that shows fewer genes is not scored on whole genomes")
     os.makedirs(a.out, exist_ok=True)
@@ -427,25 +489,49 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     bench = dict(x.split("=", 1) for x in a.bench)
     st = Cols(a.data, a.names + list(bench), a.profiles)
-    cfg = Cfg(N=a.genes, show=a.show, blank=bool(a.blank), panel=a.universe == "panel")
+    cfg = Cfg(N=a.genes, T=a.top, show=a.show, blank=bool(a.blank), panel=a.universe == "panel")
     sp = splits(st, a.library)
     enough = {g for g, genes in st.genes_of.items() if len(genes) > 13}        # the same genomes as in the second version
     grp = {k: sorted(g for g, s in sp.items() if s == k and g in enough) for k in range(4)}
     print("genomes: train %d, validation %d, unseen classes %d, benchmark lineages %d (kept out)" % tuple(len(grp[k]) for k in range(4)), flush=True)
     tabs = {w: dict(np.load(os.path.join(a.trials, "trials_%s.npz" % w))) for w in ("validation", "unseen")}
+    if a.rescore:
+        tabs = {"fresh": dict(np.load(os.path.join(a.rescore, "trials_fresh.npz")))}
     for w, tab in tabs.items():                               # the saved gene indices must mean the same genes here
         if not np.array_equal(st.genome[tab["x"]], np.where(tab["label"] > 0.5, tab["donor"], tab["g"])):
             sys.exit("%s trials: gene indices do not match this store (other --names or order than the run that saved them)" % w)
         for k in ("ptr", "ptr_ok", "ptr_rule", "logit"):      # fields of the run that saved the table; this run writes its own
             tab.pop(k, None)
+    kw = dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False)
+    if a.rescore:
+        ck = torch.load(os.path.join(a.out, "model.pt"), weights_only=False)
+        model = WideNet(**ck["cfg"]).to(dev)
+        model.load_state_dict(ck["state"])
+        tab = tabs["fresh"]
+        r = run_compat(model, Compat(st, cfg, tab, Donors(st, grp[2]), 303), kw, dev)
+        full = dict(tab); full.update(r)
+        res = json.load(open(os.path.join(a.out, "result.json")))
+        res["fresh"], res["fresh_rule_ai"] = trial_stats(full), trial_stats(full, "rule_ai")
+        json.dump(res, open(os.path.join(a.out, "result.json"), "w"), indent=1)
+        full = dict(tab)
+        full.update(logit=r["logit"], wide_rule_ai=r["rule_ai"], wide_n_present=r["n_present"], wide_ptr_ok=r["ptr_ok"], wide_ptr=r["ptr"],
+                    wide_ptr_rule=r["ptr_rule"])
+        np.savez(os.path.join(a.out, "trials_fresh.npz"), **full)
+        v = res["fresh"]
+        print("fresh trials: auroc %.4f; near %.4f, mid %.4f, far %.4f" % (
+            v["auroc"], v["donor_near"]["auroc"], v["donor_mid"]["auroc"], v["donor_far"]["auroc"]), flush=True)
+        return
     val = Compat(st, cfg, tabs["validation"], Donors(st, grp[1]), 101)
     test = Compat(st, cfg, tabs["unseen"], Donors(st, grp[2]), 202)
-    kw = dict(batch_size=a.batch, num_workers=a.workers, persistent_workers=False)
     model = WideNet(a.d, a.layers).to(dev)
     print("parameters %.2f M" % (sum(p.numel() for p in model.parameters()) / 1e6), flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=a.steps, pct_start=0.05)
-    data = Train(st, cfg, grp[0], Donors(st, grp[0]), a.steps * a.batch, a.seed)
+    train = grp[0]
+    if a.train_frac < 1:                                      # the same subset whatever the seed
+        train = sorted(np.random.default_rng(12345).permutation(train)[:int(round(a.train_frac * len(train)))].tolist())
+        print("training on %d of %d training genomes" % (len(train), len(grp[0])), flush=True)
+    data = Train(st, cfg, train, Donors(st, train), a.steps * a.batch, a.seed)
     best, t0, step, run_loss, log = -1.0, time.time(), 0, [], []
 
     def stats(ds, tab):
@@ -491,32 +577,7 @@ def main():
         r.get("pointer", {}).get("model", float("nan"))), flush=True)
     print("  rule_ai on this model's rows: auroc %.4f; near %.4f, mid %.4f, far %.4f" % (
         v["auroc"], v["donor_near"]["auroc"], v["donor_mid"]["auroc"], v["donor_far"]["auroc"]), flush=True)
-    lib = np.load(a.library)
-    for name, job in bench.items():
-        g = st.genomes.index(name)
-        genus = int(np.load(job)["genome_ranks"][5])
-        if not genus:
-            sys.exit("%s: the job gives no genus, so nothing of the genome's own lineage would be hidden" % name)
-        extra = lib["ranks"][:, 5] == genus
-        score, seen = {}, {}
-        model.eval()
-        with torch.no_grad():
-            for b in torch.utils.data.DataLoader(Whole(st, cfg, g, extra, a.repeats, 7), **kw):
-                logit, _ = forward(model, trim(b), dev)
-                for gene, lg, ru, n in zip(b["gene"].numpy().ravel(), logit.cpu().numpy().ravel(), b["rule_ai"].numpy().ravel(), b["n_present"].numpy().ravel()):
-                    if gene >= 0:
-                        score.setdefault(int(gene), []).append((float(lg), float(ru)))
-                        seen[int(gene)] = seen.get(int(gene), 0) + int(n)
-        n_out = 0
-        with open(os.path.join(a.out, "scores_%s.tsv" % name), "w") as fh:
-            fh.write("gene_id\twide\twide_rule_ai\n")
-            for x, s in score.items():
-                if seen[x] == 0:                              # no member of the gene in any row shown: no evidence, ranks last like everywhere else
-                    n_out += 1
-                    continue
-                fh.write("%s\t%.4f\t%.4f\n" % ((st.gene_id[x],) + tuple(np.mean(s, axis=0))))
-        print("scored %s: %d genes, %d more without any visible member (rank last); own genus hidden: %d proteomes" % (
-            name, len(score) - n_out, n_out, int(extra.sum())), flush=True)
+    score_genomes(model, st, cfg, bench, np.load(a.library), a.out, a.repeats, kw, dev)
     if dev == "cuda":
         res["gpu_gb"] = round(torch.cuda.max_memory_allocated() / 2 ** 30, 1)
         print("peak GPU memory %.1f GB" % res["gpu_gb"], flush=True)

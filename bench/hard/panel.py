@@ -7,7 +7,9 @@ ever sees a panel genome: the genome's own genus is hidden from every method.
   candidates   INSDC assemblies (ENA) of level "complete genome" or "chromosome", full representation, in the
                family of the test chromosome
   left out     the assemblies behind the reference proteomes of the search library; the strains of the published
-               island set (their taxa); assemblies without annotated coding sequences
+               island set (their taxa); assemblies without annotated coding sequences; assemblies of which the
+               mirror holds no record. A download that merely fails stops the build of that panel: it is rerun,
+               so that the day's network does not decide which genomes certify the labels
   chosen       in ascending order of SHA-256("<assembly accession>|panel-v2"):
                  same     up to 5 assemblies of the species of the test chromosome
                  other    up to 5 assemblies of other species of the genus, one per species
@@ -35,6 +37,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -53,6 +56,10 @@ SALT = "panel-v2"
 MIN_CDS = 300
 
 
+class NoRecord(Exception):
+    """The mirror answers that it holds no such record (HTTP 400, 404 or 410): a property of the assembly, not of the day."""
+
+
 def fetch(url, tries=4, pause=3.0):
     for k in range(tries):
         try:
@@ -62,6 +69,11 @@ def fetch(url, tries=4, pause=3.0):
             while b[:2] == b"\x1f\x8b":             # some servers compress an already compressed stream
                 b = gzip.decompress(b)
             return b
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 404, 410):
+                raise NoRecord(url[:120])
+            err = e
+            time.sleep(pause * (k + 1))
         except Exception as e:                       # noqa: BLE001
             err = e
             time.sleep(pause * (k + 1))
@@ -98,6 +110,11 @@ def fetch_record(acc, tries=3, pause=5.0, probe=400000, source="ena"):
             return bytes(buf).decode(errors="replace")
         except NotAnnotated:
             raise
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 404, 410):
+                raise NoRecord(acc)
+            err = e
+            time.sleep(pause * (k + 1))
         except Exception as e:                       # noqa: BLE001
             err = e
             time.sleep(pause * (k + 1))
@@ -130,6 +147,21 @@ def replicons_ncbi(assembly):
     j = json.loads(fetch(NCBI_REPORT % assembly))
     return [(r["genbank_accession"], "Chromosome" if r.get("assigned_molecule_location_type") == "Chromosome" else "Plasmid")
             for r in j.get("reports", []) if r.get("role") == "assembled-molecule" and r.get("genbank_accession")]
+
+
+def assembly_text(assembly, source):
+    """(replicons, flat-file text of all replicons, source) of one assembly from one mirror. Raises NoRecord when the
+    mirror does not hold it, NotAnnotated when its chromosome record carries no coding sequence."""
+    reps = replicons(assembly) if source == "ena" else replicons_ncbi(assembly)
+    if not reps:
+        raise NoRecord(assembly)
+    reps = sorted(reps, key=lambda x: x[1] != "Chromosome")              # a chromosome first: it shows at once whether the assembly is annotated
+    text = ""
+    for i, (r, _) in enumerate(reps):
+        text += fetch_record(r, probe=400000 if i == 0 else 0, source=source)
+        if source == "ncbi":
+            time.sleep(0.4)
+    return reps, text, source
 
 
 def n_cds(text):
@@ -253,26 +285,26 @@ def main():
                     m = json.load(open(meta))
                     reps, tr = [tuple(x) for x in m["replicons"]], m["cds"]
                 else:
-                    try:
-                        reps = replicons(c["assembly"]) if a.source == "ena" else replicons_ncbi(c["assembly"])
-                        if not reps:
-                            raise RuntimeError("no replicon list")
-                        reps = sorted(reps, key=lambda x: x[1] != "Chromosome")          # a chromosome first: it shows at once whether the assembly is annotated
-                        text = "".join(fetch_record(r, probe=400000 if i == 0 else 0, source=a.source) for i, (r, _) in enumerate(reps))
-                        if a.source == "ncbi":
-                            time.sleep(0.4)
-                    except NotAnnotated:
-                        info["skipped"]["not annotated"] = info["skipped"].get("not annotated", 0) + 1
-                        bad[c["assembly"]] = "not annotated"
+                    got = None
+                    for src in (a.source, "ncbi" if a.source == "ena" else "ena"):     # an assembly is left out only if neither mirror holds it
+                        try:
+                            got = assembly_text(c["assembly"], src)
+                            break
+                        except NoRecord:
+                            continue
+                        except NotAnnotated:
+                            got = "not annotated"
+                            break
+                        except Exception as e:       # noqa: BLE001 - a failed download must not change which assemblies the rule picks
+                            sys.exit("%s: download of %s from %s failed (%s); no panel written for this chromosome, rerun" % (acc, c["assembly"], src, str(e)[:80]))
+                    if got is None or got == "not annotated":
+                        why = "no record" if got is None else "not annotated"
+                        info["skipped"][why] = info["skipped"].get(why, 0) + 1
+                        bad[c["assembly"]] = why
                         json.dump(bad, open(bad_path, "w"), indent=1)
                         continue
-                    except Exception as e:           # noqa: BLE001
-                        if "no replicon list" not in str(e):         # a failed download must not change which assemblies the rule picks: stop, rerun later
-                            sys.exit("%s: download of %s failed (%s); no panel written for this chromosome, rerun" % (acc, c["assembly"], str(e)[:80]))
-                        info["skipped"]["no replicon list"] = info["skipped"].get("no replicon list", 0) + 1
-                        bad[c["assembly"]] = "no replicon list"
-                        json.dump(bad, open(bad_path, "w"), indent=1)
-                        continue
+                    reps, text, src = got
+                    dest = os.path.join(store, c["assembly"] + (".embl.gz" if src == "ena" else ".gb.gz"))
                     cds, tr = n_cds(text)
                     if tr < MIN_CDS or tr < 0.8 * cds:
                         info["skipped"]["not annotated"] = info["skipped"].get("not annotated", 0) + 1

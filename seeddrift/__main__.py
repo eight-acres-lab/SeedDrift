@@ -154,10 +154,10 @@ def main(argv=None):
     w.add_argument("--api", default="http://localhost:8600", help="API address the page starts with")
     w.add_argument("--no-open", action="store_true", help="do not open a browser")
 
-    d = sub.add_parser("data", help="the data store: status / fetch / build / link (see data/references.yaml)")
+    d = sub.add_parser("data", help="the data store: status / fetch / build / link (see data/datasets.json)")
     d.add_argument("action", choices=["status", "fetch", "build", "link"])
     d.add_argument("items", nargs="*", help="dataset names (default: all)")
-    d.add_argument("--from", dest="src", help="link: existing folder with the files (see data/references.yaml)")
+    d.add_argument("--from", dest="src", help="link: existing folder with the files (see data/datasets.json)")
     d.add_argument("--threads", type=int, default=None)
 
     a = ap.parse_args(argv)

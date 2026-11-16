@@ -1,4 +1,4 @@
-> 这份文档来自 SeedDrift 的前身 hgtscan，说明多基因组 HGT 扫描（`seeddrift prepare / scan / donors / structure`）的方法与结果。示例脚本在 `examples/enterobacterales/`，基准脚本在 `bench/`（路径是当时 GPU 服务器上的路径）。单基因组筛查、服务和网页见仓库根目录的 README。
+> 这份文档说明多基因组 HGT 扫描（`seeddrift prepare / scan / donors / structure`）的方法与结果，沿用 SeedDrift 的前身 hgtscan 的写法。这项功能只有命令行，是原型；需要另行安装 OrthoFinder 和 IQ-TREE。示例脚本在 `examples/`。单基因组筛查、服务和网页见仓库根目录的 README。
 
 # hgtscan：全基因组水平基因转移扫描（原型 v0.5）
 
@@ -28,7 +28,7 @@ contig 组成 ──▶ 污染检查（真核）                         ┘
 ## 快速开始
 
 ```bash
-bash demo.sh
+PYTHONPATH=$PWD bash examples/simulate_demo.sh
 ```
 
 脚本依次执行：
@@ -37,7 +37,7 @@ bash demo.sh
 3. 在训练集上分来源校准权重。
 4. 在测试集上分别用默认权重和校准权重评估。
 
-8 核大约 30 秒。完整输出见 `demo_report.txt`，历史版本的结果在 `bench/`。
+8 核大约 30 秒。结果写在 `examples/demo/` 下。
 
 ## 用自己的数据
 
@@ -105,7 +105,7 @@ python3 -m seeddrift prepare --genomes genomes.tsv --index species_EnsemblBacter
 - MPL 时间化很粗略。如果有化石或速率校准，最好换成 LSD2 或 MCMCTree 得到的时间树。
 - OrthoFinder 不支持含空格的路径，所以它和建树都在系统临时目录里运行，结果再拷回工作目录。
 
-肠杆菌目示例（18 个基因组，外群为霍乱弧菌）的完整命令见 `real/enterobacterales/run.sh`，结果见下文“真实数据”一节。
+肠杆菌目示例（18 个基因组，外群为霍乱弧菌）的完整命令见 `examples/enterobacterales/run.sh`，结果见下文“真实数据”一节。
 
 `prepare --tree-method fasttree`：基因树改用 FastTree（`-lg -gamma`）。CPU 用量约为 IQ-TREE 的 1/100；SH 型局部支持值乘以 100 写入，所以 `--collapse 95` 的含义不变。已有树的家族会跳过，因此可以中途从 IQ-TREE 切换过来。
 
@@ -364,7 +364,7 @@ v0.5 又加入了**隐性旁系同源**：12–15% 的家族在根之前已有 2
 - 563 个多拷贝家族被拆成 2,603 个亚家族，拆分后共有 6,282 个带基因树的家族。
 - 共产生 7,148 个 tree 候选、5,316 个 clock 候选和 12,706 个 gain 候选。
 
-运行命令：`real/enterobacterales/scan.sh`；检验命令：`check_known_islands.py <workdir> <scan dir>`，结果在 `islands_{calibrated,default}.txt`。
+运行命令：`examples/enterobacterales/scan.sh`；检验命令：`check_known_islands.py <workdir> <scan dir>`，结果在 `islands_{calibrated,default}.txt`。
 
 **用文献中的毒力岛检验。** 岛按参考基因组坐标定义：SPI-1 和 SPI-2 用鼠伤寒沙门菌，LEE 用 O157。其他基因组中的对应拷贝，用基因树最近邻直系同源来找。
 
@@ -544,8 +544,8 @@ hgtscan/
   structure.py   无同源基因：MMseqs2-GPU 迭代 profile、ESMFold 结构预测、重复过滤（Pfam/pyhmmer、串联重复、COILS）、
                  Foldseek 比对 AlphaFold Swiss-Prot、结构类群
 tests/                    python3 -m unittest discover -s tests（DTL、分支收缩、旁系同源拆分、替代代价、获得/丢失简约；test_structure.py：重复区段重叠、Pfam 类型与 clan 判定、串联重复检测）
-demo.sh                   端到端演示（模拟数据）
-real/enterobacterales/    真实数据示例：genomes.tsv、run.sh（全流程）、scan.sh（只扫描）、check_known_islands.py、
+examples/simulate_demo.sh 端到端演示（模拟数据）
+examples/enterobacterales/ 真实数据示例：genomes.tsv、run.sh（全流程）、scan.sh（只扫描）、check_known_islands.py、
                           islands_{calibrated,default}.txt（毒力岛检验结果）及全部中间结果
 bench/                    v0.1、v0.2 的结果，各版本测试集评估 JSON（v0.4 起用新模拟器），各版本校准模型，
                           GPU 机器基准脚本 benchmark_gpu.py、search_agreement.py，

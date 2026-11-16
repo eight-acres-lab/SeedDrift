@@ -2,7 +2,7 @@
 
 `LocalTools` runs them in this process. The tools service (services/tools) exposes the same methods
 over HTTP and `clients.ToolsClient` calls it, so the SeedDrift pipeline does not care where the tools
-and the ~70 GB of data live.
+and the data (about 120 GB with indices) live.
 """
 from __future__ import annotations
 

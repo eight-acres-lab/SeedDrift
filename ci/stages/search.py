@@ -91,6 +91,7 @@ def main():
         sc = cfg["search"]
         with open(os.path.join(run_dir, "data", "reference", "manifest.json")) as f:
             db = json.load(f)["database"]
+        db = db if os.path.isabs(db) else os.path.join(run_dir, db)
         idx = np.load(os.path.join(run_dir, "data", "reference", "index.npz"))
         acc_s, acc_tax = idx["acc"], idx["taxid"]
         lib = np.load(os.path.join(run_dir, "data", "reference", "library.npz"))

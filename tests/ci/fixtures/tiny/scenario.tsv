@@ -1,2 +1,2 @@
 id	host	host_taxid	insert_after	files	note
-scenario_host_insert	bacterium_GCF_000007765.2	227377	20508	genomes/scenario_host_insert.fna	synthetic: three back-translated proteins of taxid 865 spliced into the real segment
+scenario_host_insert	bacterium_GCF_000007765.2	227377	20508	genomes/scenario_host_insert.fna	real DNA by construction: three consecutive genes of GCF_000007085.1 (Caldanaerobacter subterraneus subsp. tengcongensis MB4) spliced in

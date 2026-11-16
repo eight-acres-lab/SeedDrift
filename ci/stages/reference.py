@@ -62,7 +62,7 @@ def main():
         man = M.build("reference", "reference", entries, meta=dict(database=os.path.relpath(db, run_dir) if db.startswith(run_dir) else db))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("reference", "manifest.json")
-        write_json(mp, dict(sha256=sha, dataset_id=M.dataset_id(man), database=db, **man))
+        write_json(mp, dict(sha256=sha, dataset_id=M.dataset_id(man), database=os.path.relpath(db, run_dir) if db.startswith(run_dir) else db, **man))
         st.output("reference_manifest", mp)
         st.extra.update(proteins=len(acc), proteomes=len(utax))
 

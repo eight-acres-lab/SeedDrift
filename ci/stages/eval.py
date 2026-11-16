@@ -6,7 +6,9 @@ Comparators (always reported next to the model; never a bar, never an input of t
   counts        minus the number of reference genera with a hit
   composition   synonymous codon usage against the genome's own (bench/islands/composition.py)
   released_v0.1.0  the released screen, recomputed in the same run (gate G4; pending in CI 0.1)
-Per scenario: positives = genes of the truth table, negatives = all other genes; AUROC with ties at expectation and
+Hits to the host's own species and to the donor's genus are hidden for every gene (the donor lineage is taken as
+unsampled, as the benchmark hides the own genus). Per scenario: positives = genes of the truth table, negatives = all
+other genes; AUROC with ties at expectation and
 recall at the lowest false-positive rate the negatives allow. The report ends with the public-event catalogue section;
 until the catalogue exists it says so (waiver G5).
 """
@@ -79,10 +81,11 @@ def main():
             off, prot, pid, bits = hits["off"], hits["prot"], hits["pid"], hits["bits"]
             host_phylum = tax.at_rank(e["host_taxid"], "phylum")
             host_species = tax.at_rank(e["host_taxid"], "species")
+            hidden_genera = {tax.at_rank(int(t["donor_taxid"]), "genus") for t in truth_rows if t.get("donor_taxid")} - {0}
             ai, best, counts = [], [], []
             for i in range(len(genes)):
                 rows = range(off[i], off[i + 1])
-                rows = [r for r in rows if ranks[prot[r], 5] != host_species]
+                rows = [r for r in rows if ranks[prot[r], 5] != host_species and ranks[prot[r], 4] not in hidden_genera]
                 b_in = max([float(bits[r]) for r in rows if ranks[prot[r], 0] == host_phylum] or [0.0])
                 b_out = max([float(bits[r]) for r in rows if ranks[prot[r], 0] != host_phylum] or [0.0])
                 ai.append(math.log(2) * (b_out - b_in))

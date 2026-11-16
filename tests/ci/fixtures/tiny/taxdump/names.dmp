@@ -1,6 +1,10 @@
 1	|	root	|		|	scientific name	|
 2	|	Bacteria	|		|	scientific name	|
 22	|	Shewanella	|		|	scientific name	|
+136	|	Spirochaetales	|		|	scientific name	|
+137	|	Spirochaetaceae	|		|	scientific name	|
+146	|	Spirochaeta	|		|	scientific name	|
+150	|	Spirochaeta isovalerica	|		|	scientific name	|
 234	|	Brucella	|		|	scientific name	|
 256	|	Myroides odoratus	|		|	scientific name	|
 270	|	Thermus	|		|	scientific name	|
@@ -53,24 +57,18 @@
 780	|	Rickettsia	|		|	scientific name	|
 784	|	Orientia tsutsugamushi	|		|	scientific name	|
 801	|	Symbiopectobacterium	|		|	scientific name	|
-826	|	Sebaldella termitidis	|		|	scientific name	|
-830	|	Butyrivibrio	|		|	scientific name	|
-831	|	Butyrivibrio fibrisolvens	|		|	scientific name	|
-841	|	Roseburia	|		|	scientific name	|
-864	|	Pectinatus	|		|	scientific name	|
-865	|	Pectinatus frisingensis	|		|	scientific name	|
 872	|	Desulfovibrio	|		|	scientific name	|
 873	|	Desulfocurvibacter africanus	|		|	scientific name	|
 880	|	Maridesulfovibrio salexigens	|		|	scientific name	|
 896	|	Desulfococcus	|		|	scientific name	|
 897	|	Desulfococcus multivorans	|		|	scientific name	|
 898	|	Desulfomicrobium	|		|	scientific name	|
-906	|	Megasphaera	|		|	scientific name	|
 942	|	Anaplasmataceae	|		|	scientific name	|
 952	|	Wolbachieae	|		|	scientific name	|
 953	|	Wolbachia	|		|	scientific name	|
 965	|	Oceanospirillum	|		|	scientific name	|
 970	|	Selenomonas	|		|	scientific name	|
+972	|	Halanaerobiaceae	|		|	scientific name	|
 976	|	Bacteroidota	|		|	scientific name	|
 1021	|	Beggiatoa	|		|	scientific name	|
 1046	|	Chromatiaceae	|		|	scientific name	|
@@ -98,11 +96,13 @@
 1301	|	Streptococcus	|		|	scientific name	|
 1385	|	Caryophanales	|		|	scientific name	|
 1386	|	Bacillus	|		|	scientific name	|
+1562	|	Desulfotomaculum	|		|	scientific name	|
 1653	|	Corynebacteriaceae	|		|	scientific name	|
 1663	|	Arthrobacter	|		|	scientific name	|
 1696	|	Brevibacterium	|		|	scientific name	|
 1716	|	Corynebacterium	|		|	scientific name	|
 1740	|	Thermodesulfobacterium	|		|	scientific name	|
+1750	|	Arachnia propionica	|		|	scientific name	|
 1760	|	Actinomycetes	|		|	scientific name	|
 1762	|	Mycobacteriaceae	|		|	scientific name	|
 1763	|	Mycobacterium	|		|	scientific name	|
@@ -115,7 +115,9 @@
 1988	|	Actinomadura	|		|	scientific name	|
 1994	|	Actinomadura rugatobispora	|		|	scientific name	|
 2004	|	Streptosporangiaceae	|		|	scientific name	|
+2005	|	Microbispora	|		|	scientific name	|
 2012	|	Thermomonosporaceae	|		|	scientific name	|
+2013	|	Nocardiopsis	|		|	scientific name	|
 2016	|	Streptoalloteichus	|		|	scientific name	|
 2017	|	Streptoalloteichus hindustanus	|		|	scientific name	|
 2062	|	Streptomycetaceae	|		|	scientific name	|
@@ -176,9 +178,11 @@
 2321	|	Methanohalobium	|		|	scientific name	|
 2322	|	Methanohalobium evestigatum	|		|	scientific name	|
 2323	|	Bacteria incertae sedis	|		|	scientific name	|
+2330	|	Halanaerobium	|		|	scientific name	|
 2340	|	Solemya velum gill symbiont	|		|	scientific name	|
 2425	|	Teredinibacter	|		|	scientific name	|
 2426	|	Teredinibacter turnerae	|		|	scientific name	|
+2733	|	Symbiobacterium	|		|	scientific name	|
 2742	|	Marinobacter	|		|	scientific name	|
 2745	|	Halomonas	|		|	scientific name	|
 2759	|	Eukaryota	|		|	scientific name	|
@@ -685,6 +689,7 @@
 28781	|	Adrianichthyoidei	|		|	scientific name	|
 28889	|	Thermoproteota	|		|	scientific name	|
 28890	|	Methanobacteriota	|		|	scientific name	|
+28895	|	Thermoanaerobacterium	|		|	scientific name	|
 28983	|	Sclerotiniaceae	|		|	scientific name	|
 29000	|	Pucciniomycotina	|		|	scientific name	|
 29006	|	Neocallimastigales	|		|	scientific name	|
@@ -698,6 +703,7 @@
 29144	|	Chanos chanos	|		|	scientific name	|
 29216	|	Bangiales	|		|	scientific name	|
 29217	|	Gigartinaceae	|		|	scientific name	|
+29404	|	Microlunatus	|		|	scientific name	|
 29435	|	Phytopseudomonas flavescens	|		|	scientific name	|
 29487	|	Photorhabdus	|		|	scientific name	|
 29545	|	Azoarcus indigens	|		|	scientific name	|
@@ -730,6 +736,7 @@
 31468	|	Gracilariales	|		|	scientific name	|
 31469	|	Gracilariaceae	|		|	scientific name	|
 31530	|	Myxoma virus (strain Lausanne)	|		|	scientific name	|
+31957	|	Propionibacteriaceae	|		|	scientific name	|
 31977	|	Veillonellaceae	|		|	scientific name	|
 31979	|	Clostridiaceae	|		|	scientific name	|
 32003	|	Nitrosomonadales	|		|	scientific name	|
@@ -738,8 +745,7 @@
 32012	|	Thiomonas	|		|	scientific name	|
 32033	|	Lysobacteraceae	|		|	scientific name	|
 32036	|	sulfur-oxidizing symbionts	|		|	scientific name	|
-32066	|	Fusobacteriota	|		|	scientific name	|
-32068	|	Sebaldella	|		|	scientific name	|
+32061	|	Chloroflexia	|		|	scientific name	|
 32443	|	Teleostei	|		|	scientific name	|
 32446	|	Clupeiformes	|		|	scientific name	|
 32519	|	Ostariophysi	|		|	scientific name	|
@@ -836,7 +842,6 @@
 38625	|	Phascolarctos	|		|	scientific name	|
 38626	|	Phascolarctos cinereus	|		|	scientific name	|
 38820	|	Poales	|		|	scientific name	|
-39029	|	Megasphaera cerevisiae	|		|	scientific name	|
 39107	|	Murinae	|		|	scientific name	|
 39152	|	Methanococcus maripaludis	|		|	scientific name	|
 39444	|	Cotia virus	|		|	scientific name	|
@@ -884,6 +889,7 @@
 43263	|	Aquipseudomonas alcaligenes	|		|	scientific name	|
 43306	|	Pseudomonas denitrificans (nom. rej.)	|		|	scientific name	|
 43346	|	Bison bison bison	|		|	scientific name	|
+43668	|	Brachybacterium	|		|	scientific name	|
 43676	|	Promicromonospora	|		|	scientific name	|
 43697	|	Synbranchiformes	|		|	scientific name	|
 43698	|	Synbranchidae	|		|	scientific name	|
@@ -912,7 +918,6 @@
 45351	|	Nematostella vectensis	|		|	scientific name	|
 45443	|	Aplocheiloidei	|		|	scientific name	|
 45989	|	Methanoculleus	|		|	scientific name	|
-46205	|	Pseudobutyrivibrio	|		|	scientific name	|
 46332	|	Rhynchospora	|		|	scientific name	|
 46468	|	Orenia	|		|	scientific name	|
 46718	|	Poritidae	|		|	scientific name	|
@@ -981,8 +986,6 @@
 55118	|	Clupeidae	|		|	scientific name	|
 55119	|	Alosinae	|		|	scientific name	|
 55153	|	Sciuridae	|		|	scientific name	|
-55506	|	Schwartzia	|		|	scientific name	|
-55507	|	Schwartzia succinivorans	|		|	scientific name	|
 55528	|	Guillardia	|		|	scientific name	|
 55529	|	Guillardia theta	|		|	scientific name	|
 55543	|	Platysternon	|		|	scientific name	|
@@ -991,6 +994,7 @@
 55806	|	Malurus	|		|	scientific name	|
 55807	|	Malurus cyaneus	|		|	scientific name	|
 56259	|	Accipitridae	|		|	scientific name	|
+56779	|	Halanaerobium kushneri	|		|	scientific name	|
 57039	|	Malonomonas	|		|	scientific name	|
 57040	|	Malonomonas rubra	|		|	scientific name	|
 57379	|	Bucerotiformes	|		|	scientific name	|
@@ -1097,7 +1101,6 @@
 75687	|	Neptunomonas	|		|	scientific name	|
 75743	|	Scyliorhinus torazame	|		|	scientific name	|
 75787	|	Rhodocyclaceae	|		|	scientific name	|
-76008	|	Fusibacter	|		|	scientific name	|
 76071	|	Beloniformes	|		|	scientific name	|
 76831	|	Myroides	|		|	scientific name	|
 78398	|	Pectobacterium odoriferum	|		|	scientific name	|
@@ -1114,7 +1117,6 @@
 81953	|	Agamidae	|		|	scientific name	|
 81954	|	Agaminae	|		|	scientific name	|
 82115	|	Rhizobiaceae	|		|	scientific name	|
-82373	|	Anaerovibrio	|		|	scientific name	|
 82655	|	Conger conger	|		|	scientific name	|
 82976	|	Buttiauxella	|		|	scientific name	|
 82978	|	Budvicia	|		|	scientific name	|
@@ -1129,14 +1131,10 @@
 83778	|	Kineosporiaceae	|		|	scientific name	|
 83822	|	Phialemonium	|		|	scientific name	|
 83867	|	Palaeococcus	|		|	scientific name	|
-84034	|	Propionispira	|		|	scientific name	|
-84035	|	Propionispira arboris	|		|	scientific name	|
 84158	|	Oceanimonas doudoroffii	|		|	scientific name	|
 84318	|	Podocopida	|		|	scientific name	|
 84563	|	ant, tsetse, mealybug, aphid, etc. endosymbionts	|		|	scientific name	|
 84642	|	Aeromonadaceae	|		|	scientific name	|
-84998	|	Coriobacteriia	|		|	scientific name	|
-84999	|	Coriobacteriales	|		|	scientific name	|
 85006	|	Micrococcales	|		|	scientific name	|
 85007	|	Mycobacteriales	|		|	scientific name	|
 85008	|	Micromonosporales	|		|	scientific name	|
@@ -1145,8 +1143,10 @@
 85011	|	Kitasatosporales	|		|	scientific name	|
 85012	|	Streptosporangiales	|		|	scientific name	|
 85013	|	Frankiales	|		|	scientific name	|
+85015	|	Nocardioidaceae	|		|	scientific name	|
 85017	|	Promicromonosporaceae	|		|	scientific name	|
 85019	|	Brevibacteriaceae	|		|	scientific name	|
+85020	|	Dermabacteraceae	|		|	scientific name	|
 85021	|	Intrasporangiaceae	|		|	scientific name	|
 85022	|	Jonesiaceae	|		|	scientific name	|
 85023	|	Microbacteriaceae	|		|	scientific name	|
@@ -1202,7 +1202,6 @@
 97096	|	Eutypa lata	|		|	scientific name	|
 97700	|	Quercus lobata	|		|	scientific name	|
 99000	|	Tanapox virus	|		|	scientific name	|
-99656	|	[Clostridium] fimetarium	|		|	scientific name	|
 99837	|	Spermophilus dauricus	|		|	scientific name	|
 100047	|	Melanomma pulvis-pyrius	|		|	scientific name	|
 100819	|	Falco tinnunculus	|		|	scientific name	|
@@ -1215,6 +1214,7 @@
 101924	|	Rhodosorus marinus	|		|	scientific name	|
 102312	|	Pteriidae	|		|	scientific name	|
 103733	|	Saccharothrix syringae	|		|	scientific name	|
+104204	|	Streptomonospora	|		|	scientific name	|
 104431	|	Obtectomera	|		|	scientific name	|
 104623	|	Prodigiosinella confusarubida	|		|	scientific name	|
 104759	|	Porites lobata	|		|	scientific name	|
@@ -1250,6 +1250,7 @@
 114378	|	Thermofilaceae	|		|	scientific name	|
 114380	|	Desulfurococcales	|		|	scientific name	|
 114584	|	Methanococcales incertae sedis	|		|	scientific name	|
+114627	|	Alkaliphilus	|		|	scientific name	|
 115782	|	Trichlorobacter	|		|	scientific name	|
 116150	|	Pararge aegeria	|		|	scientific name	|
 116574	|	Darwinulocopina	|		|	scientific name	|
@@ -1276,6 +1277,7 @@
 119060	|	Burkholderiaceae	|		|	scientific name	|
 119066	|	Betaproteobacteria incertae sedis	|		|	scientific name	|
 119069	|	Hydrogenophilales	|		|	scientific name	|
+119072	|	Caldanaerobacter subterraneus subsp. tengcongensis	|		|	scientific name	|
 119195	|	Galeoidea	|		|	scientific name	|
 119197	|	Galeomorphii	|		|	scientific name	|
 119203	|	Selachii	|		|	scientific name	|
@@ -1297,7 +1299,6 @@
 127457	|	Thiobaca	|		|	scientific name	|
 127458	|	Thiobaca trueperi	|		|	scientific name	|
 127582	|	Trichechus manatus latirostris	|		|	scientific name	|
-128827	|	Erysipelotrichaceae	|		|	scientific name	|
 129001	|	Syntrophothermus	|		|	scientific name	|
 129577	|	Oceanimonas	|		|	scientific name	|
 129727	|	Bovine papular stomatitis virus	|		|	scientific name	|
@@ -1339,8 +1340,6 @@
 137584	|	Thalassomonas viridans	|		|	scientific name	|
 141450	|	Oleiphilus	|		|	scientific name	|
 141451	|	Oleiphilus messinensis	|		|	scientific name	|
-142587	|	Isobaculum	|		|	scientific name	|
-142588	|	Isobaculum melis	|		|	scientific name	|
 142841	|	Selenihalanaerobacter	|		|	scientific name	|
 142842	|	Selenihalanaerobacter shriftii	|		|	scientific name	|
 143067	|	Methanotrichaceae	|		|	scientific name	|
@@ -1399,7 +1398,7 @@
 160808	|	Acidithiobacillus ferrivorans	|		|	scientific name	|
 161154	|	Thermanaeromonas toyohensis	|		|	scientific name	|
 165795	|	Mixiaceae	|		|	scientific name	|
-166486	|	Roseburia intestinalis	|		|	scientific name	|
+166501	|	Thermobaculum terrenum	|		|	scientific name	|
 169417	|	Lutrinae	|		|	scientific name	|
 169418	|	Mustelinae	|		|	scientific name	|
 169430	|	Paraburkholderia hospita	|		|	scientific name	|
@@ -1413,12 +1412,12 @@
 172190	|	Coniella	|		|	scientific name	|
 172679	|	Chlamydotis	|		|	scientific name	|
 172911	|	Culter	|		|	scientific name	|
+173364	|	Brachybacterium sacelli	|		|	scientific name	|
 174260	|	Desmophyllum pertusum	|		|	scientific name	|
 175121	|	Passeroidea	|		|	scientific name	|
 175129	|	Picathartidae	|		|	scientific name	|
 175130	|	Picathartes	|		|	scientific name	|
 175131	|	Picathartes gymnocephalus	|		|	scientific name	|
-175304	|	Lentibacillus	|		|	scientific name	|
 176113	|	Tenrecinae	|		|	scientific name	|
 176857	|	Carpinus fangiana	|		|	scientific name	|
 176946	|	Python bivittatus	|		|	scientific name	|
@@ -1426,7 +1425,7 @@
 178513	|	Amphimedon	|		|	scientific name	|
 178898	|	Carboxydocella	|		|	scientific name	|
 178899	|	Carboxydocella thermautotrophica	|		|	scientific name	|
-180311	|	Hespellia stercorisuis	|		|	scientific name	|
+179819	|	Nocardiopsis metallicus	|		|	scientific name	|
 181631	|	Cyanoderma ruficeps	|		|	scientific name	|
 183710	|	Deinococcaceae	|		|	scientific name	|
 183713	|	Methanopyraceae	|		|	scientific name	|
@@ -1438,7 +1437,6 @@
 183968	|	Thermococci	|		|	scientific name	|
 183980	|	Archaeoglobi	|		|	scientific name	|
 183988	|	Methanopyri	|		|	scientific name	|
-185007	|	Pseudobutyrivibrio xylanivorans	|		|	scientific name	|
 185452	|	Chrysochloris	|		|	scientific name	|
 185453	|	Chrysochloris asiatica	|		|	scientific name	|
 186191	|	Marinithermus	|		|	scientific name	|
@@ -1454,14 +1452,11 @@
 186650	|	Microvirga	|		|	scientific name	|
 186801	|	Clostridia	|		|	scientific name	|
 186802	|	Eubacteriales	|		|	scientific name	|
-186803	|	Lachnospiraceae	|		|	scientific name	|
-186806	|	Eubacteriaceae	|		|	scientific name	|
 186807	|	Peptococcaceae	|		|	scientific name	|
 186814	|	Thermoanaerobacteraceae	|		|	scientific name	|
 186817	|	Bacillaceae	|		|	scientific name	|
 186824	|	Thermoactinomycetaceae	|		|	scientific name	|
 186826	|	Lactobacillales	|		|	scientific name	|
-186828	|	Carnobacteriaceae	|		|	scientific name	|
 186829	|	Agitococcus	|		|	scientific name	|
 186831	|	Acetoanaerobium	|		|	scientific name	|
 186990	|	Hipposideros armiger	|		|	scientific name	|
@@ -1474,7 +1469,6 @@
 188786	|	Thermaceae	|		|	scientific name	|
 188787	|	Deinococci	|		|	scientific name	|
 188937	|	Methanosarcina acetivorans C2A	|		|	scientific name	|
-189330	|	Dorea	|		|	scientific name	|
 190192	|	Methanopyrus kandleri AV19	|		|	scientific name	|
 190721	|	Ralstonia insidiosa	|		|	scientific name	|
 190818	|	Geoglobus	|		|	scientific name	|
@@ -1509,8 +1503,6 @@
 202772	|	Zooshikella ganghwensis	|		|	scientific name	|
 202907	|	Collimonas	|		|	scientific name	|
 202949	|	Thermanaeromonas	|		|	scientific name	|
-203490	|	Fusobacteriia	|		|	scientific name	|
-203491	|	Fusobacteriales	|		|	scientific name	|
 203682	|	Planctomycetota	|		|	scientific name	|
 203691	|	Spirochaetota	|		|	scientific name	|
 203692	|	Spirochaetia	|		|	scientific name	|
@@ -1532,6 +1524,7 @@
 207809	|	Sulfolobus tengchongensis	|		|	scientific name	|
 207949	|	Bermanella marisrubri	|		|	scientific name	|
 207954	|	Neptuniibacter caesariensis	|		|	scientific name	|
+208226	|	Alkaliphilus metalliredigens	|		|	scientific name	|
 208447	|	Oceanithermus	|		|	scientific name	|
 210581	|	Gouania	|		|	scientific name	|
 211598	|	Accipiter nisus	|		|	scientific name	|
@@ -1547,7 +1540,6 @@
 214506	|	Glomeromycetes	|		|	scientific name	|
 214508	|	Paraglomerales	|		|	scientific name	|
 214509	|	Diversisporales	|		|	scientific name	|
-214853	|	Anaerofustis stercorihominis	|		|	scientific name	|
 214966	|	Desmophyllum	|		|	scientific name	|
 215777	|	candidate division MSBL1	|		|	scientific name	|
 216260	|	Lottioidea	|		|	scientific name	|
@@ -1586,7 +1578,6 @@
 234827	|	Candidatus Midichloria mitochondrii	|		|	scientific name	|
 240426	|	Squirrelpox virus	|		|	scientific name	|
 240449	|	Urochloa decumbens	|		|	scientific name	|
-241189	|	Hespellia	|		|	scientific name	|
 242507	|	Pyricularia oryzae 70-15	|		|	scientific name	|
 242605	|	Luteibacter	|		|	scientific name	|
 242703	|	Acidilobus saccharovorans	|		|	scientific name	|
@@ -1597,7 +1588,10 @@
 245042	|	Lamprotornis superbus	|		|	scientific name	|
 246861	|	Grimontia	|		|	scientific name	|
 247481	|	Candidatus Cardinium hertigii	|		|	scientific name	|
+249529	|	Caldanaerobacter	|		|	scientific name	|
 251695	|	Pseudomonas syringae group genomosp. 1	|		|	scientific name	|
+252965	|	Mahella	|		|	scientific name	|
+252966	|	Mahella australiensis	|		|	scientific name	|
 254245	|	Aquicella	|		|	scientific name	|
 254247	|	Aquicella siphonis	|		|	scientific name	|
 254445	|	Chaetorhynchus	|		|	scientific name	|
@@ -1606,6 +1600,7 @@
 255475	|	Aurantimonadaceae	|		|	scientific name	|
 255526	|	Halothiobacillaceae	|		|	scientific name	|
 255527	|	Saccharospirillaceae	|		|	scientific name	|
+256845	|	Lentisphaerota	|		|	scientific name	|
 258591	|	Litchfieldella anticariensis	|		|	scientific name	|
 259541	|	Plakobranchus	|		|	scientific name	|
 259542	|	Plakobranchus ocellatus	|		|	scientific name	|
@@ -1618,9 +1613,9 @@
 262014	|	Xenopus	|		|	scientific name	|
 262084	|	Ulmus minor	|		|	scientific name	|
 262150	|	Bacillini	|		|	scientific name	|
+262406	|	Thermobaculum (SeqCode)	|		|	scientific name	|
 264006	|	Dermophiidae	|		|	scientific name	|
 264009	|	Microcaecilia	|		|	scientific name	|
-264995	|	Anaerofustis	|		|	scientific name	|
 265316	|	Cyanidiaceae	|		|	scientific name	|
 265318	|	Cyanidiales	|		|	scientific name	|
 265872	|	Cowpox virus (Brighton Red)	|		|	scientific name	|
@@ -1636,7 +1631,9 @@
 267894	|	Psychromonadaceae	|		|	scientific name	|
 270602	|	Osphronemidae	|		|	scientific name	|
 273063	|	Sulfurisphaera tokodaii str. 7	|		|	scientific name	|
+273068	|	Caldanaerobacter subterraneus subsp. tengcongensis MB4	|		|	scientific name	|
 273135	|	Candidatus Cardinium	|		|	scientific name	|
+273376	|	Parasphaerochaeta coccoides	|		|	scientific name	|
 273384	|	Brevibacterium aurantiacum	|		|	scientific name	|
 278164	|	Alosa alosa	|		|	scientific name	|
 279113	|	Collimonas pratensis	|		|	scientific name	|
@@ -1663,6 +1660,7 @@
 292628	|	Anaerolineaceae	|		|	scientific name	|
 292629	|	Anaerolineales	|		|	scientific name	|
 293139	|	Unioninae	|		|	scientific name	|
+293826	|	Alkaliphilus metalliredigens QYMF	|		|	scientific name	|
 293958	|	Martinezella lusitana	|		|	scientific name	|
 295108	|	Candidatus Berkiella aquae	|		|	scientific name	|
 299255	|	Ferrimonas marina	|		|	scientific name	|
@@ -1696,11 +1694,11 @@
 318829	|	Pyricularia oryzae	|		|	scientific name	|
 319939	|	Metapseudomonas otitidis	|		|	scientific name	|
 321315	|	Sphaerisporangium	|		|	scientific name	|
-322505	|	Sharpea azabuensis	|		|	scientific name	|
 322710	|	Azotobacter vinelandii DJ	|		|	scientific name	|
 325165	|	Nomascus	|		|	scientific name	|
 325984	|	Dioscorea zingiberensis	|		|	scientific name	|
 329406	|	Thiorhodococcus mannitoliphagus	|		|	scientific name	|
+332095	|	Dethiosulfatibacter aminovorans	|		|	scientific name	|
 332246	|	Halalkalicoccus	|		|	scientific name	|
 333673	|	Hirundo rustica rustica	|		|	scientific name	|
 334715	|	Salinivibrio proteolyticus	|		|	scientific name	|
@@ -1727,6 +1725,7 @@
 351627	|	Caldicellulosiruptor saccharolyticus DSM 8903	|		|	scientific name	|
 355243	|	Amphritea atlantica	|		|	scientific name	|
 360316	|	Crenothrix polyspora	|		|	scientific name	|
+360412	|	Longilinea arvoryzae	|		|	scientific name	|
 362534	|	Kordiimonadales	|		|	scientific name	|
 362865	|	Sandarakinorhabdus	|		|	scientific name	|
 364031	|	Sulfurivirga	|		|	scientific name	|
@@ -1758,10 +1757,10 @@
 381308	|	Thiohalophilus thiocyanatoxydans	|		|	scientific name	|
 382513	|	Telmatospirillum	|		|	scientific name	|
 382514	|	Telmatospirillum siberiense	|		|	scientific name	|
-384638	|	[Bacteroides] pectinophilus	|		|	scientific name	|
 385255	|	Eublepharinae	|		|	scientific name	|
 385256	|	Gekkoninae	|		|	scientific name	|
 387655	|	Halanaerobiales incertae sedis	|		|	scientific name	|
+390988	|	Actinocatenispora	|		|	scientific name	|
 391180	|	Enhydra lutris kenyoni	|		|	scientific name	|
 391735	|	Verminephrobacter eiseniae EF01-2	|		|	scientific name	|
 392733	|	Terriglobus	|		|	scientific name	|
@@ -1812,11 +1811,11 @@
 425074	|	Eustigmatales	|		|	scientific name	|
 426106	|	Oleeae	|		|	scientific name	|
 426114	|	Thiomonas arsenitoxydans	|		|	scientific name	|
+427925	|	Dethiobacter	|		|	scientific name	|
+427926	|	Dethiobacter alkaliphilus	|		|	scientific name	|
 432025	|	Mixiomycetes	|		|	scientific name	|
 432026	|	Mixiales	|		|	scientific name	|
 434086	|	Porticoccus litoralis	|		|	scientific name	|
-435913	|	Fodinicola	|		|	scientific name	|
-435914	|	Fodinicola feengrottensis	|		|	scientific name	|
 436486	|	Dinosauria	|		|	scientific name	|
 436489	|	Saurischia	|		|	scientific name	|
 436491	|	Theropoda	|		|	scientific name	|
@@ -1827,12 +1826,12 @@
 444090	|	Caldimicrobium	|		|	scientific name	|
 444093	|	Ammonifex thiophilus	|		|	scientific name	|
 445670	|	Thiohalophilus	|		|	scientific name	|
-445971	|	Anaerofustis stercorihominis DSM 17244	|		|	scientific name	|
 446133	|	Stylonemataceae	|		|	scientific name	|
 446134	|	Stylonematophyceae	|		|	scientific name	|
 446469	|	Sanguibacter keddieii DSM 10542	|		|	scientific name	|
 447595	|	Caldanaerovirga acetigignens	|		|	scientific name	|
 447792	|	Phytobacter	|		|	scientific name	|
+448125	|	Dethiosulfatibacter	|		|	scientific name	|
 448386	|	Gracilariopsis chorda	|		|	scientific name	|
 450948	|	Nephilidae	|		|	scientific name	|
 451435	|	Chytridiomycetes	|		|	scientific name	|
@@ -1862,6 +1861,7 @@
 472759	|	Nitrosococcus halophilus Nc 4	|		|	scientific name	|
 475087	|	Methanosphaerula	|		|	scientific name	|
 475088	|	Methanosphaerula palustris	|		|	scientific name	|
+475961	|	Longilinea	|		|	scientific name	|
 475962	|	Caldilineae	|		|	scientific name	|
 475963	|	Caldilineales	|		|	scientific name	|
 475964	|	Caldilineaceae	|		|	scientific name	|
@@ -1869,7 +1869,6 @@
 481883	|	Eublepharis macularius	|		|	scientific name	|
 482536	|	Galeopterus	|		|	scientific name	|
 482537	|	Galeopterus variegatus	|		|	scientific name	|
-483218	|	[Bacteroides] pectinophilus ATCC 43243	|		|	scientific name	|
 484088	|	Arminella tubonensis	|		|	scientific name	|
 487686	|	Methanomicrobium antiquum	|		|	scientific name	|
 489913	|	Halarchaeum nitratireducens	|		|	scientific name	|
@@ -1878,6 +1877,8 @@
 498845	|	Candidatus Korarchaeum	|		|	scientific name	|
 498846	|	Candidatus Korarchaeum cryptofilum	|		|	scientific name	|
 499202	|	Lichtheimiaceae	|		|	scientific name	|
+499228	|	Tepidanaerobacter	|		|	scientific name	|
+499229	|	Tepidanaerobacter acetatoxydans	|		|	scientific name	|
 503005	|	Dasania	|		|	scientific name	|
 504465	|	Rhodovastum	|		|	scientific name	|
 504468	|	Rhodovastum atsumiense	|		|	scientific name	|
@@ -1887,7 +1888,7 @@
 512349	|	Actinoplanes sichuanensis	|		|	scientific name	|
 515417	|	Amphritea	|		|	scientific name	|
 518766	|	Rhodothermus marinus DSM 4252	|		|	scientific name	|
-519427	|	Sharpea	|		|	scientific name	|
+519421	|	Actinocatenispora rupis	|		|	scientific name	|
 519541	|	Geodia barretti	|		|	scientific name	|
 520762	|	Thermotalea metallivorans	|		|	scientific name	|
 520764	|	Fervidicola ferrireducens	|		|	scientific name	|
@@ -1900,12 +1901,9 @@
 523849	|	Thermococcus litoralis DSM 5473	|		|	scientific name	|
 523864	|	Bacilloidea	|		|	scientific name	|
 524420	|	Bacillinae	|		|	scientific name	|
-526218	|	Sebaldella termitidis ATCC 33386	|		|	scientific name	|
+525904	|	Thermobaculum terrenum ATCC BAA-798	|		|	scientific name	|
 526222	|	Maridesulfovibrio salexigens DSM 2638	|		|	scientific name	|
-526524	|	Erysipelotrichia	|		|	scientific name	|
-526525	|	Erysipelotrichales	|		|	scientific name	|
 529704	|	Frateuria terrea	|		|	scientific name	|
-536231	|	Roseburia intestinalis L1-82	|		|	scientific name	|
 538999	|	Eubacteriales incertae sedis	|		|	scientific name	|
 539814	|	Candidatus Endonucleibacter bathymodioli	|		|	scientific name	|
 540060	|	Limnohabitans planktonicus	|		|	scientific name	|
@@ -1925,15 +1923,18 @@
 554344	|	Ectopseudomonas toyotomiensis	|		|	scientific name	|
 554915	|	Amoebozoa	|		|	scientific name	|
 555078	|	Fervidicola	|		|	scientific name	|
+555088	|	Dethiobacter alkaliphilus AHT 1	|		|	scientific name	|
 555280	|	Discosea	|		|	scientific name	|
 555315	|	Ensifer canadensis	|		|	scientific name	|
 555407	|	Centramoebida	|		|	scientific name	|
 555408	|	Balamuthiidae	|		|	scientific name	|
 555573	|	Salarchaeum japonicum	|		|	scientific name	|
 557415	|	Gobiesocinae	|		|	scientific name	|
+557451	|	Symbiobacterium terraclitae	|		|	scientific name	|
 560819	|	Tistlia consotensis USBA 355	|		|	scientific name	|
 563843	|	Rhodothermaceae	|		|	scientific name	|
 564369	|	Luteibacter anthropi	|		|	scientific name	|
+564413	|	Microbispora siamensis	|		|	scientific name	|
 565033	|	Geoglobus acetivorans	|		|	scientific name	|
 568394	|	Pseudogulbenkiania	|		|	scientific name	|
 569578	|	PX clade	|		|	scientific name	|
@@ -1943,7 +1944,6 @@
 570265	|	Methanocellaceae	|		|	scientific name	|
 570266	|	Methanocella	|		|	scientific name	|
 570281	|	Pseudoteredinibacter isoporae	|		|	scientific name	|
-572511	|	Blautia	|		|	scientific name	|
 573055	|	Cervidpoxvirus	|		|	scientific name	|
 574087	|	Acetohalobium arabaticum DSM 5501	|		|	scientific name	|
 574560	|	Photorhabdus temperata	|		|	scientific name	|
@@ -2012,6 +2012,7 @@
 676205	|	Yinghuangia aomiensis	|		|	scientific name	|
 679901	|	Methanosalsum zhilinae DSM 4017	|		|	scientific name	|
 679926	|	Methanolacinia petrolearia DSM 11571	|		|	scientific name	|
+682979	|	Microlunatus parietis	|		|	scientific name	|
 683846	|	Fervidicoccus fontis	|		|	scientific name	|
 685948	|	Fervidicoccales	|		|	scientific name	|
 685949	|	Fervidicoccaceae	|		|	scientific name	|
@@ -2025,16 +2026,19 @@
 695850	|	Saprolegnia parasitica CBS 223.65	|		|	scientific name	|
 695982	|	Halogranum	|		|	scientific name	|
 696127	|	Candidatus Midichloria mitochondrii IricVA	|		|	scientific name	|
-697024	|	Corynebacteriales incertae sedis	|		|	scientific name	|
+696763	|	Thermasporomyces composti	|		|	scientific name	|
+697281	|	Mahella australiensis 50-1 BON	|		|	scientific name	|
 698762	|	Thermanaeromonas toyohensis ToBE	|		|	scientific name	|
 699431	|	Halolamina pelagica	|		|	scientific name	|
 706427	|	Halanaerobacter jeridensis	|		|	scientific name	|
+714109	|	Phytomonospora endophytica	|		|	scientific name	|
 714531	|	Chitinivorax tropicus	|		|	scientific name	|
 715962	|	dothideomyceta	|		|	scientific name	|
 715989	|	sordariomyceta	|		|	scientific name	|
 716545	|	saccharomyceta	|		|	scientific name	|
 716546	|	leotiomyceta	|		|	scientific name	|
 716816	|	Oceanicoccus sagamiensis	|		|	scientific name	|
+718013	|	Thermasporomyces	|		|	scientific name	|
 718192	|	Litorilituus sediminis	|		|	scientific name	|
 720585	|	Origma	|		|	scientific name	|
 720586	|	Origma solitaria	|		|	scientific name	|
@@ -2050,6 +2054,8 @@
 754476	|	Methylophaga nitratireducenticrescens	|		|	scientific name	|
 755307	|	Salinigranum rubrum	|		|	scientific name	|
 755308	|	Halorubellus litoreus	|		|	scientific name	|
+760011	|	Parasphaerochaeta coccoides DSM 17374	|		|	scientific name	|
+760260	|	Oligosphaera ethanolica	|		|	scientific name	|
 762296	|	Methylovulum	|		|	scientific name	|
 763407	|	Phycomyces blakesleeanus NRRL 1555(-)	|		|	scientific name	|
 764103	|	Mixia osmundae IAM 14324	|		|	scientific name	|
@@ -2067,8 +2073,6 @@
 869886	|	Halosimplex pelagicum	|		|	scientific name	|
 871006	|	Acidilobales	|		|	scientific name	|
 871007	|	Acidilobaceae	|		|	scientific name	|
-877466	|	Thermoflexus hugenholtzii JAD2	|		|	scientific name	|
-879566	|	Acetatifactor muris	|		|	scientific name	|
 880072	|	Desulfobacca acetoxidans DSM 11109	|		|	scientific name	|
 880551	|	Campephagidae	|		|	scientific name	|
 882104	|	Methanoregula formicica	|		|	scientific name	|
@@ -2079,6 +2083,7 @@
 909929	|	Selenomonadales	|		|	scientific name	|
 909930	|	Acidaminococcaceae	|		|	scientific name	|
 909932	|	Negativicutes	|		|	scientific name	|
+911092	|	Caldanaerobacter subterraneus	|		|	scientific name	|
 911205	|	Eilatimonas milleporae	|		|	scientific name	|
 926359	|	Natronoarchaeum	|		|	scientific name	|
 926360	|	Natronoarchaeum mannanilyticum	|		|	scientific name	|
@@ -2120,6 +2125,7 @@
 1069815	|	Sinanodonta woodiana	|		|	scientific name	|
 1070314	|	Halorussus	|		|	scientific name	|
 1070319	|	Candidatus Glomeribacter gigasporarum BEG34	|		|	scientific name	|
+1073253	|	Thermocatellispora tengchongensis	|		|	scientific name	|
 1073987	|	Halorientalis	|		|	scientific name	|
 1074233	|	Lysinimonas soli	|		|	scientific name	|
 1075397	|	Halolamina	|		|	scientific name	|
@@ -2127,7 +2133,6 @@
 1076588	|	Thiolapillus brandeum	|		|	scientific name	|
 1077255	|	Agitococcus lubricus	|		|	scientific name	|
 1077256	|	Methanosphaera cuniculi	|		|	scientific name	|
-1077886	|	Thermanaerothrix	|		|	scientific name	|
 1080709	|	Methanomassiliicoccus	|		|	scientific name	|
 1084558	|	Oceanicoccus	|		|	scientific name	|
 1090322	|	Methanolobus tindarius DSM 2278	|		|	scientific name	|
@@ -2140,18 +2145,14 @@
 1115515	|	Pseudescherichia vulneris NBRC 102420	|		|	scientific name	|
 1120955	|	Afifella marina DSM 2698	|		|	scientific name	|
 1121029	|	Parazoarcus communis SWub3 = DSM 12120	|		|	scientific name	|
-1121131	|	Butyrivibrio fibrisolvens DSM 3071	|		|	scientific name	|
 1121256	|	Caldanaerobius fijiensis DSM 17918	|		|	scientific name	|
 1121400	|	Desulfocicer vacuolatum DSM 3385	|		|	scientific name	|
 1121405	|	Desulfococcus multivorans DSM 2059	|		|	scientific name	|
+1121476	|	Dethiosulfatibacter aminovorans DSM 17477	|		|	scientific name	|
 1121939	|	Litchfieldella anticariensis FP35 = DSM 16096	|		|	scientific name	|
-1121950	|	Hespellia stercorisuis DSM 15480	|		|	scientific name	|
 1122189	|	Malonomonas rubra DSM 5091	|		|	scientific name	|
-1122219	|	Megasphaera cerevisiae DSM 20462	|		|	scientific name	|
 1122283	|	Maricurvus	|		|	scientific name	|
 1122284	|	Pseudoteredinibacter	|		|	scientific name	|
-1123012	|	Pseudobutyrivibrio xylanivorans DSM 14809	|		|	scientific name	|
-1123243	|	Schwartzia succinivorans DSM 10502	|		|	scientific name	|
 1123285	|	Thermosinus thermophiluss DSM 23256	|		|	scientific name	|
 1123291	|	Pelosinus propionicus DSM 13327	|		|	scientific name	|
 1123352	|	Tepidimicrobium xylanilyticum	|		|	scientific name	|
@@ -2162,7 +2163,6 @@
 1127830	|	Candidatus Brocadiaceae	|		|	scientific name	|
 1128113	|	Algimonas porphyrae	|		|	scientific name	|
 1129544	|	Rhizophagus	|		|	scientific name	|
-1129771	|	Leptotrichiaceae	|		|	scientific name	|
 1132027	|	Chromatocurvus	|		|	scientific name	|
 1132028	|	Chromatocurvus halotolerans	|		|	scientific name	|
 1133106	|	Plasticicumulans lactativorans	|		|	scientific name	|
@@ -2189,10 +2189,13 @@
 1198451	|	Methanoregulaceae	|		|	scientific name	|
 1200300	|	Thermogladius calderae	|		|	scientific name	|
 1202732	|	Sarracenia purpurea subsp. venosa	|		|	scientific name	|
+1204385	|	Litorilinea aerophila	|		|	scientific name	|
 1206794	|	Ecdysozoa	|		|	scientific name	|
 1206795	|	Lophotrochozoa	|		|	scientific name	|
+1209989	|	Tepidanaerobacter acetatoxydans Re1	|		|	scientific name	|
 1211807	|	Stutzerimonas kunmingensis	|		|	scientific name	|
 1215092	|	Aquipseudomonas alcaligenes NBRC 14159	|		|	scientific name	|
+1215913	|	Litorilinea	|		|	scientific name	|
 1217098	|	Jiangellales	|		|	scientific name	|
 1217100	|	Jiangellaceae	|		|	scientific name	|
 1217101	|	Haloactinopolyspora	|		|	scientific name	|
@@ -2238,6 +2241,10 @@
 1296565	|	Geodermatophilus amargosae	|		|	scientific name	|
 1298851	|	Thermosulfidibacter takaii ABI70S6	|		|	scientific name	|
 1306992	|	Halioxenophilus aromaticivorans	|		|	scientific name	|
+1313207	|	Oligosphaeria	|		|	scientific name	|
+1313208	|	Oligosphaerales	|		|	scientific name	|
+1313209	|	Oligosphaeraceae	|		|	scientific name	|
+1313210	|	Oligosphaera	|		|	scientific name	|
 1314678	|	Umbelopsis ramanniana AG	|		|	scientific name	|
 1314771	|	Linnemannia elongata AG-77	|		|	scientific name	|
 1314802	|	Melanomma pulvis-pyrius CBS 109.77	|		|	scientific name	|
@@ -2245,6 +2252,7 @@
 1321364	|	Tistlia	|		|	scientific name	|
 1321365	|	Tistlia consotensis	|		|	scientific name	|
 1323375	|	Anoxybacter fermentans	|		|	scientific name	|
+1323731	|	Streptomonospora nanhaiensis	|		|	scientific name	|
 1324957	|	Candidatus Halobonum tyrrellensis G22	|		|	scientific name	|
 1326739	|	Calderihabitans	|		|	scientific name	|
 1328881	|	Candidatus Midichloriaceae	|		|	scientific name	|
@@ -2306,8 +2314,8 @@
 1416741	|	Sea otter poxvirus	|		|	scientific name	|
 1417629	|	Anaerosolibacter carboniphilus	|		|	scientific name	|
 1420851	|	Methyloprofundus sedimenti	|		|	scientific name	|
-1427378	|	Acetatifactor	|		|	scientific name	|
 1427518	|	Xenorhabdus szentirmaii DSM 16338	|		|	scientific name	|
+1428644	|	Mangrovactinospora gilvigrisea	|		|	scientific name	|
 1429043	|	Dethiosulfatarculus sandiegensis	|		|	scientific name	|
 1429083	|	Atopomonas hussainii	|		|	scientific name	|
 1431544	|	Candidatus Halobonum	|		|	scientific name	|
@@ -2319,6 +2327,7 @@
 1434013	|	Labedaea	|		|	scientific name	|
 1434016	|	Longimycelium	|		|	scientific name	|
 1434018	|	Lysinimonas	|		|	scientific name	|
+1434030	|	Phytomonospora	|		|	scientific name	|
 1434044	|	Sinobacterium	|		|	scientific name	|
 1434047	|	Spinactinospora	|		|	scientific name	|
 1434050	|	Zhongshania	|		|	scientific name	|
@@ -2367,13 +2376,8 @@
 1489920	|	Blenniimorphae	|		|	scientific name	|
 1489921	|	Blenniiformes	|		|	scientific name	|
 1489922	|	Eupercaria	|		|	scientific name	|
-1491775	|	Proteinivoracaceae	|		|	scientific name	|
-1495646	|	Thermoflexia	|		|	scientific name	|
-1495647	|	Thermoflexales	|		|	scientific name	|
-1495648	|	Thermoflexaceae	|		|	scientific name	|
-1495649	|	Thermoflexus	|		|	scientific name	|
-1495650	|	Thermoflexus hugenholtzii	|		|	scientific name	|
 1499392	|	Chromobacteriaceae	|		|	scientific name	|
+1499967	|	Candidatus Vecturithrix granuli	|		|	scientific name	|
 1500420	|	Lacibacterium	|		|	scientific name	|
 1501348	|	Amoebophilaceae	|		|	scientific name	|
 1502941	|	Pleionea	|		|	scientific name	|
@@ -2381,7 +2385,6 @@
 1505037	|	Emcibacter nanhaiensis	|		|	scientific name	|
 1505768	|	Candidatus Schmidhempelia	|		|	scientific name	|
 1505866	|	Candidatus Schmidhempelia bombi	|		|	scientific name	|
-1506553	|	Lachnoclostridium	|		|	scientific name	|
 1508375	|	Actinospica durhamensis	|		|	scientific name	|
 1509243	|	Nucleicultrix (SeqCode)	|		|	scientific name	|
 1509244	|	Nucleicultrix amoebiphila (SeqCode)	|		|	scientific name	|
@@ -2433,7 +2436,6 @@
 1643678	|	Nitrososphaeria	|		|	scientific name	|
 1643682	|	Geodermatophilales	|		|	scientific name	|
 1643687	|	Brevinematales	|		|	scientific name	|
-1643824	|	Atopobiaceae	|		|	scientific name	|
 1644056	|	Haloferacaceae	|		|	scientific name	|
 1644057	|	Salinigranum	|		|	scientific name	|
 1644061	|	Natrialbaceae	|		|	scientific name	|
@@ -2445,6 +2447,7 @@
 1649464	|	Litoribrevibacter	|		|	scientific name	|
 1649477	|	Paraherbaspirillum	|		|	scientific name	|
 1649491	|	Salinispirillum	|		|	scientific name	|
+1649505	|	Thermocatellispora	|		|	scientific name	|
 1649512	|	Vulcaniibacterium	|		|	scientific name	|
 1649642	|	Oleiagrimonas	|		|	scientific name	|
 1653476	|	Caldimicrobium thiodismutans	|		|	scientific name	|
@@ -2459,6 +2462,8 @@
 1675686	|	Sulfurifustis variabilis	|		|	scientific name	|
 1676141	|	Wenzhouxiangellaceae	|		|	scientific name	|
 1676142	|	Wenzhouxiangella	|		|	scientific name	|
+1676648	|	Limnochordia	|		|	scientific name	|
+1676649	|	Limnochordales	|		|	scientific name	|
 1676925	|	Paramormyrops kingsleyae	|		|	scientific name	|
 1682490	|	Ferrigenium kumadai	|		|	scientific name	|
 1690817	|	Streptomyces phage SF1	|		|	scientific name	|
@@ -2489,6 +2494,7 @@
 1698281	|	candidate division MSBL1 archaeon SCGC-AAA382C18	|		|	scientific name	|
 1698283	|	candidate division MSBL1 archaeon SCGC-AAA382K21	|		|	scientific name	|
 1698799	|	Marinobacterium aestuariivivens	|		|	scientific name	|
+1702242	|	Thermoanaerobacterium butyriciformans	|		|	scientific name	|
 1704499	|	Methylovulum psychrotolerans	|		|	scientific name	|
 1706046	|	Sulfurirhabdus autotrophica	|		|	scientific name	|
 1706369	|	Cellvibrionales	|		|	scientific name	|
@@ -2498,6 +2504,7 @@
 1706374	|	Porticoccaceae	|		|	scientific name	|
 1706375	|	Spongiibacteraceae	|		|	scientific name	|
 1706431	|	unclassified Spongiibacteraceae	|		|	scientific name	|
+1708749	|	Tenggerimyces flavus	|		|	scientific name	|
 1729112	|	Passerellidae	|		|	scientific name	|
 1729789	|	Vanilleae	|		|	scientific name	|
 1730093	|	Rhipiduridae	|		|	scientific name	|
@@ -2505,6 +2512,7 @@
 1737061	|	Pseudohalioglobus lutimaris	|		|	scientific name	|
 1737404	|	Tissierellia	|		|	scientific name	|
 1737405	|	Tissierellales	|		|	scientific name	|
+1737407	|	Tissierellia incertae sedis	|		|	scientific name	|
 1737446	|	Chitinibacter fontanus	|		|	scientific name	|
 1738651	|	Sphingoaurantiacus	|		|	scientific name	|
 1738654	|	Woeseiaceae	|		|	scientific name	|
@@ -2546,6 +2554,8 @@
 1783272	|	Bacillati	|		|	scientific name	|
 1783274	|	Arsenicitalea aurantiaca	|		|	scientific name	|
 1783275	|	Thermoproteati	|		|	scientific name	|
+1784839	|	Tenggerimyces	|		|	scientific name	|
+1785913	|	Actinorhabdospora filicis	|		|	scientific name	|
 1798711	|	Cyanobacteriota/Melainabacteria group	|		|	scientific name	|
 1802983	|	Candidatus Fokinia	|		|	scientific name	|
 1802984	|	Candidatus Fokinia solitaria	|		|	scientific name	|
@@ -2561,7 +2571,7 @@
 1825023	|	Candidatus Nitrosotenuis	|		|	scientific name	|
 1825523	|	Novimethylophilus kurashikiensis	|		|	scientific name	|
 1827195	|	Caballeronia	|		|	scientific name	|
-1827502	|	Lentibacillus populi	|		|	scientific name	|
+1838280	|	Desulfotomaculum copahuensis	|		|	scientific name	|
 1838285	|	Candidatus Syntropharchaeum caldarium	|		|	scientific name	|
 1839754	|	Candidatus Protofrankia californiensis	|		|	scientific name	|
 1840588	|	Camellia lanceoleosa	|		|	scientific name	|
@@ -2574,7 +2584,9 @@
 1845000	|	Candidatus Wolbachia massiliensis	|		|	scientific name	|
 1848396	|	Limibacillus	|		|	scientific name	|
 1848927	|	Methylobacillus methanolivorans	|		|	scientific name	|
+1849525	|	Actinorhabdospora	|		|	scientific name	|
 1849580	|	Dyella nitratireducens	|		|	scientific name	|
+1851148	|	Limihaloglobus sulfuriphilus	|		|	scientific name	|
 1853220	|	Rhodothermota	|		|	scientific name	|
 1853222	|	Rhodothermia	|		|	scientific name	|
 1853224	|	Rhodothermales	|		|	scientific name	|
@@ -2590,7 +2602,6 @@
 1868332	|	Neomicrococcus	|		|	scientific name	|
 1868481	|	Carlito	|		|	scientific name	|
 1868482	|	Carlito syrichta	|		|	scientific name	|
-1871336	|	Criibacterium bergeronii	|		|	scientific name	|
 1872711	|	Herbihabitans rhizosphaerae	|		|	scientific name	|
 1873524	|	Halodesulfurarchaeum formicicum	|		|	scientific name	|
 1873698	|	Pteropox virus	|		|	scientific name	|
@@ -2637,8 +2648,9 @@
 1931080	|	Meliphagoidea	|		|	scientific name	|
 1931232	|	Marinitenerispora sediminis	|		|	scientific name	|
 1931992	|	Gandjariella thermophila	|		|	scientific name	|
-1937664	|	Criibacterium	|		|	scientific name	|
+1936003	|	Anaerohalosphaera lusitana	|		|	scientific name	|
 1938954	|	Bifiguratus adelaidae	|		|	scientific name	|
+1940407	|	Candidatus Vecturithrix	|		|	scientific name	|
 1960125	|	Parendozoicomonas haliclonae	|		|	scientific name	|
 1963268	|	Haloarculaceae	|		|	scientific name	|
 1963758	|	Myomorpha	|		|	scientific name	|
@@ -2683,7 +2695,6 @@
 2039723	|	Thiomicrorhabdus	|		|	scientific name	|
 2042482	|	Eastern grey kangaroopox virus	|		|	scientific name	|
 2043170	|	Paremcibacter congregatus	|		|	scientific name	|
-2044587	|	Schaedlerella arabinosiphila	|		|	scientific name	|
 2045261	|	Rhodymeniophycidae	|		|	scientific name	|
 2045408	|	Populibacterium	|		|	scientific name	|
 2052799	|	Jimgerdemannia	|		|	scientific name	|
@@ -2753,15 +2764,16 @@
 2306996	|	Tsuneonella suprasediminis	|		|	scientific name	|
 2316383	|	Biomaibacter acetigenes	|		|	scientific name	|
 2320269	|	Altericroceibacterium spongiae	|		|	scientific name	|
-2320879	|	Parablautia muri	|		|	scientific name	|
 2338552	|	Parashewanella curva	|		|	scientific name	|
+2364196	|	Candidatus Thermofontia	|		|	scientific name	|
+2364208	|	Phototrophicales	|		|	scientific name	|
 2419774	|	Protaetiibacter intestinalis	|		|	scientific name	|
 2478471	|	Candidatus Methanodesulfokora washburnensis	|		|	scientific name	|
 2483366	|	Sedimentisphaerales	|		|	scientific name	|
+2483367	|	Sedimentisphaeraceae	|		|	scientific name	|
 2488780	|	Arthrobacter phage Liebe	|		|	scientific name	|
 2497749	|	Candidatus Methylobacter oryzae	|		|	scientific name	|
 2498454	|	Allolucifera	|		|	scientific name	|
-2507161	|	Acidilutibacter cellobiosedens	|		|	scientific name	|
 2507920	|	Iridoideae	|		|	scientific name	|
 2508073	|	Irideae	|		|	scientific name	|
 2511164	|	Microchloropsis	|		|	scientific name	|
@@ -2783,8 +2795,6 @@
 2571148	|	Chitiniphilus eburneus	|		|	scientific name	|
 2571160	|	Trinickia	|		|	scientific name	|
 2571746	|	Trinickia violacea	|		|	scientific name	|
-2576755	|	Caproicibacter	|		|	scientific name	|
-2576756	|	Caproicibacter fermentans	|		|	scientific name	|
 2579935	|	Jejuibacter calystegiae	|		|	scientific name	|
 2582840	|	Desulfocurvibacter	|		|	scientific name	|
 2584085	|	Methanoculleus frigidifontis	|		|	scientific name	|
@@ -2803,8 +2813,6 @@
 2602750	|	Pelomicrobium methylotrophicum	|		|	scientific name	|
 2603298	|	Ketobacter nezhaii	|		|	scientific name	|
 2604748	|	Endomyxa	|		|	scientific name	|
-2606633	|	Oliverpabstia intestinalis	|		|	scientific name	|
-2606906	|	Calorimonas adulescens	|		|	scientific name	|
 2607030	|	Strisores	|		|	scientific name	|
 2607661	|	Methanofervidicoccus	|		|	scientific name	|
 2608109	|	Haptista	|		|	scientific name	|
@@ -2815,7 +2823,6 @@
 2613912	|	Conexivisphaera	|		|	scientific name	|
 2614578	|	Cyanoderma	|		|	scientific name	|
 2650549	|	Hydrocarboniclastica	|		|	scientific name	|
-2652309	|	Anaerovibrio slackiae	|		|	scientific name	|
 2653789	|	Whippomorpha	|		|	scientific name	|
 2661630	|	Venatoribacter cucullus	|		|	scientific name	|
 2661818	|	Saliniradius	|		|	scientific name	|
@@ -2824,16 +2831,17 @@
 2664894	|	Spiribacter salilacus	|		|	scientific name	|
 2665642	|	Allosaccharopolyspora coralli	|		|	scientific name	|
 2675053	|	Thiosulfativibrio zosterae	|		|	scientific name	|
-2676048	|	Schaedlerella	|		|	scientific name	|
 2676063	|	Pseudomethylobacillus	|		|	scientific name	|
 2676064	|	Pseudomethylobacillus aquaticus	|		|	scientific name	|
 2678534	|	Corticimicrobacter	|		|	scientific name	|
 2680004	|	Protaetiibacter	|		|	scientific name	|
-2681861	|	Sporofaciens musculi	|		|	scientific name	|
 2682552	|	Leptocardii	|		|	scientific name	|
 2682553	|	Amphioxiformes	|		|	scientific name	|
+2682810	|	Iocasia frigidifontis	|		|	scientific name	|
 2689614	|	Steroidobacteraceae	|		|	scientific name	|
 2690158	|	Anaerohalosphaeraceae	|		|	scientific name	|
+2690159	|	Anaerohalosphaera	|		|	scientific name	|
+2690160	|	Limihaloglobus	|		|	scientific name	|
 2690220	|	Cyanidiococcus yangmingshanensis	|		|	scientific name	|
 2692200	|	Halobacterium bonnevillei	|		|	scientific name	|
 2692248	|	core chlorophytes	|		|	scientific name	|
@@ -2843,8 +2851,8 @@
 2698737	|	Sar	|		|	scientific name	|
 2699430	|	Caldichromatium japonicum	|		|	scientific name	|
 2703885	|	Rahnella aceris	|		|	scientific name	|
-2707768	|	Calorimonas	|		|	scientific name	|
 2709666	|	Pseudolysobacter	|		|	scientific name	|
+2710758	|	Phototrophicus methaneseepsis	|		|	scientific name	|
 2715678	|	Sulfurimicrobium lacus	|		|	scientific name	|
 2715679	|	Dissulfurispira thermophila	|		|	scientific name	|
 2717330	|	Aestuariirhabdaceae	|		|	scientific name	|
@@ -2855,7 +2863,6 @@
 2731360	|	Heunggongvirae	|		|	scientific name	|
 2731361	|	Peploviricota	|		|	scientific name	|
 2731363	|	Herviviricetes	|		|	scientific name	|
-2731377	|	Alkalicella caledoniensis	|		|	scientific name	|
 2731618	|	Uroviricota	|		|	scientific name	|
 2731619	|	Caudoviricetes	|		|	scientific name	|
 2732004	|	Varidnaviria	|		|	scientific name	|
@@ -2913,8 +2920,6 @@
 2759953	|	Natronospirillum operosum	|		|	scientific name	|
 2760088	|	Oceanospirillum sediminis	|		|	scientific name	|
 2762745	|	Zestomonas carbonaria	|		|	scientific name	|
-2763667	|	Wansuia hejianensis	|		|	scientific name	|
-2763670	|	Wujia chipingensis	|		|	scientific name	|
 2764705	|	Sideroxyarcus emersonii	|		|	scientific name	|
 2768133	|	Arthrobacter phage Tweety19	|		|	scientific name	|
 2768738	|	Spartinivicinus	|		|	scientific name	|
@@ -2928,33 +2933,34 @@
 2776706	|	Infirmifilum lucidum	|		|	scientific name	|
 2776841	|	Microbacterium phage GardenState	|		|	scientific name	|
 2778334	|	Candidatus Aquirickettsiella	|		|	scientific name	|
+2778430	|	Halonatronomonas betaini	|		|	scientific name	|
 2778876	|	Methyloradius palustris	|		|	scientific name	|
 2779609	|	Phytomyxea	|		|	scientific name	|
 2779861	|	Linnemannia	|		|	scientific name	|
 2781120	|	Thiosulfativibrio	|		|	scientific name	|
 2781979	|	Pontibacterium sinense	|		|	scientific name	|
 2785011	|	Autobranchia	|		|	scientific name	|
-2785058	|	Fusibacter ferrireducens	|		|	scientific name	|
 2786987	|	Koleobacterales	|		|	scientific name	|
 2786988	|	Koleobacteraceae	|		|	scientific name	|
 2786989	|	Koleobacter	|		|	scientific name	|
+2791015	|	Sphaerochaetaceae	|		|	scientific name	|
 2794998	|	Maridesulfovibrio	|		|	scientific name	|
 2796146	|	Candidatus Nitrosacidicoccus	|		|	scientific name	|
 2798274	|	Conexivisphaeria	|		|	scientific name	|
 2798275	|	Conexivisphaerales	|		|	scientific name	|
 2798276	|	Conexivisphaeraceae	|		|	scientific name	|
+2798577	|	Breznakiella homolactica	|		|	scientific name	|
 2800059	|	Maricaulales	|		|	scientific name	|
 2800060	|	Hyphomonadales	|		|	scientific name	|
 2800062	|	Robiginitomaculaceae	|		|	scientific name	|
 2800384	|	Pseudidiomarina	|		|	scientific name	|
 2800679	|	Altericroceibacterium	|		|	scientific name	|
 2800686	|	Tsuneonella	|		|	scientific name	|
+2801844	|	Arachnia	|		|	scientific name	|
 2803811	|	Zobellella iuensis	|		|	scientific name	|
 2805400	|	Actinopolymorphaceae	|		|	scientific name	|
 2805681	|	Yinghuangia	|		|	scientific name	|
-2810280	|	Coprobacillaceae	|		|	scientific name	|
 2811230	|	Bowmanella yangjiangensis	|		|	scientific name	|
-2811390	|	Sporofaciens	|		|	scientific name	|
 2811415	|	Niveibacterium microcysteis	|		|	scientific name	|
 2811502	|	Thermodesulfovibrionia	|		|	scientific name	|
 2811503	|	Thermodesulfovibrionales	|		|	scientific name	|
@@ -2967,8 +2973,6 @@
 2813859	|	Natronospirillaceae	|		|	scientific name	|
 2815296	|	Jejuibacter	|		|	scientific name	|
 2815315	|	Pelomicrobium	|		|	scientific name	|
-2815777	|	Oliverpabstia	|		|	scientific name	|
-2815781	|	Waltera	|		|	scientific name	|
 2818442	|	Thiomicrorhabdus marina	|		|	scientific name	|
 2820280	|	Sphingosinicellaceae	|		|	scientific name	|
 2821351	|	Conifers II	|		|	scientific name	|
@@ -2985,7 +2989,6 @@
 2832317	|	Arthrobacter phage Crewmate	|		|	scientific name	|
 2836095	|	Microbacterium phage Honk	|		|	scientific name	|
 2836391	|	Tectipleura	|		|	scientific name	|
-2838170	|	Alkalicella	|		|	scientific name	|
 2838250	|	Kaustia	|		|	scientific name	|
 2840454	|	Candidatus Formimonas	|		|	scientific name	|
 2840488	|	Bacillota incertae sedis	|		|	scientific name	|
@@ -2995,8 +2998,8 @@
 2842851	|	Manticavirus	|		|	scientific name	|
 2842939	|	Patagivirus	|		|	scientific name	|
 2844403	|	Rhodovibrionaceae	|		|	scientific name	|
+2845254	|	Breznakiella	|		|	scientific name	|
 2846598	|	vespertilionid gammaherpesvirus 3	|		|	scientific name	|
-2847313	|	Tractidigestivibacter	|		|	scientific name	|
 2847774	|	Atribacteria	|		|	scientific name	|
 2847775	|	Atribacterales	|		|	scientific name	|
 2856573	|	Infirmifilum	|		|	scientific name	|
@@ -3007,10 +3010,8 @@
 2871826	|	Symbiopectobacterium purcellii	|		|	scientific name	|
 2872156	|	Methyloradius	|		|	scientific name	|
 2875235	|	Pseudohalioglobus	|		|	scientific name	|
-2877527	|	Blautia parvula	|		|	scientific name	|
 2881426	|	Prochlorococcaceae	|		|	scientific name	|
 2884243	|	Musicola	|		|	scientific name	|
-2885352	|	Hominiventricola filiformis	|		|	scientific name	|
 2887326	|	Moraxellales	|		|	scientific name	|
 2887327	|	Kangiellales	|		|	scientific name	|
 2887365	|	Marinobacteraceae	|		|	scientific name	|
@@ -3020,13 +3021,12 @@
 2893576	|	Allosaccharopolyspora	|		|	scientific name	|
 2893577	|	Halosaccharopolyspora	|		|	scientific name	|
 2893675	|	Actinopolyspora alba group	|		|	scientific name	|
-2894155	|	Granulimonas faecalis	|		|	scientific name	|
-2894156	|	Leptogranulimonas caecicola	|		|	scientific name	|
 2894574	|	Saccharobesus	|		|	scientific name	|
 2894762	|	Zophobihabitans	|		|	scientific name	|
 2895353	|	Telluria group	|		|	scientific name	|
 2897177	|	Chitinibacteraceae	|		|	scientific name	|
 2898533	|	Zooshikellaceae	|		|	scientific name	|
+2899804	|	Iocasia	|		|	scientific name	|
 2901164	|	Stutzerimonas	|		|	scientific name	|
 2901189	|	Halopseudomonas	|		|	scientific name	|
 2901261	|	Denitrificimonas	|		|	scientific name	|
@@ -3040,42 +3040,32 @@
 2910145	|	Vicinamibacterales	|		|	scientific name	|
 2919372	|	Seongchinamella	|		|	scientific name	|
 2921201	|	Lulworthiomycetidae	|		|	scientific name	|
+2922426	|	Phototrophicus	|		|	scientific name	|
+2922432	|	Phototrophicaceae	|		|	scientific name	|
 2929841	|	Candidatus Ichthyocystis	|		|	scientific name	|
 2931039	|	Desulfococcaceae	|		|	scientific name	|
 2933968	|	Hydrogenophilia incertae sedis	|		|	scientific name	|
-2941498	|	Hominisplanchenecus	|		|	scientific name	|
-2941517	|	Hominisplanchenecus murintestinalis	|		|	scientific name	|
+2937910	|	Desulfotomaculaceae	|		|	scientific name	|
 2943286	|	Sideroxyarcus	|		|	scientific name	|
-2944152	|	Wujia	|		|	scientific name	|
-2944198	|	Wansuia	|		|	scientific name	|
 2944682	|	Larsenimonas rhizosphaerae	|		|	scientific name	|
-2944914	|	Allocoprobacillus halotolerans	|		|	scientific name	|
 2945958	|	Arthrobacter phage SWEP2	|		|	scientific name	|
 2946625	|	Boydwoodruffvirinae	|		|	scientific name	|
 2950393	|	Sessilibacter	|		|	scientific name	|
 2950436	|	Dasania phycosphaerae	|		|	scientific name	|
 2950537	|	Halogeometricum luteum	|		|	scientific name	|
+2951104	|	Breznakiellaceae	|		|	scientific name	|
 2952610	|	Parasalinivibrio latis	|		|	scientific name	|
 2953748	|	Halorussus aquaticus	|		|	scientific name	|
 2961619	|	Alkalimarinus alittae	|		|	scientific name	|
 2965191	|	Microbacterium phage Cen1621	|		|	scientific name	|
-2972466	|	Tractidigestivibacter montrealensis	|		|	scientific name	|
 2975440	|	Thalassolituus pacificus	|		|	scientific name	|
 2976354	|	Natronoarchaeaceae	|		|	scientific name	|
-2981629	|	Alitiscatomonas	|		|	scientific name	|
-2981638	|	Muricoprocola	|		|	scientific name	|
-2981724	|	Alitiscatomonas aceti	|		|	scientific name	|
-2981769	|	Waltera acetigignens	|		|	scientific name	|
-2981772	|	Muricoprocola aceti	|		|	scientific name	|
-2981787	|	Dorea acetigenes	|		|	scientific name	|
-2992717	|	Acidilutibacteraceae	|		|	scientific name	|
 2992719	|	Tepidimicrobiaceae	|		|	scientific name	|
-2992720	|	Acidilutibacter	|		|	scientific name	|
 2994361	|	Protofrankia	|		|	scientific name	|
 2994362	|	Parafrankia	|		|	scientific name	|
 2994442	|	Spartinivicinus marinus	|		|	scientific name	|
-2995121	|	Granulimonas	|		|	scientific name	|
-2995122	|	Leptogranulimonas	|		|	scientific name	|
+2995703	|	Mangrovactinospora	|		|	scientific name	|
+3019938	|	Halonatronomonas	|		|	scientific name	|
 3024225	|	Thermospiraceae	|		|	scientific name	|
 3024226	|	Thermospira	|		|	scientific name	|
 3024400	|	Gimibacter soli	|		|	scientific name	|
@@ -3100,8 +3090,6 @@
 3031659	|	Geopsychrobacteraceae	|		|	scientific name	|
 3031668	|	Geobacterales	|		|	scientific name	|
 3032283	|	Halospeciosus flavus	|		|	scientific name	|
-3032808	|	Muricaecibacterium	|		|	scientific name	|
-3032871	|	Muricaecibacterium torontonense	|		|	scientific name	|
 3033395	|	Candidatus Methanocrinis alkalitolerans	|		|	scientific name	|
 3036495	|	Cephalothecales	|		|	scientific name	|
 3036711	|	Biformimicrobium ophioploci	|		|	scientific name	|
@@ -3112,13 +3100,11 @@
 3039169	|	Calderihabitantaceae	|		|	scientific name	|
 3039357	|	Galdieriales	|		|	scientific name	|
 3039359	|	Galdieriaceae	|		|	scientific name	|
-3039590	|	Parablautia	|		|	scientific name	|
 3039681	|	Thermatribacter velox	|		|	scientific name	|
 3039863	|	Cloacimonadia (SeqCode)	|		|	scientific name	|
 3039864	|	Cloacimonadales (SeqCode)	|		|	scientific name	|
 3039865	|	Cloacimonadaceae (SeqCode)	|		|	scientific name	|
 3040949	|	Candidatus Litorirhabdus	|		|	scientific name	|
-3044208	|	Fusibacillus kribbianus	|		|	scientific name	|
 3044472	|	Orthoherpesviridae	|		|	scientific name	|
 3044479	|	Stanwilliamsviridae	|		|	scientific name	|
 3044692	|	Coruscantvirus	|		|	scientific name	|
@@ -3126,6 +3112,7 @@
 3044822	|	Sfunavirus	|		|	scientific name	|
 3044829	|	Siftrevirus	|		|	scientific name	|
 3044853	|	Veewebvirus	|		|	scientific name	|
+3046411	|	Halarsenatibacteraceae	|		|	scientific name	|
 3048266	|	Manticavirus phascolarctidgamma1	|		|	scientific name	|
 3049371	|	Arthrobacter phage VroomVroom	|		|	scientific name	|
 3050247	|	Macavirus bovinegamma6	|		|	scientific name	|
@@ -3137,9 +3124,7 @@
 3058038	|	Gilvimarinus gilvus	|		|	scientific name	|
 3058346	|	Gimibacter	|		|	scientific name	|
 3058395	|	Alkalimonas cellulosilytica	|		|	scientific name	|
-3058434	|	Thermanaerothrix solaris	|		|	scientific name	|
 3059405	|	Prodigiosinella	|		|	scientific name	|
-3059504	|	Allocoprobacillus	|		|	scientific name	|
 3059903	|	Coruscantvirus coruscant	|		|	scientific name	|
 3060007	|	Galvastonvirus tweety19	|		|	scientific name	|
 3060185	|	Manhattanvirus crewmate	|		|	scientific name	|
@@ -3147,6 +3132,7 @@
 3060699	|	Sfunavirus SF1	|		|	scientific name	|
 3060706	|	Siftrevirus SF3	|		|	scientific name	|
 3060797	|	Veewebvirus vwb	|		|	scientific name	|
+3062336	|	Parasphaerochaeta	|		|	scientific name	|
 3064161	|	Atrimonas thermophila	|		|	scientific name	|
 3064797	|	Haladaptataceae	|		|	scientific name	|
 3064798	|	Halorubellaceae	|		|	scientific name	|
@@ -3155,9 +3141,12 @@
 3070815	|	Pleionea litopenaei	|		|	scientific name	|
 3071001	|	Caldicellulosiruptorales	|		|	scientific name	|
 3071002	|	Caldicellulosiruptoraceae	|		|	scientific name	|
+3071909	|	Candidatus Moduliflexota	|		|	scientific name	|
+3071911	|	Candidatus Vecturitrichia	|		|	scientific name	|
+3071912	|	Candidatus Vecturitrichales	|		|	scientific name	|
+3071913	|	Candidatus Vecturitrichaceae	|		|	scientific name	|
 3072905	|	Pinnipedia	|		|	scientific name	|
 3072906	|	Musteloidea	|		|	scientific name	|
-3073584	|	Hominiventricola	|		|	scientific name	|
 3073606	|	Candidatus Hakubellales	|		|	scientific name	|
 3073607	|	Candidatus Hakubellaceae	|		|	scientific name	|
 3073806	|	Otidimorphae	|		|	scientific name	|
@@ -3178,7 +3167,6 @@
 3082113	|	Rangifer tarandus platyrhynchus	|		|	scientific name	|
 3082135	|	Methanocrinis	|		|	scientific name	|
 3082720	|	Peptostreptococcales	|		|	scientific name	|
-3082771	|	Acutalibacteraceae	|		|	scientific name	|
 3084968	|	Thiohalomonadales	|		|	scientific name	|
 3084969	|	Thiohalomonadaceae	|		|	scientific name	|
 3084970	|	Thiohalophilaceae	|		|	scientific name	|
@@ -3186,7 +3174,9 @@
 3085096	|	Ketobacteraceae	|		|	scientific name	|
 3085109	|	Thiohalobacterales	|		|	scientific name	|
 3085110	|	Thiohalobacteraceae	|		|	scientific name	|
-3085636	|	Lachnospirales	|		|	scientific name	|
+3086086	|	Dethiobacteria	|		|	scientific name	|
+3086087	|	Dethiobacterales	|		|	scientific name	|
+3086088	|	Dethiobacteraceae	|		|	scientific name	|
 3093670	|	Moorella naiadis (nom. illeg.)	|		|	scientific name	|
 3098102	|	Marinihelvus	|		|	scientific name	|
 3098930	|	Denitrificimonas halotolerans	|		|	scientific name	|
@@ -3196,18 +3186,22 @@
 3104747	|	Methylohalomonadaceae	|		|	scientific name	|
 3108222	|	Geminicoccales	|		|	scientific name	|
 3108543	|	Candidatus Methylocalor cossyra	|		|	scientific name	|
+3109565	|	Carboxydichorda subterranea	|		|	scientific name	|
 3110268	|	Natronospira elongata	|		|	scientific name	|
 3110793	|	Candidatus Methanobinarius	|		|	scientific name	|
 3115840	|	Vacatina	|		|	scientific name	|
 3116496	|	Halospeciosus	|		|	scientific name	|
 3117459	|	Halalkalicoccus salilacus	|		|	scientific name	|
 3118655	|	Filifactoraceae	|		|	scientific name	|
+3118656	|	Natronincolaceae	|		|	scientific name	|
 3118657	|	Thermotaleaceae	|		|	scientific name	|
 3118679	|	Thermosulfidibacteria	|		|	scientific name	|
 3119006	|	Elongatibacter sediminis	|		|	scientific name	|
-3119089	|	Fusibacillus	|		|	scientific name	|
 3120395	|	Acetobacterales	|		|	scientific name	|
+3120428	|	Mahellales	|		|	scientific name	|
 3120453	|	Thermosulfidibacterales	|		|	scientific name	|
+3120456	|	Treponematales	|		|	scientific name	|
+3120709	|	Mahellaceae	|		|	scientific name	|
 3120748	|	Thermosulfidibacteraceae	|		|	scientific name	|
 3121275	|	Thiobacter aerophilus	|		|	scientific name	|
 3123113	|	Thermosulfidibacterota	|		|	scientific name	|
@@ -3227,7 +3221,6 @@
 3151663	|	Natronospirales	|		|	scientific name	|
 3151664	|	Natronospiraceae	|		|	scientific name	|
 3152966	|	Fuzanglongvirus	|		|	scientific name	|
-3153719	|	Kribbibacteriaceae	|		|	scientific name	|
 3153928	|	Pseudaeromonas aegiceratis	|		|	scientific name	|
 3156486	|	Methanothermococcus jasoni	|		|	scientific name	|
 3233390	|	Elongatibacter	|		|	scientific name	|
@@ -3249,17 +3242,20 @@
 3362602	|	Spongisporangium	|		|	scientific name	|
 3362603	|	Spongisporangium articulatum	|		|	scientific name	|
 3366610	|	Methanobacteriati	|		|	scientific name	|
+3366852	|	Allogeochordaceae	|		|	scientific name	|
+3366853	|	Carboxydichorda	|		|	scientific name	|
 3367293	|	Biformimicrobium	|		|	scientific name	|
 3374108	|	Rhodobacter group	|		|	scientific name	|
 3378804	|	Parasalinivibrio	|		|	scientific name	|
 3379134	|	Pseudomonadati	|		|	scientific name	|
 3383961	|	Sediminicurvatus	|		|	scientific name	|
 3384057	|	Thiobacteraceae	|		|	scientific name	|
-3384189	|	Fusobacteriati	|		|	scientific name	|
 3384194	|	Thermotogati	|		|	scientific name	|
 3385476	|	Methanochimaera	|		|	scientific name	|
 3386556	|	Halalkalicoccaceae	|		|	scientific name	|
 3388402	|	Candidatus Syntropharchaeia	|		|	scientific name	|
+3399777	|	Thermobaculales (SeqCode)	|		|	scientific name	|
+3399778	|	Thermobaculaceae (SeqCode)	|		|	scientific name	|
 3399797	|	Tenderiales (SeqCode)	|		|	scientific name	|
 3399798	|	Tenderiaceae (SeqCode)	|		|	scientific name	|
 3399800	|	Nucleicultricaceae (SeqCode)	|		|	scientific name	|
@@ -3323,7 +3319,6 @@
 3568216	|	Candidatus Syntropharchaeales	|		|	scientific name	|
 3568217	|	Candidatus Syntropharchaeales incertae sedis	|		|	scientific name	|
 3569101	|	Paralteromonas	|		|	scientific name	|
-3679999	|	Fusibacteraceae	|		|	scientific name	|
 3683897	|	Anaeroglomus	|		|	scientific name	|
 3687091	|	Refertina	|		|	scientific name	|
 3695485	|	Neodermata	|		|	scientific name	|

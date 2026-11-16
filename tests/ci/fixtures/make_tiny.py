@@ -151,8 +151,7 @@ def main():
             continue
         if (g.startswith("eukaryota.") or g.startswith("viruses.")) and g not in pick:
             pick[g] = t
-    donor_taxid = next(t for t in lib_taxids if 1239 in tax.lineage(t))           # a Bacillota proteome: the scenario donor
-    prots = proteins_of(a.reference, list(pick.values()) + [donor_taxid], per=8)
+    prots = proteins_of(a.reference, list(pick.values()), per=8)
     for g, t in sorted(pick.items()):
         ps = prots[str(t)]
         contig, genes, faa, pos = [], [], [], 0
@@ -178,32 +177,34 @@ def main():
                             synthetic="coding DNA and spacers", origin="proteins of reference proteome taxid %d (%s)" % (t, tax.name(t))))
         queries += faa
 
-    # scenario: three donor genes spliced into the bacterial segment at an intergenic position
+    # scenario: three consecutive real genes of a Bacillota corpus genome spliced into the bacterial segment
     calls = call(bac_seg)
     gaps = [(calls[i][1], calls[i + 1][0]) for i in range(len(calls) - 1) if calls[i + 1][0] - calls[i][1] > 30]
     cut_a, cut_b = min(gaps, key=lambda g: abs((g[0] + g[1]) // 2 - 20000))
     cut = (cut_a + cut_b) // 2
-    donor = prots[str(donor_taxid)][:3]
-    insert, truth, pos = [], [], cut
-    for i, (acc, p) in enumerate(donor, 1):
-        spacer = "".join(rnd.choice("ACGT") for _ in range(80))
-        cds = back_translate(p)
-        insert.append(spacer)
-        pos += len(spacer)
-        insert.append(cds)
-        truth.append(dict(start=pos + 1, end=pos + len(cds), strand="+", donor_taxid=donor_taxid, protein_source=acc))
-        pos += len(cds)
-    host = bac_seg[:cut] + "".join(insert) + bac_seg[cut:]
+    don = next(r for r in sorted(sel, key=lambda r: r["accession"]) if r["accession"] in ok and 1239 in tax.lineage(int(r["taxid"])))
+    donor_taxid = int(don["taxid"])
+    dseqs = read_fasta_gz(os.path.join(a.corpus, "genomes", don["accession"] + ".fna.gz"))
+    dchrom = max(dseqs.values(), key=len)
+    window = dchrom[200000:260000]
+    dcalls = [c for c in call(window) if c[1] - c[0] + 1 >= 300]
+    i = len(dcalls) // 2
+    trio = dcalls[i:i + 3]
+    seg_lo, seg_hi = trio[0][0] - 1 - 20, trio[-1][1] + 20
+    segment = window[seg_lo:seg_hi]
+    host = bac_seg[:cut] + segment + bac_seg[cut:]
+    truth = [dict(start=cut + (b - 1 - seg_lo) + 1, end=cut + (e - seg_lo), strand="+" if st == 1 else "-", donor_taxid=donor_taxid,
+                  protein_source="%s:%d-%d" % (don["accession"], 200000 + b, 200000 + e)) for b, e, st, _ in trio]
     write_fasta(os.path.join(out, "genomes", "scenario_host_insert.fna"), [("scenario_host_insert", host)])
     with open(os.path.join(out, "scenario_truth.tsv"), "w") as f:
         f.write("replicon\tstart\tend\tstrand\tclass\tdonor_taxid\tprotein_source\n")
         for x in truth:
             f.write("scenario_host_insert\t%(start)d\t%(end)d\t%(strand)s\tinsert\t%(donor_taxid)d\t%(protein_source)s\n" % x)
-    queries += [("donor_%d" % i, p) for i, (_, p) in enumerate(donor, 1)]
+    queries += [("donor_%d" % k, p) for k, (_, _, _, p) in enumerate(trio, 1)]
     with open(os.path.join(out, "scenario.tsv"), "w") as f:
         f.write("id\thost\thost_taxid\tinsert_after\tfiles\tnote\n")
-        f.write("scenario_host_insert\t%s\t%s\t%d\tgenomes/scenario_host_insert.fna\tsynthetic: three back-translated proteins of taxid %d spliced into the real segment\n"
-                % (bac_name, bac["taxid"], cut, donor_taxid))
+        f.write("scenario_host_insert\t%s\t%s\t%d\tgenomes/scenario_host_insert.fna\treal DNA by construction: three consecutive genes of %s (%s) spliced in\n"
+                % (bac_name, bac["taxid"], cut, don["accession"], don["species"]))
 
     # mini reference: the targets these queries hit (closest 20 plus the best of every genus), at most 2,000 proteins
     work = os.path.join(out, ".work")

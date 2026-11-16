@@ -8,6 +8,9 @@
            backbone genes pass (ties count against the score), with the share of backbone genes that actually pass
   summary  over the chromosomes with at least --min-genes island and backbone genes: mean and median, and for
            every --contrast a-b the mean paired difference with a bootstrap interval over chromosomes
+  window   with --window K every score is also evaluated as "<score>@w": the mean, over the gene and its K
+           neighbours on each side (same contig, circular), of the score's rank within the chromosome. The same
+           window for every score, so that a score is not helped or hurt by who chose to smooth it
   tiers    for every --tiers label=DIR (score files with the columns tier and category, from run.py scores): the share
            of backbone genes and of island genes that are called at the high tier, at high or medium, at any tier;
            counts summed over all chromosomes, exact binomial intervals; island calls by category
@@ -88,6 +91,31 @@ def read_tiers(spec, acc):
     return label, out
 
 
+def avg_rank(v):
+    """Ranks from 1 (lowest) with ties at their average, divided by the number of values."""
+    order = np.argsort(v, kind="stable")
+    r = np.empty(len(v))
+    r[order] = np.arange(1, len(v) + 1)
+    sv = v[order]
+    grp = np.cumsum(np.r_[True, sv[1:] != sv[:-1]]) - 1
+    r[order] = (np.bincount(grp, weights=r[order]) / np.bincount(grp))[grp]
+    return r / len(v)
+
+
+def windowed(m, genes, contigs, k):
+    """{gene: mean rank over the gene and its k neighbours on each side}; genes in chromosome order, contigs = their contig."""
+    low = min(m.values()) - 1.0 if m else 0.0
+    r = avg_rank(np.array([m.get(g, low) for g in genes]))
+    out = np.empty(len(genes))
+    contigs = np.asarray(contigs)
+    for c in np.unique(contigs):
+        ix = np.flatnonzero(contigs == c)
+        w = min(k, (len(ix) - 1) // 2)
+        nb = (np.arange(len(ix))[:, None] + np.arange(-w, w + 1)[None, :]) % len(ix)
+        out[ix] = r[ix][nb].mean(1)
+    return dict(zip(genes, out.tolist()))
+
+
 def read_scores(spec, acc):
     label, rest = spec.split("=", 1)
     d, _, cols = rest.partition(":")
@@ -118,6 +146,7 @@ def main():
     ap.add_argument("--contrast", nargs="*", default=[], help="a-b pairs of score names")
     ap.add_argument("--tiers", nargs="*", default=[], help="label=DIR of score files with the columns tier and category")
     ap.add_argument("--min-genes", type=int, default=50); ap.add_argument("--boot", type=int, default=5000)
+    ap.add_argument("--window", type=int, default=0, help="also evaluate every score averaged over this many neighbours on each side")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     genomes = list(csv.DictReader(open(a.genomes), delimiter="\t"))
@@ -133,8 +162,15 @@ def main():
                    island_mobile_words=round(float(np.mean([x in mobile for x in isl])), 3) if isl else None,
                    backbone_mobile_words=round(float(np.mean([x in mobile for x in bb])), 3) if bb else None,
                    in_summary=len(isl) >= a.min_genes and len(bb) >= a.min_genes, scores={})
+        chrom = sorted(lab, key=lambda r: (r["contig"], int(r["start"]), int(r["end"])))
+        found = {}
         for spec in a.scores:
             for name, m in read_scores(spec, acc).items():
+                found[name] = m
+                if a.window:
+                    found[name + "@w"] = windowed(m, [r["gene_id"] for r in chrom], [r["contig"] for r in chrom], a.window)
+        if True:
+            for name, m in found.items():
                 if name not in names:
                     names.append(name)
                 if not isl or not bb:

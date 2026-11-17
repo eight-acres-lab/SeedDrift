@@ -183,6 +183,8 @@ def report(spec, bg, b):
         outs = ", ".join("%s %d" % kv for kv in sorted(d["out"].items(), key=lambda kv: -kv[1])[:4])
         L.append("| %s | %d/%d/%d/%d | %d/%d/%d/%d | %s | %s | %s |" % (g, cs["phylum"], cs["order"], cs["family"], cs["genus"], ce["phylum"], ce["order"], ce["family"],
                                                                  ce["genus"], "yes" if d["cap_passed"] else "no", d["host_unknown"], outs))
+    if bg.get("ungrouped"):
+        L += ["", "Rejected before a group could be given: " + "; ".join("%s: %s" % (p, ", ".join("%s %d" % kv for kv in v.items())) for p, v in bg["ungrouped"].items()) + "."]
     L += ["", "## Catalogue snapshots", "", "| catalogue | kind | records | sha256 |", "|---|---|---|---|"]
     for cid, c in bg["catalogues"].items():
         L.append("| %s | %s | %d | %s |" % (cid, c["kind"], c["records"], c["sha256"][:16]))

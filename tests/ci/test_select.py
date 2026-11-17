@@ -137,6 +137,8 @@ def test_selection_covers_every_group_and_records_every_reason(tmp_path, ttax):
     assert any(v.startswith("group conflict") for v in out.values())
     assert any(v.startswith("host excluded") for v in out.values())
     bg = json.load(open(d / "data" / "select" / "by_group.json"))
+    assert bg["ungrouped"]["viruses"].get("group conflict") == 1          # the tailed phage on a eukaryote host
+    assert "Rejected before a group could be given" in (d / "data" / "select" / "report.md").read_text()
     assert bg["groups"]["mobile.plasmid"]["selected_units"] >= 3
     assert bg["groups"]["viruses.eukaryotic"]["host_unknown"] + bg["groups"]["viruses.eukaryotic"]["selected_genomes"] >= 1
     red = [r for r in cand if r["id"].startswith("plants_algae_") and r["catalogue"] == "ens_protists"]

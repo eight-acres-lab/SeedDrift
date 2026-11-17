@@ -407,6 +407,12 @@ def main():
                                proteins={b: sum(r["proteins_" + b] for r in sel_rows) for b in ("low", "central", "high")},
                                proteins_levels=dict(sorted({lv: sum(1 for r in sel_rows if r["proteins_level"] == lv) for lv in {r["proteins_level"] for r in sel_rows}}.items())),
                                host_unknown=sum(1 for r in sel_rows if r["part"] == "viruses" and not r.get("host_known")))
+        ungrouped = {}                                   # rejected before a group could be given (conflicts, unknown taxids)
+        for r in cands.rows:
+            if not r["group"]:
+                k = r["out"].split(" (")[0].split(":")[0]
+                ungrouped.setdefault(r["part"], {})[k] = ungrouped.get(r["part"], {}).get(k, 0) + 1
+        ungrouped = {p: dict(sorted(v.items())) for p, v in sorted(ungrouped.items())}
         sel.sort(key=lambda r: (r["group"], r["pick"]))
         shares = {}
         for b in ("low", "central", "high"):
@@ -433,7 +439,7 @@ def main():
             for r in sorted(cands.rows, key=lambda r: (r["group"], r["id"])):
                 w.writerow([r.get(c, "") if c != "selected" else int(bool(r.get("selected"))) for c in CAND_COLS])
         bg = st.path("select", "by_group.json")
-        write_json(bg, dict(spec=spec["name"], tier=spec.get("tier"), groups=by_group, shares=shares, repair=repair, inputs=inputs,
+        write_json(bg, dict(spec=spec["name"], tier=spec.get("tier"), groups=by_group, ungrouped=ungrouped, shares=shares, repair=repair, inputs=inputs,
                             catalogues={e["id"]: dict(kind=e["kind"], records=e["records"], sha256=e["sha256"]) for e in cman["entries"]},
                             selected_genomes=len(sel), selected_units=sum(r["units"] for r in sel)))
         man = M.build("select-" + spec["name"], "selection", [dict(id=r["id"], group=r["group"], taxid=int(r["taxid"]), accession=r["accession"], units=r["units"]) for r in sel],

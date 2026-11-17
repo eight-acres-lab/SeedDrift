@@ -1,0 +1,46 @@
+# Server (through ci/launch.sh): the pilot of the source model v0 (charter section 8, 2026-11-17: small experimental
+# training with every group present, development diagnosis only, never judged on public-event catalogue events, weights
+# not carried into formal training). Corpus configs/corpus/pilot.yaml, emitted from a select-pilot run (no provisional
+# test recipient of configs/exclusions/pilot_recipients.tsv); the search keeps the aligned residues of the 32 nearest hits
+# for the model; evaluation: the six comparator rows of the fixture scenario (released v0.1.0 recomputed) and the
+# constructed development set (data/eval/dev_constructed.json).
+tier: pilot
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 40
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/pilot.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+train:
+  model: source_v0
+  seed: 1
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+released:
+  tag: v0.1.0
+  lock: ci/envs/released-v0.1.0.lock.yml
+  env_root: /hy-tmp/seeddrift-ci/envs
+  store: /hy-tmp/seeddrift-store
+  links: [reference, pfam]
+  threads: 12

@@ -124,7 +124,7 @@ def built(spec: dict, entries, tax, tier: str = None, kmap: KingdomMap = None, w
 
 # ---- pipeline select: the corpus selection ---------------------------------------------------------------------
 
-SELECT_KINDS = ("ncbi_genome_reports", "ncbi_genome_accessions", "ncbi_virus_reports", "ensembl_species", "file")
+SELECT_KINDS = ("ncbi_genome_reports", "ncbi_genome_accessions", "ncbi_sequence_reports", "ncbi_virus_reports", "ensembl_species", "file")
 
 
 def select_targets(spec: dict, kmap: KingdomMap = None) -> dict:
@@ -169,15 +169,17 @@ def select_static(spec: dict, tier: str = None, kmap: KingdomMap = None) -> Gate
             problems.append(dict(catalogue=c.get("id"), error="needs an id and exactly one kind of %s" % (SELECT_KINDS,)))
         elif c["id"] in seen:
             problems.append(dict(catalogue=c["id"], error="duplicate id"))
-        elif kinds[0] == "ncbi_genome_accessions" and (not c[kinds[0]].get("from") or set(c[kinds[0]]["from"]) - set(seen)):
+        elif kinds[0] in ("ncbi_genome_accessions", "ncbi_sequence_reports") and (not c[kinds[0]].get("from") or set(c[kinds[0]]["from"]) - set(seen)):
             problems.append(dict(catalogue=c["id"], error="takes its accessions from %r, which are not all earlier catalogues" % c[kinds[0]].get("from")))
         seen.append(c.get("id"))
     rules = spec.get("rules") or {}
     for part in ("prokaryotes", "viruses", "eukaryotes", "plasmids"):
         if part not in rules:
             problems.append(dict(rule=part, error="missing (every kingdom is selected)"))
+    if "plasmids" in rules and not rules["plasmids"].get("replicons"):
+        problems.append(dict(rule="plasmids", error="needs `replicons`: the sequence reports that list each assembly's plasmids"))
     for part, r in rules.items():
-        for cid in (r.get("catalogues") or []) + [r[k] for k in ("hosts", "annotation") if r.get(k)]:
+        for cid in (r.get("catalogues") or []) + [r[k] for k in ("hosts", "annotation", "replicons") if r.get(k)]:
             if cid not in seen:
                 problems.append(dict(rule=part, error="unknown catalogue %s" % cid))
     status = "fail" if problems else "pass"

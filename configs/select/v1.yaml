@@ -40,9 +40,11 @@ catalogues:
     ncbi_genome_accessions: {from: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], field: assembly_accession}
     totals:
       NCBI annotated eukaryote reference genomes (outside Ensembl too): {_kind: ncbi_genome_reports, _taxon: 2759, filters.reference_only: "true", filters.has_annotation: "true"}
+  - id: replicons
+    ncbi_sequence_reports: {from: [bacteria, archaea]}
 rules:
   prokaryotes: {catalogues: [bacteria, archaea], min_protein_coding: 500, outer: order, cap_per_genus: 3}
-  plasmids: {outer: order, cap_per_genus: 3}
+  plasmids: {replicons: replicons, outer: order, cap_per_genus: 3}
   viruses: {catalogues: [viruses], hosts: virus_hosts, outer: family, cap_per_genus: 3, require_complete: true}
   eukaryotes: {catalogues: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], annotation: ens_annotation, outer: order, cap_per_genus: 2}
 share_repair: true

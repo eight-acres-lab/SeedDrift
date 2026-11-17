@@ -1,0 +1,16 @@
+{"accession":"GCF_000000100.1","replicons":[{"genbank":"CP001000.1","length":1900000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP001001.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"},{"genbank":"CP001002.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000101.1","replicons":[{"genbank":"CP001010.1","length":2100000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000102.1","replicons":[{"genbank":"CP001020.1","length":2200000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000103.1","replicons":[{"genbank":"CP001030.1","length":2250000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP001031.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000104.1","replicons":[{"genbank":"CP001040.1","length":2400000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000105.1","replicons":[{"genbank":"CP001050.1","length":2450000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP001051.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000106.1","replicons":[{"genbank":"CP001060.1","length":2550000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP001061.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000108.1","replicons":[{"genbank":"CP001080.1","length":2800000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000109.1","replicons":[{"genbank":"CP001090.1","length":2850000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP001091.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000200.1","replicons":[{"genbank":"CP002000.1","length":2450000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP002001.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000201.1","replicons":[{"genbank":"CP002010.1","length":300000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000202.1","replicons":[{"genbank":"CP002020.1","length":4400000,"refseq":"","role":"assembled-molecule","type":"Chromosome"},{"genbank":"CP002021.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"},{"genbank":"CP002022.1","length":50000,"refseq":"","role":"assembled-molecule","type":"Plasmid"}]}
+{"accession":"GCF_000000203.1","replicons":[{"genbank":"CP002030.1","length":5000000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000300.1","replicons":[{"genbank":"CP003000.1","length":1800000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000301.1","replicons":[{"genbank":"CP003010.1","length":1850000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}
+{"accession":"GCF_000000302.1","replicons":[{"genbank":"CP003020.1","length":1900000,"refseq":"","role":"assembled-molecule","type":"Chromosome"}]}

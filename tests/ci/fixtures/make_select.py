@@ -80,7 +80,19 @@ def main():
     recs.append(genome("GCF_%09d.1" % 203, pse, 5000))               # sealed genus
     write("bacteria.jsonl", recs, "accession")
     arch = species_under(tax, 2157)[:3]
-    write("archaea.jsonl", [genome("GCF_%09d.1" % (300 + i), t, 1800 + 50 * i) for i, t in enumerate(arch)], "accession")
+    arecs = [genome("GCF_%09d.1" % (300 + i), t, 1800 + 50 * i) for i, t in enumerate(arch)]
+    write("archaea.jsonl", arecs, "accession")
+    # sequence reports: one chromosome, and components - 1 plasmids of 50 kb; one assembly has no report
+    reps = []
+    for g in recs + arecs:
+        if g["accession"] == "GCF_%09d.1" % 107:
+            continue
+        n = g["components"] - 1
+        rl = [dict(type="Chromosome", role="assembled-molecule", genbank="CP%06d.1" % (int(g["accession"][4:13]) * 10), refseq="", length=g["length"] - 50000 * n)]
+        rl += [dict(type="Plasmid", role="assembled-molecule", genbank="CP%06d.1" % (int(g["accession"][4:13]) * 10 + k + 1), refseq="", length=50000)
+               for k in range(n)]
+        reps.append(dict(accession=g["accession"], replicons=sorted(rl, key=lambda x: (x["type"], x["genbank"], x["refseq"]))))
+    write("replicons.jsonl", reps, "accession")
 
     phage = species_under(tax, 2731619)
     giant = species_under(tax, 2732007)

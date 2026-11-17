@@ -141,6 +141,9 @@ def test_selection_covers_every_group_and_records_every_reason(tmp_path, ttax):
     assert bg["groups"]["viruses.eukaryotic"]["out"].get("host unknown") == 1  # placed by its taxon, then refused
     assert "Rejected before a group could be given" in (d / "data" / "select" / "report.md").read_text()
     assert bg["groups"]["mobile.plasmid"]["selected_units"] >= 3
+    assert any(v.startswith("no sequence report") for v in out.values())   # plasmids unknown, not guessed
+    pl = [r for r in sel if r["group"] == "mobile.plasmid"]
+    assert all(len(r["sequences"].split(";")) == int(r["units"]) for r in pl)
     assert any(v.startswith("host unknown") for v in out.values())        # no host record: the host exclusions cannot be checked
     assert bg["groups"]["viruses.eukaryotic"]["selected_genomes"] >= 1
     red = [r for r in cand if r["id"].startswith("plants_algae_") and r["catalogue"] == "ens_protists"]
@@ -300,3 +303,17 @@ def test_ensembl_rows_are_keyed_by_production_name():
             dict(name="Alternaria arborescens", species="alternaria_arborescens_gca_2", taxonomy_id="156630", assembly_accession="GCA_2.1", genebuild="g", core_db="c")]
     data, n = canonical([reduce_ensembl(r, "ensemblgenomes", "fungi", 63) for r in rows], "name")
     assert n == 2 and b"alternaria_arborescens_gca_2" in data
+
+
+def test_sequence_reports_one_per_assembly_and_missing_ones():
+    from ci.stages import catalog
+
+    def fetch(url):
+        acc = url.split("/accession/")[1].split("/")[0]
+        if acc == "GCF_2":
+            raise RuntimeError("HTTP Error 500")
+        return json.dumps(dict(reports=[dict(assigned_molecule_location_type="Chromosome", role="assembled-molecule", genbank_accession="X1", length=10),
+                                        dict(assigned_molecule_location_type="Plasmid", role="assembled-molecule", genbank_accession="X2", length=5)])).encode()
+    recs, missing = catalog.fetch_sequence_reports(["GCF_1", "GCF_2", "GCF_1"], fetch=fetch, rate=1000)
+    assert [r["accession"] for r in recs] == ["GCF_1"] and missing == ["GCF_2"]
+    assert [x["type"] for x in recs[0]["replicons"]] == ["Chromosome", "Plasmid"]

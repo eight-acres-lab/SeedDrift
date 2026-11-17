@@ -29,9 +29,10 @@ catalogues:
   - {id: ens_metazoa, file: tests/ci/fixtures/select/ens_metazoa.jsonl, as: ensembl_species}
   - {id: ens_protists, file: tests/ci/fixtures/select/ens_protists.jsonl, as: ensembl_species}
   - {id: ens_annotation, file: tests/ci/fixtures/select/ens_annotation.jsonl, as: ncbi_genome_accessions}
+  - {id: replicons, file: tests/ci/fixtures/select/replicons.jsonl, as: ncbi_sequence_reports}
 rules:
   prokaryotes: {catalogues: [bacteria, archaea], min_protein_coding: 500, outer: order, cap_per_genus: 3}
-  plasmids: {outer: order, cap_per_genus: 3}
+  plasmids: {replicons: replicons, outer: order, cap_per_genus: 3}
   viruses: {catalogues: [viruses], hosts: virus_hosts, outer: family, cap_per_genus: 3, require_complete: true}
   eukaryotes: {catalogues: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], annotation: ens_annotation, outer: order, cap_per_genus: 2}
 share_repair: true

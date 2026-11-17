@@ -180,6 +180,8 @@ def summary(run_dir, rec):
                 lines.append("| %s | %.1f | %.1f | %s | %.3f | %.3f%s | %.0f |" % (c, x["total_gb"], x["margin_gb"], x["verdict"], x["uniform_fraction_that_fits"],
                                                                          x["smallest_fraction_of_a_floor"], " (below half: no training)" if x["below_half_of_floors"] else "",
                                                                          x["search_hours"]))
+            if fit.get("groups_short_now"):
+                lines += ["", "Already below their floors before any scaling: %s." % ", ".join(fit["groups_short_now"])]
             lines += ["", "A uniform scale-down is information, not a plan: disk, network and compute limits are the user's decision."]
         lines.append("")
     rep = os.path.join(run_dir, "data", "eval", "eval_report.json")

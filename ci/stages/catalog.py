@@ -4,6 +4,8 @@ Catalogue kinds (configs/select/<name>.yaml, `catalogues:`; each entry has an `i
   ncbi_genome_reports: {taxon, params}     NCBI Datasets v2 genome dataset_report of a taxon, every page
   ncbi_genome_accessions: {from: [ids], field}  NCBI genome reports of the assemblies earlier catalogues name (a field
                                            of their records; their paired assemblies too): annotation counts of Ensembl genomes
+  ncbi_sequence_reports: {from: [ids]}     the replicons of every assembly those catalogues list (NCBI sequence reports,
+                                           one assembly per request): chromosomes and plasmids with accession and length
   ncbi_virus_reports: {taxon, params}      NCBI Datasets v2 virus dataset_report (the host of every nucleotide record)
   ensembl_species: {site, division, release}  the release's species_<Division>.txt
   file: <repository path>                  a committed snapshot in the canonical form (the fixtures of select-tiny)
@@ -43,8 +45,9 @@ from ci.stages.fetch import get, store, store_check
 NCBI = "https://api.ncbi.nlm.nih.gov/datasets/v2"
 ENSEMBL_SPECIES = {"ensembl": "https://ftp.ensembl.org/pub/release-%(release)s/species_Ensembl%(Division)s.txt",
                    "ensemblgenomes": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/%(division)s/release-%(release)s/species_Ensembl%(Division)s.txt"}
-KINDS = ("ncbi_genome_reports", "ncbi_genome_accessions", "ncbi_virus_reports", "ensembl_species", "file")
-KEY = {"ncbi_genome_reports": "accession", "ncbi_genome_accessions": "accession", "ncbi_virus_reports": "accession", "ensembl_species": "name"}
+KINDS = ("ncbi_genome_reports", "ncbi_genome_accessions", "ncbi_sequence_reports", "ncbi_virus_reports", "ensembl_species", "file")
+KEY = {"ncbi_genome_reports": "accession", "ncbi_genome_accessions": "accession", "ncbi_sequence_reports": "accession", "ncbi_virus_reports": "accession",
+       "ensembl_species": "name"}
 PAUSE = 0.4                                   # NCBI asks for at most 3 requests per second without an API key
 
 
@@ -242,6 +245,50 @@ def fetch_ensembl(c, fetch=get):
     return [reduce_ensembl(r, e.get("site", "ensembl"), e["division"], e["release"]) for r in rows], len(rows), url
 
 
+class Limiter:
+    """At most `rate` requests per second over all threads (NCBI's limit without an API key is 3)."""
+
+    def __init__(self, rate=3.0):
+        import threading
+        self.gap, self.next, self.lock = 1.0 / rate, 0.0, threading.Lock()
+
+    def wait(self):
+        with self.lock:
+            now = time.monotonic()
+            t = max(now, self.next)
+            self.next = t + self.gap
+        time.sleep(max(0.0, t - now))
+
+
+def reduce_replicons(acc, d):
+    reps = []
+    for r in d.get("reports") or []:
+        reps.append(dict(type=r.get("assigned_molecule_location_type") or "", role=r.get("role") or "", genbank=r.get("genbank_accession") or "",
+                         refseq=r.get("refseq_accession") or "", length=_int(r.get("length"))))
+    reps.sort(key=lambda x: (x["type"], x["genbank"], x["refseq"]))
+    return dict(accession=acc, replicons=reps)
+
+
+def fetch_sequence_reports(accs, fetch=get, threads=3, rate=3.0):
+    """One sequence report per assembly (NCBI does not answer several in one request); (records, missing). An
+    assembly whose report fails after the retries of `get`, or comes back empty, is missing, not guessed."""
+    from concurrent.futures import ThreadPoolExecutor
+    lim = Limiter(rate)
+
+    def one(acc):
+        lim.wait()
+        try:
+            d = json.loads(fetch("%s/genome/accession/%s/sequence_reports?page_size=1000" % (NCBI, urllib.parse.quote(acc))))
+        except (RuntimeError, ValueError):
+            return acc, None
+        rec = reduce_replicons(acc, d)
+        return acc, rec if rec["replicons"] else None
+    todo = sorted({a for a in accs if a})
+    with ThreadPoolExecutor(threads) as pool:
+        res = list(pool.map(one, todo))
+    return [r for _, r in res if r], sorted(a for a, r in res if not r)
+
+
 def snapshot(c, done, cas, fetch=get):
     """(bytes of the canonical snapshot, records, provenance) of a live catalogue; done: {id: path} of earlier ones."""
     k = kind_of(c)
@@ -258,6 +305,14 @@ def snapshot(c, done, cas, fetch=get):
             accs += [r.get(src.get("field", "assembly_accession"), "") for r in read_jsonl(done[pid])]
         recs, n, asked, missing = fetch_accessions(accs, fetch)
         prov = dict(asked=asked, found=n, not_found=len(missing), not_found_sha256=sha256_json(missing))
+    elif k == "ncbi_sequence_reports":
+        accs = []
+        for pid in c[k]["from"]:
+            accs += [r["accession"] for r in read_jsonl(done[pid])]
+        recs, missing = fetch_sequence_reports(accs, fetch)
+        if len(missing) > 0.02 * max(1, len(set(accs))):
+            raise SystemExit("sequence reports missing for %d of %d assemblies (more than 2%%)" % (len(missing), len(set(accs))))
+        prov = dict(asked=len(set(accs)), found=len(recs), not_found=len(missing), not_found_sha256=sha256_json(missing))
     elif k == "ensembl_species":
         recs, n, url = fetch_ensembl(c, fetch)
         prov = dict(url=url, rows=n)

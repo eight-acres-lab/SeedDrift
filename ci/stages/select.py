@@ -5,9 +5,11 @@ rules (bench/hard/EXCLUDE.tsv and what it names), the select spec (configs/selec
 its seed. No similarity search result enters the selection; it uses taxonomy, catalogue quality fields and counts.
 
 Candidates (one row per catalogue record that could be a corpus genome):
-  prokaryotes  NCBI genome reports (bacteria, archaea): source kind raw_prokaryote, chromosomes only
-  plasmids     the plasmid replicons of every eligible prokaryote assembly (components minus chromosomes): source
-               kind plasmid, one row per assembly, `units` = its plasmids (the floor counts plasmid replicons)
+  prokaryotes  NCBI genome reports (bacteria, archaea): source kind raw_prokaryote, chromosomes only (their share of
+               the assembly length scales the annotated gene count)
+  plasmids     the plasmid replicons of every eligible prokaryote assembly, from its NCBI sequence report (NCBI's
+               chromosome count includes plasmids, so it cannot be used): source kind plasmid, one row per assembly,
+               `units` = its plasmids (the floor counts plasmid replicons), `sequences` = their accessions
   viruses      NCBI genome reports of viral assemblies (segments of one genome stay together); the host comes from
                the NCBI virus reports of the same species and places the virus (configs/kingdom_map.yml virus_hosts)
   eukaryotes   Ensembl and Ensembl Genomes species lists: source kind annotated_cds; protein counts from the NCBI
@@ -46,7 +48,7 @@ from ci.taxonomy import Taxonomy, UnknownTaxid
 
 RANKS = ("phylum", "class", "order", "family", "genus", "species")
 SELECTED_COLS = ["id", "group", "source_kind", "taxid", "host_taxid", "hosts", "species_taxid", "phylum", "class", "order", "family", "genus", "accession",
-                 "paired_accession", "ena_assembly", "replicon_types", "ensembl_site", "ensembl_division", "ensembl_species", "ensembl_core_db",
+                 "paired_accession", "ena_assembly", "replicon_types", "sequences", "ensembl_site", "ensembl_division", "ensembl_species", "ensembl_core_db",
                  "ensembl_release", "table", "units", "proteins_low", "proteins_central", "proteins_high", "proteins_level", "pick", "catalogue"]
 CAND_COLS = ["id", "group", "catalogue", "taxid", "host_taxid", "species_taxid", "order", "genus", "accession", "units", "proteins_central", "proteins_level",
              "out", "selected", "pick"]
@@ -102,9 +104,10 @@ class Candidates:
         return lin, ""
 
 
-def prokaryotes(cands, recs, catalogue, rules):
+def prokaryotes(cands, recs, catalogue, rules, replicons=None):
     tax, kmap, ex, a = cands.tax, cands.kmap, cands.ex, cands.a
     pf = a["protein_factor"]
+    replicons = replicons or {}
     for r in recs:
         lin, out = cands.base(r["taxid"])
         group = ""
@@ -126,33 +129,45 @@ def prokaryotes(cands, recs, catalogue, rules):
             out = "fewer than %s protein-coding genes" % rules["min_protein_coding"]
         if not out and r.get("assembly_status") and r["assembly_status"] != "current":
             out = "assembly not current"
-        lo, ce, hi = scaled(r["protein_coding"], pf["prokaryote_chromosomes"])
         acc = r["accession"]
+        reps = replicons.get(acc)
+        chrom = [x for x in reps or [] if x["type"] == "Chromosome"]
+        plas = [x for x in reps or [] if x["type"] == "Plasmid"]
+        if chrom:
+            frac = sum(x["length"] for x in chrom) / (sum(x["length"] for x in reps) or 1)
+            lo, ce, hi = scaled(r["protein_coding"] * frac, pf["prokaryote_chromosomes_length_scaled"])
+            level = "annotated, scaled to the chromosomes' share of the assembly length"
+        else:
+            lo, ce, hi = scaled(r["protein_coding"], pf["prokaryote_chromosomes"])
+            level = "annotated (whole assembly; no sequence report, so the chromosomes' share is assumed)"
+            plas = None
         comp, cont = r.get("checkm_completeness"), r.get("checkm_contamination")
         quality = (r.get("refseq_category") != "reference genome", -(0.0 if comp is None else float(comp)), 100.0 if cont is None else float(cont), acc)
         cands.add(id="%s_%s" % (group or "prokaryote", acc), group=group, part="prokaryotes", catalogue=catalogue, source_kind="raw_prokaryote", taxid=r["taxid"],
                   species_taxid=lin["species"], accession=acc, paired_accession=r["paired_accession"], ena_assembly=ena_assembly(acc, r["paired_accession"]),
-                  replicon_types="Chromosome", table=11, proteins_low=lo, proteins_central=ce, proteins_high=hi, proteins_level="annotated (whole assembly; chromosomes kept, genes called again)",
-                  quality=quality, out=out, plasmids=max(0, r["components"] - r["chromosomes"]) if r["chromosomes"] > 0 else -1,
-                  **{k: lin[k] for k in RANKS if k != "species"})
+                  replicon_types="Chromosome", table=11, proteins_low=lo, proteins_central=ce, proteins_high=hi, proteins_level=level,
+                  quality=quality, out=out, plasmids=plas, **{k: lin[k] for k in RANKS if k != "species"})
 
 
 def plasmids(cands, rules):
     a = cands.a
-    per = a["plasmid_proteins_per_replicon"]
+    per_kb = a["plasmid_proteins_per_kb"]
     for p in [r for r in cands.rows if r["part"] == "prokaryotes"]:
-        n = p["plasmids"]
+        plas = p["plasmids"]
         out = p["out"]
-        if not out and n < 0:
-            out = "chromosome count missing (plasmids unknown)"
-        elif not out and n < 1:
+        if not out and plas is None:
+            out = "no sequence report (plasmids unknown)"
+        elif not out and not plas:
             out = "no plasmid"
-        n = max(n, 0)
+        plas = plas or []
+        n = len(plas)
+        kb = sum(x["length"] for x in plas) / 1000.0
         group = "mobile.plasmid"
         cands.add(id="plasmid_%s" % p["accession"], group=group, part="plasmids", catalogue=p["catalogue"], source_kind="plasmid", taxid=p["taxid"],
                   species_taxid=p["species_taxid"], accession=p["accession"], paired_accession=p["paired_accession"], ena_assembly=p["ena_assembly"],
-                  replicon_types="Plasmid", table=11, units=max(n, 1), proteins_low=n * per[0], proteins_central=n * per[1], proteins_high=n * per[2],
-                  proteins_level="assumed per replicon", quality=p["quality"], out=out,
+                  replicon_types="Plasmid", sequences=";".join(x["genbank"] or x["refseq"] for x in plas), table=11, units=max(n, 1),
+                  proteins_low=int(round(kb * per_kb[0])), proteins_central=int(round(kb * per_kb[1])), proteins_high=int(round(kb * per_kb[2])),
+                  proteins_level="from the plasmids' length (assumed genes per kb)", quality=p["quality"], out=out,
                   **{k: p[k] for k in RANKS if k != "species"})
 
 
@@ -175,6 +190,8 @@ def viruses(cands, recs, host_recs, catalogue, rules):
                 classes.add(kmap.host_class(tax, h))
             except (UnknownTaxid, KeyError, ValueError):
                 classes.add("unresolved")
+        if not out and hosts and classes == {""}:
+            out = "host unknown (only an environment or unplaced host is recorded)"
         classes.discard("")
         if not out and "unresolved" in classes:
             out = "a host taxid does not resolve"
@@ -350,8 +367,9 @@ def main():
             raise SystemExit("the exclusion rules do not resolve: %s" % ex.problems[:5])
         rules = spec["rules"]
         cands = Candidates(tax, kmap, ex, assumptions)
+        reps = {r["accession"]: r["replicons"] for r in snap[rules["plasmids"]["replicons"]]}
         for cid in rules["prokaryotes"]["catalogues"]:
-            prokaryotes(cands, snap[cid], cid, rules["prokaryotes"])
+            prokaryotes(cands, snap[cid], cid, rules["prokaryotes"], reps)
         plasmids(cands, rules["plasmids"])
         for cid in rules["viruses"]["catalogues"]:
             viruses(cands, snap[cid], snap[rules["viruses"]["hosts"]], cid, rules["viruses"])

@@ -1,5 +1,4 @@
 import json
-import os
 
 from ci.gates import g3_sealed
 

@@ -109,19 +109,22 @@ def one_genome(folder, hits_path, gid, maxc, k):
 
 
 def split(entries, groups, lin):
-    """{id: train|heldout} by genus within each group (about one genus in five held out)."""
+    """{id: train|heldout} by genus within each group (about one genus in five held out). Whole genera move in the
+    fix-ups (at least one training and, where a group has two genera or more, one held-out genus), so no genus is on
+    both sides; a genome without a genus is its own unit (species, else its id)."""
     out = {}
     for g in sorted(set(groups.values())):
         ids = sorted(e for e in entries if groups[e] == g)
+        unit = {e: ("g", lin[e]["genus"]) if lin[e]["genus"] else (("s", lin[e]["species"]) if lin[e]["species"] else ("id", e)) for e in ids}
+        units = sorted(set(unit.values()), key=str)
+        held = {u for u in units if int(hashlib.sha256(("split:%s" % (u,)).encode()).hexdigest(), 16) % 5 == 0}
+        if held == set(units) and units:
+            held.discard(units[0])
+        elif not held and len(units) >= 2:
+            held.add(units[-1])
         for e in ids:
-            key = lin[e]["genus"] or lin[e]["species"]
-            out[e] = "heldout" if int(hashlib.sha256(("split:%s" % key).encode()).hexdigest(), 16) % 5 == 0 else "train"
-        tr = [e for e in ids if out[e] == "train"]
-        ho = [e for e in ids if out[e] == "heldout"]
-        if not tr and ho:
-            out[ho[0]] = "train"
-        elif not ho and len(ids) >= 2:
-            out[ids[-1]] = "heldout"
+            out[e] = "heldout" if unit[e] in held else "train"
+        assert not ({unit[e] for e in ids if out[e] == "train"} & {unit[e] for e in ids if out[e] == "heldout"})
     return out
 
 

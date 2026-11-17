@@ -1,5 +1,8 @@
 """Source model v0 (strategy: model-pilot): does a gene come from the generating process of its genome?
 
+Resume restores the weights and the data stream (each step draws from (seed, step)), not the optimiser state, and CUDA
+kernels are not bit-deterministic: a resumed or repeated run is a close, not an identical, copy.
+
 Run by the train stage of the CI with the CUDA Python of the server (ci/envs/model-torch.pip.txt):
 
   python source_model.py fit   RUN_DIR CONFIG_JSON    train, log, checkpoint (resumable), then score
@@ -105,6 +108,9 @@ class Data:
             self.index = json.load(f)
         lib = np.load(os.path.join(run_dir, self.index["library"]))
         self.lib_ranks = lib["ranks"].astype(np.int64)                  # rows: proteomes; columns: RANKS
+        self.lib_taxid = lib["taxid"].astype(np.int64)
+        # column -1 of a hide rule means the proteome's own taxid (lib_taxid): a genome's own proteome is always hidden
+        self.lib_cols = np.concatenate([self.lib_ranks, self.lib_taxid[:, None]], 1)
         self.n_lib = len(self.lib_ranks)
         self.g = {m["id"]: Genome(m, os.path.join(run_dir, "data", "train_data", m["id"] + ".npz")) for m in self.index["genomes"]}
         self.by_split = {}
@@ -112,7 +118,7 @@ class Data:
             if self.g[m["id"]].n:
                 self.by_split.setdefault(m["split"], []).append(m["id"])
         self.maxc = int(cfg.get("max_codons", 512))
-        self.kc, self.kn, self.maxt = int(cfg.get("hits_centre", 16)), int(cfg.get("hits_neighbour", 4)), int(cfg.get("max_track", 512))
+        self.kc, self.kn, self.maxt = int(cfg.get("hits_centre", 32)), int(cfg.get("hits_neighbour", 4)), int(cfg.get("max_track", 512))
 
     # ---- one gene of one genome as arrays; `hide` = list of (column, value) whose hits are removed
     def gene(self, gen, i, hide, k):
@@ -123,7 +129,7 @@ class Data:
             if len(tracks) >= k:
                 break
             pr = gen.hprot[h]
-            if any(self.lib_ranks[pr, col] == val for col, val in hide):
+            if any(self.lib_cols[pr, col] == val for col, val in hide):
                 continue
             t = gen.track[gen.toff[h]:gen.toff[h + 1]].astype(np.int64)
             qs = gen.hqs[h]
@@ -134,15 +140,19 @@ class Data:
         return c, tracks, prots
 
     def hide_for(self, gen, depth):
+        """The genome's clade at `depth` (or the nearest defined rank below it), and always its own proteome (taxid)."""
+        rules = [(-1, int(gen.meta["taxid"]))]
         col = RANKS.index(depth)
-        for cc in range(col, len(RANKS)):                              # the clade at `depth`, or the nearest defined rank below
+        for cc in range(col, len(RANKS)):
             if gen.ranks[cc]:
-                return [(cc, int(gen.ranks[cc]))]
-        return []
+                rules.append((cc, int(gen.ranks[cc])))
+                break
+        return rules
 
-    def window(self, gen, i, donor=None, depth="genus"):
-        """The 17 slots of gene i of `gen`; the centre replaced by donor = (genome, gene) if given."""
-        hide = self.hide_for(gen, depth)
+    def window(self, gen, i, donor=None, depth="genus", extra_hide=()):
+        """The 17 slots of gene i of `gen`; the centre replaced by donor = (genome, gene) if given. extra_hide: more
+        (column, value) rules, applied before the hit lists are cut (the donor genera of an evaluation scenario)."""
+        hide = self.hide_for(gen, depth) + list(extra_hide)
         slots = []
         for s, j in enumerate(gen.neighbours(i)):
             if s == WIN and donor is not None:
@@ -155,10 +165,11 @@ class Data:
             else:
                 c, tr, pr = self.gene(gen, j, hide, self.kc if s == WIN else self.kn)
                 strand = int(gen.strand[j] * gen.strand[i])
-            jj = i if j < 0 else j
-            dist = 0.0 if s == WIN else math.log1p(abs(int(gen.start[jj]) - int(gen.start[i])))
-            edge = math.log1p(min(int(gen.start[i]), int(gen.rep_len[gen.rep[i]]) - int(gen.end[i])) if s == WIN else 0)
-            slots.append(dict(c=c, tracks=tr, prots=pr, feat=[strand, dist / 15.0, edge / 15.0, math.log1p(int(gen.rep_len[gen.rep[i]])) / 20.0, (s - WIN) / WIN]))
+            # no distance to the centre: a replaced centre keeps the original gene's coordinates, so distances would tell
+            # the model that the length does not fit; slot order, strand and the distance of the window to the end of
+            # its replicon are the same for natives and replacements
+            edge = math.log1p(max(0, min(int(gen.start[i]), int(gen.rep_len[gen.rep[i]]) - int(gen.end[i])))) if s == WIN else 0.0
+            slots.append(dict(c=c, tracks=tr, prots=pr, feat=[strand, 0.0, edge / 15.0, math.log1p(int(gen.rep_len[gen.rep[i]])) / 20.0, (s - WIN) / WIN]))
         return slots
 
     def source(self, gen, rng, exclude, n=32):
@@ -233,11 +244,12 @@ def build(torch, n_lib, d=128):
             self.hit = Conv(23 * 23 + 1, d)
             self.prot = nn.Embedding(n_lib + 1, 32, padding_idx=0)
             self.hit_proj = nn.Linear(d + 32, d)
-            self.hit_set = nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, batch_first=True, dropout=0.1), 1)
+            # enable_nested_tensor=False: the fast path of eval mode compacts padded positions and would misalign the slots
+            self.hit_set = nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, batch_first=True, dropout=0.1), 1, enable_nested_tensor=False)
             self.hit_pool = Pool(d)
             self.no_hit = nn.Parameter(torch.zeros(d))
             self.slot = nn.Linear(2 * d + 5, d)
-            self.ctx = nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, batch_first=True, dropout=0.1), 2)
+            self.ctx = nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, batch_first=True, dropout=0.1), 2, enable_nested_tensor=False)
             self.src_proj = nn.Linear(d, d)
             self.head = nn.Sequential(nn.Linear(4 * d, d), nn.GELU(), nn.Linear(d, 1))
 
@@ -282,8 +294,8 @@ def sample(data, rng, genomes, depth=None):
     gen = data.g[pool[rng.integers(len(pool))]]
     i = int(rng.integers(gen.n))
     depth = depth or DEPTHS[rng.integers(len(DEPTHS))]
-    if rng.random() < 0.5:
-        others = [data.g[g] for g in genomes if g != gen.meta["id"]]
+    others = [data.g[g] for g in genomes if g != gen.meta["id"]]
+    if others and rng.random() < 0.5:                             # a corpus of one genome trains on natives only
         by = {}
         for o in others:
             by.setdefault(stratum(gen, o), []).append(o)
@@ -320,7 +332,7 @@ def dev_set(data, seed, n_per=120):
     return out
 
 
-def predict(model, data, torch, dev, examples, rng_seed=0, batch=64):
+def predict(model, data, torch, dev, examples, rng_seed=0, batch=64, depth="genus"):
     rng = np.random.default_rng(rng_seed)
     scores = []
     model.eval()
@@ -330,13 +342,8 @@ def predict(model, data, torch, dev, examples, rng_seed=0, batch=64):
             for gid, i, did, dj, hidden in examples[b0:b0 + batch]:
                 gen = data.g[gid]
                 donor = (data.g[did], dj) if did else None
-                slots = data.window(gen, i, donor, "genus")
-                if hidden:                                           # extra hidden genera (donors of an evaluation scenario)
-                    for sl in slots:
-                        if sl:
-                            keep = [k for k, p in enumerate(sl["prots"]) if data.lib_ranks[p, RANKS.index("genus")] not in hidden]
-                            sl["tracks"] = [sl["tracks"][k] for k in keep]
-                            sl["prots"] = [sl["prots"][k] for k in keep]
+                extra = [(RANKS.index("genus"), int(g)) for g in sorted(hidden or ())]   # donors of an evaluation scenario
+                slots = data.window(gen, i, donor, depth, extra)
                 items.append((slots, data.source(gen, rng, i), 0.0))
             x = {k: v.to(dev) for k, v in collate(items, torch).items()}
             scores += torch.sigmoid(model(x)).float().cpu().tolist()
@@ -384,13 +391,14 @@ def fit(run_dir, cfg):
         state = {k[2:]: torch.from_numpy(v) for k, v in last.items() if k.startswith("m:")}
         model.load_state_dict(state)
         start = int(last["step"])
-    rng = np.random.default_rng([seed, start])                     # data order from the step reached: a resume continues
+    # every step draws from its own generator (seed, step): the data stream does not depend on where a run was resumed
     dev_ex = [(g, i, d, j, None) for g, i, d, j, _ in dev_set(data, seed)]
     dev_y = np.array([1 if d else 0 for _, _, d, _, _ in dev_ex])
     for _ in range(start):
         sched.step()
     t0 = time.time()
     for step in range(start + 1, steps + 1):
+        rng = np.random.default_rng([seed, step])
         items, groups = [], []
         for _ in range(batch):
             slots, src, y, k, grp = sample(data, rng, train_ids)
@@ -434,7 +442,7 @@ def score(run_dir, cfg, model=None, data=None):
         model.load_state_dict({k[2:]: torch.from_numpy(z[k]) for k in z.files})
     seed = int(cfg["seed"])
     model_dir = os.path.join(run_dir, "data", "model")
-    # evaluation genomes: every gene, own genus hidden, and the scenario's donor genera hidden too (as for the comparators)
+    # evaluation genomes: every gene, own species hidden, and the scenario's donor genera hidden too (as for the comparators)
     hidden = cfg.get("hidden_genera") or {}
     ev, keys = [], []
     for gid in sorted(data.by_split.get("eval", [])):
@@ -442,7 +450,8 @@ def score(run_dir, cfg, model=None, data=None):
         for i in range(data.g[gid].n):
             ev.append((gid, i, "", -1, h))
             keys.append(gid)
-    s_eval = predict(model, data, torch, dev, ev) if ev else np.zeros(0)
+    # the scenario comparators hide the host's species and the donor genera (ci/stages/eval.py): the model the same
+    s_eval = predict(model, data, torch, dev, ev, depth="species") if ev else np.zeros(0)
     save_npz(os.path.join(model_dir, "eval_scores.npz"), genome=np.array(keys, dtype="S"), gene=np.array([e[1] for e in ev], dtype=np.int64), score=s_eval)
     dex = dev_set(data, seed)
     s_dev = predict(model, data, torch, dev, [(g, i, d, j, None) for g, i, d, j, _ in dex]) if dex else np.zeros(0)

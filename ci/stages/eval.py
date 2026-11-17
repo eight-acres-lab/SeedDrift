@@ -113,7 +113,7 @@ def _recall_at(pos, neg, fpr):
     return float(np.mean(pos > thr))
 
 
-def dev_constructed(run_dir, path, ranks):
+def dev_constructed(run_dir, path, ranks, lib_taxid=None):
     """Development diagnosis on constructed insertions (held-out recipients and donors, genus hidden on both sides): the
     model and the comparators on the same examples, overall, by donor stratum and by recipient group. Not a result."""
     z = np.load(path)
@@ -130,15 +130,32 @@ def dev_constructed(run_dir, path, ranks):
             seqs = [cds["%s__%s" % (gid, g)] for g in genes]
             prof = np.array([_codon_profile(x) for x in seqs])
             h = np.load(os.path.join(run_dir, "data", "hits", gid + ".npz"))
-            cache[gid] = dict(seqs=seqs, prof=prof, mean=prof.mean(0), off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"])
+            so = h["sseq_off"] if "sseq_off" in h.files else None
+            cache[gid] = dict(seqs=seqs, prof=prof, total=prof.sum(0), n=len(prof), off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"], sseq_off=so)
         return cache[gid]
+
+    def hide(gid):
+        """The model's rule (seeddrift/train/source_model.py hide_for at genus depth): the genome's own proteome, and its
+        genus, or its species when it has no genus."""
+        r = meta[gid]["ranks"]
+        rules = [("taxid", int(meta[gid]["taxid"]))]
+        if r[4]:
+            rules.append((4, r[4]))
+        elif r[5]:
+            rules.append((5, r[5]))
+        return rules
+
+    def hidden_row(p, rules):
+        return any((lib_taxid[p] == v) if c == "taxid" else (ranks[p, c] == v) for c, v in rules)
     rec, gene, don, dgene, strat, score = [x.decode() for x in z["recipient"]], z["gene"], [x.decode() for x in z["donor"]], z["donor_gene"], z["stratum"], z["score"]
     cols = {m: [] for m in ("model", "alien_index", "best_hit", "counts", "composition")}
     for r, i, d, j, sc in zip(rec, gene, don, dgene, score):
         R = genome(r)
         src, k = (genome(d), int(j)) if d else (R, int(i))
-        hidden = {meta[r]["ranks"][4]} | ({meta[d]["ranks"][4]} if d else set())
-        rows = [x for x in range(src["off"][k], src["off"][k + 1]) if ranks[src["prot"][x], 4] not in hidden]
+        rules = hide(r) + (hide(d) if d else [])
+        # the rows the model reads: those that carry aligned residues (the nearest ones), not the extra best-per-genus rows
+        cand = [x for x in range(src["off"][k], src["off"][k + 1]) if src["sseq_off"] is None or src["sseq_off"][x + 1] > src["sseq_off"][x]]
+        rows = [x for x in cand if not hidden_row(src["prot"][x], rules)]
         ph = meta[r]["ranks"][0]
         b_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] == ph] or [0.0])
         b_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] != ph] or [0.0])
@@ -146,20 +163,23 @@ def dev_constructed(run_dir, path, ranks):
         cols["alien_index"].append(math.log(2) * (b_out - b_in))
         cols["best_hit"].append(-max([src["pid"][x] / 10 for x in rows] or [0.0]))
         cols["counts"].append(-len({int(ranks[src["prot"][x], 4]) or -int(src["prot"][x]) for x in rows}))
-        cols["composition"].append(float(np.abs(src["prof"][k] - R["mean"]).sum()))
+        bg = (R["total"] - (R["prof"][int(i)] if not d else 0)) / max(1, R["n"] - (0 if d else 1))   # the genome without the gene itself
+        cols["composition"].append(float(np.abs(src["prof"][k] - bg).sum()))
     y = np.array([1 if d else 0 for d in don])
     grp = np.array([meta[r]["group"] for r in rec])
     strat = np.asarray(strat)
-    out = dict(note="constructed insertions into held-out genomes from held-out donors, genus hidden on both sides; development diagnosis, "
-                    "not a result (charter section 8)", examples=int(len(y)), insertions=int(y.sum()), recipients=len(set(rec)), methods={})
+    out = dict(note="constructed insertions into held-out genomes from held-out donors; the genome's own proteome and genus hidden on both sides; "
+                    "model and comparators read the same nearest hits; development diagnosis, not a result (charter section 8)",
+               examples=int(len(y)), insertions=int(y.sum()), recipients=len(set(rec)), methods={})
     for m, v in cols.items():
         v = np.array(v)
         pos, neg = v[y == 1], v[y == 0]
         row = dict(auroc=auroc(pos, neg), recall_at_fpr_0_01=_recall_at(pos, neg, 0.01), recall_at_fpr_0_05=_recall_at(pos, neg, 0.05), by_stratum={}, by_recipient_group={})
         for k, name in enumerate(STRATA):
             sel = strat == k
-            if sel.any():
-                row["by_stratum"][name] = dict(n=int(sel.sum()), auroc=auroc(v[sel], neg))
+            if sel.any():                                  # negatives of the same recipient groups only
+                negs = v[(y == 0) & np.isin(grp, np.unique(grp[sel]))]
+                row["by_stratum"][name] = dict(n=int(sel.sum()), auroc=auroc(v[sel], negs))
         for g in sorted(set(grp)):
             sel = grp == g
             if (y[sel] == 1).any() and (y[sel] == 0).any():
@@ -253,7 +273,7 @@ def main():
         dp = os.path.join(run_dir, "data", "model", "dev_eval.npz")
         if os.path.exists(dp):
             q = st.path("eval", "dev_constructed.json")
-            write_json(q, dev_constructed(run_dir, dp, ranks))
+            write_json(q, dev_constructed(run_dir, dp, ranks, lib["taxid"]))
             st.output("dev_constructed", q)
 
 

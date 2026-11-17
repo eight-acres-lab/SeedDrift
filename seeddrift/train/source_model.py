@@ -411,10 +411,10 @@ def fit(run_dir, cfg):
             print("diverged at step %d" % step, file=sys.stderr)
             sys.exit(3)
         if step % int(cfg.get("eval_every", 500)) == 0 or step == steps:
-            s = predict(model, data, torch, dev, dev_ex)
-            a = auroc(dev_y, s)
-            log.evaluate(step, dev_auroc=a)
-            print("step %d loss %.4f dev AUROC %s" % (step, float(loss), a), file=sys.stderr, flush=True)
+            a = auroc(dev_y, predict(model, data, torch, dev, dev_ex)) if dev_ex else None
+            if a is not None:                                          # undefined without both classes (tiny fixtures)
+                log.evaluate(step, dev_auroc=a)
+            print("step %d loss %.4f dev AUROC %s" % (step, float(loss), "n/a" if a is None else "%.4f" % a), file=sys.stderr, flush=True)
         if step % int(cfg.get("ckpt_every", 1000)) == 0 or step == steps:
             log.checkpoint(step, {"m:" + k: v.detach().cpu().numpy() for k, v in model.state_dict().items()}, final=step == steps)
     log.save_seen("")

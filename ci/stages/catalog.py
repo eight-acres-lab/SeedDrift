@@ -32,6 +32,7 @@ import csv
 import io
 import json
 import os
+import sys
 import time
 import urllib.parse
 
@@ -188,6 +189,7 @@ def _per_taxon(kind, c, reducer, default_page, fetch):
             return base + urllib.parse.urlencode(params(q))
         # a taxon of a list may have no record (a small family without a complete assembly); the catalogue as a whole may not
         r, n, pg = _paged(url, reducer, "accession", fetch, page_size=int(q0.get("page_size", default_page)), allow_empty=len(ts) > 1)
+        progress("%s taxon %d: %d records in %d pages" % (kind, t, n, pg))
         recs += r
         total += n
         pages += pg
@@ -284,7 +286,12 @@ def reduce_replicons(acc, d):
     return dict(accession=acc, replicons=reps)
 
 
-def fetch_sequence_reports(accs, fetch=get, threads=3, rate=3.0):
+def progress(msg):
+    """A line in the stage log (stderr): long catalogue reads show how far they are."""
+    print("%s %s" % (time.strftime("%H:%M:%S"), msg), file=sys.stderr, flush=True)
+
+
+def fetch_sequence_reports(accs, fetch=get, threads=4, rate=3.0):
     """One sequence report per assembly (NCBI does not answer several in one request); (records, missing). An
     assembly whose report fails after the retries of `get`, or comes back empty, is missing, not guessed."""
     from concurrent.futures import ThreadPoolExecutor
@@ -301,8 +308,12 @@ def fetch_sequence_reports(accs, fetch=get, threads=3, rate=3.0):
         rec = reduce_replicons(acc, d)
         return acc, rec if rec["replicons"] else None
     todo = sorted({a for a in accs if a})
-    with ThreadPoolExecutor(threads) as pool:
-        res = list(pool.map(one, todo))
+    res = []
+    with ThreadPoolExecutor(threads) as pool:                    # results in input order, so the snapshot does not depend on timing
+        for i, x in enumerate(pool.map(one, todo), 1):
+            res.append(x)
+            if i % 500 == 0 or i == len(todo):
+                progress("sequence reports %d of %d" % (i, len(todo)))
     return [r for _, r in res if r], sorted(a for a, r in res if not r)
 
 

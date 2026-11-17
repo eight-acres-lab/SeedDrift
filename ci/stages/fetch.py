@@ -49,6 +49,42 @@ def get(url, tries=5, pause=10):
     raise RuntimeError("%s: %s" % (url, err))
 
 
+def get_ranged(url, parts=8, min_bytes=2_000_000, tries=5):
+    """A large file in `parts` parallel byte ranges (EBI throttles each connection in the evening, not the total), each
+    range retried on its own; the whole must have exactly the announced length. Falls back to get() when the server
+    gives no length or no range support."""
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "python-urllib"}, method="HEAD")
+        with urllib.request.urlopen(req, timeout=120) as r:
+            n, ranges = int(r.headers.get("Content-Length") or 0), (r.headers.get("Accept-Ranges") or "").lower()
+    except Exception:  # noqa: BLE001
+        return get(url)
+    if n < min_bytes or ranges != "bytes":
+        return get(url)
+    bounds = [(k * n // parts, (k + 1) * n // parts - 1) for k in range(parts)]
+
+    def one(b):
+        err = None
+        for k in range(tries):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "python-urllib", "Range": "bytes=%d-%d" % b})
+                with urllib.request.urlopen(req, timeout=600) as r:
+                    data = r.read()
+                if len(data) == b[1] - b[0] + 1:
+                    return data
+                err = "range %s: %d bytes" % (b, len(data))
+            except Exception as e:  # noqa: BLE001
+                err = e
+            time.sleep(10 * (k + 1))
+        raise RuntimeError("%s: %s" % (url, err))
+    with ThreadPoolExecutor(parts) as pool:
+        data = b"".join(pool.map(one, bounds))
+    if len(data) != n:
+        raise RuntimeError("%s: %d of %d bytes" % (url, len(data), n))
+    return data
+
+
 def store_check(path, sha):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -65,7 +101,8 @@ def store(cas, data: bytes, suffix: str):
         store_check(path, sha)
         return path, sha
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = "%s.part%d" % (path, os.getpid())                        # private to this process (runs may share the store)
+    import threading
+    tmp = "%s.part%d.%d" % (path, os.getpid(), threading.get_ident())   # private to this process and thread
     with open(tmp, "wb") as f:
         f.write(data)
         f.flush()
@@ -139,7 +176,7 @@ def fetch_source(src, cas, index):
         names = sorted(set(re.findall(r'href="([A-Za-z0-9_.\-]+\.cds\.all\.fa\.gz)"', listing)))
         if len(names) != 1:
             raise SystemExit("%s: expected one cds.all file, found %s" % (base, names))
-        data = get(base + names[0])
+        data = get_ranged(base + names[0])
         try:                                                     # the whole stream, so a truncated file never enters the store
             text = gzip.decompress(data)
         except (OSError, EOFError) as err:
@@ -162,25 +199,35 @@ def main():
         cas = os.path.join(cfg["data_root"], "cas")
         index_path = os.path.join(cas, "fetch_index.json")
         index = json.load(open(index_path)) if os.path.exists(index_path) else {}
-        entries, reused, mine = [], 0, {}
-        for src in spec.get("sources") or []:
-            if not describe(src):
-                continue
-            files, prov, hit = fetch_source(src, cas, index)
-            reused += hit
-            rel = [dict(f, path=os.path.relpath(f["path"], cas)) for f in files]
-            index[sha256_json(describe(src))] = mine[sha256_json(describe(src))] = dict(files=rel, provenance=prov)
-            entries.append(dict(id=src["id"], source=describe(src), files=rel, provenance=prov))
-        if entries:                                    # a spec without remote sources (ci-tiny) leaves the store alone
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        ilock = threading.Lock()
+
+        def merge(new):
+            """Add entries to the shared index at once (under a file lock: other runs may write it too), so an
+            interrupted stage does not download again what it already stored."""
             os.makedirs(cas, exist_ok=True)
-            with open(os.path.join(cas, "fetch_index.lock"), "w") as lk:
-                fcntl.flock(lk, fcntl.LOCK_EX)         # another run may have added entries since we read the index
+            with ilock, open(os.path.join(cas, "fetch_index.lock"), "w") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)
                 cur = json.load(open(index_path)) if os.path.exists(index_path) else {}
-                cur.update(mine)
+                cur.update(new)
                 tmp = "%s.part%d" % (index_path, os.getpid())
                 with open(tmp, "w") as f:
                     json.dump(cur, f, indent=1, sort_keys=True)
                 os.replace(tmp, index_path)
+
+        def one(src):
+            files, prov, hit = fetch_source(src, cas, index)
+            rel = [dict(f, path=os.path.relpath(f["path"], cas)) for f in files]
+            if not hit:
+                merge({sha256_json(describe(src)): dict(files=rel, provenance=prov)})
+            return dict(id=src["id"], source=describe(src), files=rel, provenance=prov), hit
+        remote = [src for src in spec.get("sources") or [] if describe(src)]
+        # sources download in parallel (ENA and EBI scale with connections); the manifest keeps the spec's order
+        with ThreadPoolExecutor(int((cfg.get("fetch") or {}).get("threads", 8))) as pool:
+            done = list(pool.map(one, remote))
+        entries = [e for e, _ in done]
+        reused = sum(1 for _, h in done if h)
         man = M.build(spec["name"] + "-fetch", "fetch", entries, meta=dict(cas="<data_root>/cas"))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("fetch", "manifest.json")

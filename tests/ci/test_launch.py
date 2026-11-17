@@ -32,7 +32,7 @@ def dev(tmp_path):
     g("commit", "-q", "-m", "x")
     assert g("push", "-q", "origin", "work").returncode == 0
     fake.mkdir()
-    (fake / "gh").write_text("#!/bin/sh\necho \"${FAKE_GH:-false}\"\n")
+    (fake / "gh").write_text("#!/bin/sh\nfor c in ${FAKE_GH:-failure}; do echo \"$c\"; done\n")     # one check-run conclusion per line
     (fake / "ssh").write_text("#!/bin/sh\necho \"$@\" >> \"$FAKE_LOG\"\ncat > /dev/null\nexit 0\n")
     for f in ("gh", "ssh"):
         os.chmod(fake / f, 0o755)
@@ -53,23 +53,24 @@ def test_launch_refuses_an_unpushed_commit_fails(dev):
     (work / "new.txt").write_text("y\n")
     g("add", "new.txt")
     g("commit", "-q", "-m", "local only")
-    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="true"))
+    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="success"))
     assert r.returncode == 1 and "not on any branch of origin" in r.stderr
     assert not log.exists()                                         # nothing was sent to the server
 
 
 def test_launch_refuses_failing_checks_and_missing_profiles_fails(dev):
     work, env, log, _ = dev
-    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="false"))
-    assert r.returncode == 1 and "has not passed" in r.stderr
-    r = _run(["bash", "ci/launch.sh", "HEAD", "nosuch"], work, dict(env, FAKE_GH="true"))
+    for answer in ("failure", "success failure", ""):           # a failure on any result page, or no run at all
+        r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH=answer or " "))
+        assert r.returncode == 1 and "has not passed" in r.stderr, answer
+    r = _run(["bash", "ci/launch.sh", "HEAD", "nosuch"], work, dict(env, FAKE_GH="success"))
     assert r.returncode == 1 and "no profile" in r.stderr
     assert not log.exists()
 
 
 def test_launch_starts_a_pushed_commit_with_passing_checks(dev):
     work, env, log, g = dev
-    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="true"))
+    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="success"))
     assert r.returncode == 0, r.stderr
     sha = g("rev-parse", "HEAD").stdout.strip()
     run_id = r.stdout.strip().splitlines()[-1]
@@ -123,6 +124,6 @@ def test_launch_refuses_a_hostile_branch_name_fails(dev):
     g("add", "b.txt")
     g("commit", "-q", "-m", "on a hostile branch only")
     assert g("push", "-q", "origin", "HEAD").returncode == 0
-    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="true"))
+    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="success"))
     assert r.returncode == 2 and "unsafe branch name" in r.stderr
     assert not log.exists() and not (work / "pwned").exists()

@@ -3,6 +3,9 @@
 #
 #   ci/launch.sh <commit-or-ref> <profile> [--parent RUN_ID]
 #   ci/launch.sh status <RUN_ID>
+#   ci/launch.sh reproduce <RUN_ID>     a new run of the same commit and profile, with RUN_ID as its parent
+#   ci/launch.sh compare <RUN_A> <RUN_B> the reproduction verdict of B against A (written into B's record)
+#   ci/launch.sh publish <RUN_ID>       the run's summary into git (ci/publish.py: branch runs/<RUN_ID>)
 #
 # Refuses unless the commit is on a branch of the GitHub remote and every GitHub Actions run of both T0 and T1 on it
 # passed. The server checks the commit out read-only into its own worktree and runs `python -m ci run` there (see
@@ -23,6 +26,22 @@ if [ "${1:-}" = status ]; then
   $CI_SSH "cd $CI_REMOTE_ROOT && envs/current/bin/python -c 'import sys; sys.path.insert(0, \"wt/$2\"); from ci.record import status_of; print(status_of(\"runs/$2\"))'" < /dev/null
   exit 0
 fi
+if [ "${1:-}" = compare ]; then
+  a=${2:?run A}; b=${3:?run B}; safe "$a"; safe "$b"
+  $CI_SSH "cd $CI_REMOTE_ROOT/wt/$b && $CI_REMOTE_ROOT/envs/current/bin/python -m ci compare $CI_REMOTE_ROOT/runs/$a $CI_REMOTE_ROOT/runs/$b" < /dev/null
+  exit $?
+fi
+if [ "${1:-}" = publish ]; then
+  safe "${2:?run id}"
+  exec python3 "$here/ci/publish.py" "$2"
+fi
+if [ "${1:-}" = reproduce ]; then
+  safe "${2:?run id}"
+  line=$($CI_SSH "cd $CI_REMOTE_ROOT && python3 -c 'import json; r=json.load(open(\"runs/$2/record.json\")); print(r[\"git\"][\"sha\"], r[\"profile\"])'" < /dev/null)
+  read -r rsha rprofile <<< "$line"
+  [[ "$rsha" =~ ^[0-9a-f]{40}$ ]] || { echo "refused: no commit in the record of $2" >&2; exit 1; }
+  exec "$0" "$rsha" "$rprofile" --parent "$2"
+fi
 ref=${1:?commit or ref}; profile=${2:?profile}; shift 2
 safe "$profile"
 parent=""
@@ -42,13 +61,14 @@ run_id="$(date -u +%Y%m%dT%H%M%S)-$(echo "$branch" | tr '/' '-' | tr -cd 'A-Za-z
 
 # make the commit and the ci-v* tags available on the server: fetch from GitHub there, or send a bundle over ssh
 $CI_SSH "mkdir -p $CI_REMOTE_ROOT/tmp" < /dev/null
-if $CI_SSH "cd $CI_REMOTE_ROOT && git -C repo.git -c http.version=HTTP/1.1 fetch -q origin $sha 'refs/tags/ci-v*:refs/tags/ci-v*'" < /dev/null; then
+# (the release tags v* travel too: stage released recomputes the released screen from its tag)
+if $CI_SSH "cd $CI_REMOTE_ROOT && git -C repo.git -c http.version=HTTP/1.1 fetch -q origin $sha 'refs/tags/ci-v*:refs/tags/ci-v*' 'refs/tags/v*:refs/tags/v*'" < /dev/null; then
   provenance=github
 else
   echo "server could not fetch from GitHub; sending a bundle" >&2
   git update-ref "refs/ci-launch/$run_id" "$sha"
-  tags=$(git tag -l 'ci-v*')
-  git bundle create - "refs/ci-launch/$run_id" $tags | $CI_SSH "cd $CI_REMOTE_ROOT && cat > tmp/$run_id.bundle && git -C repo.git fetch -q $CI_REMOTE_ROOT/tmp/$run_id.bundle 'refs/ci-launch/$run_id:refs/ci/$run_id' 'refs/tags/ci-v*:refs/tags/ci-v*' && rm tmp/$run_id.bundle"
+  tags=$(git tag -l 'ci-v*' 'v*')
+  git bundle create - "refs/ci-launch/$run_id" $tags | $CI_SSH "cd $CI_REMOTE_ROOT && cat > tmp/$run_id.bundle && git -C repo.git fetch -q $CI_REMOTE_ROOT/tmp/$run_id.bundle 'refs/ci-launch/$run_id:refs/ci/$run_id' 'refs/tags/ci-v*:refs/tags/ci-v*' 'refs/tags/v*:refs/tags/v*' && rm tmp/$run_id.bundle"
   git update-ref -d "refs/ci-launch/$run_id"
   provenance=bundle
 fi

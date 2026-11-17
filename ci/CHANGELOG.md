@@ -36,3 +36,8 @@ configurations and fixes.
   folder (shared reference read-only, own cache, no services). G4 (new gate phase `report`): every scenario has the
   six rows model, alien_index, best_hit, composition, counts, released_v0.1.0 on one gene set (hash in every row);
   the released row must be recomputed from the tag's commit except in tier tiny, which declares the skip.
+- Launcher: `ci/launch.sh reproduce RUN_ID` (same commit and profile, RUN_ID as parent), `compare A B`, `publish
+  RUN_ID` (`ci/publish.py`: the three summary files, at most 200 KB, home paths replaced, denylist and sealed
+  accessions refused, committed on branch runs/RUN_ID from the run's commit with a row in runs-index/INDEX.tsv);
+  release tags travel with each launch. Tests that both launchers refuse unsafe names, unpushed commits, failing
+  checks, missing profiles, wrong trees, existing run ids and a held GPU lock.

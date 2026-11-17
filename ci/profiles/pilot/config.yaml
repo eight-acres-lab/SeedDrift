@@ -29,6 +29,9 @@ search:
   block_size: 4
   nearest: 32
   keep_sseq: 32
+  # the search of the stopped run with the same corpus, reference, settings and search code (ci/stages/search_or_reuse.py
+  # checks all of them and every file's sha256); a mismatch searches again
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261117T114754-exp-0.2-pilot-9b69e1b3-pilot]
 train:
   model: source_v0
   seed: 1

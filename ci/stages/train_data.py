@@ -37,32 +37,41 @@ GAP = 22
 NUC = {"A": 0, "C": 1, "G": 2, "T": 3}
 
 
+NUC_LUT = np.full(256, 4, dtype=np.uint8)
+for _c, _v in NUC.items():
+    NUC_LUT[ord(_c)] = _v
+    NUC_LUT[ord(_c.lower())] = _v
+AA_LUT = np.full(256, 21, dtype=np.uint8)
+for _c, _v in AA.items():
+    AA_LUT[ord(_c)] = _v
+
+
 def codon_tokens(cds: str, maxc: int) -> np.ndarray:
-    s = cds.upper()
-    n = min(len(s) // 3, maxc)
-    out = np.full(n, 65, dtype=np.uint8)
-    for i in range(n):
-        a, b, c = NUC.get(s[3 * i]), NUC.get(s[3 * i + 1]), NUC.get(s[3 * i + 2])
-        if a is not None and b is not None and c is not None:
-            out[i] = 16 * a + 4 * b + c + 1
-    return out
+    n = min(len(cds) // 3, maxc)
+    x = NUC_LUT[np.frombuffer(cds[:3 * n].encode(), dtype=np.uint8)].reshape(n, 3).astype(np.int64)
+    ok = (x < 4).all(1)
+    return np.where(ok, 16 * x[:, 0] + 4 * x[:, 1] + x[:, 2] + 1, 65).astype(np.uint8)
 
 
-def track(cigar: str, sseq: str) -> np.ndarray:
+CIGAR_RE = re.compile(r"(\d+)([MID])")
+
+
+def track(cigar: str, sseq) -> np.ndarray:
     """One token per query position of the alignment (M and I consume the query, M and D the target)."""
-    out, j = [], 0
-    for n, op in re.findall(r"(\d+)([MID])", cigar):
+    sb = np.frombuffer(sseq.encode() if isinstance(sseq, str) else sseq, dtype=np.uint8)
+    parts, j = [], 0
+    for n, op in CIGAR_RE.findall(cigar):
         n = int(n)
         if op == "M":
-            out += [AA.get(c, 21) for c in sseq[j:j + n]]
+            parts.append(AA_LUT[sb[j:j + n]])
             j += n
         elif op == "I":
-            out += [GAP] * n
+            parts.append(np.full(n, GAP, dtype=np.uint8))
         else:
             j += n
-    if j != len(sseq):
-        raise SystemExit("CIGAR %s does not consume the aligned target sequence (%d of %d residues)" % (cigar, j, len(sseq)))
-    return np.array(out, dtype=np.uint8)
+    if j != len(sb):
+        raise SystemExit("CIGAR %s does not consume the aligned target sequence (%d of %d residues)" % (cigar, j, len(sb)))
+    return np.concatenate(parts) if parts else np.zeros(0, dtype=np.uint8)
 
 
 def one_genome(folder, hits_path, gid, maxc, k):
@@ -86,15 +95,16 @@ def one_genome(folder, hits_path, gid, maxc, k):
     has_sseq = "sseq" in h.files
     cb, co = bytes(h["cigar"]), h["cigar_off"]
     sb, so = (bytes(h["sseq"]), h["sseq_off"]) if has_sseq else (b"", None)
+    prot, qs = h["prot"], h["qs"]                      # each column read once (an npz decompresses on every access)
     hoff, hprot, hqs, tr, toff = [0], [], [], [], [0]
     for i in range(len(genes)):
         n = 0
         for r in range(off[i], off[i + 1]):
             if n >= k or not has_sseq or so[r + 1] == so[r]:
                 break                                      # only rows that carry sseq: the nearest ones, which come first
-            t = track(cb[co[r]:co[r + 1]].decode(), sb[so[r]:so[r + 1]].decode())
-            hprot.append(int(h["prot"][r]))
-            hqs.append(int(h["qs"][r]) - 1)
+            t = track(cb[co[r]:co[r + 1]].decode(), sb[so[r]:so[r + 1]])
+            hprot.append(int(prot[r]))
+            hqs.append(int(qs[r]) - 1)
             tr.append(t)
             toff.append(toff[-1] + len(t))
             n += 1

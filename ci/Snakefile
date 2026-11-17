@@ -95,7 +95,7 @@ rule search:
     input: "gates/corpus.ok", "data/reference/manifest.json", "data/eval_inputs/manifest.json"
     output: "data/hits/manifest.json"
     resources: diamond=1
-    shell: STAGE.format(name="search")
+    shell: STAGE.format(name="search_or_reuse")
 
 
 rule train_ids:

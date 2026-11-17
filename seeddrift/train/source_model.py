@@ -256,7 +256,8 @@ def build(torch, n_lib, d=128):
             tv[flat] = enc
             tv = self.hit_proj(torch.cat([tv.view(B * S, H, -1), self.prot(x["prots"].view(B * S, H))], -1))
             any_hit = hm.any(-1)
-            tv = self.hit_set(tv, src_key_padding_mask=~hm | ~any_hit.unsqueeze(-1))
+            # a gene without hits masks nothing (a fully masked row gives NaN); its output is replaced by no_hit below
+            tv = self.hit_set(tv, src_key_padding_mask=~hm & any_hit.unsqueeze(-1))
             hv = self.hit_pool(tv, hm)
             hv = torch.where(any_hit.unsqueeze(-1), hv, self.no_hit.expand_as(hv)).view(B, S, -1)
             slots = self.slot(torch.cat([cv, hv, x["feats"]], -1))

@@ -71,12 +71,8 @@ def static(text_files, tier: str, sealed_path: str = SEALED) -> GateResult:
     return GateResult("G3_static", "fail" if found else "pass", ev, sha256_json([sorted(sealed), sorted(found)]))
 
 
-def built(run_dir: str, tax, eval_taxids, tier: str, extra_files=(), sealed_path: str = SEALED) -> GateResult:
-    """eval_taxids: {evaluation genome id: [taxids]} (the genome's and its scenario host's)."""
-    f = _freeze(tier)
-    if f:
-        return f
-    sealed = load_sealed(sealed_path)
+def _sealed_genera(tax, sealed):
+    """({genus taxid: name}, [names the taxonomy does not resolve])."""
     genera, unresolved = {}, []
     for _, g in sealed:
         ts = tax.genus_by_name(g)
@@ -84,15 +80,51 @@ def built(run_dir: str, tax, eval_taxids, tier: str, extra_files=(), sealed_path
             unresolved.append(g)
         for t in ts:
             genera[t] = g
+    return genera, sorted(set(unresolved))
+
+
+def _under(tax, genera, taxids_by_id):
     under = {}
-    for gid, taxids in sorted(eval_taxids.items()):
+    for gid, taxids in sorted(taxids_by_id.items()):
         for t in taxids:
+            if not t:
+                continue
             g = tax.at_rank(int(t), "genus")
             if g in genera:
                 under.setdefault(gid, []).append("%s (genus %s)" % (t, genera[g]))
+    return under
+
+
+def built(run_dir: str, tax, eval_taxids, tier: str, extra_files=(), sealed_path: str = SEALED) -> GateResult:
+    """eval_taxids: {evaluation genome id: [taxids]} (the genome's and its scenario host's)."""
+    f = _freeze(tier)
+    if f:
+        return f
+    sealed = load_sealed(sealed_path)
+    genera, unresolved = _sealed_genera(tax, sealed)
+    under = _under(tax, genera, eval_taxids)
     files = sorted(glob.glob(os.path.join(run_dir, "data", "*", "manifest.json"))) + [os.path.join(run_dir, "data", "train", "ids.json")] + list(extra_files)
     found = _scan(files, _pattern(sealed))
-    ev = dict(sealed=len(sealed), sealed_genera=len(genera), unresolved_genera=sorted(set(unresolved)), evaluation_genomes=len(eval_taxids),
+    ev = dict(sealed=len(sealed), sealed_genera=len(genera), unresolved_genera=unresolved, evaluation_genomes=len(eval_taxids),
               under_sealed_genus=under, accessions_found=found)
     bad = bool(under) or bool(found) or bool(unresolved)        # a sealed genus the taxonomy does not know cannot be checked
     return GateResult("G3", "fail" if bad else "pass", ev, sha256_json([sorted(sealed), sorted(under), sorted(found)]))
+
+
+def selection(files, tax, taxids_by_id, tier: str, sealed_path: str = SEALED) -> GateResult:
+    """G3 on a corpus selection (pipeline select). taxids_by_id: {selected id: [taxid, host taxid]}. Fails when a selected
+    genome, or the host of a selected virus or plasmid, lies under a sealed genus, or a sealed accession occurs in the
+    selection's own files (the selected table, its summary and manifest). The candidate table and the catalogue
+    snapshots list sealed assemblies by construction (as rejected rows) and are not scanned."""
+    f = _freeze(tier)
+    if f:
+        f.gate = "G3_select"
+        return f
+    sealed = load_sealed(sealed_path)
+    genera, unresolved = _sealed_genera(tax, sealed)
+    under = _under(tax, genera, taxids_by_id)
+    found = _scan(files, _pattern(sealed))
+    ev = dict(sealed=len(sealed), sealed_genera=len(genera), unresolved_genera=unresolved, selected=len(taxids_by_id), files=len(files),
+              under_sealed_genus=dict(list(under.items())[:100]), n_under=len(under), accessions_found=found)
+    bad = bool(under) or bool(found) or bool(unresolved)
+    return GateResult("G3_select", "fail" if bad else "pass", ev, sha256_json([sorted(sealed), sorted(under), sorted(found)]))

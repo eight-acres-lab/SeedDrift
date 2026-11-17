@@ -1,10 +1,15 @@
 # CI changelog
 
-Every change to `ci/`, `configs/` or `deploy/envs/` is a new CI version (`ci/VERSION`, tag `ci-vMAJOR.MINOR` on main).
+Every change to `ci/`, `configs/` or `deploy/envs/` is a new CI version (`ci/VERSION`, tag `ci-vMAJOR.MINOR` on branch `model`, the line of the model work; `main` holds the released screen).
 MAJOR: a gate changes meaning, a rule is added or removed, or the run record format changes. MINOR: thresholds,
 configurations and fixes.
 
-## 0.1 (bootstrap, in progress)
+## 0.2 (in progress)
+
+- Launcher: `reproduce` re-invokes the launcher through bash, so it works when the script is not executable (it
+  failed with "Permission denied"); the launch scripts are executable in git. Tests for `reproduce`.
+
+## 0.1 (2026-11-17, tag ci-v0.1)
 
 - Run record (`ci/record.py`), hashing and stage keys (`ci/hashing.py`), content-addressed manifests (`ci/manifest.py`).
 - NCBI taxonomy lineages (`ci/taxonomy.py`) and genome groups (`ci/kingdom.py`, `configs/kingdom_map.yml`).

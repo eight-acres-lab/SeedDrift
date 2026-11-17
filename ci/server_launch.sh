@@ -2,7 +2,7 @@
 # Server side of ci/launch.sh (read from stdin over ssh; run in the CI root). Arguments: sha tree profile run_id
 # provenance branch [parent]. Creates a read-only worktree at the commit and the locked environment if it does not
 # exist yet (built at its final path, named by the lock file's hash, complete only with its marker; never changed), takes the GPU
-# lock in the foreground (a busy GPU refuses the launch), and starts the run in the background; it reports success
+# lock in the foreground (a busy GPU refuses the launch; select profiles take their own lock), and starts the run in the background; it reports success
 # only once the run record exists.
 set -Eeuo pipefail
 sha=$1; tree=$2; profile=$3; run_id=$4; provenance=$5; branch=$6; parent=${7:-}
@@ -18,8 +18,13 @@ MM=${MICROMAMBA:-$(command -v micromamba || echo /hy-tmp/hgtscan/bin/micromamba)
 git -C repo.git cat-file -e "$sha:ci/profiles/$profile/config.yaml" || { echo "refused: no profile $profile in $sha" >&2; exit 1; }
 [ ! -e "runs/$run_id" ] && [ ! -e "wt/$run_id" ] || { echo "refused: run id $run_id exists" >&2; exit 1; }
 
-exec 9> locks/gpu.lock
-flock -n 9 || { echo "refused: another run holds the GPU lock" >&2; exit 3; }
+# runs that need the GPU (pipeline train) share one lock; a profile with `needs_gpu: false` (pipeline select: network
+# and CPU only) takes its own lock, so it neither blocks a training run nor waits for one
+lockname=gpu
+profile_text=$(git -C repo.git show "$sha:ci/profiles/$profile/config.yaml")
+if grep -q '^needs_gpu: false' <<< "$profile_text"; then lockname=select; fi
+exec 9> "locks/$lockname.lock"
+flock -n 9 || { echo "refused: another run holds the $lockname lock" >&2; exit 3; }
 
 cleanup() { chmod -R u+w "wt/$run_id" 2>/dev/null || true; git -C repo.git worktree remove --force "$root/wt/$run_id" 2>/dev/null || true; }
 # any exit before the run starts (a failed command, a refusal, a failed environment build) removes the worktree
@@ -54,7 +59,7 @@ trap - EXIT
 export TMPDIR="$root/tmp" XDG_CACHE_HOME="$root/cache" PIP_CACHE_DIR="$root/cache/pip" CI_PROVENANCE="$provenance" CI_BRANCH="$branch"
 export CI_EXPECT_SHA="$sha" CI_ROOT="$root" MAMBA_EXE="$MM" PATH="$root/$env/bin:$PATH" CONDA_PREFIX="$root/$env"
 cd "wt/$run_id"
-# the background run inherits descriptor 9 and so holds the GPU lock until it ends
+# the background run inherits descriptor 9 and so holds the lock until it ends
 setsid nohup "$root/$env/bin/python" -m ci run --profile "$profile" --run-dir "$root/runs/$run_id" ${parent:+--parent "$parent"} \
   > "$root/runs/$run_id.launch.log" 2>&1 < /dev/null &
 for _ in $(seq 1 60); do

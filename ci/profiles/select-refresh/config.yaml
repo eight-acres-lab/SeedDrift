@@ -1,0 +1,20 @@
+# Server (through ci/launch.sh): snapshots of the live catalogues of configs/select/v1.yaml, the corpus selection from
+# them and its cost. Network and CPU only (its own lock, not the GPU's). The run writes a new catalogue lock
+# (data/catalog/lock.yaml); `ci/launch.sh promote RUN_ID` prints it for the repository, where profile select-v1 then
+# reproduces the selection from exactly those snapshots.
+pipeline: select
+needs_gpu: false
+tier: full
+seed: 1
+cores: 4
+blas_threads: 1
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+select_spec: configs/select/v1.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+catalog: {mode: refresh}
+# passed smoke runs whose hit and corpus files give the measured byte rates (stage budget)
+calibration:
+  runs:
+    - /hy-tmp/seeddrift-ci/runs/20261117T031124-ci-bootstrap-21d26061-smoke

@@ -57,6 +57,11 @@ jobs:
         run: python -m ci run --profile ci-tiny --run-dir runs/t1-b
       - name: the second run reproduces the first exactly
         run: python -m ci compare runs/t1-a runs/t1-b --expect exact
+      - name: select-tiny twice (the corpus selection on committed catalogue snapshots); the second reproduces the first
+        run: |
+          python -m ci run --profile select-tiny --run-dir runs/t1-sel-a
+          python -m ci run --profile select-tiny --run-dir runs/t1-sel-b
+          python -m ci compare runs/t1-sel-a runs/t1-sel-b --expect exact
       - name: kill the training at a checkpoint (step 10) and between checkpoints (step 12), resume, compare
         run: |
           for stop in 10 12; do

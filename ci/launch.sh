@@ -6,6 +6,8 @@
 #   ci/launch.sh reproduce <RUN_ID>     a new run of the same commit and profile, with RUN_ID as its parent
 #   ci/launch.sh compare <RUN_A> <RUN_B> the reproduction verdict of B against A (written into B's record)
 #   ci/launch.sh publish <RUN_ID>       the run's summary into git (ci/publish.py: branch runs/<RUN_ID>)
+#   ci/launch.sh promote <RUN_ID>       print the catalogue lock of a passed select refresh run (redirect it into
+#                                       configs/select/<spec>.lock.yaml and commit it as a new CI version)
 #
 # Refuses unless the commit is on a branch of the GitHub remote and every GitHub Actions run of both T0 and T1 on it
 # passed. The server checks the commit out read-only into its own worktree and runs `python -m ci run` there (see
@@ -31,6 +33,11 @@ if [ "${1:-}" = compare ]; then
   $CI_SSH "cd $CI_REMOTE_ROOT/wt/$b && $CI_REMOTE_ROOT/envs/current/bin/python -m ci compare $CI_REMOTE_ROOT/runs/$a $CI_REMOTE_ROOT/runs/$b" < /dev/null
   exit $?
 fi
+if [ "${1:-}" = promote ]; then
+  safe "${2:?run id}"
+  $CI_SSH "cd $CI_REMOTE_ROOT/wt/$2 && $CI_REMOTE_ROOT/envs/current/bin/python -m ci promote $CI_REMOTE_ROOT/runs/$2" < /dev/null
+  exit $?
+fi
 if [ "${1:-}" = publish ]; then
   safe "${2:?run id}"
   exec python3 "$here/ci/publish.py" "$2"
@@ -40,7 +47,7 @@ if [ "${1:-}" = reproduce ]; then
   line=$($CI_SSH "cd $CI_REMOTE_ROOT && python3 -c 'import json; r=json.load(open(\"runs/$2/record.json\")); print(r[\"git\"][\"sha\"], r[\"profile\"])'" < /dev/null)
   read -r rsha rprofile <<< "$line"
   [[ "$rsha" =~ ^[0-9a-f]{40}$ ]] || { echo "refused: no commit in the record of $2" >&2; exit 1; }
-  exec "$0" "$rsha" "$rprofile" --parent "$2"
+  exec bash "$0" "$rsha" "$rprofile" --parent "$2"          # bash: the script need not be executable
 fi
 ref=${1:?commit or ref}; profile=${2:?profile}; shift 2
 safe "$profile"

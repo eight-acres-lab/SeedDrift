@@ -16,9 +16,49 @@ rule all:
         "data/model/model.npz",
 
 
+# pipeline select (profiles with `pipeline: select`; ci/__main__.py asks for this target): catalogue snapshots, the
+# corpus selection, its gates, and its cost. The budget and fit stages do not wait for the selection gates, so a
+# selection that fails them still comes with its report.
+rule select_all:
+    input:
+        "gates/select.ok",
+        "data/select/report.md",
+        "data/select/fit.json",
+
+
 rule gates_pre:
     output: "gates/pre.ok"
     shell: STAGE.format(name="gates") + " pre"
+
+
+rule catalog:
+    input: "gates/pre.ok"
+    output: "data/catalog/manifest.json"
+    shell: STAGE.format(name="catalog")
+
+
+rule select:
+    input: "gates/pre.ok", "data/catalog/manifest.json"
+    output: "data/select/selected.tsv", "data/select/candidates.tsv", "data/select/by_group.json", "data/select/manifest.json"
+    shell: STAGE.format(name="select")
+
+
+rule gates_select:
+    input: "data/select/selected.tsv", "data/select/by_group.json", "data/select/manifest.json"
+    output: "gates/select.ok"
+    shell: STAGE.format(name="gates") + " select"
+
+
+rule budget:
+    input: "data/select/selected.tsv", "data/select/by_group.json"
+    output: "data/select/rates.json", "data/select/budget.json", "data/select/report.md"
+    shell: STAGE.format(name="budget")
+
+
+rule fit:
+    input: "data/select/budget.json"
+    output: "data/select/fit.json"
+    shell: STAGE.format(name="fit")
 
 
 rule fetch:

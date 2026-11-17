@@ -8,6 +8,12 @@
   compare A B [--expect exact|within_tolerance]
                               reproduction verdict of run B against run A (written into B's record)
   status D                    status of a run (a running record without heartbeat for 10 minutes is "interrupted")
+  promote D                   print the catalogue lock of a passed refresh run of pipeline select (with its provenance),
+                              to be committed as configs/select/<spec>.lock.yaml (ci/launch.sh promote RUN_ID)
+
+Profiles choose a pipeline (`pipeline:`): `train` (default: corpus, search, training, evaluation) or `select` (catalogue
+snapshots, the multi-kingdom corpus selection and its cost). Each pipeline has its Snakemake target, its required gates
+and the gate phases a resume decides again (PIPELINES).
 """
 from __future__ import annotations
 
@@ -33,6 +39,21 @@ SETTABLE = ("train.", "search.threads", "search.block_size", "cores", "blas_thre
 # a run passes only when every one of these gates is present and passed (or waived)
 REQUIRED_GATES = ("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G1_corpus", "G2_corpus", "G1_train", "G2_train",
                   "G2_holdout", "G3", "G4")
+SELECT_GATES = ("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_select_spec", "G2_static", "G3_static", "G1_select", "G2_select", "G3_select")
+PIPELINES = {
+    "train": dict(target="all", required=REQUIRED_GATES,
+                  resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
+                          ("report", "data/eval/eval_report.json"))),
+    "select": dict(target="select_all", required=SELECT_GATES, resume=(("pre", None), ("select", "data/select/selected.tsv"))),
+}
+DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
+
+
+def pipeline(cfg):
+    p = cfg.get("pipeline", "train")
+    if p not in PIPELINES:
+        raise SystemExit("unknown pipeline %r (known: %s)" % (p, ", ".join(sorted(PIPELINES))))
+    return PIPELINES[p]
 
 
 def _git(*args):
@@ -110,6 +131,7 @@ def env_snapshot(run_dir, cfg):
 def resolve(profile, run_dir, overrides=()):
     cfg = load_profile(profile, overrides)
     cfg["profile"] = profile
+    pipeline(cfg)
     cfg.setdefault("require_lock", True)
     cfg["config_sha256"] = sha256_json(cfg)
     cfg["git"] = git_info()
@@ -143,6 +165,20 @@ def summary(run_dir, rec):
             f.write("%s,%s\n" % (r["step"], r.get("loss")))
     lines = ["# Run %s" % d["run_id"], "", "- status: **%s**" % d["status"], "- CI %s, commit %s (%s), profile %s" % (d["ci_version"], d["git"]["sha"][:10], d["git"]["branch"], d["profile"]),
              "- gates: " + ", ".join("%s %s" % kv for kv in sorted(d["gates"].items())), ""]
+    sel = os.path.join(run_dir, "data", "select", "report.md")
+    if os.path.exists(sel):                          # pipeline select: the selection report, then the fit of this disk
+        with open(sel) as f:
+            lines += [l.replace("# Corpus selection", "## Corpus selection", 1) if l.startswith("# ") else l for l in f.read().splitlines()]
+        fp = os.path.join(run_dir, "data", "select", "fit.json")
+        if os.path.exists(fp):
+            with open(fp) as f:
+                fit = json.load(f)
+            lines += ["", "## Fit on this data disk (%.0f GB free, %.0f GB reserve)" % (fit["data_root_free_gb"], fit["reserve_gb"]), "",
+                      "| case | total GB | margin GB | verdict | uniform fraction that fits | search hours |", "|---|---|---|---|---|---|"]
+            for c, x in fit["cases"].items():
+                lines.append("| %s | %.1f | %.1f | %s | %.3f%s | %.0f |" % (c, x["total_gb"], x["margin_gb"], x["verdict"], x["uniform_fraction_that_fits"],
+                                                                     " (below half of the floors)" if x["below_half_of_floors"] else "", x["search_hours"]))
+        lines.append("")
     rep = os.path.join(run_dir, "data", "eval", "eval_report.json")
     if os.path.exists(rep):
         with open(rep) as f:
@@ -212,10 +248,11 @@ def cmd_run(a):
         hw = hardware()
         atomic_write_json(os.path.join(run_dir, "hardware.json"), hw)
         rec = Record.create(run_dir, run_id=os.path.basename(run_dir), ci_version=version(), launcher_version=LAUNCHER_VERSION, pipeline_hash=pipeline_hash(ROOT),
-                            profile=a.profile, tier=cfg.get("tier", ""), parent_run=a.parent or None, git=cfg["git"], expect_sha=cfg["expect_sha"],
+                            profile=a.profile, pipeline=cfg.get("pipeline", "train"), tier=cfg.get("tier", ""), parent_run=a.parent or None, git=cfg["git"], expect_sha=cfg["expect_sha"],
                             config_sha256=cfg["config_sha256"], env_lock_sha256=sha256_file(os.path.join(ROOT, "ci", "envs", "ci.lock.yml"), use_sidecar=False),
                             env_snapshot=env_hashes, taxdump_sha256=taxdump_hash(cfg["taxdump"]), seeds=seeds, hardware=hw)
     rec.start_heartbeat()
+    pipe = pipeline(cfg)
     status, rc = "failed", None
     try:
         env = dict(os.environ, PYTHONPATH=ROOT + os.pathsep + os.environ.get("PYTHONPATH", ""), PYTHONHASHSEED="0")
@@ -229,11 +266,10 @@ def cmd_run(a):
         os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
         cmd = [sys.executable, "-m", "snakemake", "-s", os.path.join(ROOT, "ci", "Snakefile"), "--directory", run_dir, "--configfile",
                os.path.join(run_dir, "config.resolved.yaml"), "--cores", str(cfg.get("cores", 2)), "--resources", "gpu=1", "diamond=1",
-               "--rerun-triggers", "mtime", "--printshellcmds", "--nocolor", "--keep-going"]
+               "--rerun-triggers", "mtime", "--printshellcmds", "--nocolor", "--keep-going", pipe["target"]]
         if a.resume:
             # re-decide every gate whose inputs exist before anything continues; sentinels are left as they are
-            for phase, need in (("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
-                               ("report", "data/eval/eval_report.json")):
+            for phase, need in pipe["resume"]:
                 if need and not os.path.exists(os.path.join(run_dir, need)):
                     continue
                 if phase == "eval" and not os.path.exists(os.path.join(run_dir, "data", "corpus", "manifest.json")):
@@ -248,7 +284,7 @@ def cmd_run(a):
             rc = subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT).returncode
         rec.merge_stages()
         gates = rec.data["gates"]
-        missing = [g for g in REQUIRED_GATES if g not in gates]
+        missing = [g for g in pipe["required"] if g not in gates]
         failed = [g for g, v in gates.items() if v == "fail"]
         diverged = any(s.get("status_note") == "diverged" for s in rec.data["stages"])
         if rc == 0 and not missing and not failed:
@@ -258,7 +294,7 @@ def cmd_run(a):
         elif diverged:
             status = "diverged"
         ids, mids, metrics = [], [], {}
-        for name in ("corpus", "reference", "eval_inputs", "hits"):
+        for name in DATASETS:
             mp = os.path.join(run_dir, "data", name, "manifest.json")
             if os.path.exists(mp):
                 with open(mp) as f:
@@ -312,7 +348,8 @@ def sha256_file_bytes(b):
     return hashlib.sha256(b).hexdigest()
 
 
-VOLATILE = {("reference", "database")}          # tool-built binaries; their inputs are compared instead
+VOLATILE = {("reference", "database"),          # tool-built binaries; their inputs are compared instead
+            ("fit", "fit")}                      # the budget against the free disk of the moment (pipeline select)
 
 
 def cmd_compare(a):
@@ -373,6 +410,15 @@ def cmd_check(a):
             r = g1_kingdom.static(spec, spec.get("tier"))
             g1[p] = r.status if r.status != "fail" else r.evidence
     report["G1_static"] = g1
+    gs = {}
+    sdir = os.path.join(ROOT, "configs", "select")
+    for p in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
+        if p.endswith(".yaml") and not p.endswith((".lock.yaml", "assumptions.yaml")) and not p.startswith("rates"):
+            with open(os.path.join(sdir, p)) as f:
+                spec = yaml.safe_load(f)
+            r = g1_kingdom.select_static(spec, spec.get("tier"))
+            gs[p] = r.status if r.status != "fail" else r.evidence
+    report["G1_select_spec"] = gs
     g2 = g2_exclusion.static(ROOT)
     report["G2_static"] = g2.status if g2.status != "fail" else g2.evidence
     g8 = g8_version.check(ROOT)
@@ -384,16 +430,37 @@ def cmd_check(a):
             with open(os.path.join(d, "config.resolved.yaml"), "w") as f:
                 yaml.safe_dump(cfg, f)
             r = subprocess.run([sys.executable, "-m", "snakemake", "-n", "-q", "-s", os.path.join(ROOT, "ci", "Snakefile"), "--directory", d,
-                                "--configfile", os.path.join(d, "config.resolved.yaml"), "--cores", "1"], capture_output=True, text=True)
+                                "--configfile", os.path.join(d, "config.resolved.yaml"), "--cores", "1", pipeline(cfg)["target"]], capture_output=True, text=True)
             dry[prof] = "ok" if r.returncode == 0 else (r.stdout + r.stderr)[-1500:]
     report["snakemake_dry_run"] = dry
-    bad = bool(report["hygiene"]) or any(v != "pass" for v in g1.values()) or report["G2_static"] != "pass" or report["G8"] != "pass" or any(v != "ok" for v in dry.values())
+    bad = bool(report["hygiene"]) or any(v != "pass" for v in g1.values()) or any(v != "pass" for v in gs.values()) or report["G2_static"] != "pass" \
+        or report["G8"] != "pass" or any(v != "ok" for v in dry.values())
     print(json.dumps(report, indent=1, default=str))
     return 1 if bad else 0
 
 
 def cmd_status(a):
     print(status_of(a.run_dir))
+    return 0
+
+
+def cmd_promote(a):
+    """The catalogue lock of a passed refresh run, with the run that wrote it, ready to be committed."""
+    rec = Record.open(a.run_dir)
+    if rec.data["status"] != "passed":
+        raise SystemExit("run %s is %s; only a passed run's lock may be promoted" % (rec.data["run_id"], rec.data["status"]))
+    lp = os.path.join(a.run_dir, "data", "catalog", "lock.yaml")
+    if not os.path.exists(lp):
+        raise SystemExit("run %s wrote no catalogue lock (not a refresh run of pipeline select)" % rec.data["run_id"])
+    out = [s for s in rec.data["stages"] if s["name"] == "catalog"]
+    want = {o["name"]: o["sha256"] for o in out[0]["outputs"]} if out else {}
+    if want.get("catalog_lock") != sha256_file(lp, use_sidecar=False):
+        raise SystemExit("the lock file of %s does not match its record" % rec.data["run_id"])
+    with open(lp) as f:
+        body = f.read()
+    sys.stdout.write("# Catalogue lock written by run %s (CI %s, commit %s, profile %s); promoted with `python -m ci promote`.\n"
+                     "# Selection runs in lock mode take exactly these snapshots. Replace it only by promoting a newer refresh run.\n%s"
+                     % (rec.data["run_id"], rec.data["ci_version"], rec.data["git"]["sha"], rec.data["profile"], body))
     return 0
 
 
@@ -413,8 +480,10 @@ def main(argv=None):
     c.add_argument("--expect", default="exact", choices=["exact"])
     s = sub.add_parser("status")
     s.add_argument("run_dir")
+    pr = sub.add_parser("promote")
+    pr.add_argument("run_dir")
     a = ap.parse_args(argv)
-    return dict(check=cmd_check, run=cmd_run, compare=cmd_compare, status=cmd_status)[a.cmd](a)
+    return dict(check=cmd_check, run=cmd_run, compare=cmd_compare, status=cmd_status, promote=cmd_promote)[a.cmd](a)
 
 
 if __name__ == "__main__":

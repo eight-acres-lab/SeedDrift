@@ -1,0 +1,37 @@
+# Selection of the select-tiny profile (T1 on GitHub): committed catalogue snapshots of synthetic records on real taxids
+# of the tiny taxdump (tests/ci/fixtures/make_select.py). Every group is selected; targets are small.
+name: select-tiny
+tier: tiny
+seed: 20261117
+assumptions: configs/select/assumptions.yaml
+target_factor: 1.0
+groups:
+  bacteria: {min_genomes: 1, target: 4}
+  archaea: {min_genomes: 1, target: 2}
+  eukaryota.mammals: {min_genomes: 1, target: 2}
+  eukaryota.other_vertebrates: {min_genomes: 1, target: 2}
+  eukaryota.invertebrates: {min_genomes: 1, target: 2}
+  eukaryota.plants_algae: {min_genomes: 1, target: 2}
+  eukaryota.fungi: {min_genomes: 1, target: 2}
+  eukaryota.protists: {min_genomes: 1, target: 2}
+  viruses.phage: {min_genomes: 1, target: 3}
+  viruses.eukaryotic: {min_genomes: 1, target: 2}
+  viruses.giant: {min_genomes: 1, target: 2}
+  mobile.plasmid: {min_genomes: 1, target: 3}
+catalogues:
+  - {id: bacteria, file: tests/ci/fixtures/select/bacteria.jsonl, as: ncbi_genome_reports}
+  - {id: archaea, file: tests/ci/fixtures/select/archaea.jsonl, as: ncbi_genome_reports}
+  - {id: viruses, file: tests/ci/fixtures/select/viruses.jsonl, as: ncbi_genome_reports}
+  - {id: virus_hosts, file: tests/ci/fixtures/select/virus_hosts.jsonl, as: ncbi_virus_reports}
+  - {id: ens_vertebrates, file: tests/ci/fixtures/select/ens_vertebrates.jsonl, as: ensembl_species}
+  - {id: ens_plants, file: tests/ci/fixtures/select/ens_plants.jsonl, as: ensembl_species}
+  - {id: ens_fungi, file: tests/ci/fixtures/select/ens_fungi.jsonl, as: ensembl_species}
+  - {id: ens_metazoa, file: tests/ci/fixtures/select/ens_metazoa.jsonl, as: ensembl_species}
+  - {id: ens_protists, file: tests/ci/fixtures/select/ens_protists.jsonl, as: ensembl_species}
+  - {id: ens_annotation, file: tests/ci/fixtures/select/ens_annotation.jsonl, as: ncbi_genome_accessions}
+rules:
+  prokaryotes: {catalogues: [bacteria, archaea], min_protein_coding: 500, outer: order, cap_per_genus: 3}
+  plasmids: {outer: order, cap_per_genus: 3}
+  viruses: {catalogues: [viruses], hosts: virus_hosts, outer: family, cap_per_genus: 3, require_complete: true}
+  eukaryotes: {catalogues: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], annotation: ens_annotation, outer: order, cap_per_genus: 2}
+share_repair: true

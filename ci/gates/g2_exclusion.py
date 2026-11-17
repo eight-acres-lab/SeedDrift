@@ -88,60 +88,96 @@ def read_catalogue(path=CATALOGUE):
     return out
 
 
-def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE) -> GateResult:
-    """entries_: dicts with id, taxid, and optionally accession / paired_accession."""
-    with open(exclude_path) as f:
-        rows = parse_exclude(f.read())
-    nodes, problems = resolve(tax, rows)
-    rules = {r["name"] for r in rows if r["kind"] == "rule"}
-    for rule in REQUIRED_RULES:
-        if rule not in rules:
-            problems.append(dict(error="EXCLUDE.tsv lacks the rule %r" % rule))
-    pan_acc, pan_species = set(), set()
-    if "panel genomes" in rules:
-        if not os.path.exists(panels_path):
-            problems.append(dict(error="EXCLUDE.tsv has the panel rule but %s is missing" % os.path.relpath(panels_path, ROOT)))
-        else:
-            pan_acc, raw_species = read_panels(panels_path)
-            for t in raw_species:                                # merged ids follow their new node; unknown ones stay as given
-                try:
-                    pan_species.add(tax.resolve(t))
-                except Exception:  # noqa: BLE001
-                    pan_species.add(t)
-    cat = read_catalogue(catalogue_path)
-    radius_nodes = {}
-    if cat:
-        for ev in cat:
+class Excluder:
+    """The exclusion rules resolved against one taxonomy: reason(taxid, accessions) is None for an allowed genome and
+    the reason otherwise; host_reason(taxid) checks only the lineage (the host of a virus, which need not be a species)."""
+
+    def __init__(self, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE):
+        self.tax, self.exclude_path = tax, exclude_path
+        with open(exclude_path) as f:
+            rows = parse_exclude(f.read())
+        self.nodes, self.problems = resolve(tax, rows)
+        self.rules = {r["name"] for r in rows if r["kind"] == "rule"}
+        for rule in REQUIRED_RULES:
+            if rule not in self.rules:
+                self.problems.append(dict(error="EXCLUDE.tsv lacks the rule %r" % rule))
+        self.pan_acc, self.pan_species = set(), set()
+        if "panel genomes" in self.rules:
+            if not os.path.exists(panels_path):
+                self.problems.append(dict(error="EXCLUDE.tsv has the panel rule but %s is missing" % os.path.relpath(panels_path, ROOT)))
+            else:
+                self.pan_acc, raw_species = read_panels(panels_path)
+                for t in raw_species:                            # merged ids follow their new node; unknown ones stay as given
+                    try:
+                        self.pan_species.add(tax.resolve(t))
+                    except Exception:  # noqa: BLE001
+                        self.pan_species.add(t)
+        self.catalogue = read_catalogue(catalogue_path)
+        self.radius_nodes = {}
+        for ev in self.catalogue or []:
             for col in ("recipient_exclusion_taxid",):
                 if ev.get(col):
                     try:
-                        radius_nodes[tax.resolve(int(ev[col]))] = "test recipient of %s" % ev.get("event_id", "?")
+                        self.radius_nodes[tax.resolve(int(ev[col]))] = "test recipient of %s" % ev.get("event_id", "?")
                     except Exception:  # noqa: BLE001 - a catalogue taxid that does not resolve fails the gate
-                        problems.append(dict(error="catalogue taxid %s does not resolve" % ev[col]))
+                        self.problems.append(dict(error="catalogue taxid %s does not resolve" % ev[col]))
+
+    def _lineage_hit(self, taxid):
+        for t in self.tax.lineage(int(taxid)):
+            if t in self.nodes or t in self.radius_nodes:
+                return t, self.nodes.get(t) or self.radius_nodes.get(t)
+        return None
+
+    def reason(self, taxid, accessions=()):
+        """None, or (reason, node) for an excluded genome; a taxid that does not resolve or lies above species rank is excluded."""
+        try:
+            self.tax.lineage(int(taxid))
+        except (UnknownTaxid, KeyError, ValueError) as err:
+            return "taxid does not resolve: %s" % err, None
+        if not self.tax.at_rank(int(taxid), "species"):
+            return "taxid is above species rank (the panel-species check needs a species)", None
+        hit = self._lineage_hit(taxid)
+        if hit:
+            return hit[1], hit[0]
+        if any(a.split(".")[0][4:] in self.pan_acc for a in accessions if a):
+            return "panel assembly", None
+        if self.pan_species and self.tax.at_rank(int(taxid), "species") in self.pan_species:
+            return "species of a panel assembly", None
+        return None
+
+    def host_reason(self, taxid):
+        try:
+            hit = self._lineage_hit(taxid)
+        except (UnknownTaxid, KeyError, ValueError) as err:
+            return "host taxid does not resolve: %s" % err
+        return "host excluded: %s" % hit[1] if hit else None
+
+
+def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE, excluder=None) -> GateResult:
+    """entries_: dicts with id, taxid, and optionally accession / paired_accession / host_taxid (a virus's host is
+    checked by lineage too: a phage of an excluded host shares sequence with it)."""
+    ex = excluder or Excluder(tax, exclude_path, panels_path, catalogue_path)
     hits = []
     for e in entries_:
-        try:
-            lin = tax.lineage(int(e["taxid"]))
-        except (UnknownTaxid, KeyError, ValueError) as err:
-            hits.append(dict(id=e.get("id"), reason="taxid does not resolve: %s" % err))
+        r = ex.reason(e["taxid"], [e.get("accession"), e.get("paired_accession")])
+        if r:
+            reason, node = r
+            if node is not None:                                 # an excluded node of the lineage
+                hits.append(dict(id=e.get("id"), taxid=int(e["taxid"]), node=node, reason=reason))
+            elif reason.startswith("taxid is above species"):
+                hits.append(dict(id=e.get("id"), taxid=int(e["taxid"]), reason=reason))
+            else:                                                # unresolved taxid, panel assembly or panel species
+                hits.append(dict(id=e.get("id"), reason=reason))
             continue
-        if not tax.at_rank(int(e["taxid"]), "species"):
-            hits.append(dict(id=e.get("id"), taxid=int(e["taxid"]), reason="taxid is above species rank (the panel-species check needs a species)"))
-            continue
-        for t in lin:
-            if t in nodes or t in radius_nodes:
-                hits.append(dict(id=e.get("id"), taxid=int(e["taxid"]), node=t, reason=nodes.get(t) or radius_nodes.get(t)))
-                break
-        else:
-            accs = [a for a in (e.get("accession"), e.get("paired_accession")) if a]
-            if any(a.split(".")[0][4:] in pan_acc for a in accs):
-                hits.append(dict(id=e.get("id"), reason="panel assembly"))
-            elif pan_species and tax.at_rank(int(e["taxid"]), "species") in pan_species:
-                hits.append(dict(id=e.get("id"), reason="species of a panel assembly"))
-    status = "fail" if (hits or problems) else "pass"
-    ev = dict(mode="entries", checked=len(entries_), excluded_nodes=len(nodes), panel_assemblies=len(pan_acc), panel_species=len(pan_species),
-              catalogue="absent" if cat is None else len(cat), problems=problems, hits=hits[:200], n_hits=len(hits))
-    return GateResult("G2", status, ev, sha256_json([sha256_file(exclude_path), sorted((e.get("id"), int(e.get("taxid", 0))) for e in entries_)]))
+        if e.get("host_taxid"):
+            h = ex.host_reason(e["host_taxid"])
+            if h:
+                hits.append(dict(id=e.get("id"), host_taxid=int(e["host_taxid"]), reason=h))
+    status = "fail" if (hits or ex.problems) else "pass"
+    cat = ex.catalogue
+    ev = dict(mode="entries", checked=len(entries_), excluded_nodes=len(ex.nodes), panel_assemblies=len(ex.pan_acc), panel_species=len(ex.pan_species),
+              catalogue="absent" if cat is None else len(cat), problems=ex.problems, hits=hits[:200], n_hits=len(hits))
+    return GateResult("G2", status, ev, sha256_json([sha256_file(ex.exclude_path), sorted((e.get("id"), int(e.get("taxid", 0))) for e in entries_)]))
 
 
 def _imports(path, root):

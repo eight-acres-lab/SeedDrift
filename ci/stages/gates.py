@@ -1,4 +1,4 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -9,6 +9,8 @@ train    on the exact id list the training loader will read: non-empty, no dupli
 eval     G2_holdout: no evaluation gene (protein or coding DNA) occurs in the training corpus; G3: no evaluation genome
          under a sealed genus and no sealed accession in any manifest of the run
 report   G4 on the evaluation report: six rows per scenario on one gene set, the released screen recomputed from its tag
+select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
+         checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
 input can run. The sentinel holds the hash of the phase's inputs and is not rewritten when its content would not
 change. --check-only decides the gates without touching the sentinel (used by a resume before Snakemake starts).
@@ -58,11 +60,16 @@ def phase_pre(st, cfg, run_dir):
     res.gate = "G7_resources"
     require(res, run_dir)
     require(g8_version.check(ROOT), run_dir)
-    with open(st.repo(cfg["corpus_spec"])) as f:
-        spec = yaml.safe_load(f)
-    g1 = g1_kingdom.static(spec, cfg.get("tier"))
-    g1.gate = "G1_spec"
-    require(g1, run_dir)
+    if pipeline_of(cfg) == "select":
+        with open(st.repo(cfg["select_spec"])) as f:
+            spec = yaml.safe_load(f)
+        require(g1_kingdom.select_static(spec, cfg.get("tier")), run_dir)
+    else:
+        with open(st.repo(cfg["corpus_spec"])) as f:
+            spec = yaml.safe_load(f)
+        g1 = g1_kingdom.static(spec, cfg.get("tier"))
+        g1.gate = "G1_spec"
+        require(g1, run_dir)
     g2 = g2_exclusion.static(ROOT)
     g2.gate = "G2_static"
     require(g2, run_dir)
@@ -70,9 +77,45 @@ def phase_pre(st, cfg, run_dir):
     return sha256_json([cfg.get("expect_sha") or cfg["git"]["sha"], cfg["config_sha256"]])
 
 
+def pipeline_of(cfg):
+    p = cfg.get("pipeline", "train")
+    if p not in ("train", "select"):
+        raise SystemExit("unknown pipeline %r" % p)
+    return p
+
+
 def _g3_files(st, cfg, run_dir):
+    if pipeline_of(cfg) == "select":
+        with open(st.repo(cfg["select_spec"])) as f:
+            spec = yaml.safe_load(f)
+        lock = (cfg.get("catalog") or {}).get("lock")
+        return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["select_spec"]), st.repo(spec["assumptions"])] + \
+            ([st.repo(lock)] if lock and os.path.exists(st.repo(lock)) else [])
     sc = cfg.get("scenario") or {}
     return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["corpus_spec"])] + [st.repo(sc[k]) for k in ("table", "truth") if sc.get(k)]
+
+
+def phase_select(st, cfg, run_dir):
+    """G1_select, G2_select and G3_select on the selected table; all three are decided and recorded before a failure stops
+    the run (the report of the selection is written by the budget stage whatever they say)."""
+    import csv
+    with open(st.repo(cfg["select_spec"])) as f:
+        spec = yaml.safe_load(f)
+    d = os.path.join(run_dir, "data", "select")
+    with open(os.path.join(d, "selected.tsv")) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    tax = Taxonomy(st.repo(cfg["taxdump"]))
+    results = [run(g1_kingdom.selection(spec, rows, tax, cfg.get("tier")), run_dir)]
+    g2 = g2_exclusion.entries([dict(id=r["id"], taxid=int(r["taxid"]), accession=r["accession"], paired_accession=r["paired_accession"],
+                                    host_taxid=int(r["host_taxid"] or 0)) for r in rows], tax)
+    g2.gate = "G2_select"
+    results.append(run(g2, run_dir))
+    files = [os.path.join(d, n) for n in ("selected.tsv", "by_group.json", "manifest.json")]
+    results.append(run(g3_sealed.selection(files, tax, {r["id"]: [int(r["taxid"]), int(r["host_taxid"] or 0)] for r in rows}, cfg.get("tier")), run_dir))
+    bad = [r.gate for r in results if r.status == "fail"]
+    if bad:
+        raise GateFailure("gates failed: %s" % ", ".join(bad))
+    return sha256_file(os.path.join(d, "selected.tsv"), use_sidecar=False)
 
 
 def phase_built(st, cfg, run_dir, phase):
@@ -167,6 +210,8 @@ def main():
                 key = phase_eval(st, cfg, run_dir)
             elif phase == "report":
                 key = phase_report(st, cfg, run_dir)
+            elif phase == "select":
+                key = phase_select(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

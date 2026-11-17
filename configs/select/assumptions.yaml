@@ -1,0 +1,24 @@
+# Budget assumptions of the corpus selection (stages select and budget). Each number states its basis; a rate the CI
+# measures (data/select/rates.json, from passed calibration runs) is used instead wherever it exists. Ranges are
+# [low, central, high]. Changing this file is a new CI version.
+protein_factor:
+  # proteins the corpus stage will keep, relative to the catalogue's annotated protein-coding genes
+  prokaryote_chromosomes: [0.80, 0.93, 1.05]   # chromosomes only (plasmid genes count as mobile.plasmid), genes called again by pyrodigal; assumed
+  virus: [0.80, 1.00, 1.30]                    # pyrodigal (metagenome mode on small genomes) against the annotation; assumed
+  eukaryote_annotated: [0.75, 1.00, 1.30]      # Ensembl gene build against the NCBI annotation of the same assembly; assumed
+  eukaryote_median: [0.40, 1.00, 2.50]         # no NCBI annotation found: the median of the group; assumed
+plasmid_proteins_per_replicon: [10, 50, 200]   # plasmids span about 2 kb to over 1 Mb; assumed
+stored_download_bytes_per_protein:             # bytes kept in the content-addressed store per protein of the corpus
+  raw_prokaryote: [950, 1100, 1300]            # decompressed FASTA, about 1.1 kb of genome per gene; assumed
+  plasmid: [900, 1200, 2000]                   # assumed
+  raw_virus: [800, 1100, 2000]                 # assumed
+  annotated_cds: [300, 700, 2000]              # cds.all.fa.gz holds every transcript of a gene, compressed; assumed
+search:
+  fixed_s: [1200, 1560, 2600]                  # loading the 40 M-protein reference; E2 (outside the CI) 1,560 s
+  per_protein_ms_at_12_threads: [20, 28, 40]   # E2 on the shared machine, 20-40 ms; one search of the whole corpus
+diamond_tmp_gb: [5, 15, 40]                    # DIAMOND temporary files at block size 4; assumed
+live_run_copies: [1, 1, 2]                     # every run keeps its own corpus and hits; a reproduction run doubles them
+# used only for a group no calibration run measured and no related group covers
+unmeasured_hits_bytes_per_protein: [1500, 9000, 13000]
+unmeasured_corpus_bytes_per_protein: [1000, 1600, 2500]
+unmeasured_proteins_faa_bytes_per_protein: [250, 400, 600]

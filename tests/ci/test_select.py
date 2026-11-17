@@ -1,0 +1,222 @@
+"""Pipeline select: catalogue snapshots, the corpus selection, its gates and its budget, on the committed fixtures
+(tests/ci/fixtures/select, written by make_select.py from the tiny taxdump)."""
+import csv
+import json
+import os
+import subprocess
+import sys
+
+import pytest
+import yaml
+
+from conftest import ROOT
+
+TINY_TAX = os.path.join(ROOT, "tests", "ci", "fixtures", "tiny", "taxdump")
+
+
+@pytest.fixture(scope="module")
+def ttax():
+    from ci.taxonomy import Taxonomy
+    return Taxonomy(TINY_TAX)
+
+
+def _stage(name, run_dir, *args):
+    env = dict(os.environ, PYTHONPATH=ROOT, PYTHONHASHSEED="0")
+    return subprocess.run([sys.executable, "-m", "ci.stages." + name, str(run_dir), *args], cwd=ROOT, env=env, capture_output=True, text=True)
+
+
+def _run_dir(tmp_path, name="r", spec="configs/select/tiny.yaml", **over):
+    d = tmp_path / name
+    (d / "gates").mkdir(parents=True)
+    (d / "gates" / "pre.ok").write_text("{}")
+    cfg = dict(pipeline="select", tier="tiny", select_spec=spec, taxdump=TINY_TAX, data_root=str(tmp_path / "root"), catalog=dict(mode="lock"),
+               calibration=dict(file="configs/select/rates-tiny.yaml"), disk_reserve_gb=1)
+    cfg.update(over)
+    (d / "config.resolved.yaml").write_text(yaml.safe_dump(cfg))
+    return d
+
+
+def _select(tmp_path, name="r", **over):
+    d = _run_dir(tmp_path, name, **over)
+    for st in ("catalog", "select", "budget", "fit"):
+        r = _stage(st, d)
+        assert r.returncode == 0, (st, r.stderr[-2000:])
+    return d
+
+
+def _rows(path):
+    with open(path) as f:
+        return list(csv.DictReader(f, delimiter="\t"))
+
+
+# ---- the host decides a virus's group --------------------------------------------------------------------------
+
+def test_virus_groups_follow_the_host_and_refuse_conflicts_fails(ttax):
+    from ci.kingdom import GroupConflict, KingdomMap
+    k = KingdomMap()
+    phage = [t for t in sorted(ttax.rank) if ttax.rank[t] == "species" and 2731619 in ttax.lineage(t)][0]
+    giant = [t for t in sorted(ttax.rank) if ttax.rank[t] == "species" and 2732007 in ttax.lineage(t)][0]
+    other = [t for t in sorted(ttax.rank) if ttax.rank[t] == "species" and 10239 in ttax.lineage(t)
+             and not {2731619, 2732007} & set(ttax.lineage(t))][0]
+    bacterium = [t for t in sorted(ttax.rank) if ttax.rank[t] == "species" and 2 in ttax.lineage(t)][0]
+    assert k.group(ttax, other, "raw_virus") == "viruses.eukaryotic"                   # no host: the taxon rule
+    assert k.group(ttax, other, "raw_virus", bacterium) == "viruses.phage"             # a prokaryote host: a prokaryote virus
+    assert k.group(ttax, other, "raw_virus", 9606) == "viruses.eukaryotic"
+    assert k.group(ttax, giant, "raw_virus", 9606) == "viruses.giant"                  # giant viruses stay giant
+    assert k.group(ttax, phage, "raw_virus", bacterium) == "viruses.phage"
+    with pytest.raises(GroupConflict):
+        k.group(ttax, phage, "raw_virus", 9606)                                         # a tailed phage on a human host
+    with pytest.raises(GroupConflict):
+        k.group(ttax, giant, "raw_virus", bacterium)
+
+
+def test_g2_checks_the_host_of_a_virus_fails(ttax):
+    from ci.gates import g2_exclusion
+    ent = ttax.taxa_by_name("Enterobacterales", "order")[0]
+    host = [t for t in sorted(ttax.rank) if ttax.rank[t] == "species" and ent in ttax.lineage(t)][0]
+    phage = [t for t in sorted(ttax.rank) if ttax.rank[t] == "species" and 2731619 in ttax.lineage(t)][0]
+    ok = g2_exclusion.entries([dict(id="p", taxid=phage)], ttax)
+    assert ok.status == "pass", ok.evidence
+    bad = g2_exclusion.entries([dict(id="p", taxid=phage, host_taxid=host)], ttax)
+    assert bad.status == "fail" and bad.evidence["hits"][0]["reason"].startswith("host excluded")
+
+
+# ---- catalogue snapshots ---------------------------------------------------------------------------------------
+
+def test_canonical_refuses_conflicting_duplicates_and_sorts():
+    from ci.stages.catalog import canonical
+    data, n = canonical([dict(accession="B", x=1), dict(accession="A", x=2), dict(accession="B", x=1)], "accession")
+    assert n == 2 and data.decode().splitlines()[0].startswith('{"accession":"A"')
+    with pytest.raises(ValueError):
+        canonical([dict(accession="A", x=1), dict(accession="A", x=2)], "accession")
+
+
+def test_paged_reads_until_the_count_matches_and_fails_otherwise(monkeypatch):
+    from ci.stages import catalog
+    monkeypatch.setattr(catalog, "PAUSE", 0)
+    monkeypatch.setattr(catalog.time, "sleep", lambda s: None)
+    pages = {"": dict(total_count=3, reports=[{"accession": "A"}, {"accession": "B"}], next_page_token="t"), "t": dict(reports=[{"accession": "C"}])}
+    recs, total, n = catalog._paged(lambda tok: tok, lambda r: r, "accession", fetch=lambda tok: json.dumps(pages[tok]).encode())
+    assert total == 3 and len(recs) == 3 and n == 2
+    shifted = {"": dict(total_count=3, reports=[{"accession": "A"}, {"accession": "B"}], next_page_token="t"), "t": dict(reports=[{"accession": "B"}])}
+    with pytest.raises(SystemExit, match="consistently"):              # a record repeated across pages, one skipped
+        catalog._paged(lambda tok: tok, lambda r: r, "accession", fetch=lambda tok: json.dumps(shifted[tok]).encode())
+
+
+def test_catalog_refuses_a_non_canonical_file_and_a_live_source_without_lock_fails(tmp_path):
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text('{"accession":"B"}\n{"accession":"A"}\n')
+    spec = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "tiny.yaml")))
+    spec["catalogues"][0]["file"] = str(bad)
+    sp = tmp_path / "spec.yaml"
+    sp.write_text(yaml.safe_dump(spec))
+    r = _stage("catalog", _run_dir(tmp_path, "a", spec=str(sp)))
+    assert r.returncode != 0 and "canonical" in r.stderr
+    spec = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "tiny.yaml")))
+    spec["catalogues"][0] = dict(id="bacteria", ncbi_genome_reports=dict(taxon=2, params={}))
+    sp.write_text(yaml.safe_dump(spec))
+    r = _stage("catalog", _run_dir(tmp_path, "b", spec=str(sp)))
+    assert r.returncode != 0 and "no entry in the lock" in r.stderr
+
+
+# ---- the selection ---------------------------------------------------------------------------------------------
+
+def test_selection_covers_every_group_and_records_every_reason(tmp_path, ttax):
+    d = _select(tmp_path)
+    sel = _rows(d / "data" / "select" / "selected.tsv")
+    cand = _rows(d / "data" / "select" / "candidates.tsv")
+    from ci.kingdom import KingdomMap
+    groups = {r["group"] for r in sel}
+    assert groups == set(KingdomMap().names)
+    out = {r["id"]: r["out"] for r in cand}
+    assert any(v.startswith("excluded: excluded order Enterobacterales") for v in out.values())
+    assert any(v.startswith("excluded: sealed genus Pseudomonas") or v.startswith("excluded: family of sealed genus") for v in out.values())
+    assert any(v.startswith("another genome of the species") for v in out.values())
+    assert any(v.startswith("fewer than 500") for v in out.values())
+    assert any(v.startswith("group conflict") for v in out.values())
+    assert any(v.startswith("host excluded") for v in out.values())
+    bg = json.load(open(d / "data" / "select" / "by_group.json"))
+    assert bg["groups"]["mobile.plasmid"]["selected_units"] >= 3
+    assert bg["groups"]["viruses.eukaryotic"]["host_unknown"] + bg["groups"]["viruses.eukaryotic"]["selected_genomes"] >= 1
+    red = [r for r in cand if r["id"].startswith("plants_algae_") and r["catalogue"] == "ens_protists"]
+    assert red, "a red alga listed by Ensembl Protists is placed by its taxid"
+    assert any(r["proteins_level"].startswith("estimated") for r in sel + cand if r.get("proteins_level"))
+    for r in sel:
+        assert not out[r["id"]], r                                     # nothing selected carries a reason
+        assert int(r["proteins_low"]) <= int(r["proteins_central"]) <= int(r["proteins_high"])
+    for name in ("rates.json", "budget.json", "report.md", "fit.json"):
+        assert (d / "data" / "select" / name).exists()
+
+
+def test_selection_is_deterministic(tmp_path):
+    a, b = _select(tmp_path, "a"), _select(tmp_path, "b")
+    for name in ("selected.tsv", "candidates.tsv", "by_group.json", "budget.json", "report.md"):
+        assert (a / "data" / "select" / name).read_bytes() == (b / "data" / "select" / name).read_bytes(), name
+
+
+def test_larger_targets_only_add_genomes(tmp_path):
+    a = _select(tmp_path, "a")
+    spec = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "tiny.yaml")))
+    for g in spec["groups"].values():
+        g["target"] = g["target"] + 2
+    sp = tmp_path / "bigger.yaml"
+    sp.write_text(yaml.safe_dump(spec))
+    b = _select(tmp_path, "b", select_spec=str(sp))
+    ids_a = {r["id"] for r in _rows(a / "data" / "select" / "selected.tsv")}
+    ids_b = {r["id"] for r in _rows(b / "data" / "select" / "selected.tsv")}
+    assert ids_a < ids_b
+
+
+def test_select_gates_pass_and_catch_tampering_fails(tmp_path):
+    d = _select(tmp_path)
+    r = _stage("gates", d, "select")
+    assert r.returncode == 0, r.stderr[-2000:]
+    for g in ("G1_select", "G2_select", "G3_select"):
+        assert json.load(open(d / "gates" / (g + ".json")))["status"] == "pass", g
+    p = d / "data" / "select" / "selected.tsv"
+    good = p.read_text()
+    from ci.gates.g3_sealed import load_sealed
+    sealed_acc = load_sealed()[0][0]
+    lines = good.splitlines()
+    head, first = lines[0].split("\t"), lines[1].split("\t")
+    cases = []
+    t = list(first)
+    t[head.index("accession")] = sealed_acc                              # a sealed accession in the selection
+    cases.append(("G3_select", t))
+    t = list(first)
+    t[head.index("group")] = "eukaryota.fungi"                           # a group the taxid does not give
+    cases.append(("G1_select", t))
+    from ci.taxonomy import Taxonomy
+    tax = Taxonomy(TINY_TAX)
+    ent = tax.taxa_by_name("Enterobacterales", "order")[0]
+    t = list(first)
+    t[head.index("taxid")] = str([x for x in sorted(tax.rank) if tax.rank[x] == "species" and ent in tax.lineage(x)][0])
+    cases.append(("G2_select", t))
+    for gate, row in cases:
+        p.write_text("\n".join([lines[0], "\t".join(row)] + lines[2:]) + "\n")
+        r = _stage("gates", d, "select")
+        assert r.returncode != 0 and json.load(open(d / "gates" / (gate + ".json")))["status"] == "fail", gate
+    p.write_text(good)
+
+
+def test_select_spec_check_fails_on_gaps():
+    from ci.gates.g1_kingdom import select_static
+    spec = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "tiny.yaml")))
+    assert select_static(spec, "tiny").status == "pass"
+    v1 = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "v1.yaml")))
+    assert select_static(v1, "full").status == "pass", select_static(v1, "full").evidence
+    bad = dict(v1, target_factor=0.5)                                     # below the floors
+    assert select_static(bad, "full").status == "fail"
+    bad = dict(spec, rules={k: v for k, v in spec["rules"].items() if k != "viruses"})
+    assert select_static(bad, "tiny").status == "fail"                    # every kingdom has a rule
+    bad = dict(spec, catalogues=[c for c in spec["catalogues"] if c["id"] != "virus_hosts"])
+    assert select_static(bad, "tiny").status == "fail"                    # a rule names a missing catalogue
+    late = [dict(id="x", ncbi_genome_accessions={"from": ["later"], "field": "a"}), dict(id="later", file="f", **{"as": "ensembl_species"})]
+    assert select_static(dict(spec, catalogues=spec["catalogues"] + late), "tiny").status == "fail"
+
+
+def test_unknown_pipeline_is_refused_fails():
+    from ci.__main__ import pipeline
+    assert pipeline({})["target"] == "all" and pipeline({"pipeline": "select"})["target"] == "select_all"
+    with pytest.raises(SystemExit):
+        pipeline({"pipeline": "bogus"})

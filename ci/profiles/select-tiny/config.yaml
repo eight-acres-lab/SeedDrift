@@ -1,0 +1,15 @@
+# T1 on GitHub: the select pipeline on committed catalogue snapshots (configs/select/tiny.yaml). Run twice and compared;
+# every stage but the environmental fit must reproduce exactly.
+pipeline: select
+needs_gpu: false
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 1
+gpu_mem_min_mb: 0
+select_spec: configs/select/tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+catalog: {mode: lock}
+calibration: {file: configs/select/rates-tiny.yaml}

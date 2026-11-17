@@ -33,7 +33,8 @@ def dev(tmp_path):
     assert g("push", "-q", "origin", "work").returncode == 0
     fake.mkdir()
     (fake / "gh").write_text("#!/bin/sh\nfor c in ${FAKE_GH:-failure}; do echo \"$c\"; done\n")     # one check-run conclusion per line
-    (fake / "ssh").write_text("#!/bin/sh\necho \"$@\" >> \"$FAKE_LOG\"\ncat > /dev/null\nexit 0\n")
+    # the fake ssh records its command line; asked for a run record (reproduce), it answers FAKE_RECORD ("sha profile")
+    (fake / "ssh").write_text("#!/bin/sh\necho \"$@\" >> \"$FAKE_LOG\"\ncase \"$*\" in *record.json*) echo \"$FAKE_RECORD\";; esac\ncat > /dev/null\nexit 0\n")
     for f in ("gh", "ssh"):
         os.chmod(fake / f, 0o755)
     env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ["PATH"], CI_SSH=str(fake / "ssh"), FAKE_LOG=str(tmp_path / "ssh.log"),
@@ -113,7 +114,7 @@ def test_server_refuses_when_the_gpu_lock_is_held_fails(server):
     with open(root / "locks" / "gpu.lock", "w") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         r = _run(["bash", script, sha, tree, "smoke", "r2", "github", "work"], root, env)
-    assert r.returncode == 3 and "GPU lock" in r.stderr
+    assert r.returncode == 3 and "gpu lock" in r.stderr
     assert not (root / "wt" / "r2").exists()
 
 
@@ -127,3 +128,22 @@ def test_launch_refuses_a_hostile_branch_name_fails(dev):
     r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="success"))
     assert r.returncode == 2 and "unsafe branch name" in r.stderr
     assert not log.exists() and not (work / "pwned").exists()
+
+
+def test_launch_reproduce_restarts_the_recorded_commit_with_its_parent(dev):
+    work, env, log, g = dev
+    sha = g("rev-parse", "HEAD").stdout.strip()
+    os.chmod(work / "ci" / "launch.sh", 0o644)                      # as in a checkout without the executable bit
+    r = _run(["bash", "ci/launch.sh", "reproduce", "r0-run"], work, dict(env, FAKE_GH="success", FAKE_RECORD="%s smoke" % sha))
+    assert r.returncode == 0, r.stderr
+    run_id = r.stdout.strip().splitlines()[-1]
+    sent = log.read_text()
+    assert "runs/r0-run/record.json" in sent
+    assert "bash -s -- '%s'" % sha in sent and "'smoke' '%s' 'github' 'work' 'r0-run'" % run_id in sent
+
+
+def test_launch_reproduce_refuses_a_record_without_a_commit_fails(dev):
+    work, env, log, _ = dev
+    r = _run(["bash", "ci/launch.sh", "reproduce", "r0-run"], work, dict(env, FAKE_GH="success", FAKE_RECORD="nonsense smoke"))
+    assert r.returncode == 1 and "no commit in the record" in r.stderr
+    assert "bash -s" not in log.read_text()

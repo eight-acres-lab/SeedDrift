@@ -1,0 +1,12 @@
+{"accession":"NC_000400.1","completeness":"COMPLETE","host_taxid":150,"length":40000,"protein_count":60,"source_database":"RefSeq","virus_taxid":2734213}
+{"accession":"NC_000401.1","completeness":"COMPLETE","host_taxid":256,"length":40000,"protein_count":60,"source_database":"RefSeq","virus_taxid":2734271}
+{"accession":"NC_000402.1","completeness":"COMPLETE","host_taxid":297,"length":40000,"protein_count":60,"source_database":"RefSeq","virus_taxid":2734292}
+{"accession":"NC_000403.1","completeness":"COMPLETE","host_taxid":463,"length":40000,"protein_count":60,"source_database":"RefSeq","virus_taxid":3059903}
+{"accession":"NC_000410.1","completeness":"COMPLETE","host_taxid":9606,"length":40000,"protein_count":70,"source_database":"RefSeq","virus_taxid":3060007}
+{"accession":"NC_000411.1","completeness":"COMPLETE","host_taxid":566,"length":40000,"protein_count":80,"source_database":"RefSeq","virus_taxid":3060185}
+{"accession":"NC_000420.1","completeness":"COMPLETE","host_taxid":9606,"length":200000,"protein_count":200,"source_database":"RefSeq","virus_taxid":3426548}
+{"accession":"NC_000421.1","completeness":"COMPLETE","host_taxid":9606,"length":200000,"protein_count":200,"source_database":"RefSeq","virus_taxid":3427718}
+{"accession":"NC_000422.1","completeness":"COMPLETE","host_taxid":9606,"length":200000,"protein_count":200,"source_database":"RefSeq","virus_taxid":3427842}
+{"accession":"NC_000430.1","completeness":"COMPLETE","host_taxid":9606,"length":10000,"protein_count":8,"source_database":"RefSeq","virus_taxid":3048266}
+{"accession":"NC_000431.1","completeness":"COMPLETE","host_taxid":9606,"length":10000,"protein_count":8,"source_database":"RefSeq","virus_taxid":3050247}
+{"accession":"NC_000432.1","completeness":"COMPLETE","host_taxid":9606,"length":10000,"protein_count":8,"source_database":"RefSeq","virus_taxid":3050272}

@@ -39,3 +39,16 @@ groups:
 # Groups decided by the kind of source, not by taxid (a plasmid carries its host's taxid).
 by_source:
   plasmid: mobile.plasmid
+# A virus with a known host (host_taxid of a source or catalogue record) is placed by its host: the phage taxa above
+# cannot name every prokaryote-virus family (archaeal viruses, unclassified phages). `keep`: a group the host does not
+# change; `conflict`: a group that contradicts the host (the record is refused, not guessed).
+virus_hosts:
+  prokaryote:
+    include: [2, 2157]   # Bacteria, Archaea
+    group: viruses.phage
+    conflict: [viruses.giant]
+  eukaryote:
+    include: [2759]      # Eukaryota
+    group: viruses.eukaryotic
+    keep: [viruses.giant]
+    conflict: [viruses.phage]

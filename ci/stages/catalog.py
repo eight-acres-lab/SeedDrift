@@ -148,6 +148,8 @@ def _paged(url_of, reducer, key, fetch=get, tries=3, page_size=1000, min_page=10
                 break
             if total is None:
                 if "total_count" not in d:
+                    if allow_empty and d == {}:                 # NCBI answers a query without any record with an empty object
+                        return [], 0, 1
                     raise SystemExit("catalogue page without total_count: %s" % str(d)[:300])
                 total = int(d["total_count"])
                 if total == 0:

@@ -374,10 +374,12 @@ def test_species_less_genomes_are_their_own_units():
 def test_empty_taxon_inside_a_list_is_allowed(monkeypatch):
     from ci.stages import catalog
     monkeypatch.setattr(catalog, "PAUSE", 0)
-    answers = {1: dict(total_count=1, reports=[{"accession": "A", "organism": {"tax_id": 1}}]), 2: dict(total_count=0, reports=[])}
+    answers = {1: dict(total_count=1, reports=[{"accession": "A", "organism": {"tax_id": 1}}]), 2: dict(total_count=0, reports=[]), 3: {}}
     fetch = lambda url: json.dumps(answers[int(url.split("/taxon/")[1].split("/")[0])]).encode()   # noqa: E731
-    recs, total, pages = catalog.fetch_genome_reports({"ncbi_genome_reports": {"taxon": [1, 2]}}, fetch)
-    assert [r["accession"] for r in recs] == ["A"] and total == 1
+    recs, total, pages = catalog.fetch_genome_reports({"ncbi_genome_reports": {"taxon": [1, 2, 3]}}, fetch)
+    assert [r["accession"] for r in recs] == ["A"] and total == 1                # NCBI answers an empty taxon with {}
+    with pytest.raises(SystemExit, match="total_count"):
+        catalog.fetch_genome_reports({"ncbi_genome_reports": {"taxon": 3}}, fetch)
     with pytest.raises(SystemExit, match="no record"):
         catalog.fetch_genome_reports({"ncbi_genome_reports": {"taxon": 2}}, fetch)
 

@@ -49,6 +49,9 @@ def get(url, tries=5, pause=10):
     raise RuntimeError("%s: %s" % (url, err))
 
 
+_GET = get                                                           # the network getter (tests replace `get`)
+
+
 def get_ranged(url, parts=8, min_bytes=2_000_000, tries=5):
     """A large file in `parts` parallel byte ranges (EBI throttles each connection in the evening, not the total), each
     range retried on its own; the whole must have exactly the announced length. Falls back to get() when the server
@@ -176,7 +179,7 @@ def fetch_source(src, cas, index):
         names = sorted(set(re.findall(r'href="([A-Za-z0-9_.\-]+\.cds\.all\.fa\.gz)"', listing)))
         if len(names) != 1:
             raise SystemExit("%s: expected one cds.all file, found %s" % (base, names))
-        data = get_ranged(base + names[0])
+        data = get_ranged(base + names[0]) if get is _GET else get(base + names[0])   # a replaced getter is used as it is
         try:                                                     # the whole stream, so a truncated file never enters the store
             text = gzip.decompress(data)
         except (OSError, EOFError) as err:

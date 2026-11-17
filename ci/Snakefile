@@ -12,7 +12,7 @@ STAGE = PY + " -m ci.stages.{name} " + os.getcwd()
 
 rule all:
     input:
-        "data/eval/eval_report.json",
+        "gates/report.ok",
         "data/model/model.npz",
 
 
@@ -83,7 +83,20 @@ rule gates_eval:
     shell: STAGE.format(name="gates") + " eval"
 
 
+rule released:
+    input: "gates/eval.ok", "data/eval_inputs/manifest.json"
+    output: "data/released/manifest.json"
+    resources: diamond=1
+    shell: STAGE.format(name="released")
+
+
 rule eval:
-    input: "gates/eval.ok", "data/model/model.npz", "data/hits/manifest.json", "data/eval_inputs/manifest.json"
+    input: "gates/eval.ok", "data/model/model.npz", "data/hits/manifest.json", "data/eval_inputs/manifest.json", "data/released/manifest.json"
     output: "data/eval/eval_report.json"
     shell: STAGE.format(name="eval")
+
+
+rule gates_report:
+    input: "data/eval/eval_report.json"
+    output: "gates/report.ok"
+    shell: STAGE.format(name="gates") + " report"

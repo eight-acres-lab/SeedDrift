@@ -25,3 +25,14 @@ configurations and fixes.
   sequence accessions and cuts held-out evaluation regions out of corpus genomes; the reference stage can keep its
   tables in the store (`reference.cache`), keyed by the FASTA, the taxonomy and the stage code, and records an
   in-place DIAMOND database in its manifest. Profile `smoke` with corpus spec `configs/corpus/smoke.yaml`.
+- G7_prefix: the paths compiled into a conda environment (the OpenSSL certificate file) must lie inside the prefix
+  that runs; the launcher builds environments at their final path with a completion marker (an environment built
+  aside and moved could not verify TLS certificates).
+- G3 (static in the pre gate, built in the eval gate): no evaluation genome under a sealed genus and no sealed
+  accession in the configuration, the evaluation tables, any manifest or the training ids; tier freeze fails until a
+  CI version adds the freeze rules.
+- Stage `released`: the released screen recomputed in the run from tag v0.1.0 (`git archive`), in its own locked
+  environment (`ci/envs/released-v0.1.0.lock.yml`, the deployed tools environment of v0.1.0), with a run-local data
+  folder (shared reference read-only, own cache, no services). G4 (new gate phase `report`): every scenario has the
+  six rows model, alien_index, best_hit, composition, counts, released_v0.1.0 on one gene set (hash in every row);
+  the released row must be recomputed from the tag's commit except in tier tiny, which declares the skip.

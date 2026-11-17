@@ -1,7 +1,9 @@
 """G7: the environment is the locked one, and the machine can take the run.
 
 lock_matches(exported, lock): the packages installed (name, version, build from `micromamba env export`) equal those of
-ci/envs/ci.lock.yml. resources(...): temporary files and caches live under the allowed data root, the disk has room for
+ci/envs/ci.lock.yml. relocation(prefix): a conda environment is not relocatable, so the paths compiled into it (the
+OpenSSL certificate file) must lie inside the prefix that runs (an environment built elsewhere and moved fails TLS).
+resources(...): temporary files and caches live under the allowed data root, the disk has room for
 the run's estimate plus a reserve, and a GPU with enough free memory is visible when the profile needs one.
 """
 from __future__ import annotations
@@ -43,6 +45,22 @@ def lock_matches(exported: str, lock_path: str = LOCK) -> GateResult:
     ok = bool(want) and bool(have) and not missing and not extra
     return GateResult("G7", "pass" if ok else "fail", dict(check="lock", lock=os.path.relpath(lock_path, ROOT), missing=missing[:50], extra=extra[:50]),
                       sha256_file(lock_path))
+
+
+def relocation(prefix: str = None, verify_paths=None) -> GateResult:
+    import ssl
+    import sys
+    prefix = os.path.realpath(prefix or sys.prefix)
+    if not os.path.isdir(os.path.join(prefix, "conda-meta")):
+        return GateResult("G7_prefix", "pass", dict(note="not a conda prefix; the lock gate decides"), sha256_json([prefix]))
+    vp = verify_paths or ssl.get_default_verify_paths()
+    cafile = vp.openssl_cafile
+    problems = []
+    if not os.path.realpath(cafile).startswith(prefix + os.sep):
+        problems.append(dict(error="OpenSSL looks for certificates outside the environment (it was built at another path)", cafile=cafile, prefix=prefix))
+    elif not os.path.exists(cafile):
+        problems.append(dict(error="the environment's certificate file is missing", cafile=cafile))
+    return GateResult("G7_prefix", "fail" if problems else "pass", dict(problems=problems, prefix=prefix), sha256_json([prefix, cafile]))
 
 
 def export_env(prefix: str, micromamba: str = "micromamba") -> str:

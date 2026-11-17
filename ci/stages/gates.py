@@ -1,11 +1,14 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
-         lock and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static
+         lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
+         G3 static (no sealed accession in the configuration, the corpus spec or the evaluation tables)
 corpus   on the built corpus: G1 group floors from taxids, G2 exclusions by full lineage on every genome
 train    on the exact id list the training loader will read: non-empty, no duplicates, a subset of the corpus manifest
          and of the same corpus dataset; then G1 and G2 again on exactly those genomes
-eval     G2_holdout: no evaluation gene (protein or coding DNA) occurs in the training corpus
+eval     G2_holdout: no evaluation gene (protein or coding DNA) occurs in the training corpus; G3: no evaluation genome
+         under a sealed genus and no sealed accession in any manifest of the run
+report   G4 on the evaluation report: six rows per scenario on one gene set, the released screen recomputed from its tag
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
 input can run. The sentinel holds the hash of the phase's inputs and is not rewritten when its content would not
 change. --check-only decides the gates without touching the sentinel (used by a resume before Snakemake starts).
@@ -21,7 +24,7 @@ import yaml
 
 from ci import ROOT
 from ci.gates import GateFailure, GateResult, find_waiver, require, run
-from ci.gates import g1_kingdom, g2_exclusion, g6_clean, g7_env, g8_version
+from ci.gates import g1_kingdom, g2_exclusion, g3_sealed, g4_report, g6_clean, g7_env, g8_version
 from ci.hashing import sha256_file, sha256_json
 from ci.kingdom import KingdomMap
 from ci.record import atomic_write_json
@@ -50,6 +53,7 @@ def phase_pre(st, cfg, run_dir):
         require(GateResult("G7", "fail", dict(error="the environment could not be exported (micromamba not found), so the lock cannot be verified")), run_dir)
     else:
         run(GateResult("G7", "waived", dict(note="profile sets require_lock: false")), run_dir)
+    require(g7_env.relocation(), run_dir)
     res = g7_env.resources(cfg["data_root"], float(cfg.get("disk_gb", 1)), float(cfg.get("disk_reserve_gb", 30)), gpu_mem_min_mb=int(cfg.get("gpu_mem_min_mb", 0)))
     res.gate = "G7_resources"
     require(res, run_dir)
@@ -62,7 +66,13 @@ def phase_pre(st, cfg, run_dir):
     g2 = g2_exclusion.static(ROOT)
     g2.gate = "G2_static"
     require(g2, run_dir)
+    require(g3_sealed.static(_g3_files(st, cfg, run_dir), cfg.get("tier")), run_dir)
     return sha256_json([cfg.get("expect_sha") or cfg["git"]["sha"], cfg["config_sha256"]])
+
+
+def _g3_files(st, cfg, run_dir):
+    sc = cfg.get("scenario") or {}
+    return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["corpus_spec"])] + [st.repo(sc[k]) for k in ("table", "truth") if sc.get(k)]
 
 
 def phase_built(st, cfg, run_dir, phase):
@@ -117,7 +127,30 @@ def phase_eval(st, cfg, run_dir):
     if shared:
         problems.append(dict(error="evaluation sequences found in the training corpus", per_genome=shared))
     require(GateResult("G2_holdout", "fail" if problems else "pass", dict(problems=problems, eval_genomes=len(evals["entries"]))), run_dir)
+    tax = Taxonomy(st.repo(cfg["taxdump"]))
+    eval_taxids = {}
+    truth = []
+    sc = cfg.get("scenario") or {}
+    if sc.get("truth"):
+        import csv
+        with open(st.repo(sc["truth"])) as f:
+            truth = list(csv.DictReader(f, delimiter="\t"))
+    for e in evals["entries"]:
+        eval_taxids[e["id"]] = [int(e["host_taxid"])] + [int(t["donor_taxid"]) for t in truth if t.get("scenario") == e["id"] and t.get("donor_taxid")]
+    require(g3_sealed.built(run_dir, tax, eval_taxids, cfg.get("tier"), extra_files=_g3_files(st, cfg, run_dir)), run_dir)
     return sha256_json([corpus["sha256"], evals["sha256"]])
+
+
+def phase_report(st, cfg, run_dir):
+    import subprocess
+    p = os.path.join(run_dir, "data", "eval", "eval_report.json")
+    with open(p) as f:
+        report = json.load(f)
+    r = subprocess.run(["git", "rev-parse", g4_report.TAG + "^{commit}"], cwd=ROOT, capture_output=True, text=True)
+    tag_commit = r.stdout.strip() if r.returncode == 0 else ""
+    skips = [k for k, v in (cfg.get("comparators") or {}).items() if v == "skip"]
+    require(g4_report.check(report, cfg.get("tier"), skips, tag_commit), run_dir)
+    return sha256_file(p, use_sidecar=False)
 
 
 def main():
@@ -132,6 +165,8 @@ def main():
                 key = phase_built(st, cfg, run_dir, phase)
             elif phase == "eval":
                 key = phase_eval(st, cfg, run_dir)
+            elif phase == "report":
+                key = phase_report(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

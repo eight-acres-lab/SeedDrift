@@ -128,3 +128,15 @@ def test_reference_tables_cached_and_checked_fail(tmp_path):
         reference.cached_tables(st, str(faa), str(c / "index.npz"), str(c / "library.npz"))
     meta = json.loads((cache_dir / "meta.json").read_text())
     assert set(meta["sha256"]) == {"index.npz", "library.npz"}
+
+
+# ---- released: names and scores of the v0.1.0 screen ------------------------------------------------------------
+
+def test_released_names_and_scores():
+    from ci.stages.released import released_name, score_of
+    assert released_name("scenario_host_insert__scenario_host_insert_12") == "scenario_host_insert__scenario_host_insert_12"
+    assert released_name("a|b c") == "a_b_c" and len(released_name("x" * 80)) == 60
+    foreign = score_of(dict(category="prokaryote", AI="12.5"))
+    native = score_of(dict(category="native", AI="40.0"))
+    orphan = score_of(dict(category="orphan", AI=""))
+    assert foreign > native > orphan

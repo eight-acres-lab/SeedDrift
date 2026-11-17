@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Server side of ci/launch.sh (read from stdin over ssh; run in the CI root). Arguments: sha tree profile run_id
 # provenance branch [parent]. Creates a read-only worktree at the commit and the locked environment if it does not
-# exist yet (built aside and moved into place; named by the lock file's hash; never changed in place), takes the GPU
+# exist yet (built at its final path, named by the lock file's hash, complete only with its marker; never changed), takes the GPU
 # lock in the foreground (a busy GPU refuses the launch), and starts the run in the background; it reports success
 # only once the run record exists.
 set -euo pipefail
@@ -25,15 +25,24 @@ cleanup() { chmod -R u+w "wt/$run_id" 2>/dev/null || true; git -C repo.git workt
 trap 'cleanup' ERR
 git -C repo.git worktree add -q --detach "$root/wt/$run_id" "$sha"
 [ -z "$(git -C "wt/$run_id" status --porcelain --untracked-files=all --ignored)" ] || { echo "worktree not clean" >&2; exit 1; }
+# a conda environment cannot be moved (paths such as the OpenSSL certificate file are compiled in), so it is built at
+# its final path; .ci-env-complete is written only after a complete build, and a prefix without it is built again
+build_env() {   # lock file, prefix
+  if [ ! -f "$2/.ci-env-complete" ]; then
+    T=${CI_CONDA_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud}
+    rm -rf "$2"
+    MAMBA_ROOT_PREFIX="$root/mamba" "$MM" create -y -q -p "$root/$2" -f "$1" --override-channels -c "$T/conda-forge" -c "$T/bioconda" > "tmp/env-$(basename "$2").log" 2>&1
+    sha256sum "$1" > "$2/.ci-env-complete"
+  fi
+}
 lock="wt/$run_id/ci/envs/ci.lock.yml"
 h=$(sha256sum "$lock" | cut -c1-8)
 env="envs/sd-ci-$h"
-if [ ! -x "$env/bin/python" ]; then
-  T=${CI_CONDA_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud}
-  tmp_env="$env.build.$$"
-  rm -rf "$tmp_env"
-  MAMBA_ROOT_PREFIX="$root/mamba" "$MM" create -y -q -p "$root/$tmp_env" -f "$lock" --override-channels -c "$T/conda-forge" -c "$T/bioconda" > "tmp/env-$h.log" 2>&1
-  mv "$tmp_env" "$env"
+build_env "$lock" "$env"
+# the released screen's own environment, for profiles that recompute it (stage released)
+rlock="wt/$run_id/ci/envs/released-v0.1.0.lock.yml"
+if grep -q "^released:" "wt/$run_id/ci/profiles/$profile/config.yaml"; then
+  build_env "$rlock" "envs/sd-released-$(sha256sum "$rlock" | cut -c1-8)"
 fi
 ln -sfn "sd-ci-$h" envs/current
 chmod -R a-w "wt/$run_id"

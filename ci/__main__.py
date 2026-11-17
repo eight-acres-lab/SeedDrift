@@ -31,7 +31,8 @@ LAUNCHER_VERSION = "0.1"
 # the CI root or the read-only requirement
 SETTABLE = ("train.", "search.threads", "search.block_size", "cores", "blas_threads")
 # a run passes only when every one of these gates is present and passed (or waived)
-REQUIRED_GATES = ("G6", "G7", "G7_resources", "G8", "G1_spec", "G2_static", "G1_corpus", "G2_corpus", "G1_train", "G2_train", "G2_holdout")
+REQUIRED_GATES = ("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G1_corpus", "G2_corpus", "G1_train", "G2_train",
+                  "G2_holdout", "G3", "G4")
 
 
 def _git(*args):
@@ -231,7 +232,8 @@ def cmd_run(a):
                "--rerun-triggers", "mtime", "--printshellcmds", "--nocolor", "--keep-going"]
         if a.resume:
             # re-decide every gate whose inputs exist before anything continues; sentinels are left as they are
-            for phase, need in (("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json")):
+            for phase, need in (("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
+                               ("report", "data/eval/eval_report.json")):
                 if need and not os.path.exists(os.path.join(run_dir, need)):
                     continue
                 if phase == "eval" and not os.path.exists(os.path.join(run_dir, "data", "corpus", "manifest.json")):

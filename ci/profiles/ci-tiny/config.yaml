@@ -29,3 +29,6 @@ train:
   lr: 0.5
   eval_every: 5
   ckpt_every: 5
+# GitHub runners have no reference data for the released screen; only tier tiny may skip it (gate G4)
+comparators:
+  released_v0.1.0: skip

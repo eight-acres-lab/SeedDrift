@@ -1,19 +1,16 @@
 """Stage search: every protein of the corpus (and of the evaluation genomes) against the reference, with the settings
 of the benchmark (DIAMOND --sensitive, up to 1,000 targets, e-value 1e-5) plus --max-hsps 1; the text output is read
-as a stream and stored per genome in data/hits/<id>.npz, format 2 (read it with load_hits, which also reads format 1):
+as a stream and stored per genome in data/hits/<id>.npz:
 
-  format    int32 [1]            2
-  off       int32 [genes + 1]    rows off[i]:off[i+1] belong to gene i (order of the genome's genes.tsv); within a gene
-                                 the rows are ordered by target (the kept set is chosen by score, see below)
+  off       int32 [genes + 1]    rows off[i]:off[i+1] belong to gene i (order of the genome's genes.tsv)
   nraw      uint16 [genes]       targets reported for the gene (1,000 = the list was full)
-  qlen      uint16|32 [genes]    length of the gene's protein (0 when it has no hit)
-  tgt       target protein (row of reference/index.npz): the first of a gene absolute, then gaps to the previous one
-  pid       identity x 10;  qs qe ss se  alignment coordinates;  slen  target length;  bits  bit score (float32)
-  cigar     the CIGARs in binary (varint of length << 2 | op, op M=0 I=1 D=2), cigar_len bytes per row
-Every per-row column is stored byte-shuffled (shape [item size, rows], unsigned 16 or 32 bits where it fits), which
-the archive's zlib compresses about a third better than plain columns with ASCII CIGARs (format 1, CI 0.1; it also
-stored each row's proteome and query length). The proteome of a target, and so its lineage, is
-library row searchsorted(library.taxid, index.taxid[tgt]) (hit_proteomes).
+  tgt       int32                target protein: row of reference/index.npz (the sequence can be fetched back)
+  prot      int32                row of reference/library.npz of the target's proteome (its lineage)
+  pid       uint16               identity x 10
+  qs qe ss se  uint32            alignment coordinates (query start, end; target start, end)
+  qlen slen    uint32            lengths
+  bits      float32              bit score
+  cigar     uint8 + cigar_off    the CIGAR of each alignment (concatenated bytes; rows cigar_off[r]:cigar_off[r+1])
 
 Kept per gene: the NEAREST closest targets plus the best target of every reference genus (so that hiding the own
 species, genus, family or order at training time still leaves visible hits). Rows are ordered by bit score, then
@@ -66,120 +63,25 @@ def select(rows, genus_of_prot, nearest):
     return keep
 
 
-def narrow(vals):
-    """uint16 when every value fits, else uint32 (coordinates and lengths of proteins over 65,535 residues)."""
-    a = np.array(vals, dtype=np.int64)
-    if a.size and (a.min() < 0 or a.max() >= 2 ** 32):
-        raise SystemExit("value out of range for the hit format")
-    return a.astype(np.uint16) if (a.size == 0 or a.max() < 65536) else a.astype(np.uint32)
-
-
-def shuffled(a):
-    """[item size, n] bytes of a little-endian array (byte k of every value together)."""
-    a = np.ascontiguousarray(a.astype(a.dtype.newbyteorder("<")))
-    return a.view(np.uint8).reshape(-1, a.dtype.itemsize).T.copy()
-
-
-def unshuffled(b, kind="u"):
-    b = np.asarray(b)
-    return np.ascontiguousarray(b.T).view("<%s%d" % (kind, b.shape[0])).reshape(-1)
-
-
-CIGAR_OPS = {"M": 0, "I": 1, "D": 2}
-CIGAR_CHARS = "MID"
-
-
-def cigar_encode(c: str) -> bytes:
-    out, num = bytearray(), 0
-    for ch in c:
-        if ch.isdigit():
-            num = num * 10 + ord(ch) - 48
-            continue
-        if ch not in CIGAR_OPS:
-            raise SystemExit("unexpected CIGAR operation %r in %r" % (ch, c))
-        x = num << 2 | CIGAR_OPS[ch]
-        while True:
-            byte, x = x & 0x7F, x >> 7
-            out.append(byte | (0x80 if x else 0))
-            if not x:
-                break
-        num = 0
-    return bytes(out)
-
-
-def cigar_decode(b: bytes) -> str:
-    out, x, shift = [], 0, 0
-    for byte in b:
-        x |= (byte & 0x7F) << shift
-        if byte & 0x80:
-            shift += 7
-            continue
-        out.append("%d%s" % (x >> 2, CIGAR_CHARS[x & 3]))
-        x, shift = 0, 0
-    return "".join(out)
-
-
 def flush(path, genes, by_gene, nraw, genus_of_prot, nearest):
-    off, qlen = [0], []
-    cols = {k: [] for k in ("tgt", "pid", "qs", "qe", "ss", "se", "slen", "bits")}
-    cig, clen = bytearray(), []
+    off = [0]
+    cols = {k: [] for k in ("tgt", "prot", "pid", "qs", "qe", "ss", "se", "qlen", "slen", "bits")}
+    cig, cig_off = bytearray(), [0]
     for g in genes:
-        rows = sorted(select(by_gene.get(g, []), genus_of_prot, nearest), key=lambda r: (r[0], -r[9]))   # kept by score, stored by target
-        qlen.append(rows[0][7] if rows else 0)
-        prev = None
+        rows = select(by_gene.get(g, []), genus_of_prot, nearest)
         for r in rows:
-            tgt, _prot, pid, qs, qe, ss, se, ql, sl, bits, c = r
-            cols["tgt"].append(tgt if prev is None else tgt - prev)
-            prev = tgt
-            for k, v in zip(("pid", "qs", "qe", "ss", "se", "slen", "bits"), (pid, qs, qe, ss, se, sl, bits)):
+            tgt, prot, pid, qs, qe, ss, se, ql, sl, bits, c = r
+            for k, v in zip(("tgt", "prot", "pid", "qs", "qe", "ss", "se", "qlen", "slen", "bits"), (tgt, prot, pid, qs, qe, ss, se, ql, sl, bits)):
                 cols[k].append(v)
-            e = cigar_encode(c)
-            cig += e
-            clen.append(len(e))
+            cig += c.encode()
+            cig_off.append(len(cig))
         off.append(off[-1] + len(rows))
-    save_npz(path, compress=True, format=np.array([2], dtype=np.int32), off=np.array(off, dtype=np.int32),
-             nraw=np.minimum(np.array([nraw.get(g, 0) for g in genes], dtype=np.int64), 65535).astype(np.uint16), qlen=narrow(qlen),
-             tgt=shuffled(narrow(cols["tgt"])), pid=shuffled(np.array(cols["pid"], dtype=np.uint16)),
-             **{k: shuffled(narrow(cols[k])) for k in ("qs", "qe", "ss", "se", "slen")},
-             bits=shuffled(np.array(cols["bits"], dtype=np.float32)), cigar=np.frombuffer(bytes(cig), dtype=np.uint8), cigar_len=shuffled(narrow(clen)))
+    save_npz(path, compress=True, off=np.array(off, dtype=np.int32), nraw=np.minimum(np.array([nraw.get(g, 0) for g in genes], dtype=np.int64), 65535).astype(np.uint16),
+                        tgt=np.array(cols["tgt"], dtype=np.int32), prot=np.array(cols["prot"], dtype=np.int32), pid=np.array(cols["pid"], dtype=np.uint16),
+                        qs=np.array(cols["qs"], dtype=np.uint32), qe=np.array(cols["qe"], dtype=np.uint32), ss=np.array(cols["ss"], dtype=np.uint32),
+                        se=np.array(cols["se"], dtype=np.uint32), qlen=np.array(cols["qlen"], dtype=np.uint32), slen=np.array(cols["slen"], dtype=np.uint32),
+                        bits=np.array(cols["bits"], dtype=np.float32), cigar=np.frombuffer(bytes(cig), dtype=np.uint8), cigar_off=np.array(cig_off, dtype=np.int64))
     return off[-1]
-
-
-def load_hits(path):
-    """The hits of one genome as plain arrays, in format 1 or 2: off, nraw, qlen (per gene), tgt, pid, qs, qe, ss, se,
-    slen, bits (per row), cigar(r) -> the CIGAR string of row r, and prot (format 1 only; else see hit_proteomes)."""
-    z = np.load(path, allow_pickle=False)
-    if "format" not in z.files:                                    # format 1 (CI 0.1)
-        off = z["off"]
-        out = {k: z[k] for k in ("off", "nraw", "tgt", "prot", "pid", "qs", "qe", "ss", "se", "slen", "bits")}
-        out["qlen"] = np.array([z["qlen"][off[i]] if off[i + 1] > off[i] else 0 for i in range(len(off) - 1)])
-        cb, co = bytes(z["cigar"]), z["cigar_off"]
-        out["cigar"] = lambda r: cb[co[r]:co[r + 1]].decode()
-        return out
-    if int(z["format"][0]) != 2:
-        raise SystemExit("%s: unknown hit format %s" % (path, z["format"][0]))
-    off = z["off"]
-    out = dict(off=off, nraw=z["nraw"], qlen=z["qlen"])
-    cs = np.cumsum(unshuffled(z["tgt"]).astype(np.int64))
-    starts = np.asarray(off[:-1], dtype=np.int64)
-    gene_of_row = np.repeat(np.arange(len(starts)), np.diff(np.asarray(off, dtype=np.int64)))
-    base = np.where(starts > 0, cs[np.maximum(starts - 1, 0)] if len(cs) else 0, 0)   # gaps restart at every gene
-    out["tgt"] = (cs - base[gene_of_row]).astype(np.int32) if len(cs) else np.zeros(0, dtype=np.int32)
-    out["pid"] = unshuffled(z["pid"])
-    for k in ("qs", "qe", "ss", "se", "slen"):
-        out[k] = unshuffled(z[k])
-    out["bits"] = unshuffled(z["bits"], "f")
-    cb = bytes(z["cigar"])
-    co = np.concatenate([[0], np.cumsum(unshuffled(z["cigar_len"]).astype(np.int64))])
-    out["cigar"] = lambda r: cigar_decode(cb[co[r]:co[r + 1]])
-    return out
-
-
-def hit_proteomes(hits, index_taxid, library_taxid):
-    """The library row (proteome, lineage) of every hit row, in both formats."""
-    if "prot" in hits:
-        return np.asarray(hits["prot"])
-    return np.searchsorted(library_taxid, np.asarray(index_taxid)[np.asarray(hits["tgt"])])
 
 
 def main():

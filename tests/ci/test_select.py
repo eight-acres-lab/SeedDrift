@@ -352,22 +352,3 @@ def test_spec_base_merges_and_detects_loops(tmp_path):
     with pytest.raises(SystemExit, match="loop"):
         load_select_spec(str(a))
 
-
-def test_hit_format_2_round_trip(tmp_path):
-    import numpy as np
-    from ci.stages.search import cigar_decode, cigar_encode, flush, hit_proteomes, load_hits
-    assert cigar_decode(cigar_encode("100M2I30M1D5M")) == "100M2I30M1D5M" and cigar_decode(cigar_encode("70000M")) == "70000M"
-    rows = {"g1": [(7, 0, 500, 2, 90, 1, 89, 120, 70000, 90.0, "88M"), (5, 1, 900, 1, 100, 3, 102, 120, 300, 180.0, "100M")],
-            "g3": [(3, 1, 400, 1, 50, 1, 50, 60, 60, 80.5, "50M")],
-            "g4": [(6, 0, 300, 1, 40, 1, 40, 40, 40, 50.0, "40M"), (2, 1, 350, 1, 40, 1, 40, 40, 40, 55.0, "39M1I")]}
-    p = str(tmp_path / "h.npz")
-    n = flush(p, ["g1", "g2", "g3", "g4"], rows, {"g1": 2, "g3": 1, "g4": 2}, {0: 10, 1: 11}, 32)
-    h = load_hits(p)
-    assert n == 5 and list(h["off"]) == [0, 2, 2, 3, 5] and list(h["qlen"]) == [120, 0, 60, 40]
-    assert list(h["tgt"]) == [5, 7, 3, 2, 6]                            # by target within a gene; gaps restart per gene
-    assert list(h["slen"]) == [300, 70000, 60, 40, 40] and [float(x) for x in h["bits"]] == [180.0, 90.0, 80.5, 55.0, 50.0]
-    assert [h["cigar"](r) for r in range(5)] == ["100M", "88M", "50M", "39M1I", "40M"]
-    z = np.load(p)
-    assert int(z["format"][0]) == 2 and "prot" not in z.files and z["qs"].dtype == np.uint8
-    index_taxid = np.array([0, 0, 300, 200, 0, 300, 200, 200])
-    assert list(hit_proteomes(h, index_taxid, np.array([200, 300]))) == [1, 0, 0, 1, 0]

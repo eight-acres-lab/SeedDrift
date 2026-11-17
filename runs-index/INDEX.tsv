@@ -1,1 +1,2 @@
 run_id	ci_version	sha	profile	status	summary
+20261117T031124-ci-bootstrap-21d26061-smoke	0.1	21d260619c58375cd4f84f1ebc85da6bc981d04b	smoke	passed	runs-index/20261117T031124-ci-bootstrap-21d26061-smoke/summary.md

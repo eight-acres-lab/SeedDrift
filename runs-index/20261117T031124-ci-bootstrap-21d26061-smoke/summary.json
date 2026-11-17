@@ -1,0 +1,196 @@
+{
+ "ci_version": "0.1",
+ "config_sha256": "c6c7ece6d3e79d370cf95ec03afbbff91a47ac0cb217048fcd7299eeead5ea55",
+ "dataset_ids": [
+  "ds-smoke-231ef90e3827",
+  "ds-reference-336632fd70e3",
+  "ds-eval_inputs-f4df2f5cb247",
+  "ds-hits-ca2e99cfe6fb"
+ ],
+ "env_lock_sha256": "1a9ee1d14a73441ff1dc818fd23201cd083d052ef58d4be6272c11051b79244c",
+ "gates": {
+  "G1_corpus": "pass",
+  "G1_spec": "pass",
+  "G1_train": "pass",
+  "G2_corpus": "pass",
+  "G2_holdout": "pass",
+  "G2_static": "pass",
+  "G2_train": "pass",
+  "G2_train_ids": "pass",
+  "G3": "pass",
+  "G3_static": "pass",
+  "G4": "pass",
+  "G6": "pass",
+  "G7": "pass",
+  "G7_prefix": "pass",
+  "G7_resources": "pass",
+  "G8": "pass"
+ },
+ "metrics": {
+  "scenario_host_insert": {
+   "alien_index": {
+    "auroc": 1.0,
+    "recall_at_lowest_fpr": 1.0,
+    "status": "computed"
+   },
+   "best_hit": {
+    "auroc": 0.06306306306306306,
+    "recall_at_lowest_fpr": 0.0,
+    "status": "computed"
+   },
+   "composition": {
+    "auroc": 0.6576576576576577,
+    "recall_at_lowest_fpr": 0.0,
+    "status": "computed"
+   },
+   "counts": {
+    "auroc": 0.2972972972972973,
+    "recall_at_lowest_fpr": 0.0,
+    "status": "computed"
+   },
+   "model": {
+    "auroc": 0.918918918918919,
+    "recall_at_lowest_fpr": 0.3333333333333333,
+    "status": "computed"
+   },
+   "released_v0.1.0": {
+    "auroc": 1.0,
+    "recall_at_lowest_fpr": 1.0,
+    "status": "computed"
+   }
+  }
+ },
+ "model_ids": [
+  "mdl-toy-0f62ca395c5c"
+ ],
+ "pipeline_hash": "24243d769ff297ea06f2439de88809297daa5f000264fa5f5ec420c19a81da66",
+ "profile": "smoke",
+ "run_id": "20261117T031124-ci-bootstrap-21d26061-smoke",
+ "seeds": {
+  "deterministic": true,
+  "master": 1,
+  "numpy": "per stage from master",
+  "torch": null,
+  "train": 1
+ },
+ "sha": "21d260619c58375cd4f84f1ebc85da6bc981d04b",
+ "stages": [
+  {
+   "name": "corpus",
+   "outputs": {
+    "corpus_manifest": "5a16fe443f6aa46bc001cfb8cd29172a027c687dca159268f02ec1d70725973c"
+   },
+   "status": "passed",
+   "wall_s": 24.13
+  },
+  {
+   "name": "eval",
+   "outputs": {
+    "eval_report": "0638cfba3f5a37149c8c9890f38cfab5c11a28bf7978932759dabe81235c4e29"
+   },
+   "status": "passed",
+   "wall_s": 11.06
+  },
+  {
+   "name": "eval_inputs",
+   "outputs": {
+    "eval_inputs_manifest": "943b5082b37c6cb3bfc0e4d4a3da962d4e21c68fcaf5e015d2c55b542055a541"
+   },
+   "status": "passed",
+   "wall_s": 0.11
+  },
+  {
+   "name": "fetch",
+   "outputs": {
+    "fetch_manifest": "c3113efba7b2aaeab46556895140ca6c215f133f0684dfa8016223c7c6f94cbc"
+   },
+   "status": "passed",
+   "wall_s": 71.67
+  },
+  {
+   "name": "gates_corpus",
+   "outputs": {
+    "sentinel": "20a12f9472f23233a25c23dd96935db89a76a19fa58bde934fbfd05d9c142603"
+   },
+   "status": "passed",
+   "wall_s": 15.17
+  },
+  {
+   "name": "gates_eval",
+   "outputs": {
+    "sentinel": "c8a637bc0b8153c9e5cd9b21c50df94342ca545c8647ba6b617987f147bcbb19"
+   },
+   "status": "passed",
+   "wall_s": 14.93
+  },
+  {
+   "name": "gates_pre",
+   "outputs": {
+    "sentinel": "6694bb8bdcb36772f4f06b5184a8003efb38c753b6f998b17202b6735d70edcc"
+   },
+   "status": "passed",
+   "wall_s": 0.48
+  },
+  {
+   "name": "gates_report",
+   "outputs": {
+    "sentinel": "4c102243894f893eca1525e1d304646f26d7d706f1200e6074cef42bd771b3fd"
+   },
+   "status": "passed",
+   "wall_s": 0.01
+  },
+  {
+   "name": "gates_train",
+   "outputs": {
+    "sentinel": "27fc80facff25212018788e3732699d010f135af90dfb77b2c7e0d1d9276507c"
+   },
+   "status": "passed",
+   "wall_s": 14.24
+  },
+  {
+   "name": "reference",
+   "outputs": {
+    "index": "d405070467b0ae0cef320e11cfe912fc0e4a649ad506ca54944588812d2a07c1",
+    "library": "07e8ebb8d2a975fd48efd601e1cd4c2d8d0f81af0be8f83cf18facec6fedfd26",
+    "reference_manifest": "358914d67d97b4dced0e9d4744a4fbf450b5a828f3ced3fa5c8d0411d1cf31ae"
+   },
+   "status": "passed",
+   "wall_s": 108.15
+  },
+  {
+   "name": "released",
+   "outputs": {
+    "released_manifest": "4780209373538f5df3c1d5d9c7d68dbe6c9d45f7f42ab17018a5268ecd356710"
+   },
+   "status": "passed",
+   "wall_s": 777.63
+  },
+  {
+   "name": "search",
+   "outputs": {
+    "hits_manifest": "4bb474a2b501e029f767ac46e5d731be87808518a803f19b6756df6c72717df3"
+   },
+   "status": "passed",
+   "wall_s": 2222.59
+  },
+  {
+   "name": "train",
+   "outputs": {
+    "data_seen": "c29e2cb37bb3df49cd60856b1fa03ec3926e11940b6d07011f11ee97fb8dccfd",
+    "model": "1a971f3c3e0427d4ed0ff59578bff776bbe05a7320576d629f78f627b87afacf"
+   },
+   "status": "passed",
+   "wall_s": 18.77
+  },
+  {
+   "name": "train_ids",
+   "outputs": {
+    "train_ids": "9e087bf76239577fb1f3f28e3d8cad38b1005f567c7400bd0cc099a3cc0fd52d"
+   },
+   "status": "passed",
+   "wall_s": 0.01
+  }
+ ],
+ "status": "passed",
+ "waivers_used": []
+}

@@ -180,8 +180,6 @@ def viruses(cands, recs, host_recs, catalogue, rules):
             out = "a host taxid does not resolve"
         if not out and len(classes) > 1:
             out = "hosts in more than one class (%s)" % ",".join(sorted(classes))
-        if not out and not hosts:
-            out = "host unknown (no host record, so the host exclusions cannot be checked)"
         if not out and classes:
             cls = classes.pop()
             host = min(h for h in hosts if kmap.host_class(tax, h) == cls)
@@ -194,6 +192,8 @@ def viruses(cands, recs, host_recs, catalogue, rules):
                 out = "no group: %s" % err
         if not out and not group.startswith("viruses."):
             out = "not a virus (group %s)" % group
+        if not out and not hosts:                        # placed by its taxon, but it cannot be checked against the exclusions
+            out = "host unknown (no host record, so the host exclusions cannot be checked)"
         if not out:
             why = ex.reason(r["taxid"], [r["accession"], r["paired_accession"]])
             out = "excluded: %s" % why[0] if why else ""

@@ -28,6 +28,7 @@ def _stage(name, run_dir, *args):
 def _run_dir(tmp_path, name="r", spec="configs/select/tiny.yaml", **over):
     d = tmp_path / name
     (d / "gates").mkdir(parents=True)
+    (tmp_path / "root").mkdir(exist_ok=True)
     (d / "gates" / "pre.ok").write_text("{}")
     cfg = dict(pipeline="select", tier="tiny", select_spec=spec, taxdump=TINY_TAX, data_root=str(tmp_path / "root"), catalog=dict(mode="lock"),
                calibration=dict(file="configs/select/rates-tiny.yaml"), disk_reserve_gb=1)

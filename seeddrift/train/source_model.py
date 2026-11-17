@@ -189,7 +189,7 @@ def collate(batch, torch):
     tracks = torch.zeros(B, S, nh, maxt, dtype=torch.long)
     prots = torch.zeros(B, S, nh, dtype=torch.long)
     hmask = torch.zeros(B, S, nh, dtype=torch.bool)
-    ns = max(len(src) for _, src, _ in batch)
+    ns = max([len(src) for _, src, _ in batch] + [1])          # at least one slot: a genome of one gene has no other genes
     src = torch.zeros(B, ns, maxc, dtype=torch.long)
     labels = torch.zeros(B)
     for b, (slots, srcs, y) in enumerate(batch):
@@ -263,6 +263,9 @@ def build(torch, n_lib, d=128):
             _, _, H, T = x["tracks"].shape
             hm = x["hmask"].view(B * S, H)
             flat = hm.view(-1)                                           # encode only the real hit tracks, packed
+            if not bool(flat.any()):                                     # a batch without any hit (small viral genomes)
+                flat = flat.clone()
+                flat[0] = True
             enc = self.hit(x["tracks"].view(B * S * H, T)[flat])
             tv = torch.zeros(B * S * H, enc.shape[-1], device=enc.device, dtype=enc.dtype)
             tv[flat] = enc

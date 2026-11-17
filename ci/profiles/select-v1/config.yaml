@@ -1,0 +1,18 @@
+# Server (through ci/launch.sh): the corpus selection of configs/select/v1.yaml with the strict host rule (viruses without a usable host record are refused),
+# from exactly the catalogue snapshots of configs/select/v1.lock.yaml (no network). select-v1 and select-v1-relaxed
+# share that lock, so their selections differ only by the host rule (A/B).
+pipeline: select
+needs_gpu: false
+tier: full
+seed: 1
+cores: 4
+blas_threads: 1
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+select_spec: configs/select/v1.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+catalog: {mode: lock, lock: configs/select/v1.lock.yaml}
+calibration:
+  runs:
+    - /hy-tmp/seeddrift-ci/runs/20261117T031124-ci-bootstrap-21d26061-smoke

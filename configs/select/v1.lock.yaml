@@ -1,0 +1,140 @@
+# Catalogue lock written by run 20261117T093909-ci-select-2cab6bb0-select-refresh (CI 0.2, commit 2cab6bb01a251e2620d8012809d1d698485fb119, profile select-refresh); promoted with `python -m ci promote`.
+# Selection runs in lock mode take exactly these snapshots. Replace it only by promoting a newer refresh run.
+catalogues:
+  archaea:
+    bytes: 169633
+    kind: ncbi_genome_reports
+    query_sha256: 15b1af61092426534681f3989f19eea1777c631ab6183e99101667a8294bb27d
+    records: 432
+    sha256: 12023d184613a63e77395a6da393b277fd9535dbd29f863254684e21274c0df2
+    totals:
+      every assembly (GenBank and RefSeq):
+        params: {}
+        total: 58303
+      refseq complete annotated (not only reference genomes):
+        params:
+          filters.assembly_level: complete_genome
+          filters.assembly_source: refseq
+          filters.has_annotation: 'true'
+        total: 733
+      refseq, every assembly level:
+        params:
+          filters.assembly_source: refseq
+        total: 3206
+  bacteria:
+    bytes: 2654889
+    kind: ncbi_genome_reports
+    query_sha256: ec07b97be52099ecdefa354444fefc007390af4690b01c5546bff17470e0b361
+    records: 6744
+    sha256: e9a552ff5374f0142e26782c310cecc19fbaed82aa50a47dd37e7518014727fa
+    totals:
+      every assembly (GenBank and RefSeq):
+        params: {}
+        total: 4180786
+      refseq complete annotated (not only reference genomes):
+        params:
+          filters.assembly_level: complete_genome
+          filters.assembly_source: refseq
+          filters.has_annotation: 'true'
+        total: 69509
+      refseq, every assembly level:
+        params:
+          filters.assembly_source: refseq
+        total: 551097
+  ens_annotation:
+    bytes: 1295753
+    kind: ncbi_genome_accessions
+    query_sha256: d8bd2f4738acac31cdc4192738993b865ad039dc39b52e0a486a03122f3c008c
+    records: 3482
+    sha256: 857c8a21d9cbb0da2defb2b4914013129e752eaa0dd0c9af0c194077fc78c48c
+    totals:
+      NCBI annotated eukaryote reference genomes (outside Ensembl too):
+        params:
+          _kind: ncbi_genome_reports
+          _taxon: 2759
+          filters.has_annotation: 'true'
+          filters.reference_only: 'true'
+        total: 5088
+  ens_fungi:
+    bytes: 558250
+    kind: ensembl_species
+    query_sha256: 2aff6da1ad4b1dc81a8e4b87fe6170b96930bc2fb8ff3e6f74dd97da6ecf9746
+    records: 1499
+    sha256: 0741aea5758b12819bc9270b32f4417bcd72ecefd2d39c6b1bf3a53e9f84cd45
+    totals: {}
+  ens_metazoa:
+    bytes: 142977
+    kind: ensembl_species
+    query_sha256: 8e6fcbfcb333212ab14df2f66e367591500363b7645a6084041f9dcc1e7bdf08
+    records: 386
+    sha256: e80149d2f3bb76dac193711ce2347add2963f3436d1b6f96c6f8f509202068d6
+    totals: {}
+  ens_plants:
+    bytes: 88992
+    kind: ensembl_species
+    query_sha256: b26e2949f497513e4406d88842e491e5964259c08d447d7b75b083cd4a58a2d1
+    records: 267
+    sha256: bb743adb1eacf9195b91c89c638bd738c1d1569b48062bc5eb3a0123432e5cb6
+    totals: {}
+  ens_protists:
+    bytes: 87184
+    kind: ensembl_species
+    query_sha256: 7dce7c3ec8b09e5b9b27c654d1c09277d619d601f42fa4dd72c90b354c83b744
+    records: 236
+    sha256: d173105230e5186dd64274e32369f551567ad5b59b5e37d9124753636790f606
+    totals: {}
+  ens_vertebrates:
+    bytes: 115358
+    kind: ensembl_species
+    query_sha256: b44a36b3a296023c34d25a2c598446992793e286e732f0200b8fc56db6a98ba1
+    records: 359
+    sha256: 82d8d06fb23f9044891612ad5df0c9e7eaaccc7992a227de617d4d6218be38af
+    totals: {}
+  phage_hosts:
+    bytes: 6854442
+    kind: ncbi_virus_reports
+    query_sha256: df717408191b9cb43d560db38e18a3ac1e5880bba94bc5b37e9e419fb1fa600f
+    records: 44402
+    sha256: 972e28815a60b2859c198dbe1caba8da686dddeb0b43a8b8ee799b0c4f8610e9
+    totals: {}
+  phages:
+    bytes: 14567242
+    kind: ncbi_genome_reports
+    query_sha256: 25c8ad91db216176eb0a6ae5e10138a22001e217b5c6d0c695935daa7c8e2252
+    records: 40199
+    sha256: 8bbb3fbbdabdd8660e12b474af7a4c9545d3dccf0ead92d54a30b248dfa6dfcc
+    totals:
+      complete viral assemblies of every taxon and source:
+        params:
+          _taxon: 10239
+          filters.assembly_level: complete_genome
+        total: 262774
+  replicons:
+    bytes: 1728865
+    kind: ncbi_sequence_reports
+    query_sha256: fd59f91ed310504b283fc0c97856677d779217571c330faad3a0a33971021e30
+    records: 7176
+    sha256: e7f0860c5f61e504e74a3a468d8e75b466d749639dc6a1337bf249aed4d7584c
+    totals: {}
+  virus_hosts:
+    bytes: 3010238
+    kind: ncbi_virus_reports
+    query_sha256: 14286f6dafda9017324bed712aa7bcf7301a316eddb5d7238cff75ab2fb3940e
+    records: 19607
+    sha256: dc0f37bf53288f1a74bc2f233c6b435c0195b733a16c7bd0a9355701bb811cc2
+    totals: {}
+  viruses:
+    bytes: 5732424
+    kind: ncbi_genome_reports
+    query_sha256: b838c1e207c145557788ff2b11f1ec7f34e56c2e66e105d3fa3044bee89d478d
+    records: 15387
+    sha256: 14f30ededc33eed553268888d2801132272305ee5680e3bb414670b48b790d5d
+    totals:
+      complete assemblies, GenBank and RefSeq:
+        params:
+          filters.assembly_level: complete_genome
+        total: 262774
+      every viral assembly:
+        params: {}
+        total: 298124
+spec: v1

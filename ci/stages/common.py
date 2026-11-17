@@ -97,9 +97,10 @@ def _merge(base, over):
     return out
 
 
-def load_select_spec(path, repo=None):
+def load_select_spec(path, repo=None, files=None):
     """A select spec (configs/select/<name>.yaml); `base: <spec>` takes that spec and overrides it key by key (mappings
-    merged, everything else replaced), so a variant states only what differs."""
+    merged, everything else replaced), so a variant states only what differs. `files` (a list) receives every file read,
+    so gates can scan them and the record can hash them."""
     repo = repo or (lambda rel: rel if os.path.isabs(rel) else os.path.join(ROOT, rel))
     with open(repo(path)) as f:
         spec = yaml.safe_load(f)
@@ -111,4 +112,6 @@ def load_select_spec(path, repo=None):
         seen.append(b)
         with open(repo(b)) as f:
             spec = _merge(yaml.safe_load(f), spec)
+    if files is not None:
+        files.extend(seen)
     return spec

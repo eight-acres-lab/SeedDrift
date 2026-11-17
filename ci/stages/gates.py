@@ -85,9 +85,10 @@ def pipeline_of(cfg):
 
 def _g3_files(st, cfg, run_dir):
     if pipeline_of(cfg) == "select":
-        spec = load_select_spec(cfg["select_spec"], st.repo)
+        read = []
+        spec = load_select_spec(cfg["select_spec"], st.repo, read)     # the variant and every spec it is based on
         lock = (cfg.get("catalog") or {}).get("lock")
-        return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["select_spec"]), st.repo(spec["assumptions"])] + \
+        return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(spec["assumptions"])] + [st.repo(f) for f in read] + \
             ([st.repo(lock)] if lock and os.path.exists(st.repo(lock)) else [])
     sc = cfg.get("scenario") or {}
     return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["corpus_spec"])] + [st.repo(sc[k]) for k in ("table", "truth") if sc.get(k)]
@@ -109,11 +110,16 @@ def phase_select(st, cfg, run_dir):
     for r in rows:                                     # one entry per host, so every host of a virus is checked by lineage
         base = dict(id=r["id"], taxid=int(r["taxid"]), accession=r["accession"], paired_accession=r["paired_accession"])
         ent += [dict(base, host_taxid=h) for h in hosts(r)] or [base]
+    unchecked = sum(1 for r in rows if r["group"].startswith("viruses.") and not hosts(r))   # relaxed variant: no host to check
+    variant = (spec.get("rules") or {}).get("viruses", {}).get("unknown_host", "exclude")
     g2 = g2_exclusion.entries(ent, tax)
     g2.gate = "G2_select"
+    g2.evidence.update(unknown_host=variant, viruses_without_host_checked=unchecked)
     results.append(run(g2, run_dir))
     files = [os.path.join(d, n) for n in ("selected.tsv", "by_group.json", "manifest.json")]
-    results.append(run(g3_sealed.selection(files, tax, {r["id"]: [int(r["taxid"])] + hosts(r) for r in rows}, cfg.get("tier")), run_dir))
+    g3 = g3_sealed.selection(files, tax, {r["id"]: [int(r["taxid"])] + hosts(r) for r in rows}, cfg.get("tier"))
+    g3.evidence.update(unknown_host=variant, viruses_without_host_checked=unchecked)
+    results.append(run(g3, run_dir))
     bad = [r.gate for r in results if r.status == "fail"]
     if bad:
         raise GateFailure("gates failed: %s" % ", ".join(bad))

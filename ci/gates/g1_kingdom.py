@@ -172,13 +172,14 @@ def select_static(spec: dict, tier: str = None, kmap: KingdomMap = None) -> Gate
         elif kinds[0] in ("ncbi_genome_accessions", "ncbi_sequence_reports") and (not c[kinds[0]].get("from") or set(c[kinds[0]]["from"]) - set(seen)):
             problems.append(dict(catalogue=c["id"], error="takes its accessions from %r, which are not all earlier catalogues" % c[kinds[0]].get("from")))
         seen.append(c.get("id"))
-    rules = spec.get("rules") or {}
+    rules = {k: v for k, v in (spec.get("rules") or {}).items()}
     for part in ("prokaryotes", "viruses", "eukaryotes", "plasmids"):
-        if part not in rules:
-            problems.append(dict(rule=part, error="missing (every kingdom is selected)"))
-    if (rules.get("viruses") or {}).get("unknown_host", "exclude") not in ("exclude", "keep"):
+        if not isinstance(rules.get(part), dict):
+            problems.append(dict(rule=part, error="missing or not a mapping (every kingdom is selected)"))
+            rules[part] = {}
+    if rules["viruses"].get("unknown_host", "exclude") not in ("exclude", "keep"):
         problems.append(dict(rule="viruses", error="unknown_host must be exclude or keep"))
-    if "plasmids" in rules and not rules["plasmids"].get("replicons"):
+    if not rules["plasmids"].get("replicons"):
         problems.append(dict(rule="plasmids", error="needs `replicons`: the sequence reports that list each assembly's plasmids"))
     for part, r in rules.items():
         named = []

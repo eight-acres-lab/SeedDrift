@@ -131,8 +131,9 @@ def prokaryotes(cands, recs, catalogue, rules, replicons=None):
             out = "assembly not current"
         acc = r["accession"]
         reps = replicons.get(acc)
-        chrom = [x for x in reps or [] if x["type"] == "Chromosome"]
-        plas = [x for x in reps or [] if x["type"] == "Plasmid"]
+        mol = [x for x in reps or [] if x.get("role", "assembled-molecule") == "assembled-molecule"]   # no unplaced scaffolds
+        chrom = [x for x in mol if x["type"] == "Chromosome"]
+        plas = [x for x in mol if x["type"] == "Plasmid" and x["genbank"]]       # downloadable from ENA (INSDC accession)
         if chrom:
             frac = sum(x["length"] for x in chrom) / (sum(x["length"] for x in reps) or 1)
             lo, ce, hi = scaled(r["protein_coding"] * frac, pf["prokaryote_chromosomes_length_scaled"])
@@ -180,16 +181,17 @@ def viruses(cands, recs, host_recs, catalogue, rules):
     if rules.get("unknown_host", "exclude") not in ("exclude", "keep"):
         raise SystemExit("rules.viruses.unknown_host must be exclude or keep")
     hosts_of = {}
-    for h in host_recs:
+    for h in host_recs:                                  # by species; a virus without a species rank by its own taxid
         try:
-            s = tax.at_rank(h["virus_taxid"], "species") if h["virus_taxid"] else 0
+            s = (tax.at_rank(h["virus_taxid"], "species") or tax.resolve(h["virus_taxid"])) if h["virus_taxid"] else 0
         except (UnknownTaxid, KeyError, ValueError):
             continue
         if s and h["host_taxid"]:
             hosts_of.setdefault(s, set()).add(h["host_taxid"])
     for r in recs:
         lin, out = cands.base(r["taxid"])
-        hosts, host, group = sorted(hosts_of.get(lin["species"], ())), 0, ""
+        own = lin["species"] or (tax.resolve(r["taxid"]) if not out else 0)
+        hosts, host, group = sorted(hosts_of.get(own, ())), 0, ""
         classes = set()
         for h in hosts:
             try:
@@ -295,13 +297,15 @@ def eukaryotes(cands, recs, annotation, catalogue_of, rules):
 
 
 def one_per_species(rows):
-    """Best genome of every species (quality order), the others out; returns the eligible winners."""
+    """Best genome of every species (quality order), the others out; returns the eligible winners. A genome whose taxon
+    has no species rank (unclassified viruses) is its own unit, keyed by its taxid, never pooled with others."""
     best = {}
-    for r in sorted((r for r in rows if not r["out"]), key=lambda r: (r["species_taxid"], r["quality"], r["id"])):
-        if r["species_taxid"] in best:
-            r["out"] = "another genome of the species (%s) preferred" % best[r["species_taxid"]]["id"]
+    key = lambda r: ("s", r["species_taxid"]) if r["species_taxid"] else ("t", int(r["taxid"]))   # noqa: E731
+    for r in sorted((r for r in rows if not r["out"]), key=lambda r: (key(r), r["quality"], r["id"])):
+        if key(r) in best:
+            r["out"] = "another genome of the species (%s) preferred" % best[key(r)]["id"]
         else:
-            best[r["species_taxid"]] = r
+            best[key(r)] = r
     return [best[s] for s in sorted(best)]
 
 
@@ -312,7 +316,7 @@ def pick_order(rows, outer, seed, group):
     for r in sorted(rows, key=lambda r: (r["genus"], r["species_taxid"], r["id"])):
         # a species without a genus is its own genus, a genus without the outer rank its own outer taxon (never one
         # pooled bucket, which would get one pick per round for all of them)
-        key = ("g", r["genus"]) if r["genus"] else ("s", r["species_taxid"])
+        key = ("g", r["genus"]) if r["genus"] else (("s", r["species_taxid"]) if r["species_taxid"] else ("t", int(r["taxid"])))
         by_genus.setdefault(key, []).append(r)
     for g in sorted(by_genus):
         rng.shuffle(by_genus[g])
@@ -359,7 +363,9 @@ def main():
     run_dir = main_args()
     with Stage(run_dir, "select", requires=("pre",)) as st:
         cfg = st.config
-        spec = load_select_spec(cfg["select_spec"], st.repo)
+        read = []
+        spec = load_select_spec(cfg["select_spec"], st.repo, read)
+        spec_files = {f: sha256_file(st.repo(f), use_sidecar=False) for f in read}
         with open(st.repo(spec["assumptions"])) as f:
             assumptions = yaml.safe_load(f)
         with open(os.path.join(run_dir, "data", "catalog", "manifest.json")) as f:
@@ -483,6 +489,7 @@ def main():
                                proteins_levels=dict(sorted({lv: sum(1 for r in sel_rows if r["proteins_level"] == lv) for lv in {r["proteins_level"] for r in sel_rows}}.items())),
                                host_unknown=sum(1 for r in sel_rows if r["part"] == "viruses" and not r.get("host_known")),
                                eligible_without_genus=sum(1 for r in eligible[g] if not r["genus"]),
+                               eligible_without_species=sum(1 for r in eligible[g] if not r["species_taxid"]),
                                eligible_without_outer_rank=sum(1 for r in eligible[g] if not r[rules[part_of.get(g) or ("viruses" if g.startswith("viruses.") else "eukaryotes")].get("outer", "order")]))
         ungrouped = {}                                   # rejected before a group could be given (conflicts, unknown taxids)
         for r in cands.rows:
@@ -501,7 +508,8 @@ def main():
         inputs = dict(taxdump=taxdump_hash(st.repo(cfg["taxdump"])), kingdom_map=sha256_file(st.repo(cfg.get("kingdom_map", DEFAULT_MAP)), use_sidecar=False),
                       exclude=sha256_file(EXCLUDE, use_sidecar=False), panels=sha256_file(PANELS, use_sidecar=False) if os.path.exists(PANELS) else "absent",
                       event_catalogue=sha256_file(CATALOGUE, use_sidecar=False) if os.path.exists(CATALOGUE) else "absent",
-                      sealed=sha256_file(SEALED, use_sidecar=False), spec=sha256_json(spec), assumptions=sha256_json(assumptions), catalog_manifest=cman["sha256"],
+                      sealed=sha256_file(SEALED, use_sidecar=False), spec=sha256_json(spec), spec_files=spec_files, assumptions=sha256_json(assumptions),
+                      catalog_manifest=cman["sha256"], catalog_snapshots=sha256_json(sorted((e["id"], e["sha256"]) for e in cman["entries"])),
                       seed=spec["seed"])
         out_sel = st.path("select", "selected.tsv")
         with open(out_sel, "w", newline="") as f:

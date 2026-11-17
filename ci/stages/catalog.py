@@ -126,7 +126,7 @@ def params(p):
     return out
 
 
-def _paged(url_of, reducer, key, fetch=get, tries=3, page_size=1000, min_page=100):
+def _paged(url_of, reducer, key, fetch=get, tries=3, page_size=1000, min_page=100, allow_empty=False):
     """All pages of a dataset_report; (records, total, pages) once the distinct count equals the announced total. A
     page without total_count, or a catalogue with no record at all, is refused (an error body or a filter that
     matches nothing must not become an empty snapshot). A page the server keeps failing (NCBI answers large virus
@@ -150,6 +150,8 @@ def _paged(url_of, reducer, key, fetch=get, tries=3, page_size=1000, min_page=10
                     raise SystemExit("catalogue page without total_count: %s" % str(d)[:300])
                 total = int(d["total_count"])
                 if total == 0:
+                    if allow_empty:
+                        return [], 0, 1
                     raise SystemExit("catalogue query matches no record")
             out += [reducer(r) for r in d.get("reports") or []]
             pages += 1
@@ -177,13 +179,15 @@ def taxa(x):
 def _per_taxon(kind, c, reducer, default_page, fetch):
     q0 = c[kind]
     recs, total, pages = [], 0, 0
-    for t in taxa(q0["taxon"]):
+    ts = taxa(q0["taxon"])
+    for t in ts:
         base = "%s/%s/taxon/%d/dataset_report?" % (NCBI, "genome" if kind == "ncbi_genome_reports" else "virus", t)
 
         def url(tok, size, base=base):
             q = dict(q0.get("params") or {}, page_size=size, **({"page_token": tok} if tok else {}))
             return base + urllib.parse.urlencode(params(q))
-        r, n, pg = _paged(url, reducer, "accession", fetch, page_size=int(q0.get("page_size", default_page)))
+        # a taxon of a list may have no record (a small family without a complete assembly); the catalogue as a whole may not
+        r, n, pg = _paged(url, reducer, "accession", fetch, page_size=int(q0.get("page_size", default_page)), allow_empty=len(ts) > 1)
         recs += r
         total += n
         pages += pg
@@ -270,6 +274,8 @@ class Limiter:
 
 
 def reduce_replicons(acc, d):
+    if d.get("next_page_token"):
+        raise SystemExit("%s: the sequence report has more than one page (not a complete genome)" % acc)
     reps = []
     for r in d.get("reports") or []:
         reps.append(dict(type=r.get("assigned_molecule_location_type") or "", role=r.get("role") or "", genbank=r.get("genbank_accession") or "",
@@ -288,8 +294,10 @@ def fetch_sequence_reports(accs, fetch=get, threads=3, rate=3.0):
         lim.wait()
         try:
             d = json.loads(fetch("%s/genome/accession/%s/sequence_reports?page_size=1000" % (NCBI, urllib.parse.quote(acc))))
-        except (RuntimeError, ValueError):
-            return acc, None
+        except RuntimeError as err:
+            if "HTTP Error 404" in str(err):                    # NCBI has no report for it: a definite answer
+                return acc, None
+            raise SystemExit("sequence report of %s failed (not a definite answer, so the snapshot would depend on the network): %s" % (acc, err))
         rec = reduce_replicons(acc, d)
         return acc, rec if rec["replicons"] else None
     todo = sorted({a for a in accs if a})
@@ -313,7 +321,7 @@ def snapshot(c, done, cas, fetch=get):
         for pid in src["from"]:
             accs += [r.get(src.get("field", "assembly_accession"), "") for r in read_jsonl(done[pid])]
         recs, n, asked, missing = fetch_accessions(accs, fetch)
-        prov = dict(asked=asked, found=n, not_found=len(missing), not_found_sha256=sha256_json(missing))
+        prov = dict(asked=asked, found=n, not_found=len(missing), not_found_accessions=missing[:500], not_found_sha256=sha256_json(missing))
     elif k == "ncbi_sequence_reports":
         accs = []
         for pid in c[k]["from"]:
@@ -321,7 +329,7 @@ def snapshot(c, done, cas, fetch=get):
         recs, missing = fetch_sequence_reports(accs, fetch)
         if len(missing) > 0.02 * max(1, len(set(accs))):
             raise SystemExit("sequence reports missing for %d of %d assemblies (more than 2%%)" % (len(missing), len(set(accs))))
-        prov = dict(asked=len(set(accs)), found=len(recs), not_found=len(missing), not_found_sha256=sha256_json(missing))
+        prov = dict(asked=len(set(accs)), found=len(recs), not_found=len(missing), not_found_accessions=missing[:500], not_found_sha256=sha256_json(missing))
     elif k == "ensembl_species":
         recs, n, url = fetch_ensembl(c, fetch)
         prov = dict(url=url, rows=n)

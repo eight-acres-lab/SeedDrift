@@ -311,7 +311,7 @@ def test_sequence_reports_one_per_assembly_and_missing_ones():
     def fetch(url):
         acc = url.split("/accession/")[1].split("/")[0]
         if acc == "GCF_2":
-            raise RuntimeError("HTTP Error 500")
+            raise RuntimeError("https://x: HTTP Error 404: Not Found")
         return json.dumps(dict(reports=[dict(assigned_molecule_location_type="Chromosome", role="assembled-molecule", genbank_accession="X1", length=10),
                                         dict(assigned_molecule_location_type="Plasmid", role="assembled-molecule", genbank_accession="X2", length=5)])).encode()
     recs, missing = catalog.fetch_sequence_reports(["GCF_1", "GCF_2", "GCF_1"], fetch=fetch, rate=1000)
@@ -352,3 +352,46 @@ def test_spec_base_merges_and_detects_loops(tmp_path):
     with pytest.raises(SystemExit, match="loop"):
         load_select_spec(str(a))
 
+
+
+def test_sequence_report_errors_that_are_not_answers_fail_the_stage():
+    from ci.stages import catalog
+
+    def fetch(url):
+        raise RuntimeError("https://x: HTTP Error 500: Internal Server Error")
+    with pytest.raises(SystemExit, match="not a definite answer"):
+        catalog.fetch_sequence_reports(["GCF_1"], fetch=fetch, rate=1000)
+
+
+def test_species_less_genomes_are_their_own_units():
+    from ci.stages.select import one_per_species
+    rows = [dict(id="a", species_taxid=0, taxid=11, quality=(0,), out=""), dict(id="b", species_taxid=0, taxid=12, quality=(0,), out=""),
+            dict(id="c", species_taxid=5, taxid=13, quality=(1,), out=""), dict(id="d", species_taxid=5, taxid=14, quality=(0,), out="")]
+    win = one_per_species(rows)
+    assert sorted(r["id"] for r in win) == ["a", "b", "d"] and rows[2]["out"].startswith("another genome")
+
+
+def test_empty_taxon_inside_a_list_is_allowed(monkeypatch):
+    from ci.stages import catalog
+    monkeypatch.setattr(catalog, "PAUSE", 0)
+    answers = {1: dict(total_count=1, reports=[{"accession": "A", "organism": {"tax_id": 1}}]), 2: dict(total_count=0, reports=[])}
+    fetch = lambda url: json.dumps(answers[int(url.split("/taxon/")[1].split("/")[0])]).encode()   # noqa: E731
+    recs, total, pages = catalog.fetch_genome_reports({"ncbi_genome_reports": {"taxon": [1, 2]}}, fetch)
+    assert [r["accession"] for r in recs] == ["A"] and total == 1
+    with pytest.raises(SystemExit, match="no record"):
+        catalog.fetch_genome_reports({"ncbi_genome_reports": {"taxon": 2}}, fetch)
+
+
+def test_g3_static_scans_the_base_of_a_variant(tmp_path):
+    from ci.stages.common import load_select_spec
+    read = []
+    load_select_spec("configs/select/tiny-relaxed.yaml", files=read)
+    assert read == ["configs/select/tiny-relaxed.yaml", "configs/select/tiny.yaml"]
+
+
+def test_select_spec_with_a_null_rule_fails_without_crashing():
+    from ci.gates.g1_kingdom import select_static
+    spec = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "tiny.yaml")))
+    spec["rules"]["plasmids"] = None
+    r = select_static(spec, "tiny")
+    assert r.status == "fail" and any(p.get("rule") == "plasmids" for p in r.evidence["problems"])

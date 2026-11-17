@@ -189,8 +189,9 @@ def report(spec, bg, b):
         L += ["**Share repair**: %s" % json.dumps(b["repair"]), ""]
     if bg.get("unknown_host") == "keep":
         n = sum(d["host_unknown"] for g, d in bg["groups"].items() if g.startswith("viruses."))
-        L += ["**Variant: viruses without a usable host record are kept** (placed by their taxon): %d selected viruses could not be checked "
-              "against the host exclusions (gates G2_select and G3_select check only their own lineage)." % n, ""]
+        L += ["**Variant: viruses without a usable host record are kept** (placed by their taxon, configs/kingdom_map.yml): %d selected viruses "
+              "could not be checked against the host exclusions (gates G2_select and G3_select check only their own lineage; their evidence "
+              "carries the count)." % n, ""]
     if bg["inputs"].get("event_catalogue") == "absent":
         L += ["**Test-recipient exclusions are not applied yet**: the public confirmed-event catalogue (bench/catalogue/events.tsv) does not exist "
               "(gate G5 is waived until 2027-01-16). The selection must be run again once its recipients are excluded, before any search or training of the "

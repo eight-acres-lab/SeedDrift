@@ -36,7 +36,7 @@ def main():
             floor_part = min((frac * x["units"] / x["floor"] for x in b["groups"].values() if x.get("floor") and x["units"] >= x["floor"]), default=frac)
             out["cases"][c] = dict(total_gb=total, margin_gb=round(free - reserve - total, 1), verdict="fits" if total <= free - reserve else "does not fit",
                                    uniform_fraction_that_fits=round(frac, 3), smallest_fraction_of_a_floor=round(floor_part, 3),
-                                   below_half_of_floors=floor_part < 0.5, search_hours=b["search_hours"][c])
+                                   below_half_of_floors=floor_part < 0.5, floors_unmet=bool(out["groups_short_now"]), search_hours=b["search_hours"][c])
         p = st.path("select", "fit.json")
         write_json(p, out)
         st.output("fit", p)

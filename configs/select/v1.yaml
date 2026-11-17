@@ -33,11 +33,14 @@ catalogues:
   - id: virus_hosts
     ncbi_virus_reports: {taxon: 10239, params: {filter.refseq_only: "true", filter.complete_only: "true"}}
   # prokaryote viruses from every INSDC source (GenBank and RefSeq; the charter names ENA's viral assemblies): the taxa of
-  # configs/kingdom_map.yml viruses.phage, complete assemblies, and the hosts of their nucleotide records
+  # configs/kingdom_map.yml viruses.phage (bacterial and archaeal), complete assemblies, and the hosts of their nucleotide
+  # records. Viral assemblies outside these taxa come from the RefSeq catalogue only; the totals count what that leaves out.
   - id: phages
-    ncbi_genome_reports: {taxon: [2731619, 10841, 10860, 10656, 10659, 10877, 2842243, 10472], params: {filters.assembly_level: complete_genome}}
+    ncbi_genome_reports: {taxon: [2731619, 10841, 10860, 10656, 10659, 10877, 2842243, 10472, 12333, 451344, 2841637, 10474, 423358, 2732451, 1714267, 2732901, 2184034, 1511858, 292638, 573053, 324686, 1511855, 2560062, 2169572, 2022738, 1232737, 2732902, 2842330], params: {filters.assembly_level: complete_genome}}
+    totals:
+      complete viral assemblies of every taxon and source: {_taxon: 10239, filters.assembly_level: complete_genome}
   - id: phage_hosts
-    ncbi_virus_reports: {taxon: [2731619, 10841, 10860, 10656, 10659, 10877, 2842243, 10472], params: {filter.complete_only: "true"}}
+    ncbi_virus_reports: {taxon: [2731619, 10841, 10860, 10656, 10659, 10877, 2842243, 10472, 12333, 451344, 2841637, 10474, 423358, 2732451, 1714267, 2732901, 2184034, 1511858, 292638, 573053, 324686, 1511855, 2560062, 2169572, 2022738, 1232737, 2732902, 2842330], params: {filter.complete_only: "true"}}
   - {id: ens_vertebrates, ensembl_species: {site: ensembl, division: vertebrates, release: 116}}
   - {id: ens_plants, ensembl_species: {site: ensemblgenomes, division: plants, release: 63}}
   - {id: ens_fungi, ensembl_species: {site: ensemblgenomes, division: fungi, release: 63}}

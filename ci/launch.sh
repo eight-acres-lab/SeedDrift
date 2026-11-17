@@ -50,7 +50,7 @@ while [ $# -gt 0 ]; do case "$1" in --parent) parent=$2; safe "$parent"; shift 2
 git fetch -q origin --tags
 sha=$(git rev-parse --verify "$ref^{commit}")
 git cat-file -e "$sha:ci/profiles/$profile/config.yaml" 2>/dev/null || { echo "refused: no profile $profile in $sha" >&2; exit 1; }
-branch=$(git branch -r --contains "$sha" --format='%(refname:short)' | grep -v '/HEAD$' | head -n 1 | sed 's#^origin/##')
+branch=$(git branch -r --contains "$sha" --format='%(refname:short)' | { grep -v '/HEAD$' || true; } | head -n 1 | sed 's#^origin/##')
 [ -n "$branch" ] || { echo "refused: $sha is not on any branch of origin (push it first)" >&2; exit 1; }
 for job in "T0 static checks" "T1 tests and the ci-tiny pipeline twice"; do
   ok=$(gh api --paginate "repos/$CI_REPO/commits/$sha/check-runs" --jq "[.check_runs[] | select(.name == \"$job\" and .app.slug == \"github-actions\")] | (length > 0 and all(.conclusion == \"success\"))" 2>/dev/null | tail -n 1 || true)

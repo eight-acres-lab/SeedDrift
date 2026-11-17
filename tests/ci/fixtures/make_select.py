@@ -110,7 +110,7 @@ def main():
     write("virus_hosts.jsonl", hosts, "accession")
 
     def ens(name, t, site, division, release, acc):
-        return dict(name=name, species=tax.name(t), division="Ensembl" + division.capitalize(), taxonomy_id=t, assembly="asm%d" % t, assembly_accession=acc,
+        return dict(name=name, display_name=tax.name(t), division="Ensembl" + division.capitalize(), taxonomy_id=t, assembly="asm%d" % t, assembly_accession=acc,
                     genebuild="2026-01", core_db="%s_core_%d_1" % (name, release), site=site, site_division=division, release=release)
     groups = [("vertebrates", "ensembl", 116, species_under(tax, 40674)[:3] + species_under(tax, 7742, exclude=[40674])[:2]),
               ("plants", "ensemblgenomes", 63, species_under(tax, 33090)[:3]),

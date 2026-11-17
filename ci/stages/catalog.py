@@ -102,7 +102,8 @@ def reduce_virus(r):
 
 
 def reduce_ensembl(row, site, division, release):
-    return dict(name=row["name"], species=row.get("species", ""), division=row.get("division", ""), taxonomy_id=_int(row.get("taxonomy_id")),
+    # `species` is Ensembl's unique production name (directories, ids); `#name` a display name that repeats (strains)
+    return dict(name=row["species"], display_name=row.get("name", ""), division=row.get("division", ""), taxonomy_id=_int(row.get("taxonomy_id")),
                 assembly=row.get("assembly", ""), assembly_accession=row.get("assembly_accession", ""), genebuild=row.get("genebuild", ""),
                 core_db=row.get("core_db", ""), site=site, site_division=division, release=int(release))
 
@@ -236,8 +237,8 @@ def fetch_ensembl(c, fetch=get):
     if gone or not rows:
         raise SystemExit("%s: the species list lacks %s" % (url, gone or "rows"))
     for r in rows:
-        if not r.get("name") or not str(r.get("taxonomy_id") or "").isdigit():
-            raise SystemExit("%s: a row without name or taxonomy id: %r" % (url, r))
+        if not r.get("species") or not str(r.get("taxonomy_id") or "").isdigit():
+            raise SystemExit("%s: a row without production name or taxonomy id: %r" % (url, r))
     return [reduce_ensembl(r, e.get("site", "ensembl"), e["division"], e["release"]) for r in rows], len(rows), url
 
 

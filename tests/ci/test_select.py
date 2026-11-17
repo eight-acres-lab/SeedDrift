@@ -292,3 +292,11 @@ def test_paged_halves_the_page_after_server_errors(monkeypatch):
     assert total == 2 and seen == [1000, 500, 250]
     with pytest.raises(RuntimeError):
         catalog._paged(lambda tok, size: (tok, size), lambda r: r, "accession", fetch=lambda u: (_ for _ in ()).throw(RuntimeError("500")), page_size=200)
+
+
+def test_ensembl_rows_are_keyed_by_production_name():
+    from ci.stages.catalog import canonical, reduce_ensembl
+    rows = [dict(name="Alternaria arborescens", species="alternaria_arborescens_gca_1", taxonomy_id="156630", assembly_accession="GCA_1.1", genebuild="g", core_db="c"),
+            dict(name="Alternaria arborescens", species="alternaria_arborescens_gca_2", taxonomy_id="156630", assembly_accession="GCA_2.1", genebuild="g", core_db="c")]
+    data, n = canonical([reduce_ensembl(r, "ensemblgenomes", "fungi", 63) for r in rows], "name")
+    assert n == 2 and b"alternaria_arborescens_gca_2" in data

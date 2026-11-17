@@ -61,7 +61,7 @@ def main():
                 raise SystemExit("the profile has neither `released:` nor `comparators: {released_v0.1.0: skip}`")
             write_json(mp, dict(status="skipped", reason="profile %s skips the released screen (tier %s)" % (cfg.get("profile"), cfg.get("tier")), entries=[]))
             st.output("released_manifest", mp)
-            st.extra["status"] = "skipped"
+            st.extra["released"] = "skipped"
             return
         tag = rc["tag"]
         commit, tree = _git("rev-parse", tag + "^{commit}"), _git("rev-parse", tag + "^{tree}")
@@ -135,7 +135,7 @@ def main():
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         write_json(mp, dict(sha256=sha, dataset_id=M.dataset_id(man), status="computed", provenance=prov, **man))
         st.output("released_manifest", mp)
-        st.extra.update(status="computed", commit=commit[:12], genomes=len(entries))
+        st.extra.update(released="computed", commit=commit[:12], genomes=len(entries))
 
 
 if __name__ == "__main__":

@@ -122,7 +122,7 @@ def main():
     write("virus_hosts.jsonl", hosts, "accession")
     # all-source phage catalogue: a record also in the RefSeq catalogue, the GenBank twin of a RefSeq phage (RefSeq is
     # preferred), and two unannotated GenBank phages (proteins estimated from length) with their hosts
-    twin = dict(genome("GCA_%09d.1" % 400, phage[0], 0, ref=""), source_database="SOURCE_DATABASE_GENBANK", paired_accession="GCF_%09d.1" % 400)
+    twin = dict(genome("GCA_%09d.1" % 400, phage[0], 0, ref=""), source_database="SOURCE_DATABASE_GENBANK", paired_accession="GCF_%09d.1" % 400, length=40000)
     ph, phh = [dict(vir[0]), twin], []
     for i, t in enumerate(phage[6:8]):
         ph.append(dict(genome("GCA_%09d.1" % (440 + i), t, 0, ref=""), source_database="SOURCE_DATABASE_GENBANK", paired_accession="", length=45000))

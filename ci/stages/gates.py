@@ -112,7 +112,7 @@ def phase_select(st, cfg, run_dir):
         ent += [dict(base, host_taxid=h) for h in hosts(r)] or [base]
     unchecked = sum(1 for r in rows if r["group"].startswith("viruses.") and not hosts(r))   # relaxed variant: no host to check
     variant = (spec.get("rules") or {}).get("viruses", {}).get("unknown_host", "exclude")
-    g2 = g2_exclusion.entries(ent, tax)
+    g2 = g2_exclusion.entries(ent, tax, extra_paths=[st.repo(x) for x in cfg.get("extra_exclusions") or []])
     g2.gate = "G2_select"
     g2.evidence.update(unknown_host=variant, viruses_without_host_checked=unchecked)
     results.append(run(g2, run_dir))
@@ -154,7 +154,7 @@ def phase_built(st, cfg, run_dir, phase):
     g1 = g1_kingdom.built(spec, entries, tax, cfg.get("tier"), KingdomMap())
     g1.gate = "G1_" + phase
     require(g1, run_dir)
-    g2 = g2_exclusion.entries(entries, tax)
+    g2 = g2_exclusion.entries(entries, tax, extra_paths=[st.repo(x) for x in cfg.get("extra_exclusions") or []])
     g2.gate = "G2_" + phase
     require(g2, run_dir)
     if find_waiver("G5", "*"):

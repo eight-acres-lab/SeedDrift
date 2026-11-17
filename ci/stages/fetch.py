@@ -3,7 +3,7 @@
 Source fields understood (configs/corpus/<name>.yaml, `sources:`):
   ena_assembly: GCA_...   all replicons of an INSDC assembly from ENA (optionally only `replicon_types`)
   ena_sequences: [acc.v]  INSDC sequences from ENA (viruses, single plasmids)
-  ensembl: {site: ensembl | ensemblgenomes, division, species, release}
+  ensembl: {site: ensembl | ensemblgenomes, division, species, release[, collection]}
                           the release-pinned coding sequences (cds.all) of an Ensembl species
 Every downloaded file is stored once in the CI's content-addressed store (<cas>/<sha256[:2]>/<sha256>) and listed in
 data/fetch/manifest.json with its URL, size and sha256. A rerun takes the stored file when the source description is
@@ -133,6 +133,8 @@ def fetch_source(src, cas, index):
     if "ensembl" in src:
         e = dict(src["ensembl"])
         base = ENSEMBL[e.get("site", "ensembl")] % e
+        if e.get("collection"):                                    # Ensembl Genomes species of a collection live one level deeper
+            base = base.replace("/fasta/%s/" % e["species"], "/fasta/%s/%s/" % (e["collection"], e["species"]))
         listing = get(base).decode(errors="replace")
         names = sorted(set(re.findall(r'href="([A-Za-z0-9_.\-]+\.cds\.all\.fa\.gz)"', listing)))
         if len(names) != 1:

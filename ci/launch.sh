@@ -38,6 +38,12 @@ if [ "${1:-}" = promote ]; then
   $CI_SSH "cd $CI_REMOTE_ROOT/wt/$2 && $CI_REMOTE_ROOT/envs/current/bin/python -m ci promote $CI_REMOTE_ROOT/runs/$2" < /dev/null
   exit $?
 fi
+if [ "${1:-}" = emit-corpus ]; then
+  # ci/launch.sh emit-corpus RUN_ID NAME TIER [MAX_GENES]: the corpus spec of a select run, printed for the repository
+  safe "${2:?run id}"; safe "${3:?name}"; safe "${4:?tier}"; mg=${5:-0}; [[ "$mg" =~ ^[0-9]+$ ]] || { echo "refused: max genes" >&2; exit 2; }
+  $CI_SSH "cd $CI_REMOTE_ROOT/wt/$2 && $CI_REMOTE_ROOT/envs/current/bin/python -m ci emit-corpus $CI_REMOTE_ROOT/runs/$2 --name $3 --tier $4 --max-genes $mg --allow-gate-failed" < /dev/null
+  exit $?
+fi
 if [ "${1:-}" = publish ]; then
   safe "${2:?run id}"
   exec python3 "$here/ci/publish.py" "$2"

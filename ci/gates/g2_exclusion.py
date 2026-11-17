@@ -92,8 +92,8 @@ class Excluder:
     """The exclusion rules resolved against one taxonomy: reason(taxid, accessions) is None for an allowed genome and
     the reason otherwise; host_reason(taxid) checks only the lineage (the host of a virus, which need not be a species)."""
 
-    def __init__(self, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE):
-        self.tax, self.exclude_path = tax, exclude_path
+    def __init__(self, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE, extra_paths=()):
+        self.tax, self.exclude_path, self.extra_paths = tax, exclude_path, list(extra_paths)
         with open(exclude_path) as f:
             rows = parse_exclude(f.read())
         self.nodes, self.problems = resolve(tax, rows)
@@ -121,6 +121,18 @@ class Excluder:
                         self.radius_nodes[tax.resolve(int(ev[col]))] = "test recipient of %s" % ev.get("event_id", "?")
                     except Exception:  # noqa: BLE001 - a catalogue taxid that does not resolve fails the gate
                         self.problems.append(dict(error="catalogue taxid %s does not resolve" % ev[col]))
+        # extra lists named by a profile (configs/exclusions/pilot_recipients.tsv: provisional test recipients of pilot runs);
+        # they only add exclusions, never remove one
+        for path in self.extra_paths:
+            if not os.path.exists(path):
+                self.problems.append(dict(error="extra exclusion list %s is missing" % path))
+                continue
+            with open(path) as f:
+                for r in csv.DictReader((l for l in f if not l.startswith("#")), delimiter="\t"):
+                    try:
+                        self.radius_nodes.setdefault(tax.resolve(int(r["taxid"])), "provisional test recipient %s (%s)" % (r.get("name", ""), os.path.basename(path)))
+                    except Exception:  # noqa: BLE001
+                        self.problems.append(dict(error="extra exclusion taxid %s (%s) does not resolve" % (r.get("taxid"), r.get("name"))))
 
     def _lineage_hit(self, taxid):
         for t in self.tax.lineage(int(taxid)):
@@ -153,10 +165,10 @@ class Excluder:
         return "host excluded: %s" % hit[1] if hit else None
 
 
-def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE, excluder=None) -> GateResult:
+def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_path=CATALOGUE, excluder=None, extra_paths=()) -> GateResult:
     """entries_: dicts with id, taxid, and optionally accession / paired_accession / host_taxid (a virus's host is
     checked by lineage too: a phage of an excluded host shares sequence with it)."""
-    ex = excluder or Excluder(tax, exclude_path, panels_path, catalogue_path)
+    ex = excluder or Excluder(tax, exclude_path, panels_path, catalogue_path, extra_paths)
     hits = []
     for e in entries_:
         r = ex.reason(e["taxid"], [e.get("accession"), e.get("paired_accession")])
@@ -177,7 +189,9 @@ def entries(entries_, tax, exclude_path=EXCLUDE, panels_path=PANELS, catalogue_p
     cat = ex.catalogue
     ev = dict(mode="entries", checked=len(entries_), excluded_nodes=len(ex.nodes), panel_assemblies=len(ex.pan_acc), panel_species=len(ex.pan_species),
               catalogue="absent" if cat is None else len(cat), problems=ex.problems, hits=hits[:200], n_hits=len(hits))
-    return GateResult("G2", status, ev, sha256_json([sha256_file(ex.exclude_path), sorted((e.get("id"), int(e.get("taxid", 0))) for e in entries_)]))
+    ev["extra_exclusions"] = [os.path.basename(p) for p in ex.extra_paths]
+    return GateResult("G2", status, ev, sha256_json([sha256_file(ex.exclude_path), [sha256_file(p) for p in ex.extra_paths if os.path.exists(p)],
+                                                     sorted((e.get("id"), int(e.get("taxid", 0))) for e in entries_)]))
 
 
 def _imports(path, root):

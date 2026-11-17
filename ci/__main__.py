@@ -449,6 +449,44 @@ def cmd_status(a):
     return 0
 
 
+def cmd_emit_corpus(a):
+    """A corpus spec (YAML on stdout) from the selected table of a passed select run: one source per selected genome, in
+    the fields the fetch and corpus stages read; the header names the run, so the spec is tied to the selection."""
+    import csv
+    rec = Record.open(a.run_dir)
+    if rec.data["status"] not in ("passed",) + (("gate_failed",) if a.allow_gate_failed else ()):
+        raise SystemExit("run %s is %s" % (rec.data["run_id"], rec.data["status"]))
+    p = os.path.join(a.run_dir, "data", "select", "selected.tsv")
+    with open(p) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    sources, groups = [], {}
+    for r in rows:
+        groups[r["group"]] = groups.get(r["group"], 0) + 1
+        src = dict(id=r["id"], source_kind=r["source_kind"], taxid=int(r["taxid"]))
+        if r["source_kind"] in ("raw_prokaryote", "plasmid", "raw_virus"):
+            if not r["ena_assembly"]:
+                raise SystemExit("%s has no INSDC assembly accession to fetch from ENA" % r["id"])
+            src.update(table=int(r["table"] or 11), accession=r["accession"], paired_accession=r["paired_accession"], ena_assembly=r["ena_assembly"])
+            if r["replicon_types"]:
+                src["replicon_types"] = [r["replicon_types"]]
+        elif r["source_kind"] == "annotated_cds":
+            e = dict(site=r["ensembl_site"], division=r["ensembl_division"], species=r["ensembl_species"], release=int(r["ensembl_release"]))
+            if "_collection_" in r["ensembl_core_db"]:
+                e["collection"] = r["ensembl_core_db"].split("_core_")[0]
+            src.update(ensembl=e)
+            if a.max_genes:
+                src["max_genes"] = int(a.max_genes)
+        else:
+            raise SystemExit("unknown source kind %s" % r["source_kind"])
+        sources.append(src)
+    spec = dict(name=a.name, tier=a.tier, groups={g: dict(min_genomes=1) for g in sorted(groups)}, sources=sources)
+    sys.stdout.write("# Corpus %s, emitted by `python -m ci emit-corpus` from the selection of run %s (CI %s, commit %s, profile %s;\n"
+                     "# selected.tsv sha256 %s). Edit the selection, not this file.\n" % (a.name, rec.data["run_id"], rec.data["ci_version"], rec.data["git"]["sha"],
+                                                                                   rec.data["profile"], sha256_file(p, use_sidecar=False)))
+    sys.stdout.write(yaml.safe_dump(spec, sort_keys=False, width=160))
+    return 0
+
+
 def cmd_promote(a):
     """The catalogue lock of a passed refresh run, with the run that wrote it, ready to be committed."""
     rec = Record.open(a.run_dir)
@@ -487,8 +525,14 @@ def main(argv=None):
     s.add_argument("run_dir")
     pr = sub.add_parser("promote")
     pr.add_argument("run_dir")
+    em = sub.add_parser("emit-corpus")
+    em.add_argument("run_dir")
+    em.add_argument("--name", required=True)
+    em.add_argument("--tier", required=True)
+    em.add_argument("--max-genes", default=0)
+    em.add_argument("--allow-gate-failed", action="store_true")
     a = ap.parse_args(argv)
-    return dict(check=cmd_check, run=cmd_run, compare=cmd_compare, status=cmd_status, promote=cmd_promote)[a.cmd](a)
+    return dict(check=cmd_check, run=cmd_run, compare=cmd_compare, status=cmd_status, promote=cmd_promote, **{"emit-corpus": cmd_emit_corpus})[a.cmd](a)
 
 
 if __name__ == "__main__":

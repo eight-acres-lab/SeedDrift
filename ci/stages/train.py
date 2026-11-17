@@ -94,6 +94,8 @@ def do_fit(run_dir):
         if bad:
             raise SystemExit("corpus files differ from their manifest: %s" % bad[:5])
         tax = Taxonomy(st.repo(cfg["taxdump"]))
+        if tc.get("model") == "source_v0":
+            return fit_source(st, cfg, run_dir, ids_doc, tax)
         km = KingdomMap()
         group_of = {e["id"]: km.group(tax, e["taxid"], e["source_kind"]) for e in man["entries"]}
         X, y, names = load_genes(run_dir, ids)
@@ -161,6 +163,64 @@ def do_fit(run_dir):
         st.output("model", out)
         st.output("data_seen", os.path.join(folder, "data_seen.json"))
         st.extra.update(model_id=mid, steps=steps)
+
+
+MODEL_LOCK = os.path.join("ci", "envs", "model-torch.pip.txt")
+
+
+def pip_lines(text):
+    return sorted(l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#"))
+
+
+def fit_source(st, cfg, run_dir, ids_doc, tax):
+    """Source model v0 (strategy: model-pilot), trained by seeddrift/train/source_model.py in the CUDA Python of the server.
+    That interpreter's packages must equal ci/envs/model-torch.pip.txt (else the stage fails: the model environment is
+    locked like the CI's own)."""
+    import subprocess
+    tc = cfg["train"]
+    py = tc.get("python", "/usr/local/bin/python3")
+    r = subprocess.run([py, "-m", "pip", "freeze"], capture_output=True, text=True)
+    with open(st.repo(MODEL_LOCK)) as f:
+        want = pip_lines(f.read())
+    have = pip_lines(r.stdout)
+    if r.returncode != 0 or have != want:
+        diff = sorted(set(have) ^ set(want))[:20]
+        raise SystemExit("the model environment %s differs from %s: %s" % (py, MODEL_LOCK, diff))
+    import csv as _csv
+    hidden = {}
+    sc = cfg.get("scenario") or {}
+    if sc.get("truth"):
+        with open(st.repo(sc["truth"])) as f:
+            for t in _csv.DictReader(f, delimiter="\t"):
+                if t.get("donor_taxid"):
+                    g = tax.at_rank(int(t["donor_taxid"]), "genus")
+                    if g:
+                        hidden.setdefault(t["scenario"], set()).add(g)
+    folder = st.path("train", "logs", "x")[:-2]
+    conf = dict(seed=int(tc["seed"]), lr=float(tc["lr"]), steps=int(tc["steps"]), batch=int(tc["batch"]), eval_every=int(tc.get("eval_every", 500)),
+                ckpt_every=int(tc.get("ckpt_every", 1000)), resume=bool(tc.get("resume")) and os.path.exists(os.path.join(folder, "last.npz")),
+                commit=cfg["git"]["sha"], hidden_genera={k: sorted(v) for k, v in hidden.items()}, max_codons=int(tc.get("max_codons", 512)),
+                hits_centre=int(tc.get("hits_centre", 16)), hits_neighbour=int(tc.get("hits_neighbour", 4)), max_track=int(tc.get("max_track", 512)))
+    cp = st.path("train", "source_config.json")
+    write_json(cp, conf)
+    logp = st.path("train", "source_model.log")
+    with open(logp, "a") as lg:
+        rc = subprocess.run([py, os.path.join(st.repo("seeddrift/train/source_model.py")), "fit", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT,
+                            env=dict(os.environ, PYTHONHASHSEED="0")).returncode
+    if rc != 0:
+        with open(logp) as f:
+            tail = f.read()[-1500:]
+        raise SystemExit("source model training failed (exit %d): %s" % (rc, tail))
+    with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
+        tdi = json.load(f)
+    mid = "mdl-source-v0-" + sha256_json([cfg["git"]["sha"], cfg["config_sha256"], [ids_doc["corpus_dataset"], tdi["dataset_id"]], tc["seed"]])[:12]
+    write_json(st.path("model", "model.json"), dict(model_id=mid, kind="source_v0", note="pilot: development diagnosis only (charter section 8)",
+                                                  steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
+                                                  model_env_sha256=sha256_json(have)))
+    for name in ("model.npz", "eval_scores.npz", "dev_eval.npz"):
+        st.output(name.split(".")[0], os.path.join(run_dir, "data", "model", name))
+    st.output("data_seen", os.path.join(folder, "data_seen.json"))
+    st.extra.update(model_id=mid, steps=int(tc["steps"]), model_env=py)
 
 
 if __name__ == "__main__":

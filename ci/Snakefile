@@ -110,8 +110,14 @@ rule gates_train:
     shell: STAGE.format(name="gates") + " train"
 
 
+rule train_data:
+    input: "gates/corpus.ok", "data/hits/manifest.json", "data/eval_inputs/manifest.json", "data/reference/manifest.json"
+    output: "data/train_data/index.json"
+    shell: STAGE.format(name="train_data")
+
+
 rule train:
-    input: "gates/train.ok", "data/hits/manifest.json"
+    input: "gates/train.ok", "data/hits/manifest.json", "data/train_data/index.json"
     output: "data/model/model.npz"
     resources: gpu=1
     shell: STAGE.format(name="train") + " fit"

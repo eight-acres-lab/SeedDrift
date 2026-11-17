@@ -1,0 +1,20 @@
+# Pilot corpus (charter section 8, 2026-11-17: small experimental training, every group present, development diagnosis
+# only): the v1 selection rules and catalogue snapshots, scaled down. Eukaryotes are cut to their first genes in genome
+# order when the corpus spec is emitted (ci emit-corpus --max-genes). About 120,000 proteins.
+base: configs/select/v1.yaml
+name: pilot
+tier: pilot
+share_repair: false
+groups:
+  bacteria: {min_genomes: 1, target: 16}
+  archaea: {min_genomes: 1, target: 6}
+  eukaryota.mammals: {min_genomes: 1, target: 2}
+  eukaryota.other_vertebrates: {min_genomes: 1, target: 2}
+  eukaryota.invertebrates: {min_genomes: 1, target: 2}
+  eukaryota.plants_algae: {min_genomes: 1, target: 2}
+  eukaryota.fungi: {min_genomes: 1, target: 3}
+  eukaryota.protists: {min_genomes: 1, target: 3}
+  viruses.phage: {min_genomes: 1, target: 60}
+  viruses.eukaryotic: {min_genomes: 1, target: 60}
+  viruses.giant: {min_genomes: 1, target: 4}
+  mobile.plasmid: {min_genomes: 1, target: 30}

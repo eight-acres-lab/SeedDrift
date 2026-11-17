@@ -30,7 +30,7 @@ from ci import ROOT
 from ci.gates import find_waiver
 from ci.hashing import sha256_json
 from ci.stages.common import Stage, main_args, read_fasta, write_json
-from ci.stages.train import features, softmax
+from ci.stages.train import KMERS as KMER_INDEX, features, softmax
 from ci.taxonomy import Taxonomy
 
 sys.path.insert(0, os.path.join(ROOT, "bench", "islands"))
@@ -92,6 +92,82 @@ def released_row(run_dir, eid, pairs, truth):
                 **coverage(pairs, [g in sc for g, _ in pairs], [len(p) < 30 for _, p in pairs], "proteins under 30 aa are not scored by the released screen; they rank last"))
 
 
+STRATA = ("same genus", "same family", "same order", "same phylum", "other phylum", "other kingdom", "mobile element")
+
+
+def _codon_profile(cds):
+    v = np.zeros(64)
+    s = cds.upper()
+    for i in range(0, len(s) - 2, 3):
+        j = KMER_INDEX.get(s[i:i + 3])
+        if j is not None:
+            v[j] += 1
+    t = v.sum()
+    return v / t if t else v
+
+
+def _recall_at(pos, neg, fpr):
+    if not len(pos) or not len(neg):
+        return None
+    thr = np.quantile(neg, 1 - fpr, method="higher")
+    return float(np.mean(pos > thr))
+
+
+def dev_constructed(run_dir, path, ranks):
+    """Development diagnosis on constructed insertions (held-out recipients and donors, genus hidden on both sides): the
+    model and the comparators on the same examples, overall, by donor stratum and by recipient group. Not a result."""
+    z = np.load(path)
+    with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
+        meta = {m["id"]: m for m in json.load(f)["genomes"]}
+    cache = {}
+
+    def genome(gid):
+        if gid not in cache:
+            folder = os.path.join(run_dir, "data", "corpus", gid)
+            with open(os.path.join(folder, "genes.tsv")) as f:
+                genes = [r["gene_id"] for r in csv.DictReader(f, delimiter="\t")]
+            cds = read_fasta(os.path.join(folder, "cds.fna"))
+            seqs = [cds["%s__%s" % (gid, g)] for g in genes]
+            prof = np.array([_codon_profile(x) for x in seqs])
+            h = np.load(os.path.join(run_dir, "data", "hits", gid + ".npz"))
+            cache[gid] = dict(seqs=seqs, prof=prof, mean=prof.mean(0), off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"])
+        return cache[gid]
+    rec, gene, don, dgene, strat, score = [x.decode() for x in z["recipient"]], z["gene"], [x.decode() for x in z["donor"]], z["donor_gene"], z["stratum"], z["score"]
+    cols = {m: [] for m in ("model", "alien_index", "best_hit", "counts", "composition")}
+    for r, i, d, j, sc in zip(rec, gene, don, dgene, score):
+        R = genome(r)
+        src, k = (genome(d), int(j)) if d else (R, int(i))
+        hidden = {meta[r]["ranks"][4]} | ({meta[d]["ranks"][4]} if d else set())
+        rows = [x for x in range(src["off"][k], src["off"][k + 1]) if ranks[src["prot"][x], 4] not in hidden]
+        ph = meta[r]["ranks"][0]
+        b_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] == ph] or [0.0])
+        b_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] != ph] or [0.0])
+        cols["model"].append(float(sc))
+        cols["alien_index"].append(math.log(2) * (b_out - b_in))
+        cols["best_hit"].append(-max([src["pid"][x] / 10 for x in rows] or [0.0]))
+        cols["counts"].append(-len({int(ranks[src["prot"][x], 4]) or -int(src["prot"][x]) for x in rows}))
+        cols["composition"].append(float(np.abs(src["prof"][k] - R["mean"]).sum()))
+    y = np.array([1 if d else 0 for d in don])
+    grp = np.array([meta[r]["group"] for r in rec])
+    strat = np.asarray(strat)
+    out = dict(note="constructed insertions into held-out genomes from held-out donors, genus hidden on both sides; development diagnosis, "
+                    "not a result (charter section 8)", examples=int(len(y)), insertions=int(y.sum()), recipients=len(set(rec)), methods={})
+    for m, v in cols.items():
+        v = np.array(v)
+        pos, neg = v[y == 1], v[y == 0]
+        row = dict(auroc=auroc(pos, neg), recall_at_fpr_0_01=_recall_at(pos, neg, 0.01), recall_at_fpr_0_05=_recall_at(pos, neg, 0.05), by_stratum={}, by_recipient_group={})
+        for k, name in enumerate(STRATA):
+            sel = strat == k
+            if sel.any():
+                row["by_stratum"][name] = dict(n=int(sel.sum()), auroc=auroc(v[sel], neg))
+        for g in sorted(set(grp)):
+            sel = grp == g
+            if (y[sel] == 1).any() and (y[sel] == 0).any():
+                row["by_recipient_group"][g] = dict(n=int(sel.sum()), auroc=auroc(v[sel & (y == 1)], v[sel & (y == 0)]))
+        out["methods"][m] = row
+    return out
+
+
 def main():
     run_dir = main_args()
     with Stage(run_dir, "eval", requires=("pre", "corpus", "train", "eval")) as st:
@@ -99,8 +175,15 @@ def main():
         tax = Taxonomy(st.repo(cfg["taxdump"]))
         lib = np.load(os.path.join(run_dir, "data", "reference", "library.npz"))
         ranks = lib["ranks"]
-        model = np.load(os.path.join(run_dir, "data", "model", "model.npz"))
-        W, classes = model["W"], [str(c) for c in model["classes"]]
+        kind = cfg["train"].get("model", "toy_source_id")
+        if kind == "source_v0":                                # the source model scored the evaluation genomes itself
+            es = np.load(os.path.join(run_dir, "data", "model", "eval_scores.npz"))
+            src_scores = {}
+            for g, i, v in zip(es["genome"], es["gene"], es["score"]):
+                src_scores.setdefault(g.decode(), {})[int(i)] = float(v)
+        else:
+            model = np.load(os.path.join(run_dir, "data", "model", "model.npz"))
+            W, classes = model["W"], [str(c) for c in model["classes"]]
         with open(os.path.join(run_dir, "data", "eval_inputs", "manifest.json")) as f:
             entries = json.load(f)["entries"]
         import composition                                     # bench/islands/composition.py
@@ -134,10 +217,14 @@ def main():
             prots = read_fasta(os.path.join(folder, "proteins.faa"))
             pairs = [(g["gene_id"], prots["%s__%s" % (e["id"], g["gene_id"])]) for g in genes]
             short_cds = np.array([len(s) // 3 < 30 for s in seqs])
-            X = np.array([features(s) for s in seqs])
-            P = softmax(X @ W)
-            host = classes.index(e["host"]) if e["host"] in classes else None
-            model_score = 1 - P[:, host] if host is not None else np.full(len(seqs), np.nan)
+            if kind == "source_v0":
+                ms = src_scores.get(e["id"], {})
+                model_score = np.array([ms.get(i, np.nan) for i in range(len(genes))])
+            else:
+                X = np.array([features(s) for s in seqs])
+                P = softmax(X @ W)
+                host = classes.index(e["host"]) if e["host"] in classes else None
+                model_score = 1 - P[:, host] if host is not None else np.full(len(seqs), np.nan)
             rows = []
             every = np.ones(len(genes), bool)
             for name, sc, scored, rule in (("model", model_score, np.isfinite(model_score), ""),
@@ -157,11 +244,17 @@ def main():
                                                  ", ".join("%s (%s)" % (tax.name(d), tax.name(tax.at_rank(d, "phylum")) if tax.at_rank(d, "phylum") else "?") for d in donors))
             scenarios.append(dict(name=e["id"], kind="constructed (fixture)", covers=covers, n_pos=int(truth.sum()), n_neg=int((~truth).sum()), genes_sha256=gs, rows=rows))
         g5 = find_waiver("G5", "*")
+        note = "pipeline check, not a scientific model" if kind == "toy_source_id" else "pilot (development diagnosis only; charter section 8, 2026-11-17)"
         report = dict(scenarios=scenarios, catalogue_judge=dict(status="absent", note="no public-event catalogue yet: no final judge (waiver G5 until %s)" % (g5["expires"] if g5 else "none")),
-                      model=dict(kind="toy_source_id", note="pipeline check, not a scientific model"))
+                      model=dict(kind=kind, note=note))
         p = st.path("eval", "eval_report.json")
         write_json(p, report)
         st.output("eval_report", p)
+        dp = os.path.join(run_dir, "data", "model", "dev_eval.npz")
+        if os.path.exists(dp):
+            q = st.path("eval", "dev_constructed.json")
+            write_json(q, dev_constructed(run_dir, dp, ranks))
+            st.output("dev_constructed", q)
 
 
 if __name__ == "__main__":

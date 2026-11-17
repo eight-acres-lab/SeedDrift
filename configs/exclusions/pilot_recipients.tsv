@@ -1,0 +1,80 @@
+# Provisional test recipients for PILOT runs only (charter section 8, 2026-11-17): a conservative superset of the recipient taxa
+# named in the internal label-source list (genus at least; the clade a source covers where it names one). Pilot corpora
+# must not contain them (profile key extra_exclusions; gate G2 and the selection apply it). This is NOT the formal
+# test-recipient exclusion: that comes with the public-event catalogue and goes into bench/hard/EXCLUDE.tsv; this list
+# may be revised, and it never relaxes EXCLUDE.tsv.
+taxid	rank	name	source
+5758	genus	Entamoeba	protists 1,2,4,7,12
+81099	genus	Mastigamoeba	protists 2
+5721	genus	Trichomonas	protists 1,8,12
+5740	genus	Giardia	protists 1,5
+39709	genus	Spironucleus	protists 5
+12967	genus	Blastocystis	protists 3,9
+5690	genus	Trypanosoma	protists 1 (survey of 13 parasitic eukaryotes; conservative)
+5658	genus	Leishmania	protists 1
+5820	genus	Plasmodium	protists 1 (conservative)
+5806	genus	Cryptosporidium	protists 1 (conservative)
+5810	genus	Toxoplasma	protists 1 (conservative)
+5782	genus	Dictyostelium	protists 1
+5761	genus	Naegleria	protists 1 (conservative)
+451456	phylum	Neocallimastigomycota	protists 6 (anaerobic gut fungi)
+40635	genus	Entodinium	protists 10 (rumen ciliates)
+47891	genus	Eudiplodinium	protists 10
+324856	genus	Metadinium	protists 10
+47893	genus	Polyplastron	protists 10 (conservative)
+40637	genus	Epidinium	protists 10 (conservative)
+47895	genus	Ophryoscolex	protists 10 (conservative)
+5986	genus	Isotricha	protists 10 (conservative)
+40805	genus	Dasytricha	protists 10 (conservative)
+6029	phylum	Microsporidia	protists 11
+276836	genus	Rozella	protists 11
+4783	genus	Phytophthora	kinds: fungus -> oomycete
+83373	genus	Galdieria	tools 5, kinds: archaea/bacteria -> red alga
+55528	genus	Guillardia	kinds: secondary endosymbiosis
+227085	genus	Bigelowiella	kinds: secondary endosymbiosis
+35127	genus	Thalassiosira	not-transfers: diatom green genes (overturned)
+2849	genus	Phaeodactylum	not-transfers: diatom green genes (overturned; conservative)
+9605	genus	Homo	animals 1,2; kinds: syncytin, NUMTs
+9443	order	Primates	animals 2 (9 other primates); syncytin shared by apes
+10066	family	Muridae	syncytin-A/B (conservative)
+7215	genus	Drosophila	animals 2, 11 (Wolbachia insertions)
+6237	genus	Caenorhabditis	animals 2; tools 4
+50557	class	Insecta	animals 3 (218 insect genomes, 11 orders), 7, 8, 12; kinds: HTT among 195 insect genomes
+104781	genus	Adineta	animals 4 (Adineta, Rotaria)
+231623	genus	Rotaria	animals 4 (Adineta, Rotaria)
+58670	genus	Hypsibius	animals 5,9,10; tools 4; overturned claim
+286681	genus	Ramazzottius	animals 5
+189290	genus	Meloidogyne	animals 6; tools 1
+31242	genus	Globodera	tools 1
+6296	family	Onchocercidae	animals 11 (filarial nematodes with Wolbachia insertions)
+32262	family	Tetranychidae	animals 8 (plant-feeding mites)
+45350	genus	Nematostella	not-transfers: symbiont contamination (overturned)
+6181	genus	Schistosoma	not-transfers: host contamination (overturned)
+71493	genus	Elysia	not-transfers: food (overturned)
+7949	genus	Clupea	kinds: antifreeze protein (herring)
+8013	genus	Osmerus	kinds: antifreeze protein (smelt)
+8093	genus	Hemitripterus	kinds: antifreeze protein (sea raven)
+7756	genus	Petromyzon	kinds: Tc1 transposons with teleosts
+13615	genus	Monodelphis	kinds: transposons shared with Rhodnius (opossum)
+9266	genus	Didelphis	kinds: transposons shared with Rhodnius (opossum; conservative)
+4930	genus	Saccharomyces	tools 2
+29828	genus	Lipomyces	tools 2
+4910	genus	Kluyveromyces	tools 2
+5475	genus	Candida	tools 2 (Candida versatilis; conservative)
+5052	genus	Aspergillus	tools 3; kinds: sterigmatocystin donor/recipient
+5144	genus	Podospora	kinds: sterigmatocystin cluster
+3701	genus	Arabidopsis	tools 11; kinds: organelle -> nucleus
+4119	genus	Ipomoea	kinds: Agrobacterium T-DNA in sweet potato
+4169	genus	Striga	kinds: parasitic plant
+416176	genus	Alloteropsis	kinds: grass-to-grass
+4587	genus	Thinopyrum	kinds: Fhb7
+4564	genus	Triticum	kinds: Fhb7 (introgressed into wheat; conservative)
+13332	genus	Amborella	kinds: foreign mitochondrial DNA
+445	genus	Legionella	bacteria 9; kinds: eukaryote -> bacterium
+2335	genus	Thermotoga	bacteria 11; tools 11
+2302	genus	Thermoplasma	tools 11
+766	order	Rickettsiales	bacteria 4,6 (Rickettsia, Anaplasma, Wolbachia, Pelagibacter)
+183963	class	Halobacteria	bacteria 5 (134 archaeal genomes in 13 higher taxa; conservative)
+94695	order	Methanosarcinales	bacteria 5
+2266	order	Thermoproteales	bacteria 5
+549779	family	Mimiviridae	kinds: host -> virus (Mimivirus, Klosneuvirus)

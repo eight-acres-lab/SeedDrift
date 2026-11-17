@@ -1,0 +1,18 @@
+# Server: the pilot corpus selection (configs/select/pilot.yaml) from the catalogue snapshots of configs/select/v1.lock.yaml,
+# without the provisional test recipients of pilot runs (configs/exclusions/pilot_recipients.tsv). Network-free.
+pipeline: select
+needs_gpu: false
+tier: pilot
+seed: 1
+cores: 4
+blas_threads: 1
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+select_spec: configs/select/pilot.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+catalog: {mode: lock, lock: configs/select/v1.lock.yaml}
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+calibration:
+  runs:
+    - /hy-tmp/seeddrift-ci/runs/20261117T031124-ci-bootstrap-21d26061-smoke

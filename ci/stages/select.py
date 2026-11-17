@@ -379,7 +379,7 @@ def main():
             snap[e["id"]] = read_jsonl(p)
         tax = Taxonomy(st.repo(cfg["taxdump"]))
         kmap = KingdomMap(st.repo(cfg.get("kingdom_map", DEFAULT_MAP)))
-        ex = Excluder(tax)
+        ex = Excluder(tax, extra_paths=[st.repo(x) for x in cfg.get("extra_exclusions") or []])
         if ex.problems:
             raise SystemExit("the exclusion rules do not resolve: %s" % ex.problems[:5])
         rules = spec["rules"]

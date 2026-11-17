@@ -1,11 +1,30 @@
 # CI changelog
 
 Every change to `ci/`, `configs/` or `deploy/envs/` is a new CI version (`ci/VERSION`, tag `ci-vMAJOR.MINOR` on branch `model`, the line of the model work; `main` holds the released screen).
-MAJOR: a gate changes meaning, a rule is added or removed, or the run record format changes. MINOR: thresholds,
-configurations and fixes.
+MAJOR: an existing gate changes what it decides or is removed, a rule of an existing pipeline is added or removed, or the
+run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
+fixes.
 
 ## 0.2 (in progress)
 
+- Pipeline kinds: a profile names its pipeline (`pipeline: train`, the default, or `select`); each kind has its
+  Snakemake target, required gates and resume phases (`PIPELINES` in ci/__main__.py). Existing runs are unchanged.
+- Pipeline select: stage `catalog` (snapshots of NCBI Datasets genome and virus reports and Ensembl species lists,
+  canonical, complete pages only, kept in the content-addressed store; modes refresh and lock, `ci promote` and
+  `ci/launch.sh promote` print a refresh run's lock for the repository), stage `select` (the multi-kingdom corpus:
+  every group, one genome per species, diversity first by fixed seed, a reason for every rejected candidate, viruses
+  placed and excluded by their hosts, protein-share repair by raising short classes), stages `budget` (proteins, disk
+  and search time as ranges, rates measured on passed calibration runs, assumptions with their basis) and `fit` (the
+  budget against the free disk; environmental, not compared). Gates G1_select_spec (pre), G1_select, G2_select,
+  G3_select. Profiles select-tiny (T1, committed fixture snapshots, run twice and compared) and select-refresh (server).
+  A select profile takes its own server lock (`needs_gpu: false`), not the GPU's.
+- Groups: a virus with a known host is placed by the host (`virus_hosts` in configs/kingdom_map.yml): archaeal and
+  unlisted prokaryote viruses are prokaryote viruses, a tailed phage on a eukaryote host is a conflict. Without a host
+  the taxon rule applies as before.
+- G2: the exclusion rules are one object (`Excluder`) shared by the gates and the selection; entries may carry a host,
+  whose lineage is checked too.
+- Versioning convention: a new pipeline kind with its own gates is a minor version; a major version changes what an
+  existing gate decides or removes one.
 - Launcher: `reproduce` re-invokes the launcher through bash, so it works when the script is not executable (it
   failed with "Permission denied"); the launch scripts are executable in git. Tests for `reproduce`.
 

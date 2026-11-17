@@ -419,8 +419,8 @@ def cmd_check(a):
     sdir = os.path.join(ROOT, "configs", "select")
     for p in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
         if p.endswith(".yaml") and not p.endswith((".lock.yaml", "assumptions.yaml")) and not p.startswith("rates"):
-            with open(os.path.join(sdir, p)) as f:
-                spec = yaml.safe_load(f)
+            from ci.stages.common import load_select_spec
+            spec = load_select_spec(os.path.join(sdir, p))
             r = g1_kingdom.select_static(spec, spec.get("tier"))
             gs[p] = r.status if r.status != "fail" else r.evidence
     report["G1_select_spec"] = gs

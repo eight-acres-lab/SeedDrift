@@ -317,3 +317,50 @@ def test_sequence_reports_one_per_assembly_and_missing_ones():
     recs, missing = catalog.fetch_sequence_reports(["GCF_1", "GCF_2", "GCF_1"], fetch=fetch, rate=1000)
     assert [r["accession"] for r in recs] == ["GCF_1"] and missing == ["GCF_2"]
     assert [x["type"] for x in recs[0]["replicons"]] == ["Chromosome", "Plasmid"]
+
+
+def test_relaxed_variant_keeps_unknown_hosts_and_strict_refuses_them(tmp_path):
+    strict = _select(tmp_path, "s")
+    relaxed = _select(tmp_path, "r", select_spec="configs/select/tiny-relaxed.yaml")
+    cs = {r["id"]: r for r in _rows(strict / "data" / "select" / "candidates.tsv")}
+    cr = {r["id"]: r for r in _rows(relaxed / "data" / "select" / "candidates.tsv")}
+    gone = [i for i, r in cs.items() if r["out"].startswith("host unknown")]
+    assert gone and all(not cr[i]["out"].startswith("host unknown") for i in gone)
+    assert json.load(open(relaxed / "data" / "select" / "by_group.json"))["unknown_host"] == "keep"
+    assert "Variant: viruses without a usable host record are kept" in (relaxed / "data" / "select" / "report.md").read_text()
+
+
+def test_virus_catalogues_merge_by_accession_and_prefer_refseq(tmp_path):
+    d = _select(tmp_path)
+    cand = _rows(d / "data" / "select" / "candidates.tsv")
+    ids = [r["id"] for r in cand]
+    assert len(ids) == len(set(ids))
+    twin = [r for r in cand if r["accession"] == "GCA_000000400.1"]
+    assert twin and twin[0]["out"].startswith("another genome of the species")    # the RefSeq record of the species wins
+    est = [r for r in cand if r["accession"] in ("GCA_000000440.1", "GCA_000000441.1")]
+    assert est and all(r["proteins_level"] == "estimated from the genome length" and int(r["proteins_central"]) == 63 for r in est)
+
+
+def test_spec_base_merges_and_detects_loops(tmp_path):
+    from ci.stages.common import load_select_spec
+    spec = load_select_spec("configs/select/v1-relaxed.yaml")
+    assert spec["name"] == "v1-relaxed" and spec["rules"]["viruses"]["unknown_host"] == "keep"
+    assert spec["rules"]["viruses"]["catalogues"] == ["viruses", "phages"] and spec["tier"] == "full"
+    a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    a.write_text("base: %s\nname: a\n" % b)
+    b.write_text("base: %s\nname: b\n" % a)
+    with pytest.raises(SystemExit, match="loop"):
+        load_select_spec(str(a))
+
+
+def test_hit_format_2_round_trip(tmp_path):
+    import numpy as np
+    from ci.stages.search import flush, hit_proteomes
+    rows = {"g1": [(5, 1, 900, 1, 100, 3, 102, 120, 300, 180.0, "100M"), (7, 0, 500, 2, 90, 1, 89, 120, 70000, 90.0, "88M")]}
+    p = str(tmp_path / "h.npz")
+    n = flush(p, ["g1", "g2"], rows, {"g1": 2}, {0: 10, 1: 11}, 32)
+    h = np.load(p)
+    assert n == 2 and int(h["format"][0]) == 2 and "prot" not in h.files
+    assert list(h["off"]) == [0, 2, 2] and list(h["qlen"]) == [120, 0] and h["slen"].dtype == np.uint32 and h["qs"].dtype == np.uint16
+    index_taxid = np.array([0, 0, 0, 0, 0, 300, 0, 200])
+    assert list(hit_proteomes(h, index_taxid, np.array([200, 300]))) == [1, 0]

@@ -176,10 +176,15 @@ def select_static(spec: dict, tier: str = None, kmap: KingdomMap = None) -> Gate
     for part in ("prokaryotes", "viruses", "eukaryotes", "plasmids"):
         if part not in rules:
             problems.append(dict(rule=part, error="missing (every kingdom is selected)"))
+    if (rules.get("viruses") or {}).get("unknown_host", "exclude") not in ("exclude", "keep"):
+        problems.append(dict(rule="viruses", error="unknown_host must be exclude or keep"))
     if "plasmids" in rules and not rules["plasmids"].get("replicons"):
         problems.append(dict(rule="plasmids", error="needs `replicons`: the sequence reports that list each assembly's plasmids"))
     for part, r in rules.items():
-        for cid in (r.get("catalogues") or []) + [r[k] for k in ("hosts", "annotation", "replicons") if r.get(k)]:
+        named = []
+        for k in ("hosts", "annotation", "replicons"):
+            named += r[k] if isinstance(r.get(k), list) else ([r[k]] if r.get(k) else [])
+        for cid in (r.get("catalogues") or []) + named:
             if cid not in seen:
                 problems.append(dict(rule=part, error="unknown catalogue %s" % cid))
     status = "fail" if problems else "pass"

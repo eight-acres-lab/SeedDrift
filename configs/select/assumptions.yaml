@@ -13,6 +13,7 @@ protein_factor:
   eukaryote_annotated: [0.75, 1.00, 1.30]      # Ensembl gene build against the NCBI annotation of the same assembly; assumed
   eukaryote_median: [0.40, 1.00, 2.50]         # no NCBI annotation found: the median of the group; assumed
 plasmid_proteins_per_kb: [0.70, 0.90, 1.10]    # coding density of plasmids; assumed
+virus_proteins_per_kb: [1.00, 1.40, 1.80]      # viral assemblies without annotation (many GenBank phages): coding density; assumed
 stored_download_bytes_per_protein:             # bytes kept in the content-addressed store per protein of the corpus
   raw_prokaryote: [950, 1100, 1300]            # decompressed FASTA, about 1.1 kb of genome per gene; assumed
   plasmid: [900, 1200, 2000]                   # assumed

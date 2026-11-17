@@ -2,7 +2,8 @@
 # promoted, select-v1). Every group of configs/kingdom_map.yml with the floors of configs/corpus/floors.yaml
 # (target_factor 1.0: the floors themselves; the protein-share repair may raise viral, mobile and eukaryote groups).
 # Catalogues: the sources the charter names per kingdom. NCBI RefSeq reference genomes (complete, annotated) for
-# bacteria and archaea; NCBI RefSeq complete viral assemblies (their hosts from the NCBI virus reports); Ensembl release
+# bacteria and archaea; NCBI RefSeq complete viral assemblies, plus complete prokaryote-virus assemblies of every source
+# (their hosts from the NCBI virus reports); Ensembl release
 # 116 and Ensembl Genomes release 63 for eukaryotes (protein counts from the NCBI annotation of the same assemblies).
 # What these catalogues leave out is counted with wider queries (`totals`) and reported with the selection; widening a
 # catalogue (GenBank-only viruses, draft-only and uncultured prokaryotes, eukaryotes outside Ensembl) is the user's decision.
@@ -31,6 +32,12 @@ catalogues:
       every viral assembly: {}
   - id: virus_hosts
     ncbi_virus_reports: {taxon: 10239, params: {filter.refseq_only: "true", filter.complete_only: "true"}}
+  # prokaryote viruses from every INSDC source (GenBank and RefSeq; the charter names ENA's viral assemblies): the taxa of
+  # configs/kingdom_map.yml viruses.phage, complete assemblies, and the hosts of their nucleotide records
+  - id: phages
+    ncbi_genome_reports: {taxon: [2731619, 10841, 10860, 10656, 10659, 10877, 2842243, 10472], params: {filters.assembly_level: complete_genome}}
+  - id: phage_hosts
+    ncbi_virus_reports: {taxon: [2731619, 10841, 10860, 10656, 10659, 10877, 2842243, 10472], params: {filter.complete_only: "true"}}
   - {id: ens_vertebrates, ensembl_species: {site: ensembl, division: vertebrates, release: 116}}
   - {id: ens_plants, ensembl_species: {site: ensemblgenomes, division: plants, release: 63}}
   - {id: ens_fungi, ensembl_species: {site: ensemblgenomes, division: fungi, release: 63}}
@@ -45,6 +52,7 @@ catalogues:
 rules:
   prokaryotes: {catalogues: [bacteria, archaea], min_protein_coding: 500, outer: order, cap_per_genus: 3}
   plasmids: {replicons: replicons, outer: order, cap_per_genus: 3}
-  viruses: {catalogues: [viruses], hosts: virus_hosts, outer: family, cap_per_genus: 3, require_complete: true}
+  # unknown_host: exclude (strict; v1-relaxed.yaml keeps them, for an A/B comparison)
+  viruses: {catalogues: [viruses, phages], hosts: [virus_hosts, phage_hosts], outer: family, cap_per_genus: 3, require_complete: true, unknown_host: exclude}
   eukaryotes: {catalogues: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], annotation: ens_annotation, outer: order, cap_per_genus: 2}
 share_repair: true

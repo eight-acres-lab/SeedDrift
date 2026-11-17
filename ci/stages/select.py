@@ -43,7 +43,7 @@ from ci.gates.g3_sealed import SEALED, _sealed_genera, load_sealed
 from ci.hashing import sha256_file, sha256_json, taxdump_hash
 from ci.kingdom import DEFAULT_MAP, GroupConflict, KingdomMap, NoGroup
 from ci.stages.catalog import read_jsonl
-from ci.stages.common import Stage, main_args, write_json
+from ci.stages.common import Stage, load_select_spec, main_args, write_json
 from ci.taxonomy import Taxonomy, UnknownTaxid
 
 RANKS = ("phylum", "class", "order", "family", "genus", "species")
@@ -172,7 +172,13 @@ def plasmids(cands, rules):
 
 
 def viruses(cands, recs, host_recs, catalogue, rules):
+    """rules.unknown_host: `exclude` (default; a virus without a usable host record cannot be checked against the host
+    exclusions and is refused) or `keep` (placed by its taxon; only its own lineage is checked). Both variants are
+    selected from the same snapshots so the choice can be compared downstream (A/B)."""
     tax, kmap, ex, a = cands.tax, cands.kmap, cands.ex, cands.a
+    keep_unknown = rules.get("unknown_host", "exclude") == "keep"
+    if rules.get("unknown_host", "exclude") not in ("exclude", "keep"):
+        raise SystemExit("rules.viruses.unknown_host must be exclude or keep")
     hosts_of = {}
     for h in host_recs:
         try:
@@ -190,7 +196,7 @@ def viruses(cands, recs, host_recs, catalogue, rules):
                 classes.add(kmap.host_class(tax, h))
             except (UnknownTaxid, KeyError, ValueError):
                 classes.add("unresolved")
-        if not out and hosts and classes == {""}:
+        if not out and hosts and classes == {""} and not keep_unknown:
             out = "host unknown (only an environment or unplaced host is recorded)"
         classes.discard("")
         if not out and "unresolved" in classes:
@@ -209,7 +215,7 @@ def viruses(cands, recs, host_recs, catalogue, rules):
                 out = "no group: %s" % err
         if not out and not group.startswith("viruses."):
             out = "not a virus (group %s)" % group
-        if not out and not hosts:                        # placed by its taxon, but it cannot be checked against the exclusions
+        if not out and not hosts and not keep_unknown:   # placed by its taxon, but it cannot be checked against the exclusions
             out = "host unknown (no host record, so the host exclusions cannot be checked)"
         if not out:
             why = ex.reason(r["taxid"], [r["accession"], r["paired_accession"]])
@@ -224,14 +230,20 @@ def viruses(cands, recs, host_recs, catalogue, rules):
             out = cands.sealed_reason(r["taxid"], *hosts)
         if not out and rules.get("require_complete", True) and r.get("assembly_level") != "Complete Genome":
             out = "not a complete genome"
-        if not out and r["protein_coding"] < 1:
-            out = "no annotated protein"
-        lo, ce, hi = scaled(r["protein_coding"], a["protein_factor"]["virus"])
+        if r["protein_coding"] > 0:
+            lo, ce, hi = scaled(r["protein_coding"], a["protein_factor"]["virus"])
+            level = "annotated"
+        else:                                            # many GenBank phage assemblies carry no annotation
+            lo, ce, hi = scaled(r["length"] / 1000.0, a["virus_proteins_per_kb"])
+            level = "estimated from the genome length"
+        if not out and ce < 1:
+            out = "no protein (no annotation and no length)"
         acc = r["accession"]
         cands.add(id="%s_%s" % ((group or "virus").replace("viruses.", "virus_"), acc), group=group, part="viruses", catalogue=catalogue, source_kind="raw_virus",
                   taxid=r["taxid"], host_taxid=host, species_taxid=lin["species"], accession=acc, paired_accession=r["paired_accession"],
                   ena_assembly=ena_assembly(acc, r["paired_accession"]), replicon_types="", table=11, proteins_low=lo, proteins_central=ce, proteins_high=hi,
-                  proteins_level="annotated", quality=(r.get("refseq_category") != "reference genome", acc), out=out, host_known=bool(host),
+                  proteins_level=level, quality=(r.get("source_database") != "SOURCE_DATABASE_REFSEQ", r.get("refseq_category") != "reference genome", acc),
+                  out=out, host_known=bool(host),
                   hosts=";".join(str(h) for h in hosts),
                   **{k: lin[k] for k in RANKS if k != "species"})
 
@@ -347,8 +359,7 @@ def main():
     run_dir = main_args()
     with Stage(run_dir, "select", requires=("pre",)) as st:
         cfg = st.config
-        with open(st.repo(cfg["select_spec"])) as f:
-            spec = yaml.safe_load(f)
+        spec = load_select_spec(cfg["select_spec"], st.repo)
         with open(st.repo(spec["assumptions"])) as f:
             assumptions = yaml.safe_load(f)
         with open(os.path.join(run_dir, "data", "catalog", "manifest.json")) as f:
@@ -371,8 +382,13 @@ def main():
         for cid in rules["prokaryotes"]["catalogues"]:
             prokaryotes(cands, snap[cid], cid, rules["prokaryotes"], reps)
         plasmids(cands, rules["plasmids"])
-        for cid in rules["viruses"]["catalogues"]:
-            viruses(cands, snap[cid], snap[rules["viruses"]["hosts"]], cid, rules["viruses"])
+        hosts_ids = rules["viruses"]["hosts"] if isinstance(rules["viruses"]["hosts"], list) else [rules["viruses"]["hosts"]]
+        host_recs = [h for hid in hosts_ids for h in snap[hid]]
+        seen_v = set()
+        for cid in rules["viruses"]["catalogues"]:      # an assembly listed by two catalogues (RefSeq, all sources) is one candidate
+            recs = [r for r in snap[cid] if r["accession"] not in seen_v]
+            seen_v |= {r["accession"] for r in recs}
+            viruses(cands, recs, host_recs, cid, rules["viruses"])
         ens, catalogue_of = [], {}
         for cid in rules["eukaryotes"]["catalogues"]:
             for r in snap[cid]:
@@ -500,7 +516,8 @@ def main():
             for r in sorted(cands.rows, key=lambda r: (r["group"], r["id"])):
                 w.writerow([r.get(c, "") if c != "selected" else int(bool(r.get("selected"))) for c in CAND_COLS])
         bg = st.path("select", "by_group.json")
-        write_json(bg, dict(spec=spec["name"], tier=spec.get("tier"), groups=by_group, ungrouped=ungrouped, shares=shares, repair=repair, inputs=inputs,
+        write_json(bg, dict(spec=spec["name"], tier=spec.get("tier"), unknown_host=rules["viruses"].get("unknown_host", "exclude"),
+                            groups=by_group, ungrouped=ungrouped, shares=shares, repair=repair, inputs=inputs,
                             catalogues={e["id"]: dict(kind=e["kind"], records=e["records"], sha256=e["sha256"], query=e["query"], totals=e.get("totals") or {})
                                         for e in cman["entries"]},
                             selected_genomes=len(sel), selected_units=sum(r["units"] for r in sel)))

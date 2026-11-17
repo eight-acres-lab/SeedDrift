@@ -1,7 +1,7 @@
 """Stage catalog (pipeline select): snapshots of the public genome catalogues the corpus selection reads.
 
 Catalogue kinds (configs/select/<name>.yaml, `catalogues:`; each entry has an `id` and one kind):
-  ncbi_genome_reports: {taxon, params}     NCBI Datasets v2 genome dataset_report of a taxon, every page
+  ncbi_genome_reports: {taxon, params}     NCBI Datasets v2 genome dataset_report of a taxon (or a list), every page
   ncbi_genome_accessions: {from: [ids], field}  NCBI genome reports of the assemblies earlier catalogues name (a field
                                            of their records; their paired assemblies too): annotation counts of Ensembl genomes
   ncbi_sequence_reports: {from: [ids]}     the replicons of every assembly those catalogues list (NCBI sequence reports,
@@ -39,7 +39,7 @@ import yaml
 
 from ci import manifest as M
 from ci.hashing import sha256_bytes, sha256_json
-from ci.stages.common import Stage, main_args, write_json
+from ci.stages.common import Stage, load_select_spec, main_args, write_json
 from ci.stages.fetch import get, store, store_check
 
 NCBI = "https://api.ncbi.nlm.nih.gov/datasets/v2"
@@ -169,25 +169,34 @@ def _paged(url_of, reducer, key, fetch=get, tries=3, page_size=1000, min_page=10
     raise SystemExit("catalogue did not read consistently in %d tries: %s" % (tries, last))
 
 
-def fetch_genome_reports(c, fetch=get):
-    p = dict(c["ncbi_genome_reports"].get("params") or {})
-    base = "%s/genome/taxon/%d/dataset_report?" % (NCBI, int(c["ncbi_genome_reports"]["taxon"]))
+def taxa(x):
+    """A catalogue's `taxon`: one taxid or a list of them (each read in full, then joined)."""
+    return [int(t) for t in (x if isinstance(x, list) else [x])]
 
-    def url(tok, size):
-        q = dict(p, page_size=size, **({"page_token": tok} if tok else {}))
-        return base + urllib.parse.urlencode(params(q))
-    return _paged(url, reduce_genome, "accession", fetch, page_size=int(c["ncbi_genome_reports"].get("page_size", 1000)))
+
+def _per_taxon(kind, c, reducer, default_page, fetch):
+    q0 = c[kind]
+    recs, total, pages = [], 0, 0
+    for t in taxa(q0["taxon"]):
+        base = "%s/%s/taxon/%d/dataset_report?" % (NCBI, "genome" if kind == "ncbi_genome_reports" else "virus", t)
+
+        def url(tok, size, base=base):
+            q = dict(q0.get("params") or {}, page_size=size, **({"page_token": tok} if tok else {}))
+            return base + urllib.parse.urlencode(params(q))
+        r, n, pg = _paged(url, reducer, "accession", fetch, page_size=int(q0.get("page_size", default_page)))
+        recs += r
+        total += n
+        pages += pg
+    return recs, total, pages
+
+
+def fetch_genome_reports(c, fetch=get):
+    return _per_taxon("ncbi_genome_reports", c, reduce_genome, 1000, fetch)
 
 
 def fetch_virus_reports(c, fetch=get):
-    p = dict(c["ncbi_virus_reports"].get("params") or {})
-    base = "%s/virus/taxon/%d/dataset_report?" % (NCBI, int(c["ncbi_virus_reports"]["taxon"]))
-
-    def url(tok, size):
-        q = dict(p, page_size=size, **({"page_token": tok} if tok else {}))
-        return base + urllib.parse.urlencode(params(q))
     # NCBI answers 1,000-record virus pages with HTTP 500 (2026-11-17); 500 works
-    return _paged(url, reduce_virus, "accession", fetch, page_size=int(c["ncbi_virus_reports"].get("page_size", 500)))
+    return _per_taxon("ncbi_virus_reports", c, reduce_virus, 500, fetch)
 
 
 def count(kind, taxon, p, fetch=get):
@@ -326,8 +335,7 @@ def main():
     run_dir = main_args()
     with Stage(run_dir, "catalog", requires=("pre",)) as st:
         cfg = st.config
-        with open(st.repo(cfg["select_spec"])) as f:
-            spec = yaml.safe_load(f)
+        spec = load_select_spec(cfg["select_spec"], st.repo)
         mode = (cfg.get("catalog") or {}).get("mode", "lock")
         if mode not in ("lock", "refresh"):
             raise SystemExit("catalog.mode must be lock or refresh, not %s" % mode)
@@ -384,7 +392,8 @@ def main():
                 nbytes = len(data)
                 for label, tp in sorted((c.get("totals") or {}).items()):
                     q2 = dict(tp)                        # _kind / _taxon: count another query than the catalogue's own
-                    totals[label] = dict(params=tp, total=count(q2.pop("_kind", k), q2.pop("_taxon", (c[k] or {}).get("taxon")), q2))
+                    kk, tt = q2.pop("_kind", k), q2.pop("_taxon", (c[k] or {}).get("taxon"))
+                    totals[label] = dict(params=tp, total=sum(count(kk, t, q2) for t in taxa(tt)))
                     time.sleep(PAUSE)
             done[c["id"]] = path
             new_lock[c["id"]] = dict(kind=k, query_sha256=qsha, sha256=sha, records=n, bytes=nbytes, totals=totals)

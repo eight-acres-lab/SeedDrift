@@ -20,7 +20,7 @@ import yaml
 
 from ci.hashing import sha256_file
 from ci.kingdom import DEFAULT_MAP, KingdomMap, NoGroup
-from ci.stages.common import Stage, main_args, write_json
+from ci.stages.common import Stage, load_select_spec, main_args, write_json
 from ci.taxonomy import Taxonomy, UnknownTaxid
 
 CASES = ("low", "central", "high")
@@ -86,8 +86,7 @@ def main():
     run_dir = main_args()
     with Stage(run_dir, "budget") as st:
         cfg = st.config
-        with open(st.repo(cfg["select_spec"])) as f:
-            spec = yaml.safe_load(f)
+        spec = load_select_spec(cfg["select_spec"], st.repo)
         with open(st.repo(spec["assumptions"])) as f:
             A = yaml.safe_load(f)
         cal = cfg.get("calibration") or {}
@@ -188,6 +187,10 @@ def report(spec, bg, b):
           + "; ".join("%s %.3f [%.3f–%.3f]" % (k, v, b["shares_range"][k]["lowest"], b["shares_range"][k]["highest"]) for k, v in b["shares"]["central"].items()), ""]
     if b["repair"]:
         L += ["**Share repair**: %s" % json.dumps(b["repair"]), ""]
+    if bg.get("unknown_host") == "keep":
+        n = sum(d["host_unknown"] for g, d in bg["groups"].items() if g.startswith("viruses."))
+        L += ["**Variant: viruses without a usable host record are kept** (placed by their taxon): %d selected viruses could not be checked "
+              "against the host exclusions (gates G2_select and G3_select check only their own lineage)." % n, ""]
     if bg["inputs"].get("event_catalogue") == "absent":
         L += ["**Test-recipient exclusions are not applied yet**: the public confirmed-event catalogue (bench/catalogue/events.tsv) does not exist "
               "(gate G5 is waived until 2027-01-16). The selection must be run again once its recipients are excluded, before any search or training of the "

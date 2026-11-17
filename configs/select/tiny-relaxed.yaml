@@ -1,0 +1,6 @@
+# The select-tiny selection with the relaxed host rule (A/B against tiny.yaml): viruses without a usable host record
+# are kept, placed by their taxon.
+base: configs/select/tiny.yaml
+name: select-tiny-relaxed
+rules:
+  viruses: {unknown_host: keep}

@@ -88,3 +88,27 @@ def main_args():
     if len(sys.argv) < 2:
         raise SystemExit("usage: python -m ci.stages.<name> RUN_DIR")
     return sys.argv[1]
+
+
+def _merge(base, over):
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def load_select_spec(path, repo=None):
+    """A select spec (configs/select/<name>.yaml); `base: <spec>` takes that spec and overrides it key by key (mappings
+    merged, everything else replaced), so a variant states only what differs."""
+    repo = repo or (lambda rel: rel if os.path.isabs(rel) else os.path.join(ROOT, rel))
+    with open(repo(path)) as f:
+        spec = yaml.safe_load(f)
+    seen = [path]
+    while spec.get("base"):
+        b = spec.pop("base")
+        if b in seen:
+            raise SystemExit("select spec %s: base loop %s" % (path, seen + [b]))
+        seen.append(b)
+        with open(repo(b)) as f:
+            spec = _merge(yaml.safe_load(f), spec)
+    return spec

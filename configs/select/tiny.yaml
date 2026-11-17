@@ -23,6 +23,8 @@ catalogues:
   - {id: archaea, file: tests/ci/fixtures/select/archaea.jsonl, as: ncbi_genome_reports}
   - {id: viruses, file: tests/ci/fixtures/select/viruses.jsonl, as: ncbi_genome_reports}
   - {id: virus_hosts, file: tests/ci/fixtures/select/virus_hosts.jsonl, as: ncbi_virus_reports}
+  - {id: phages, file: tests/ci/fixtures/select/phages.jsonl, as: ncbi_genome_reports}
+  - {id: phage_hosts, file: tests/ci/fixtures/select/phage_hosts.jsonl, as: ncbi_virus_reports}
   - {id: ens_vertebrates, file: tests/ci/fixtures/select/ens_vertebrates.jsonl, as: ensembl_species}
   - {id: ens_plants, file: tests/ci/fixtures/select/ens_plants.jsonl, as: ensembl_species}
   - {id: ens_fungi, file: tests/ci/fixtures/select/ens_fungi.jsonl, as: ensembl_species}
@@ -33,6 +35,6 @@ catalogues:
 rules:
   prokaryotes: {catalogues: [bacteria, archaea], min_protein_coding: 500, outer: order, cap_per_genus: 3}
   plasmids: {replicons: replicons, outer: order, cap_per_genus: 3}
-  viruses: {catalogues: [viruses], hosts: virus_hosts, outer: family, cap_per_genus: 3, require_complete: true}
+  viruses: {catalogues: [viruses, phages], hosts: [virus_hosts, phage_hosts], outer: family, cap_per_genus: 3, require_complete: true, unknown_host: exclude}
   eukaryotes: {catalogues: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], annotation: ens_annotation, outer: order, cap_per_genus: 2}
 share_repair: true

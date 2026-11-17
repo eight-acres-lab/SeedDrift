@@ -1,16 +1,21 @@
 """Stage search: every protein of the corpus (and of the evaluation genomes) against the reference, with the settings
 of the benchmark (DIAMOND --sensitive, up to 1,000 targets, e-value 1e-5) plus --max-hsps 1; the text output is read
-as a stream and stored per genome in data/hits/<id>.npz:
+as a stream and stored per genome in data/hits/<id>.npz (format 2):
 
+  format    int32 [1]            2
   off       int32 [genes + 1]    rows off[i]:off[i+1] belong to gene i (order of the genome's genes.tsv)
   nraw      uint16 [genes]       targets reported for the gene (1,000 = the list was full)
-  tgt       int32                target protein: row of reference/index.npz (the sequence can be fetched back)
-  prot      int32                row of reference/library.npz of the target's proteome (its lineage)
+  qlen      uint16|32 [genes]    length of the gene's protein (0 when it has no hit)
+  tgt       int32                target protein: row of reference/index.npz (the sequence can be fetched back; its
+                                 proteome, and so its lineage, is library row searchsorted(library.taxid, index.taxid[tgt]),
+                                 see hit_proteomes)
   pid       uint16               identity x 10
-  qs qe ss se  uint32            alignment coordinates (query start, end; target start, end)
-  qlen slen    uint32            lengths
+  qs qe ss se  uint16|32         alignment coordinates (query start, end; target start, end); 16 bits when they fit
+  slen      uint16|32            target length
   bits      float32              bit score
-  cigar     uint8 + cigar_off    the CIGAR of each alignment (concatenated bytes; rows cigar_off[r]:cigar_off[r+1])
+  cigar     uint8 + cigar_off    the CIGAR of each alignment (concatenated bytes; rows cigar_off[r]:cigar_off[r+1];
+                                 cigar_off uint32 when it fits)
+Format 1 (CI 0.1) also stored the proteome row (`prot`) and the query length on every row; readers accept both.
 
 Kept per gene: the NEAREST closest targets plus the best target of every reference genus (so that hiding the own
 species, genus, family or order at training time still leaves visible hits). Rows are ordered by bit score, then
@@ -63,25 +68,43 @@ def select(rows, genus_of_prot, nearest):
     return keep
 
 
+def narrow(vals):
+    """uint16 when every value fits, else uint32 (coordinates and lengths of proteins over 65,535 residues)."""
+    a = np.array(vals, dtype=np.int64)
+    if a.size and (a.min() < 0 or a.max() >= 2 ** 32):
+        raise SystemExit("coordinate out of range")
+    return a.astype(np.uint16) if (a.size == 0 or a.max() < 65536) else a.astype(np.uint32)
+
+
 def flush(path, genes, by_gene, nraw, genus_of_prot, nearest):
-    off = [0]
-    cols = {k: [] for k in ("tgt", "prot", "pid", "qs", "qe", "ss", "se", "qlen", "slen", "bits")}
+    off, qlen = [0], []
+    cols = {k: [] for k in ("tgt", "pid", "qs", "qe", "ss", "se", "slen", "bits")}
     cig, cig_off = bytearray(), [0]
     for g in genes:
         rows = select(by_gene.get(g, []), genus_of_prot, nearest)
+        qlen.append(rows[0][7] if rows else 0)
         for r in rows:
-            tgt, prot, pid, qs, qe, ss, se, ql, sl, bits, c = r
-            for k, v in zip(("tgt", "prot", "pid", "qs", "qe", "ss", "se", "qlen", "slen", "bits"), (tgt, prot, pid, qs, qe, ss, se, ql, sl, bits)):
+            tgt, _prot, pid, qs, qe, ss, se, ql, sl, bits, c = r
+            for k, v in zip(("tgt", "pid", "qs", "qe", "ss", "se", "slen", "bits"), (tgt, pid, qs, qe, ss, se, sl, bits)):
                 cols[k].append(v)
             cig += c.encode()
             cig_off.append(len(cig))
         off.append(off[-1] + len(rows))
-    save_npz(path, compress=True, off=np.array(off, dtype=np.int32), nraw=np.minimum(np.array([nraw.get(g, 0) for g in genes], dtype=np.int64), 65535).astype(np.uint16),
-                        tgt=np.array(cols["tgt"], dtype=np.int32), prot=np.array(cols["prot"], dtype=np.int32), pid=np.array(cols["pid"], dtype=np.uint16),
-                        qs=np.array(cols["qs"], dtype=np.uint32), qe=np.array(cols["qe"], dtype=np.uint32), ss=np.array(cols["ss"], dtype=np.uint32),
-                        se=np.array(cols["se"], dtype=np.uint32), qlen=np.array(cols["qlen"], dtype=np.uint32), slen=np.array(cols["slen"], dtype=np.uint32),
-                        bits=np.array(cols["bits"], dtype=np.float32), cigar=np.frombuffer(bytes(cig), dtype=np.uint8), cigar_off=np.array(cig_off, dtype=np.int64))
+    co = np.array(cig_off, dtype=np.int64)
+    save_npz(path, compress=True, format=np.array([2], dtype=np.int32), off=np.array(off, dtype=np.int32),
+             nraw=np.minimum(np.array([nraw.get(g, 0) for g in genes], dtype=np.int64), 65535).astype(np.uint16), qlen=narrow(qlen),
+             tgt=np.array(cols["tgt"], dtype=np.int32), pid=np.array(cols["pid"], dtype=np.uint16),
+             qs=narrow(cols["qs"]), qe=narrow(cols["qe"]), ss=narrow(cols["ss"]), se=narrow(cols["se"]), slen=narrow(cols["slen"]),
+             bits=np.array(cols["bits"], dtype=np.float32), cigar=np.frombuffer(bytes(cig), dtype=np.uint8),
+             cigar_off=co.astype(np.uint32) if co[-1] < 2 ** 32 else co)
     return off[-1]
+
+
+def hit_proteomes(hits, index_taxid, library_taxid):
+    """The library row (proteome, lineage) of every hit row, in both formats."""
+    if "prot" in hits:
+        return np.asarray(hits["prot"])
+    return np.searchsorted(library_taxid, np.asarray(index_taxid)[np.asarray(hits["tgt"])])
 
 
 def main():

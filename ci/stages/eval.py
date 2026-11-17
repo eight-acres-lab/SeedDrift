@@ -30,6 +30,7 @@ from ci import ROOT
 from ci.gates import find_waiver
 from ci.hashing import sha256_json
 from ci.stages.common import Stage, main_args, read_fasta, write_json
+from ci.stages.search import hit_proteomes
 from ci.stages.train import features, softmax
 from ci.taxonomy import Taxonomy
 
@@ -99,6 +100,7 @@ def main():
         tax = Taxonomy(st.repo(cfg["taxdump"]))
         lib = np.load(os.path.join(run_dir, "data", "reference", "library.npz"))
         ranks = lib["ranks"]
+        index_taxid = np.load(os.path.join(run_dir, "data", "reference", "index.npz"))["taxid"]
         model = np.load(os.path.join(run_dir, "data", "model", "model.npz"))
         W, classes = model["W"], [str(c) for c in model["classes"]]
         with open(os.path.join(run_dir, "data", "eval_inputs", "manifest.json")) as f:
@@ -115,7 +117,8 @@ def main():
             seqs = [cds["%s__%s" % (e["id"], g["gene_id"])] for g in genes]
             truth = np.array([g["truth"] != "native" for g in genes])
             hits = np.load(os.path.join(run_dir, "data", "hits", e["id"] + ".npz"))
-            off, prot, pid, bits = hits["off"], hits["prot"], hits["pid"], hits["bits"]
+            off, pid, bits = hits["off"], hits["pid"], hits["bits"]
+            prot = hit_proteomes(hits, index_taxid, lib["taxid"])         # hit format 1 or 2 (ci/stages/search.py)
             host_phylum = tax.at_rank(e["host_taxid"], "phylum")
             host_species = tax.at_rank(e["host_taxid"], "species")
             mine = [t for t in truth_rows if t["scenario"] == e["id"]]

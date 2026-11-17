@@ -120,6 +120,16 @@ def main():
                               source_database="RefSeq"))
     write("viruses.jsonl", vir, "accession")
     write("virus_hosts.jsonl", hosts, "accession")
+    # all-source phage catalogue: a record also in the RefSeq catalogue, the GenBank twin of a RefSeq phage (RefSeq is
+    # preferred), and two unannotated GenBank phages (proteins estimated from length) with their hosts
+    twin = dict(genome("GCA_%09d.1" % 400, phage[0], 0, ref=""), source_database="SOURCE_DATABASE_GENBANK", paired_accession="GCF_%09d.1" % 400)
+    ph, phh = [dict(vir[0]), twin], []
+    for i, t in enumerate(phage[6:8]):
+        ph.append(dict(genome("GCA_%09d.1" % (440 + i), t, 0, ref=""), source_database="SOURCE_DATABASE_GENBANK", paired_accession="", length=45000))
+        phh.append(dict(accession="MN%06d.1" % (440 + i), virus_taxid=t, host_taxid=bact[5], completeness="COMPLETE", protein_count=0, length=45000,
+                        source_database="GenBank"))
+    write("phages.jsonl", ph, "accession")
+    write("phage_hosts.jsonl", phh, "accession")
 
     def ens(name, t, site, division, release, acc):
         return dict(name=name, display_name=tax.name(t), division="Ensembl" + division.capitalize(), taxonomy_id=t, assembly="asm%d" % t, assembly_accession=acc,

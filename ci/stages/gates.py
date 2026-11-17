@@ -30,7 +30,7 @@ from ci.gates import g1_kingdom, g2_exclusion, g3_sealed, g4_report, g6_clean, g
 from ci.hashing import sha256_file, sha256_json
 from ci.kingdom import KingdomMap
 from ci.record import atomic_write_json
-from ci.stages.common import Stage, read_fasta
+from ci.stages.common import Stage, load_select_spec, read_fasta
 from ci.taxonomy import Taxonomy
 
 
@@ -61,8 +61,7 @@ def phase_pre(st, cfg, run_dir):
     require(res, run_dir)
     require(g8_version.check(ROOT), run_dir)
     if pipeline_of(cfg) == "select":
-        with open(st.repo(cfg["select_spec"])) as f:
-            spec = yaml.safe_load(f)
+        spec = load_select_spec(cfg["select_spec"], st.repo)
         require(g1_kingdom.select_static(spec, cfg.get("tier")), run_dir)
     else:
         with open(st.repo(cfg["corpus_spec"])) as f:
@@ -86,8 +85,7 @@ def pipeline_of(cfg):
 
 def _g3_files(st, cfg, run_dir):
     if pipeline_of(cfg) == "select":
-        with open(st.repo(cfg["select_spec"])) as f:
-            spec = yaml.safe_load(f)
+        spec = load_select_spec(cfg["select_spec"], st.repo)
         lock = (cfg.get("catalog") or {}).get("lock")
         return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["select_spec"]), st.repo(spec["assumptions"])] + \
             ([st.repo(lock)] if lock and os.path.exists(st.repo(lock)) else [])
@@ -99,8 +97,7 @@ def phase_select(st, cfg, run_dir):
     """G1_select, G2_select and G3_select on the selected table; all three are decided and recorded before a failure stops
     the run (the report of the selection is written by the budget stage whatever they say)."""
     import csv
-    with open(st.repo(cfg["select_spec"])) as f:
-        spec = yaml.safe_load(f)
+    spec = load_select_spec(cfg["select_spec"], st.repo)
     d = os.path.join(run_dir, "data", "select")
     with open(os.path.join(d, "selected.tsv")) as f:
         rows = list(csv.DictReader(f, delimiter="\t"))

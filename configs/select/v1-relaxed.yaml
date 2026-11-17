@@ -1,0 +1,6 @@
+# Corpus v1 with the relaxed host rule (A/B against v1.yaml, from the same catalogue snapshots and lock): viruses
+# without a usable host record are kept, placed by their taxon; they cannot be checked against the host exclusions.
+base: configs/select/v1.yaml
+name: v1-relaxed
+rules:
+  viruses: {unknown_host: keep}

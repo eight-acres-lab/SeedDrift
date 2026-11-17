@@ -102,3 +102,20 @@ def pipeline_hash(root: str) -> str:
 def stage_key(rule: str, rule_version: str, code_hash: str, params, input_hashes, env_hash: str) -> str:
     return sha256_json({"rule": rule, "rule_version": rule_version, "code": code_hash, "params": params,
                         "inputs": sorted(input_hashes), "env": env_hash})
+
+
+TAXDUMP_FILES = ("nodes.dmp", "names.dmp", "merged.dmp", "delnodes.dmp")
+
+
+def taxdump_hash(path: str) -> str:
+    """Hash of an NCBI taxonomy dump folder (repository-relative or absolute): its nodes, names, merged and delnodes files."""
+    from ci import ROOT
+    full = path if os.path.isabs(path) else os.path.join(ROOT, path)
+    rows = []
+    for name in TAXDUMP_FILES:
+        for cand in (name, name + ".gz"):
+            if os.path.exists(os.path.join(full, cand)):
+                rows.append([cand, sha256_file(os.path.join(full, cand))])
+    if not rows:
+        raise SystemExit("no taxdump files in %s" % full)
+    return sha256_json(rows)

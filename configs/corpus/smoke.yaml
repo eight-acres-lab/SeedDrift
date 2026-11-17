@@ -1,0 +1,61 @@
+# Corpus of the smoke profile (T2, server): every group of configs/kingdom_map.yml with real, public genomes, small
+# enough for one pass of the whole pipeline in about an hour. Remote sources are downloaded by the fetch stage (ENA
+# for INSDC assemblies and sequences, Ensembl and Ensembl Genomes for annotated eukaryotes, both release-pinned) and
+# kept in the CI's content-addressed store. Eukaryotes are cut to a few chromosomes or the first genes in genome
+# order so the search stays short; this tier checks the pipeline, not the model.
+#
+# The bacterium of the evaluation scenario (Coxiella burnetii RSA 493) is in the corpus without the region the
+# scenario is taken from (AE016828.3 150001-210000; the scenario uses 160001-200000), as in ci-tiny; gate G2_holdout
+# checks that no evaluation sequence is left in the corpus.
+name: smoke
+tier: smoke
+groups:
+  bacteria: {min_genomes: 1}
+  archaea: {min_genomes: 1}
+  eukaryota.mammals: {min_genomes: 1}
+  eukaryota.other_vertebrates: {min_genomes: 1}
+  eukaryota.invertebrates: {min_genomes: 1}
+  eukaryota.plants_algae: {min_genomes: 1}
+  eukaryota.fungi: {min_genomes: 1}
+  eukaryota.protists: {min_genomes: 1}
+  viruses.phage: {min_genomes: 1}
+  viruses.eukaryotic: {min_genomes: 1}
+  viruses.giant: {min_genomes: 1}
+  mobile.plasmid: {min_genomes: 1}
+sources:
+  # bacteria (four phyla), archaea (two phyla): chromosomes of INSDC assemblies, genes called by pyrodigal
+  - {id: bacterium_GCF_000007765.2, source_kind: raw_prokaryote, taxid: 227377, table: 11, accession: GCF_000007765.2, paired_accession: GCA_000007765.2,
+     ena_assembly: GCA_000007765.2, replicon_types: [Chromosome], exclude_regions: [{replicon: AE016828.3, start: 150001, end: 210000}]}
+  - {id: bacterium_GCF_000012405.1, source_kind: raw_prokaryote, taxid: 269800, table: 11, accession: GCF_000012405.1, paired_accession: GCA_000012405.1,
+     ena_assembly: GCA_000012405.1, replicon_types: [Chromosome]}
+  - {id: bacterium_GCF_000010505.1, source_kind: raw_prokaryote, taxid: 431947, table: 11, accession: GCF_000010505.1, paired_accession: GCA_000010505.1,
+     ena_assembly: GCA_000010505.1, replicon_types: [Chromosome]}
+  - {id: bacterium_GCF_000011345.1, source_kind: raw_prokaryote, taxid: 197221, table: 11, accession: GCF_000011345.1, paired_accession: GCA_000011345.1,
+     ena_assembly: GCA_000011345.1, replicon_types: [Chromosome]}
+  - {id: archaeon_GCF_000007185.1, source_kind: raw_prokaryote, taxid: 190192, table: 11, accession: GCF_000007185.1, paired_accession: GCA_000007185.1,
+     ena_assembly: GCA_000007185.1, replicon_types: [Chromosome]}
+  - {id: archaeon_GCF_000011125.1, source_kind: raw_prokaryote, taxid: 272557, table: 11, accession: GCF_000011125.1, paired_accession: GCA_000011125.1,
+     ena_assembly: GCA_000011125.1, replicon_types: [Chromosome]}
+  # plasmids of an INSDC assembly (Geobacillus kaustophilus HTA426)
+  - {id: plasmid_GCF_000009785.1, source_kind: plasmid, taxid: 235909, table: 11, accession: GCF_000009785.1, paired_accession: GCA_000009785.1,
+     ena_assembly: GCA_000009785.1, replicon_types: [Plasmid]}
+  # viruses: phages, eukaryotic viruses (DNA and RNA), giant viruses (Nucleocytoviricota, which include the poxviruses)
+  - {id: phage_lambda_J02459.1, source_kind: raw_virus, taxid: 10710, table: 11, ena_sequences: [J02459.1]}
+  - {id: phage_T4_AF158101.6, source_kind: raw_virus, taxid: 10665, table: 11, ena_sequences: [AF158101.6]}
+  - {id: virus_HHV1_JN555585.1, source_kind: raw_virus, taxid: 10299, table: 1, ena_sequences: [JN555585.1]}
+  - {id: virus_SARS2_MN908947.3, source_kind: raw_virus, taxid: 2697049, table: 1, ena_sequences: [MN908947.3]}
+  - {id: giant_mimivirus_AY653733.1, source_kind: raw_virus, taxid: 212035, table: 1, ena_sequences: [AY653733.1]}
+  - {id: giant_vaccinia_M35027.1, source_kind: raw_virus, taxid: 10249, table: 1, ena_sequences: [M35027.1]}
+  # eukaryotes: Ensembl release 116 / Ensembl Genomes release 63 coding sequences (protein-coding genes, longest CDS)
+  - {id: mammal_homo_sapiens_chr21, source_kind: annotated_cds, taxid: 9606, table: 1, replicons: ["21"],
+     ensembl: {site: ensembl, species: homo_sapiens, release: 116}}
+  - {id: vertebrate_danio_rerio_chr25, source_kind: annotated_cds, taxid: 7955, table: 1, replicons: ["25"], max_genes: 600,
+     ensembl: {site: ensembl, species: danio_rerio, release: 116}}
+  - {id: invertebrate_drosophila_melanogaster_2L, source_kind: annotated_cds, taxid: 7227, table: 1, replicons: ["2L"], max_genes: 600,
+     ensembl: {site: ensembl, species: drosophila_melanogaster, release: 116}}
+  - {id: plant_arabidopsis_thaliana_chr4, source_kind: annotated_cds, taxid: 3702, table: 1, replicons: ["4"], max_genes: 600,
+     ensembl: {site: ensemblgenomes, division: plants, species: arabidopsis_thaliana, release: 63}}
+  - {id: fungus_saccharomyces_cerevisiae_I_III, source_kind: annotated_cds, taxid: 559292, table: 1, replicons: ["I", "II", "III"],
+     ensembl: {site: ensembl, species: saccharomyces_cerevisiae, release: 116}}
+  - {id: protist_dictyostelium_discoideum, source_kind: annotated_cds, taxid: 352472, table: 1, max_genes: 600,
+     ensembl: {site: ensemblgenomes, division: protists, species: dictyostelium_discoideum, release: 63}}

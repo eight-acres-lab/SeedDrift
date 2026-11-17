@@ -1,0 +1,35 @@
+# T2 on the GPU server, started only through ci/launch.sh: the whole pipeline on real public genomes of every group
+# (configs/corpus/smoke.yaml) against the full protein reference, used in place. About an hour; it checks that every
+# stage works on real data at a size where mistakes show (downloads, Ensembl parsing, the full DIAMOND search, the
+# released screen recomputed next to the model), not what the model can do.
+tier: smoke
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 20
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/smoke.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+train:
+  model: toy_source_id
+  seed: 1
+  steps: 200
+  batch: 64
+  lr: 0.5
+  eval_every: 20
+  ckpt_every: 50

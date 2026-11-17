@@ -2,15 +2,22 @@
 
 Source kinds:
   raw_prokaryote, raw_virus, plasmid   DNA only; genes called by pyrodigal as the app does (single-genome mode from
-                                       100 kb of sequence, metagenome mode below), with the source's genetic code
+                                       100 kb of sequence, metagenome mode below), with the source's genetic code;
+                                       `exclude_regions` cuts held-out regions (an evaluation region) out first
   annotated                            DNA plus a gene table (gene_id, replicon, start, end, strand) and proteins; the
                                        coding DNA is cut from the DNA and must translate to the given protein
+  annotated_cds                        Ensembl coding sequences (cds.all): protein-coding genes only, the longest
+                                       coding sequence of each gene, coordinates from the FASTA headers, organelle
+                                       replicons left out (a separate class), optionally only some `replicons`
+                                       and at most `max_genes` genes in genome order
+Remote sources (ena_assembly, ena_sequences, ensembl) take their files from the fetch stage (data/fetch/manifest.json).
 Every genome gets data/corpus/<id>/{genes.tsv, proteins.faa, cds.fna}; the manifest (data/corpus/manifest.json,
 content-addressed copy in manifests/) lists each genome with taxid, source kind, protein count and file hashes.
 """
 from __future__ import annotations
 
 import csv
+import json
 import os
 
 import yaml
@@ -25,8 +32,19 @@ def revcomp(s):
     return s.translate(COMP)[::-1]
 
 
-def sources_of(spec, repo):
-    rows = [dict(r, files=[repo(x) for x in r["files"]]) for r in (spec.get("sources") or [])]
+REMOTE = ("ena_assembly", "ena_sequences", "ensembl")
+ORGANELLE = {"MT", "Mt", "mt", "MtDNA", "mitochondrion", "Mito", "Pt", "chloroplast", "plastid", "apicoplast", "M"}
+
+
+def sources_of(spec, repo, fetched=None):
+    rows = []
+    for r in spec.get("sources") or []:
+        if any(k in r for k in REMOTE):
+            if fetched is None or r["id"] not in fetched:
+                raise SystemExit("source %s needs the fetch stage" % r["id"])
+            rows.append(dict(r, files=fetched[r["id"]]))
+        else:
+            rows.append(dict(r, files=[repo(x) for x in r["files"]]))
     if spec.get("sources_table"):
         base = os.path.dirname(repo(spec["sources_table"]))
         with open(repo(spec["sources_table"])) as f:
@@ -35,9 +53,36 @@ def sources_of(spec, repo):
                                  accession=r.get("accession", ""), paired_accession=r.get("paired_accession", ""), synthetic=r.get("synthetic", "no"),
                                  files=[os.path.join(base, x) for x in r["files"].split(";")]))
     for r in rows:
-        if r["source_kind"] != "annotated" and r.get("synthetic", "no") == "no" and not str(r.get("accession", "")).startswith(("GCA_", "GCF_")):
+        if r["source_kind"] in ("raw_prokaryote", "plasmid") and r.get("synthetic", "no") == "no" and not str(r.get("accession", "")).startswith(("GCA_", "GCF_")):
             raise SystemExit("source %s comes from an assembly but has no assembly accession (needed by gate G2)" % r["id"])
     return rows
+
+
+def clean_name(name):
+    """ENA FASTA names (ENA|AE016828|AE016828.3) become the sequence accession (AE016828.3)."""
+    return name.split("|")[-1] if name.startswith("ENA|") else name
+
+
+def cut_regions(contigs, regions):
+    """Remove regions ({replicon, start, end}, 1-based inclusive) from the sequences: a replicon with a region cut out
+    becomes its pieces <replicon>_p1, <replicon>_p2, ... (an evaluation region held out of the training corpus)."""
+    out = dict(contigs)
+    by_rep = {}
+    for r in regions:
+        if r["replicon"] not in contigs:
+            raise SystemExit("exclude_regions: no replicon %s (have %s)" % (r["replicon"], sorted(contigs)[:5]))
+        by_rep.setdefault(r["replicon"], []).append((int(r["start"]), int(r["end"])))
+    for rep, cuts in by_rep.items():
+        seq, pieces, pos = out.pop(rep), [], 1
+        for a, b in sorted(cuts):
+            if a > pos:
+                pieces.append(seq[pos - 1:a - 1])
+            pos = max(pos, b + 1)
+        if pos <= len(seq):
+            pieces.append(seq[pos - 1:])
+        for k, piece in enumerate(pieces, 1):
+            out["%s_p%d" % (rep, k)] = piece
+    return out
 
 
 def call_genes(contigs, table, force_meta=False):
@@ -77,15 +122,64 @@ def annotated(files, table):
     return genes, "annotated"
 
 
+def annotated_cds(path, table, replicons=None, max_genes=0):
+    """Genes of an Ensembl cds.all FASTA: header '>TRANSCRIPT cds TYPE:ASSEMBLY:NAME:START:END:STRAND gene:GENE ...'."""
+    import gzip
+    from Bio.Seq import Seq
+    best = {}
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rt") as f:
+        head, buf = None, []
+
+        def take(head, seq):
+            fields = head[1:].split()
+            tags = dict(x.split(":", 1) for x in fields[2:] if ":" in x)
+            if tags.get("gene_biotype") != "protein_coding" or tags.get("transcript_biotype") != "protein_coding":
+                return
+            loc = fields[2].split(":") if len(fields) > 2 else []
+            if len(loc) < 6:
+                return
+            name, start, end, strand = loc[2], int(loc[3]), int(loc[4]), loc[5]
+            if name in ORGANELLE or (replicons and name not in replicons):
+                return
+            gene = tags.get("gene", fields[0]).split(".")[0]
+            if gene not in best or len(seq) > len(best[gene]["cds"]):
+                best[gene] = dict(gene_id=gene, replicon=name, start=start, end=end, strand="+" if strand == "1" else "-", partial="00", cds=seq.upper())
+        for line in f:
+            if line.startswith(">"):
+                if head:
+                    take(head, "".join(buf))
+                head, buf = line.rstrip("\n"), []
+            else:
+                buf.append(line.strip())
+        if head:
+            take(head, "".join(buf))
+    genes = []
+    for g in sorted(best.values(), key=lambda g: (g["replicon"], g["start"], g["gene_id"])):
+        if len(g["cds"]) % 3:
+            continue
+        p = str(Seq(g["cds"]).translate(table=table))
+        if "*" in p.rstrip("*") or len(p) < 30:
+            continue
+        g["protein"] = p.rstrip("*")
+        genes.append(g)
+        if max_genes and len(genes) >= max_genes:
+            break
+    return genes, "annotated (Ensembl)"
+
+
 def build_one(src, out_dir):
     kind = src["source_kind"]
     table = int(src.get("table", 11))
     if kind == "annotated":
         genes, mode = annotated(src["files"], table)
+    elif kind == "annotated_cds":
+        genes, mode = annotated_cds(src["files"][0], int(src.get("table", 1)), set(src.get("replicons") or []), int(src.get("max_genes", 0)))
     elif kind in ("raw_prokaryote", "raw_virus", "plasmid"):
         contigs = {}
         for f in src["files"]:
-            contigs.update(read_fasta(f))
+            contigs.update({clean_name(k): v for k, v in read_fasta(f).items()})
+        contigs = cut_regions(contigs, src.get("exclude_regions") or [])
         genes, mode = call_genes(contigs, table, force_meta=kind in ("raw_virus", "plasmid"))
     else:
         raise SystemExit("unknown source kind %s" % kind)
@@ -106,8 +200,14 @@ def main():
     with Stage(run_dir, "corpus", requires=("pre",)) as st:
         with open(st.repo(st.config["corpus_spec"])) as f:
             spec = yaml.safe_load(f)
+        fetched = None
+        fm = os.path.join(run_dir, "data", "fetch", "manifest.json")
+        if os.path.exists(fm):
+            cas = os.path.join(st.config["data_root"], "cas")
+            with open(fm) as f:
+                fetched = {e["id"]: [os.path.join(cas, x["path"]) for x in e["files"]] for e in json.load(f)["entries"]}
         entries = []
-        for src in sources_of(spec, st.repo):
+        for src in sources_of(spec, st.repo, fetched):
             out_dir = st.path("corpus", src["id"], "x")[:-2]
             genes, mode = build_one(src, out_dir)
             files = [M.file_entry(os.path.join(out_dir, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]

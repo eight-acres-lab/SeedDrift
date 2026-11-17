@@ -23,7 +23,7 @@ import tempfile
 import yaml
 
 from ci import ROOT, version
-from ci.hashing import pipeline_hash, sha256_file, sha256_json
+from ci.hashing import pipeline_hash, sha256_file, sha256_json, taxdump_hash
 from ci.record import Record, atomic_write_json, status_of, validate
 
 LAUNCHER_VERSION = "0.1"
@@ -32,7 +32,6 @@ LAUNCHER_VERSION = "0.1"
 SETTABLE = ("train.", "search.threads", "search.block_size", "cores", "blas_threads")
 # a run passes only when every one of these gates is present and passed (or waived)
 REQUIRED_GATES = ("G6", "G7", "G7_resources", "G8", "G1_spec", "G2_static", "G1_corpus", "G2_corpus", "G1_train", "G2_train", "G2_holdout")
-TAXDUMP_FILES = ("nodes.dmp", "names.dmp", "merged.dmp", "delnodes.dmp")
 
 
 def _git(*args):
@@ -105,18 +104,6 @@ def env_snapshot(run_dir, cfg):
             out["env_export.yml"] = sha256_file(p, use_sidecar=False)
             cfg["env_export"] = p
     return out
-
-
-def taxdump_hash(path):
-    full = path if os.path.isabs(path) else os.path.join(ROOT, path)
-    rows = []
-    for name in TAXDUMP_FILES:
-        for cand in (name, name + ".gz"):
-            if os.path.exists(os.path.join(full, cand)):
-                rows.append([cand, sha256_file(os.path.join(full, cand))])
-    if not rows:
-        raise SystemExit("no taxdump files in %s" % full)
-    return sha256_json(rows)
 
 
 def resolve(profile, run_dir, overrides=()):

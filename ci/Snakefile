@@ -21,8 +21,14 @@ rule gates_pre:
     shell: STAGE.format(name="gates") + " pre"
 
 
-rule corpus:
+rule fetch:
     input: "gates/pre.ok"
+    output: "data/fetch/manifest.json"
+    shell: STAGE.format(name="fetch")
+
+
+rule corpus:
+    input: "gates/pre.ok", "data/fetch/manifest.json"
     output: "data/corpus/manifest.json"
     shell: STAGE.format(name="corpus")
 

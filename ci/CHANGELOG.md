@@ -19,3 +19,9 @@ configurations and fixes.
   dynamic generator imports; G6 checks the requested commit, ignored files and write bits; G8 fails on tags that are
   not ancestors; `--set` is limited to training and thread settings; launchers validate their arguments, require
   passing T0 and T1, take the GPU lock in the foreground and report success only once the record exists.
+- Smoke tier (T2, server): stage `fetch` downloads remote sources (ENA assemblies and sequences, release-pinned
+  Ensembl and Ensembl Genomes coding sequences) into a content-addressed store and lists them in a fetch manifest;
+  the corpus stage reads Ensembl CDS files (protein-coding genes, longest CDS, no organelles), turns ENA names into
+  sequence accessions and cuts held-out evaluation regions out of corpus genomes; the reference stage can keep its
+  tables in the store (`reference.cache`), keyed by the FASTA, the taxonomy and the stage code, and records an
+  in-place DIAMOND database in its manifest. Profile `smoke` with corpus spec `configs/corpus/smoke.yaml`.

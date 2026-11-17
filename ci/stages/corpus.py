@@ -71,7 +71,10 @@ def cut_regions(contigs, regions):
     for r in regions:
         if r["replicon"] not in contigs:
             raise SystemExit("exclude_regions: no replicon %s (have %s)" % (r["replicon"], sorted(contigs)[:5]))
-        by_rep.setdefault(r["replicon"], []).append((int(r["start"]), int(r["end"])))
+        a, b = int(r["start"]), int(r["end"])
+        if not 1 <= a <= b <= len(contigs[r["replicon"]]):
+            raise SystemExit("exclude_regions: %s %d-%d is not inside the replicon (1-%d)" % (r["replicon"], a, b, len(contigs[r["replicon"]])))
+        by_rep.setdefault(r["replicon"], []).append((a, b))
     for rep, cuts in by_rep.items():
         seq, pieces, pos = out.pop(rep), [], 1
         for a, b in sorted(cuts):
@@ -171,6 +174,8 @@ def annotated_cds(path, table, replicons=None, max_genes=0):
 def build_one(src, out_dir):
     kind = src["source_kind"]
     table = int(src.get("table", 11))
+    if src.get("exclude_regions") and kind not in ("raw_prokaryote", "raw_virus", "plasmid"):
+        raise SystemExit("source %s: exclude_regions works on DNA sources only, not on %s" % (src["id"], kind))
     if kind == "annotated":
         genes, mode = annotated(src["files"], table)
     elif kind == "annotated_cds":

@@ -93,9 +93,12 @@ def main():
         for name in ("cache", "jobs"):
             os.makedirs(os.path.join(store, name), exist_ok=True)
         py = os.path.join(env, "bin", "python")
-        envv = dict(os.environ, SEEDDRIFT_DATA=store, SEEDDRIFT_TOOLS_URL="", SEEDDRIFT_ESMFOLD_URL="", SEEDDRIFT_THREADS=str(rc.get("threads", 12)),
-                    SEEDDRIFT_CACHE="1", PYTHONNOUSERSITE="1", PATH=os.path.join(env, "bin") + os.pathsep + os.environ.get("PATH", ""), CONDA_PREFIX=env)
-        envv.pop("PYTHONPATH", None)
+        # no SEEDDRIFT_* setting of the calling shell reaches the screen (a production env file could point its jobs,
+        # binaries or services elsewhere); only these are set, and the tools are the locked environment's
+        envv = {k: v for k, v in os.environ.items() if not k.startswith(("SEEDDRIFT_", "PYTHON", "CONDA"))}
+        envv.update(SEEDDRIFT_DATA=store, SEEDDRIFT_JOBS=os.path.join(store, "jobs"), SEEDDRIFT_TOOLS_URL="", SEEDDRIFT_ESMFOLD_URL="",
+                    SEEDDRIFT_THREADS=str(rc.get("threads", 12)), SEEDDRIFT_CACHE="1", PYTHONNOUSERSITE="1", CONDA_PREFIX=env,
+                    PATH=os.path.join(env, "bin") + os.pathsep + "/usr/bin:/bin")
         where = subprocess.run([py, "-c", "import seeddrift; print(seeddrift.__file__)"], cwd=src, env=envv, capture_output=True, text=True, check=True).stdout.strip()
         if not os.path.realpath(where).startswith(os.path.realpath(src) + os.sep):
             raise SystemExit("the released code was imported from %s, not from the unpacked tag" % where)

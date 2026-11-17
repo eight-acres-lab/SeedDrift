@@ -114,3 +114,15 @@ def test_server_refuses_when_the_gpu_lock_is_held_fails(server):
         r = _run(["bash", script, sha, tree, "smoke", "r2", "github", "work"], root, env)
     assert r.returncode == 3 and "GPU lock" in r.stderr
     assert not (root / "wt" / "r2").exists()
+
+
+def test_launch_refuses_a_hostile_branch_name_fails(dev):
+    work, env, log, g = dev
+    g("checkout", "-q", "-b", "x';touch${IFS}pwned;'y")
+    (work / "b.txt").write_text("b\n")
+    g("add", "b.txt")
+    g("commit", "-q", "-m", "on a hostile branch only")
+    assert g("push", "-q", "origin", "HEAD").returncode == 0
+    r = _run(["bash", "ci/launch.sh", "HEAD", "smoke"], work, dict(env, FAKE_GH="true"))
+    assert r.returncode == 2 and "unsafe branch name" in r.stderr
+    assert not log.exists() and not (work / "pwned").exists()

@@ -4,7 +4,7 @@
 # exist yet (built at its final path, named by the lock file's hash, complete only with its marker; never changed), takes the GPU
 # lock in the foreground (a busy GPU refuses the launch), and starts the run in the background; it reports success
 # only once the run record exists.
-set -euo pipefail
+set -Eeuo pipefail
 sha=$1; tree=$2; profile=$3; run_id=$4; provenance=$5; branch=$6; parent=${7:-}
 for x in "$profile" "$run_id" "$provenance" "$branch" ${parent:+"$parent"}; do
   [[ "$x" =~ ^[A-Za-z0-9._/-]+$ && "$x" != *..* ]] || { echo "refused: unsafe argument '$x'" >&2; exit 2; }
@@ -22,7 +22,8 @@ exec 9> locks/gpu.lock
 flock -n 9 || { echo "refused: another run holds the GPU lock" >&2; exit 3; }
 
 cleanup() { chmod -R u+w "wt/$run_id" 2>/dev/null || true; git -C repo.git worktree remove --force "$root/wt/$run_id" 2>/dev/null || true; }
-trap 'cleanup' ERR
+# any exit before the run starts (a failed command, a refusal, a failed environment build) removes the worktree
+trap 'cleanup' EXIT
 git -C repo.git worktree add -q --detach "$root/wt/$run_id" "$sha"
 [ -z "$(git -C "wt/$run_id" status --porcelain --untracked-files=all --ignored)" ] || { echo "worktree not clean" >&2; exit 1; }
 # a conda environment cannot be moved (paths such as the OpenSSL certificate file are compiled in), so it is built at
@@ -31,7 +32,9 @@ build_env() {   # lock file, prefix
   if [ ! -f "$2/.ci-env-complete" ]; then
     T=${CI_CONDA_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud}
     rm -rf "$2"
-    MAMBA_ROOT_PREFIX="$root/mamba" "$MM" create -y -q -p "$root/$2" -f "$1" --override-channels -c "$T/conda-forge" -c "$T/bioconda" > "tmp/env-$(basename "$2").log" 2>&1
+    log="tmp/env-$(basename "$2").log"
+    MAMBA_ROOT_PREFIX="$root/mamba" "$MM" create -y -q -p "$root/$2" -f "$1" --override-channels -c "$T/conda-forge" -c "$T/bioconda" > "$log" 2>&1 \
+      || { echo "building $2 from $1 failed; the end of $log:" >&2; tail -n 20 "$log" >&2; rm -rf "$2"; return 1; }
     sha256sum "$1" > "$2/.ci-env-complete"
   fi
 }
@@ -46,7 +49,7 @@ if grep -q "^released:" "wt/$run_id/ci/profiles/$profile/config.yaml"; then
 fi
 ln -sfn "sd-ci-$h" envs/current
 chmod -R a-w "wt/$run_id"
-trap - ERR
+trap - EXIT
 
 export TMPDIR="$root/tmp" XDG_CACHE_HOME="$root/cache" PIP_CACHE_DIR="$root/cache/pip" CI_PROVENANCE="$provenance" CI_BRANCH="$branch"
 export CI_EXPECT_SHA="$sha" CI_ROOT="$root" MAMBA_EXE="$MM" PATH="$root/$env/bin:$PATH" CONDA_PREFIX="$root/$env"

@@ -7,11 +7,15 @@ Source fields understood (configs/corpus/<name>.yaml, `sources:`):
                           the release-pinned coding sequences (cds.all) of an Ensembl species
 Every downloaded file is stored once in the CI's content-addressed store (<cas>/<sha256[:2]>/<sha256>) and listed in
 data/fetch/manifest.json with its URL, size and sha256. A rerun takes the stored file when the source description is
-the same and never downloads again; a stored file whose content no longer matches its name is refused. Paths in the
+the same and never downloads again; a stored file whose content no longer matches its name is refused. A download
+enters the store only when complete: every requested INSDC sequence present and non-empty, an Ensembl file a whole
+gzip stream of FASTA. Temporary names are private to the process and the index is merged under a lock, so runs can
+share the store. Paths in the
 index and the manifest are relative to the store, so the store can be moved or merged (its files are named by content).
 """
 from __future__ import annotations
 
+import fcntl
 import gzip
 import hashlib
 import json
@@ -61,10 +65,32 @@ def store(cas, data: bytes, suffix: str):
         store_check(path, sha)
         return path, sha
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path + ".part", "wb") as f:
+    tmp = "%s.part%d" % (path, os.getpid())                        # private to this process (runs may share the store)
+    with open(tmp, "wb") as f:
         f.write(data)
-    os.replace(path + ".part", path)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
     return path, sha
+
+
+def check_fasta(data: bytes, want, what):
+    """A downloaded FASTA must hold every requested sequence (ENA names ENA|X|X.v count as X.v), none of them empty."""
+    names, lens, cur = set(), {}, None
+    for line in data.decode(errors="replace").splitlines():
+        if line.startswith(">"):
+            first = line[1:].split()[0] if line[1:].split() else ""
+            cur = first.split("|")[-1] if first.startswith("ENA|") else first
+            names.add(cur)
+            lens[cur] = 0
+        elif cur is not None:
+            lens[cur] += len(line.strip())
+    bare = {n.split(".")[0]: n for n in names}                   # a requested accession without version matches any
+    got = {w: (w if w in names else (bare.get(w) if "." not in w else None)) for w in want}
+    missing = sorted(w for w, n in got.items() if n is None)
+    empty = sorted(w for w, n in got.items() if n is not None and lens.get(n, 0) == 0)
+    if missing or empty or not names:
+        raise SystemExit("%s: incomplete download (missing %s, empty %s, %d records)" % (what, missing[:5], empty[:5], len(names)))
 
 
 def describe(src):
@@ -91,6 +117,7 @@ def fetch_source(src, cas, index):
         data = get(url)
         if data[:2] == b"\x1f\x8b":
             data = gzip.decompress(data)
+        check_fasta(data, accs, src["ena_assembly"])
         path, sha = store(cas, data, ".fna")
         files.append(dict(path=path, sha256=sha, bytes=len(data), kind="fna"))
         prov.append(dict(url=url, replicons=accs))
@@ -99,6 +126,7 @@ def fetch_source(src, cas, index):
         data = get(url)
         if data[:2] == b"\x1f\x8b":
             data = gzip.decompress(data)
+        check_fasta(data, src["ena_sequences"], src["id"])
         path, sha = store(cas, data, ".fna")
         files.append(dict(path=path, sha256=sha, bytes=len(data), kind="fna"))
         prov.append(dict(url=url))
@@ -110,6 +138,12 @@ def fetch_source(src, cas, index):
         if len(names) != 1:
             raise SystemExit("%s: expected one cds.all file, found %s" % (base, names))
         data = get(base + names[0])
+        try:                                                     # the whole stream, so a truncated file never enters the store
+            text = gzip.decompress(data)
+        except (OSError, EOFError) as err:
+            raise SystemExit("%s: not a complete gzip file (%s)" % (base + names[0], err))
+        if not text.startswith(b">"):
+            raise SystemExit("%s: not a FASTA file" % (base + names[0]))
         path, sha = store(cas, data, ".cds.fa.gz")
         files.append(dict(path=path, sha256=sha, bytes=len(data), kind="cds.fa.gz"))
         prov.append(dict(url=base + names[0]))
@@ -126,20 +160,25 @@ def main():
         cas = os.path.join(cfg["data_root"], "cas")
         index_path = os.path.join(cas, "fetch_index.json")
         index = json.load(open(index_path)) if os.path.exists(index_path) else {}
-        entries, reused = [], 0
+        entries, reused, mine = [], 0, {}
         for src in spec.get("sources") or []:
             if not describe(src):
                 continue
             files, prov, hit = fetch_source(src, cas, index)
             reused += hit
             rel = [dict(f, path=os.path.relpath(f["path"], cas)) for f in files]
-            index[sha256_json(describe(src))] = dict(files=rel, provenance=prov)
+            index[sha256_json(describe(src))] = mine[sha256_json(describe(src))] = dict(files=rel, provenance=prov)
             entries.append(dict(id=src["id"], source=describe(src), files=rel, provenance=prov))
         if entries:                                    # a spec without remote sources (ci-tiny) leaves the store alone
             os.makedirs(cas, exist_ok=True)
-            with open(index_path + ".part", "w") as f:
-                json.dump(index, f, indent=1, sort_keys=True)
-            os.replace(index_path + ".part", index_path)
+            with open(os.path.join(cas, "fetch_index.lock"), "w") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)         # another run may have added entries since we read the index
+                cur = json.load(open(index_path)) if os.path.exists(index_path) else {}
+                cur.update(mine)
+                tmp = "%s.part%d" % (index_path, os.getpid())
+                with open(tmp, "w") as f:
+                    json.dump(cur, f, indent=1, sort_keys=True)
+                os.replace(tmp, index_path)
         man = M.build(spec["name"] + "-fetch", "fetch", entries, meta=dict(cas="<data_root>/cas"))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("fetch", "manifest.json")

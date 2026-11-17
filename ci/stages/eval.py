@@ -10,8 +10,10 @@ Comparators (always reported next to the model; never a bar, never an input of t
 Hits to the host's own species and to the donor's genus are hidden for every gene (the donor lineage is taken as
 unsampled, as the benchmark hides the own genus). Per scenario: positives = genes of the truth table, negatives = all
 other genes; AUROC with ties at expectation and
-recall at the lowest false-positive rate the negatives allow. Every row carries the hash of the gene set it was scored
-on (gene ids and proteins in order; gate G4 requires the same set in every row of a scenario). The report ends with
+recall at the lowest false-positive rate the negatives allow. Every row carries the hash of the genes it ranks (ids
+and proteins in order) and of the genes the method scored itself, with the count of the others its documented rule
+covers (composition: genes under 30 codons get the median; released: proteins under 30 aa rank last); gate G4 checks
+both against the scenario. The report ends with
 the public-event catalogue section; until the catalogue exists it says so (waiver G5).
 """
 from __future__ import annotations
@@ -58,17 +60,36 @@ def recall_at_lowest_fpr(pos, neg):
     return float(np.mean(np.asarray(pos) > np.max(neg)))
 
 
-def released_row(run_dir, eid, gene_ids, truth):
+def gene_set(pairs):
+    """Hash of a list of (gene id, protein) pairs, in order."""
+    return sha256_json([list(p) for p in pairs])
+
+
+def coverage(pairs, scored, documented, rule):
+    """What a method scored itself: the scored genes' hash and count, and how many of the others the method's
+    documented rule covers (gate G4 accepts unscored genes only under such a rule)."""
+    scored = np.asarray(scored, bool)
+    documented = np.asarray(documented, bool)
+    return dict(genes_sha256=gene_set(pairs), n_genes=len(pairs), n_scored=int(scored.sum()),
+                scored_sha256=gene_set([p for p, m in zip(pairs, scored) if m]),
+                unscored_documented=int((~scored & documented).sum()), unscored_rule=rule)
+
+
+def released_row(run_dir, eid, pairs, truth):
     with open(os.path.join(run_dir, "data", "released", "manifest.json")) as f:
         man = json.load(f)
     if man.get("status") == "skipped":
-        return dict(method="released_v0.1.0", auroc=None, recall_at_lowest_fpr=None, status="skipped: %s" % man.get("reason", ""))
+        return dict(method="released_v0.1.0", auroc=None, recall_at_lowest_fpr=None, status="skipped: %s" % man.get("reason", ""), genes_sha256=gene_set(pairs))
     with open(os.path.join(run_dir, "data", "released", eid, "scores.tsv")) as f:
         sc = {r["gene_id"]: float(r["score"]) for r in csv.DictReader(f, delimiter="\t")}
+    unknown = sorted(set(sc) - {g for g, _ in pairs})
+    if unknown:
+        raise SystemExit("released scores for genes that are not evaluation genes: %s" % unknown[:5])
     floor = min(sc.values(), default=0.0) - 1.0                  # genes the screen does not score (under 30 aa) rank last
-    x = np.array([sc.get(g, floor) for g in gene_ids])
+    x = np.array([sc.get(g, floor) for g, _ in pairs])
     return dict(method="released_v0.1.0", auroc=auroc(x[truth], x[~truth]), recall_at_lowest_fpr=recall_at_lowest_fpr(x[truth], x[~truth]), status="computed",
-                unscored=sum(1 for g in gene_ids if g not in sc), provenance=dict(tag=man["provenance"]["tag"], commit=man["provenance"]["commit"]))
+                provenance=dict(tag=man["provenance"]["tag"], commit=man["provenance"]["commit"]),
+                **coverage(pairs, [g in sc for g, _ in pairs], [len(p) < 30 for _, p in pairs], "proteins under 30 aa are not scored by the released screen; they rank last"))
 
 
 def main():
@@ -108,24 +129,29 @@ def main():
                 ai.append(math.log(2) * (b_out - b_in))
                 best.append(-max([pid[r] / 10 for r in rows] or [0.0]))
                 counts.append(-len({int(ranks[prot[r], 4]) or -int(prot[r]) for r in rows}))
-            comp = composition.genome_scores(seqs)["codon"]
+            comp = composition.genome_scores(seqs)["codon"]            # genes under 30 codons get the genome's median
             comp = np.where(np.isfinite(comp), comp, np.nanmedian(comp))
+            prots = read_fasta(os.path.join(folder, "proteins.faa"))
+            pairs = [(g["gene_id"], prots["%s__%s" % (e["id"], g["gene_id"])]) for g in genes]
+            short_cds = np.array([len(s) // 3 < 30 for s in seqs])
             X = np.array([features(s) for s in seqs])
             P = softmax(X @ W)
             host = classes.index(e["host"]) if e["host"] in classes else None
             model_score = 1 - P[:, host] if host is not None else np.full(len(seqs), np.nan)
             rows = []
-            for name, sc in (("model", model_score), ("alien_index", np.array(ai)), ("best_hit", np.array(best)), ("counts", np.array(counts, float)),
-                             ("composition", comp)):
+            every = np.ones(len(genes), bool)
+            for name, sc, scored, rule in (("model", model_score, np.isfinite(model_score), ""),
+                                           ("alien_index", np.array(ai), every, "a gene without hits scores 0"),
+                                           ("best_hit", np.array(best), every, "a gene without hits scores 0 (most foreign)"),
+                                           ("counts", np.array(counts, float), every, "a gene without hits scores 0"),
+                                           ("composition", comp, ~short_cds, "genes under 30 codons get the genome's median")):
                 pos, neg = sc[truth], sc[~truth]
                 ok = np.isfinite(sc).all()
                 rows.append(dict(method=name, auroc=auroc(pos, neg) if ok else None, recall_at_lowest_fpr=recall_at_lowest_fpr(pos, neg) if ok else None,
-                                 status="computed" if ok else "not_applicable (no score for every gene)"))
-            rows.append(released_row(run_dir, e["id"], [g["gene_id"] for g in genes], truth))
-            prots = read_fasta(os.path.join(folder, "proteins.faa"))
-            gs = sha256_json([[g["gene_id"], prots["%s__%s" % (e["id"], g["gene_id"])]] for g in genes])
-            for r in rows:
-                r["genes_sha256"] = gs
+                                 status="computed" if ok else "not_applicable (no score for every gene)",
+                                 **coverage(pairs, scored, short_cds if name == "composition" else np.zeros(len(genes), bool), rule)))
+            rows.append(released_row(run_dir, e["id"], pairs, truth))
+            gs = gene_set(pairs)
             donors = sorted({int(t["donor_taxid"]) for t in mine if t.get("donor_taxid")})
             covers = "into %s (%s); donors %s" % (tax.name(e["host_taxid"]), tax.name(host_phylum) if host_phylum else "?",
                                                  ", ".join("%s (%s)" % (tax.name(d), tax.name(tax.at_rank(d, "phylum")) if tax.at_rank(d, "phylum") else "?") for d in donors))

@@ -40,7 +40,7 @@ def denylist(root=ROOT):
 def sealed_pattern(root=ROOT):
     with open(os.path.join(root, "bench", "hard", "results", "sealed.tsv")) as f:
         stems = sorted({r["accession"].split(".")[0] for r in csv.DictReader(f, delimiter="\t")})
-    return re.compile(r"(?<![A-Za-z0-9_])(%s)(\.\d+)?(?![A-Za-z0-9])" % "|".join(re.escape(s) for s in stems))
+    return re.compile(r"(?<![A-Za-z0-9])(%s)(\.\d+)?(?![0-9])" % "|".join(re.escape(s) for s in stems), re.IGNORECASE)
 
 
 def scrub(name: str, data: bytes, deny, sealed) -> bytes:
@@ -71,6 +71,11 @@ def check_summary(data: bytes, run_id: str) -> dict:
         raise Refused("summary.json is of run %s, not %s" % (s["run_id"], run_id))
     if not re.fullmatch(r"[0-9a-f]{40}", s["sha"]):
         raise Refused("summary.json names no full commit")
+    for k in ("profile", "status"):                              # these go into a row of the public index
+        if not isinstance(s[k], str) or not SAFE_ID.match(s[k]):
+            raise Refused("summary.json field %s is not a plain name: %r" % (k, s[k]))
+    if not re.fullmatch(r"\d+\.\d+", str(s["ci_version"])):
+        raise Refused("summary.json ci_version is not MAJOR.MINOR")
     return s
 
 

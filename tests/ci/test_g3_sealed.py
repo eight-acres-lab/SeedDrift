@@ -49,3 +49,17 @@ def test_built_sealed_accession_in_a_manifest_fails(tmp_path, tax):
 def test_real_sealed_list_loads():
     rows = g3_sealed.load_sealed()
     assert len(rows) >= 17 and all(a.startswith("NC_") for a, _ in rows)
+
+
+def test_composite_ids_lowercase_and_unresolved_genera_fail(tmp_path, tax):
+    sealed = _sealed(tmp_path)
+    for text in ("ids: [genome__NC_005945.1__gene_3]\n", "x_nc_002516\n"):
+        p = tmp_path / "t.yaml"
+        p.write_text(text)
+        assert g3_sealed.static([str(p)], "smoke", sealed).status == "fail", text
+    unknown = tmp_path / "sealed2.tsv"
+    unknown.write_text("accession\tgenus\ttier\nNC_999999.1\tNotAGenusInTheDump\tsealed\n")
+    run = tmp_path / "run2"
+    (run / "data").mkdir(parents=True)
+    r = g3_sealed.built(str(run), tax, {"e1": [562]}, "smoke", sealed_path=str(unknown))
+    assert r.status == "fail" and r.evidence["unresolved_genera"] == ["NotAGenusInTheDump"]

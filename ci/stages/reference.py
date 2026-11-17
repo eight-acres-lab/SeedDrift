@@ -5,7 +5,7 @@
 config reference.faa: a FASTA with headers accession|taxid; the DIAMOND database is built from it (tiny and smoke).
 config reference.dmnd (+ reference.faa for the index): an existing database used in place (smoke, full).
 config reference.cache: true keeps the two tables in the CI's content store (<data_root>/cas/reference/<key>/), keyed
-by the FASTA's sha256, the taxonomy's hash and this file's hash; a later run hard-links them (after checking their
+by the FASTA's sha256, the taxonomy's hash and the hashes of the code that builds them (CODE); a later run hard-links them (after checking their
 hashes) instead of reading the whole FASTA again. ci-tiny never uses the cache, so both of its runs recompute.
 """
 from __future__ import annotations
@@ -24,6 +24,7 @@ from ci.taxonomy import Taxonomy
 from seeddrift.train.logger import save_npz
 
 RANKS = ("phylum", "class", "order", "family", "genus", "species")
+CODE = ("ci/stages/reference.py", "ci/taxonomy.py", "seeddrift/train/logger.py")    # the code the tables depend on (cache key)
 
 
 def headers(faa):
@@ -60,7 +61,8 @@ def place(src, dst):
 def cached_tables(st, faa, out, lib):
     """(proteins, proteomes, cache note): the tables from the content store, or built and stored there."""
     cas = os.path.join(st.config["data_root"], "cas", "reference")
-    key = sha256_json(["reference-tables", sha256_file(faa), taxdump_hash(st.config["taxdump"]), sha256_file(os.path.abspath(__file__), use_sidecar=False)])
+    code = [sha256_file(os.path.join(ROOT, p), use_sidecar=False) for p in CODE]
+    key = sha256_json(["reference-tables", sha256_file(faa), taxdump_hash(st.config["taxdump"]), code])
     d = os.path.join(cas, key)
     meta_p = os.path.join(d, "meta.json")
     if os.path.exists(meta_p):

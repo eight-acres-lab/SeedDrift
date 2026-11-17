@@ -34,6 +34,29 @@ def test_fetch_store_reuses_and_refuses_corrupt_files(tmp_path, monkeypatch):
         fetch.fetch_source(src, cas, index)
 
 
+def test_fetch_refuses_incomplete_downloads_fails(tmp_path, monkeypatch):
+    from ci.stages import fetch
+    cas = str(tmp_path / "cas")
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: b">ENA|J02459|J02459.1 lambda\nACGT\n")
+    with pytest.raises(SystemExit):                              # one of two requested sequences came back
+        fetch.fetch_source(dict(id="two", ena_sequences=["J02459.1", "AF158101.6"]), cas, {})
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: b">ENA|J02459|J02459.1 lambda\n")
+    with pytest.raises(SystemExit):                              # an empty record
+        fetch.fetch_source(dict(id="one", ena_sequences=["J02459.1"]), cas, {})
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: b"<html>busy</html>")
+    with pytest.raises(SystemExit):
+        fetch.fetch_source(dict(id="one", ena_sequences=["J02459"]), cas, {})
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: b">ENA|J02459|J02459.1 lambda\nACGT\n")
+    files, _, _ = fetch.fetch_source(dict(id="one", ena_sequences=["J02459"]), cas, {})   # no version: any version
+    assert files and os.path.exists(files[0]["path"])
+    listing = b'<a href="X.cds.all.fa.gz">x</a>'
+    full = gzip.compress(b">t cds x\nATG\n")
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: listing if url.endswith("/") else full[:-6])
+    with pytest.raises(SystemExit):                              # a truncated gzip stream never enters the store
+        fetch.fetch_source(dict(id="e", ensembl=dict(site="ensembl", species="x", release=1)), str(tmp_path / "cas2"), {})
+    assert not (tmp_path / "cas2").exists()
+
+
 def test_fetch_ensembl_needs_exactly_one_cds_file_fails(tmp_path, monkeypatch):
     from ci.stages import fetch
     listing = b'<a href="Homo_sapiens.GRCh38.cds.all.fa.gz">x</a> <a href="Homo_sapiens.GRCh38.cds.abinitio.fa.gz">y</a>'
@@ -87,6 +110,9 @@ def test_cut_regions_and_ena_names():
     assert out["A.1_p1"] == seq[:10] and out["A.1_p2"] == seq[20:50] and "A.1" not in out and out["B.1"] == "GG"
     with pytest.raises(SystemExit):
         cut_regions({"A.1": seq}, [dict(replicon="C.1", start=1, end=2)])
+    for a, b in ((0, 5), (30, 20), (90, 101)):                    # outside the replicon or reversed
+        with pytest.raises(SystemExit):
+            cut_regions({"A.1": seq}, [dict(replicon="A.1", start=a, end=b)])
 
 
 # ---- reference: tables kept in the content store ----------------------------------------------------------------

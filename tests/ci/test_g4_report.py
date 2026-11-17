@@ -8,7 +8,8 @@ COMMIT = "db0e24b90550a4aae7db62cbf7fba428da687074"
 def _report(released_status="computed"):
     rows = []
     for m in g4_report.METHODS:
-        r = dict(method=m, auroc=0.7, recall_at_lowest_fpr=0.3, status="computed", genes_sha256="g1")
+        r = dict(method=m, auroc=0.7, recall_at_lowest_fpr=0.3, status="computed", genes_sha256="g1",
+                 n_genes=10, n_scored=10, scored_sha256="g1", unscored_documented=0, unscored_rule="")
         if m == "released_v0.1.0":
             r["status"] = released_status
             if released_status == "computed":
@@ -16,7 +17,7 @@ def _report(released_status="computed"):
             else:
                 r["auroc"] = r["recall_at_lowest_fpr"] = None
         rows.append(r)
-    return dict(scenarios=[dict(name="s1", genes_sha256="g1", rows=rows)])
+    return dict(scenarios=[dict(name="s1", genes_sha256="g1", n_pos=3, n_neg=7, rows=rows)])
 
 
 def test_complete_report_passes():
@@ -56,4 +57,24 @@ def test_model_not_scored_or_empty_report_fails():
     assert g4_report.check(dict(scenarios=[]), "smoke", (), COMMIT).status == "fail"
     rep = copy.deepcopy(_report())
     rep["scenarios"][0]["rows"][1]["auroc"] = None                     # computed without metrics
+    assert g4_report.check(rep, "smoke", (), COMMIT).status == "fail"
+
+
+def test_unscored_genes_need_the_methods_rule_fails():
+    rep = _report()
+    rel = rep["scenarios"][0]["rows"][-1]
+    rel.update(n_scored=8, scored_sha256="g8")                   # two genes the released screen did not score
+    assert g4_report.check(rep, "smoke", (), COMMIT).status == "fail"
+    rel.update(unscored_documented=2, unscored_rule="proteins under 30 aa rank last")
+    assert g4_report.check(rep, "smoke", (), COMMIT).status == "pass"
+    rel.update(n_scored=0, unscored_documented=10)                # a method that scored nothing says nothing
+    assert g4_report.check(rep, "smoke", (), COMMIT).status == "fail"
+
+
+def test_full_coverage_of_another_gene_set_fails():
+    rep = _report()
+    rep["scenarios"][0]["rows"][1]["scored_sha256"] = "other"     # all genes scored, but not the scenario's genes
+    assert g4_report.check(rep, "smoke", (), COMMIT).status == "fail"
+    rep = _report()
+    del rep["scenarios"][0]["rows"][2]["n_scored"]                # coverage not stated
     assert g4_report.check(rep, "smoke", (), COMMIT).status == "fail"

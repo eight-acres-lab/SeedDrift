@@ -52,9 +52,12 @@ sha=$(git rev-parse --verify "$ref^{commit}")
 git cat-file -e "$sha:ci/profiles/$profile/config.yaml" 2>/dev/null || { echo "refused: no profile $profile in $sha" >&2; exit 1; }
 branch=$(git branch -r --contains "$sha" --format='%(refname:short)' | { grep -v '/HEAD$' || true; } | head -n 1 | sed 's#^origin/##')
 [ -n "$branch" ] || { echo "refused: $sha is not on any branch of origin (push it first)" >&2; exit 1; }
+# the branch name goes into the server command line: only plain ref characters
+[[ "$branch" =~ ^[A-Za-z0-9._/-]+$ && "$branch" != *..* ]] || { echo "refused: unsafe branch name '$branch'" >&2; exit 2; }
 for job in "T0 static checks" "T1 tests and the ci-tiny pipeline twice"; do
-  ok=$(gh api --paginate "repos/$CI_REPO/commits/$sha/check-runs" --jq "[.check_runs[] | select(.name == \"$job\" and .app.slug == \"github-actions\")] | (length > 0 and all(.conclusion == \"success\"))" 2>/dev/null | tail -n 1 || true)
-  [ "$ok" = true ] || { echo "refused: '$job' has not passed on $sha" >&2; exit 1; }
+  # one conclusion per line over all pages (--jq runs per page); at least one, and every one a success
+  concl=$(gh api --paginate "repos/$CI_REPO/commits/$sha/check-runs" --jq ".check_runs[] | select(.name == \"$job\" and .app.slug == \"github-actions\") | .conclusion" 2>/dev/null || true)
+  [ -n "$concl" ] && [ -z "$(printf '%s\n' "$concl" | grep -vx success || true)" ] || { echo "refused: '$job' has not passed on $sha" >&2; exit 1; }
 done
 tree=$(git rev-parse "$sha^{tree}")
 run_id="$(date -u +%Y%m%dT%H%M%S)-$(echo "$branch" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')-${sha:0:8}-$profile"

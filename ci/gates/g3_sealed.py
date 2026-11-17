@@ -6,9 +6,10 @@ The sealed chromosomes (bench/hard/results/sealed.tsv: RefSeq accession, genus) 
 Every other run fails when
 
   static (pre gate, before any download): a sealed accession, with or without its version, occurs in the resolved
-         configuration, the corpus spec or the evaluation tables;
+         configuration, the corpus spec or the evaluation tables (in any case, also inside composite ids);
   built (eval gate): an evaluation genome (or the host of a scenario) lies under a sealed genus (bacterial and
-         archaeal genera of that name; a homonym elsewhere does not count), or a sealed accession occurs in any
+         archaeal genera of that name; a homonym elsewhere does not count; a sealed genus the taxonomy does not
+         resolve fails the gate, since it cannot be checked), or a sealed accession occurs in any
          manifest of the run (fetch, corpus, evaluation inputs, hits), the training id list or the evaluation tables.
 
 The training corpus is kept clear of the sealed genera by gate G2 (bench/hard/EXCLUDE.tsv); G3 is about scoring.
@@ -36,8 +37,9 @@ def load_sealed(path: str = SEALED):
 
 
 def _pattern(sealed):
+    """A sealed accession, with or without version, in any case, also inside composite ids (genome__NC_x, x_NC_y)."""
     stems = sorted({a.split(".")[0] for a, _ in sealed})
-    return re.compile(r"(?<![A-Za-z0-9_])(%s)(\.\d+)?(?![A-Za-z0-9])" % "|".join(re.escape(s) for s in stems))
+    return re.compile(r"(?<![A-Za-z0-9])(%s)(\.\d+)?(?![0-9])" % "|".join(re.escape(s) for s in stems), re.IGNORECASE)
 
 
 def _scan(paths, rx):
@@ -75,9 +77,12 @@ def built(run_dir: str, tax, eval_taxids, tier: str, extra_files=(), sealed_path
     if f:
         return f
     sealed = load_sealed(sealed_path)
-    genera = {}
+    genera, unresolved = {}, []
     for _, g in sealed:
-        for t in tax.genus_by_name(g):
+        ts = tax.genus_by_name(g)
+        if not ts:
+            unresolved.append(g)
+        for t in ts:
             genera[t] = g
     under = {}
     for gid, taxids in sorted(eval_taxids.items()):
@@ -87,6 +92,7 @@ def built(run_dir: str, tax, eval_taxids, tier: str, extra_files=(), sealed_path
                 under.setdefault(gid, []).append("%s (genus %s)" % (t, genera[g]))
     files = sorted(glob.glob(os.path.join(run_dir, "data", "*", "manifest.json"))) + [os.path.join(run_dir, "data", "train", "ids.json")] + list(extra_files)
     found = _scan(files, _pattern(sealed))
-    ev = dict(sealed=len(sealed), sealed_genera=len(genera), evaluation_genomes=len(eval_taxids), under_sealed_genus=under, accessions_found=found)
-    bad = bool(under) or bool(found)
+    ev = dict(sealed=len(sealed), sealed_genera=len(genera), unresolved_genera=sorted(set(unresolved)), evaluation_genomes=len(eval_taxids),
+              under_sealed_genus=under, accessions_found=found)
+    bad = bool(under) or bool(found) or bool(unresolved)        # a sealed genus the taxonomy does not know cannot be checked
     return GateResult("G3", "fail" if bad else "pass", ev, sha256_json([sorted(sealed), sorted(under), sorted(found)]))

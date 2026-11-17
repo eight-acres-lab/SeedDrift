@@ -30,7 +30,7 @@ from ci import ROOT
 from ci.gates import find_waiver
 from ci.hashing import sha256_json
 from ci.stages.common import Stage, main_args, read_fasta, write_json
-from ci.stages.search import hit_proteomes
+from ci.stages.search import hit_proteomes, load_hits
 from ci.stages.train import features, softmax
 from ci.taxonomy import Taxonomy
 
@@ -116,7 +116,7 @@ def main():
             cds = read_fasta(os.path.join(folder, "cds.fna"))
             seqs = [cds["%s__%s" % (e["id"], g["gene_id"])] for g in genes]
             truth = np.array([g["truth"] != "native" for g in genes])
-            hits = np.load(os.path.join(run_dir, "data", "hits", e["id"] + ".npz"))
+            hits = load_hits(os.path.join(run_dir, "data", "hits", e["id"] + ".npz"))
             off, pid, bits = hits["off"], hits["pid"], hits["bits"]
             prot = hit_proteomes(hits, index_taxid, lib["taxid"])         # hit format 1 or 2 (ci/stages/search.py)
             host_phylum = tax.at_rank(e["host_taxid"], "phylum")

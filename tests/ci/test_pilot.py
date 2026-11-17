@@ -26,13 +26,11 @@ def test_codon_tokens():
 
 def test_extra_exclusions_add_to_the_rules_fails(tmp_path, tax):
     from ci.gates.g2_exclusion import Excluder
-    t = sorted(x for x in tax.rank if tax.rank[x] == "species")[0]
-    genus = tax.at_rank(t, "genus") or t
-    p = tmp_path / "extra.tsv"
-    p.write_text("# provisional\ntaxid\trank\tname\tsource\n%d\tgenus\tX\ttest\n" % genus)
     plain = Excluder(tax, exclude_path=os.path.join(ROOT, "tests", "ci", "fixtures", "mini_exclude.tsv"))
+    t = [x for x in sorted(tax.rank) if tax.rank[x] == "species" and tax.at_rank(x, "genus") and plain.reason(x) is None][0]
+    p = tmp_path / "extra.tsv"
+    p.write_text("# provisional\ntaxid\trank\tname\tsource\n%d\tgenus\tX\ttest\n" % tax.at_rank(t, "genus"))
     extra = Excluder(tax, exclude_path=os.path.join(ROOT, "tests", "ci", "fixtures", "mini_exclude.tsv"), extra_paths=[str(p)])
-    assert extra.reason(t) and "provisional test recipient" in extra.reason(t)[0]
-    assert plain.reason(t) is None or "provisional" not in plain.reason(t)[0]
+    assert extra.reason(t) and "provisional test recipient" in extra.reason(t)[0]       # allowed before, excluded with the list
     missing = Excluder(tax, exclude_path=os.path.join(ROOT, "tests", "ci", "fixtures", "mini_exclude.tsv"), extra_paths=[str(tmp_path / "nope.tsv")])
     assert any("missing" in str(pb) for pb in missing.problems)

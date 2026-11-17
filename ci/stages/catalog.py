@@ -122,15 +122,25 @@ def params(p):
     return out
 
 
-def _paged(url_of, reducer, key, fetch=get, tries=3):
+def _paged(url_of, reducer, key, fetch=get, tries=3, page_size=1000, min_page=100):
     """All pages of a dataset_report; (records, total, pages) once the distinct count equals the announced total. A
     page without total_count, or a catalogue with no record at all, is refused (an error body or a filter that
-    matches nothing must not become an empty snapshot)."""
+    matches nothing must not become an empty snapshot). A page the server keeps failing (NCBI answers large virus
+    pages with HTTP 500) restarts the read with half the page size, down to `min_page`; the snapshot does not depend
+    on the page size (it is canonical)."""
     last = None
-    for attempt in range(tries):
+    attempt = 0
+    while attempt < tries:
         out, token, total, pages = [], "", None, 0
         while True:
-            d = json.loads(fetch(url_of(token)))
+            try:
+                d = json.loads(fetch(url_of(token, page_size)))
+            except RuntimeError as err:
+                if page_size <= min_page:
+                    raise
+                page_size = max(min_page, page_size // 2)
+                last = "page failed (%s); page size now %d" % (str(err)[-80:], page_size)
+                break
             if total is None:
                 if "total_count" not in d:
                     raise SystemExit("catalogue page without total_count: %s" % str(d)[:300])
@@ -143,31 +153,37 @@ def _paged(url_of, reducer, key, fetch=get, tries=3):
             if not token:
                 break
             time.sleep(PAUSE)
+        if total is None or token:                      # the read broke off: try again with the smaller page
+            continue
         n = len({r[key] for r in out})
         if n == total:
             return out, total, pages
         last = "distinct records %d, announced %d" % (n, total)
-        if attempt + 1 < tries:
-            time.sleep(30 * (attempt + 1))
+        attempt += 1
+        if attempt < tries:
+            time.sleep(30 * attempt)
     raise SystemExit("catalogue did not read consistently in %d tries: %s" % (tries, last))
 
 
 def fetch_genome_reports(c, fetch=get):
     p = dict(c["ncbi_genome_reports"].get("params") or {})
     base = "%s/genome/taxon/%d/dataset_report?" % (NCBI, int(c["ncbi_genome_reports"]["taxon"]))
-    def url(tok):
-        q = dict(p, page_size=1000, **({"page_token": tok} if tok else {}))
+
+    def url(tok, size):
+        q = dict(p, page_size=size, **({"page_token": tok} if tok else {}))
         return base + urllib.parse.urlencode(params(q))
-    return _paged(url, reduce_genome, "accession", fetch)
+    return _paged(url, reduce_genome, "accession", fetch, page_size=int(c["ncbi_genome_reports"].get("page_size", 1000)))
 
 
 def fetch_virus_reports(c, fetch=get):
     p = dict(c["ncbi_virus_reports"].get("params") or {})
     base = "%s/virus/taxon/%d/dataset_report?" % (NCBI, int(c["ncbi_virus_reports"]["taxon"]))
-    def url(tok):
-        q = dict(p, page_size=1000, **({"page_token": tok} if tok else {}))
+
+    def url(tok, size):
+        q = dict(p, page_size=size, **({"page_token": tok} if tok else {}))
         return base + urllib.parse.urlencode(params(q))
-    return _paged(url, reduce_virus, "accession", fetch)
+    # NCBI answers 1,000-record virus pages with HTTP 500 (2026-11-17); 500 works
+    return _paged(url, reduce_virus, "accession", fetch, page_size=int(c["ncbi_virus_reports"].get("page_size", 500)))
 
 
 def count(kind, taxon, p, fetch=get):

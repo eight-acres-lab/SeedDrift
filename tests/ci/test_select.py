@@ -97,11 +97,11 @@ def test_paged_reads_until_the_count_matches_and_fails_otherwise(monkeypatch):
     monkeypatch.setattr(catalog, "PAUSE", 0)
     monkeypatch.setattr(catalog.time, "sleep", lambda s: None)
     pages = {"": dict(total_count=3, reports=[{"accession": "A"}, {"accession": "B"}], next_page_token="t"), "t": dict(reports=[{"accession": "C"}])}
-    recs, total, n = catalog._paged(lambda tok: tok, lambda r: r, "accession", fetch=lambda tok: json.dumps(pages[tok]).encode())
+    recs, total, n = catalog._paged(lambda tok, size: tok, lambda r: r, "accession", fetch=lambda tok: json.dumps(pages[tok]).encode())
     assert total == 3 and len(recs) == 3 and n == 2
     shifted = {"": dict(total_count=3, reports=[{"accession": "A"}, {"accession": "B"}], next_page_token="t"), "t": dict(reports=[{"accession": "B"}])}
     with pytest.raises(SystemExit, match="consistently"):              # a record repeated across pages, one skipped
-        catalog._paged(lambda tok: tok, lambda r: r, "accession", fetch=lambda tok: json.dumps(shifted[tok]).encode())
+        catalog._paged(lambda tok, size: tok, lambda r: r, "accession", fetch=lambda tok: json.dumps(shifted[tok]).encode())
 
 
 def test_catalog_refuses_a_non_canonical_file_and_a_live_source_without_lock_fails(tmp_path):
@@ -265,9 +265,9 @@ def test_params_normalised():
 def test_paged_refuses_empty_and_countless_pages(monkeypatch):
     from ci.stages import catalog
     with pytest.raises(SystemExit, match="no record"):
-        catalog._paged(lambda t: t, lambda r: r, "accession", fetch=lambda t: json.dumps(dict(total_count=0, reports=[])).encode())
+        catalog._paged(lambda t, size: t, lambda r: r, "accession", fetch=lambda t: json.dumps(dict(total_count=0, reports=[])).encode())
     with pytest.raises(SystemExit, match="total_count"):
-        catalog._paged(lambda t: t, lambda r: r, "accession", fetch=lambda t: json.dumps(dict(reports=[{"accession": "A"}])).encode())
+        catalog._paged(lambda t, size: t, lambda r: r, "accession", fetch=lambda t: json.dumps(dict(reports=[{"accession": "A"}])).encode())
 
 
 def test_g3_built_still_fails_closed_on_taxid_zero(ttax):
@@ -275,3 +275,20 @@ def test_g3_built_still_fails_closed_on_taxid_zero(ttax):
     from ci.taxonomy import UnknownTaxid
     with pytest.raises(UnknownTaxid):
         g3_sealed.built("/nonexistent", ttax, {"x": [0]}, "tiny")
+
+
+def test_paged_halves_the_page_after_server_errors(monkeypatch):
+    from ci.stages import catalog
+    monkeypatch.setattr(catalog, "PAUSE", 0)
+    seen = []
+
+    def fetch(u):
+        tok, size = u
+        seen.append(size)
+        if size > 250:
+            raise RuntimeError("HTTP Error 500")
+        return json.dumps(dict(total_count=2, reports=[{"accession": "A"}, {"accession": "B"}])).encode()
+    recs, total, pages = catalog._paged(lambda tok, size: (tok, size), lambda r: r, "accession", fetch=fetch, page_size=1000)
+    assert total == 2 and seen == [1000, 500, 250]
+    with pytest.raises(RuntimeError):
+        catalog._paged(lambda tok, size: (tok, size), lambda r: r, "accession", fetch=lambda u: (_ for _ in ()).throw(RuntimeError("500")), page_size=200)

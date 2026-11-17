@@ -1,7 +1,8 @@
 # Server (through ci/launch.sh): snapshots of the live catalogues of configs/select/v1.yaml, the corpus selection from
 # them and its cost. Network and CPU only (its own lock, not the GPU's). The run writes a new catalogue lock
-# (data/catalog/lock.yaml); `ci/launch.sh promote RUN_ID` prints it for the repository, where profile select-v1 then
-# reproduces the selection from exactly those snapshots.
+# (data/catalog/lock.yaml); `ci/launch.sh promote RUN_ID` prints it for the repository, where a lock-mode profile
+# (select-v1, added with the promoted lock) reproduces the selection from exactly those snapshots. Reproducing a refresh
+# run with this profile fetches again: its catalogues may have changed, so it is not expected to be identical.
 pipeline: select
 needs_gpu: false
 tier: full

@@ -87,8 +87,6 @@ def _under(tax, genera, taxids_by_id):
     under = {}
     for gid, taxids in sorted(taxids_by_id.items()):
         for t in taxids:
-            if not t:
-                continue
             g = tax.at_rank(int(t), "genus")
             if g in genera:
                 under.setdefault(gid, []).append("%s (genus %s)" % (t, genera[g]))
@@ -112,7 +110,8 @@ def built(run_dir: str, tax, eval_taxids, tier: str, extra_files=(), sealed_path
 
 
 def selection(files, tax, taxids_by_id, tier: str, sealed_path: str = SEALED) -> GateResult:
-    """G3 on a corpus selection (pipeline select). taxids_by_id: {selected id: [taxid, host taxid]}. Fails when a selected
+    """G3 on a corpus selection (pipeline select). taxids_by_id: {selected id: [taxid, host taxids...]} (0 = no host;
+    the genome's own taxid must resolve). Fails when a selected
     genome, or the host of a selected virus or plasmid, lies under a sealed genus, or a sealed accession occurs in the
     selection's own files (the selected table, its summary and manifest). The candidate table and the catalogue
     snapshots list sealed assemblies by construction (as rejected rows) and are not scanned."""
@@ -122,7 +121,7 @@ def selection(files, tax, taxids_by_id, tier: str, sealed_path: str = SEALED) ->
         return f
     sealed = load_sealed(sealed_path)
     genera, unresolved = _sealed_genera(tax, sealed)
-    under = _under(tax, genera, taxids_by_id)
+    under = _under(tax, genera, {k: [v[0]] + [h for h in v[1:] if h] for k, v in taxids_by_id.items()})
     found = _scan(files, _pattern(sealed))
     ev = dict(sealed=len(sealed), sealed_genera=len(genera), unresolved_genera=unresolved, selected=len(taxids_by_id), files=len(files),
               under_sealed_genus=dict(list(under.items())[:100]), n_under=len(under), accessions_found=found)

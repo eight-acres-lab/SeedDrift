@@ -44,7 +44,7 @@ PIPELINES = {
     "train": dict(target="all", required=REQUIRED_GATES,
                   resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
                           ("report", "data/eval/eval_report.json"))),
-    "select": dict(target="select_all", required=SELECT_GATES, resume=(("pre", None), ("select", "data/select/selected.tsv"))),
+    "select": dict(target="select_all", required=SELECT_GATES, resume=(("pre", None), ("select", "data/select/manifest.json"))),   # written last
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 
@@ -174,10 +174,13 @@ def summary(run_dir, rec):
             with open(fp) as f:
                 fit = json.load(f)
             lines += ["", "## Fit on this data disk (%.0f GB free, %.0f GB reserve)" % (fit["data_root_free_gb"], fit["reserve_gb"]), "",
-                      "| case | total GB | margin GB | verdict | uniform fraction that fits | search hours |", "|---|---|---|---|---|---|"]
+                      "| case | total GB | margin GB | verdict | uniform fraction that fits | smallest share of a floor kept | search hours |",
+                      "|---|---|---|---|---|---|---|"]
             for c, x in fit["cases"].items():
-                lines.append("| %s | %.1f | %.1f | %s | %.3f%s | %.0f |" % (c, x["total_gb"], x["margin_gb"], x["verdict"], x["uniform_fraction_that_fits"],
-                                                                     " (below half of the floors)" if x["below_half_of_floors"] else "", x["search_hours"]))
+                lines.append("| %s | %.1f | %.1f | %s | %.3f | %.3f%s | %.0f |" % (c, x["total_gb"], x["margin_gb"], x["verdict"], x["uniform_fraction_that_fits"],
+                                                                         x["smallest_fraction_of_a_floor"], " (below half: no training)" if x["below_half_of_floors"] else "",
+                                                                         x["search_hours"]))
+            lines += ["", "A uniform scale-down is information, not a plan: disk, network and compute limits are the user's decision."]
         lines.append("")
     rep = os.path.join(run_dir, "data", "eval", "eval_report.json")
     if os.path.exists(rep):

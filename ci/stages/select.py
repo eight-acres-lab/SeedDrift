@@ -37,7 +37,7 @@ import yaml
 from ci import manifest as M
 from ci.gates.g1_kingdom import _floors, _major, select_targets
 from ci.gates.g2_exclusion import CATALOGUE, EXCLUDE, PANELS, Excluder
-from ci.gates.g3_sealed import SEALED
+from ci.gates.g3_sealed import SEALED, _sealed_genera, load_sealed
 from ci.hashing import sha256_file, sha256_json, taxdump_hash
 from ci.kingdom import DEFAULT_MAP, GroupConflict, KingdomMap, NoGroup
 from ci.stages.catalog import read_jsonl
@@ -45,7 +45,7 @@ from ci.stages.common import Stage, main_args, write_json
 from ci.taxonomy import Taxonomy, UnknownTaxid
 
 RANKS = ("phylum", "class", "order", "family", "genus", "species")
-SELECTED_COLS = ["id", "group", "source_kind", "taxid", "host_taxid", "species_taxid", "phylum", "class", "order", "family", "genus", "accession",
+SELECTED_COLS = ["id", "group", "source_kind", "taxid", "host_taxid", "hosts", "species_taxid", "phylum", "class", "order", "family", "genus", "accession",
                  "paired_accession", "ena_assembly", "replicon_types", "ensembl_site", "ensembl_division", "ensembl_species", "ensembl_core_db",
                  "ensembl_release", "table", "units", "proteins_low", "proteins_central", "proteins_high", "proteins_level", "pick", "catalogue"]
 CAND_COLS = ["id", "group", "catalogue", "taxid", "host_taxid", "species_taxid", "order", "genus", "accession", "units", "proteins_central", "proteins_level",
@@ -72,6 +72,17 @@ class Candidates:
     def __init__(self, tax, kmap, ex, assumptions):
         self.tax, self.kmap, self.ex, self.a = tax, kmap, ex, assumptions
         self.rows = []
+        # the sealed genera, checked here too (gate G3_select checks the selection again): EXCLUDE.tsv lists them with
+        # their families, but the sealed list is the authority
+        self.sealed, unresolved = _sealed_genera(tax, load_sealed())
+        if unresolved:
+            raise SystemExit("sealed genera the taxonomy does not resolve: %s" % unresolved)
+
+    def sealed_reason(self, *taxids):
+        for t in taxids:
+            if t and self.tax.at_rank(int(t), "genus") in self.sealed:
+                return "sealed genus %s" % self.sealed[self.tax.at_rank(int(t), "genus")]
+        return ""
 
     def add(self, **r):
         r.setdefault("out", "")
@@ -107,6 +118,8 @@ def prokaryotes(cands, recs, catalogue, rules):
         if not out:
             why = ex.reason(r["taxid"], [r["accession"], r["paired_accession"]])
             out = "excluded: %s" % why[0] if why else ""
+        if not out:
+            out = cands.sealed_reason(r["taxid"])
         if not out and not lin["genus"]:
             out = "no genus"
         if not out and r["protein_coding"] < int(rules.get("min_protein_coding", 0)):
@@ -115,11 +128,13 @@ def prokaryotes(cands, recs, catalogue, rules):
             out = "assembly not current"
         lo, ce, hi = scaled(r["protein_coding"], pf["prokaryote_chromosomes"])
         acc = r["accession"]
-        quality = (r.get("refseq_category") != "reference genome", -(r.get("checkm_completeness") or 0), r.get("checkm_contamination") or 100.0, acc)
+        comp, cont = r.get("checkm_completeness"), r.get("checkm_contamination")
+        quality = (r.get("refseq_category") != "reference genome", -(0.0 if comp is None else float(comp)), 100.0 if cont is None else float(cont), acc)
         cands.add(id="%s_%s" % (group or "prokaryote", acc), group=group, part="prokaryotes", catalogue=catalogue, source_kind="raw_prokaryote", taxid=r["taxid"],
                   species_taxid=lin["species"], accession=acc, paired_accession=r["paired_accession"], ena_assembly=ena_assembly(acc, r["paired_accession"]),
                   replicon_types="Chromosome", table=11, proteins_low=lo, proteins_central=ce, proteins_high=hi, proteins_level="annotated (whole assembly; chromosomes kept, genes called again)",
-                  quality=quality, out=out, plasmids=max(0, r["components"] - r["chromosomes"]), **{k: lin[k] for k in RANKS if k != "species"})
+                  quality=quality, out=out, plasmids=max(0, r["components"] - r["chromosomes"]) if r["chromosomes"] > 0 else -1,
+                  **{k: lin[k] for k in RANKS if k != "species"})
 
 
 def plasmids(cands, rules):
@@ -128,8 +143,11 @@ def plasmids(cands, rules):
     for p in [r for r in cands.rows if r["part"] == "prokaryotes"]:
         n = p["plasmids"]
         out = p["out"]
-        if not out and n < 1:
+        if not out and n < 0:
+            out = "chromosome count missing (plasmids unknown)"
+        elif not out and n < 1:
             out = "no plasmid"
+        n = max(n, 0)
         group = "mobile.plasmid"
         cands.add(id="plasmid_%s" % p["accession"], group=group, part="plasmids", catalogue=p["catalogue"], source_kind="plasmid", taxid=p["taxid"],
                   species_taxid=p["species_taxid"], accession=p["accession"], paired_accession=p["paired_accession"], ena_assembly=p["ena_assembly"],
@@ -162,6 +180,8 @@ def viruses(cands, recs, host_recs, catalogue, rules):
             out = "a host taxid does not resolve"
         if not out and len(classes) > 1:
             out = "hosts in more than one class (%s)" % ",".join(sorted(classes))
+        if not out and not hosts:
+            out = "host unknown (no host record, so the host exclusions cannot be checked)"
         if not out and classes:
             cls = classes.pop()
             host = min(h for h in hosts if kmap.host_class(tax, h) == cls)
@@ -183,6 +203,8 @@ def viruses(cands, recs, host_recs, catalogue, rules):
                 if hr:
                     out = hr
                     break
+        if not out:
+            out = cands.sealed_reason(r["taxid"], *hosts)
         if not out and rules.get("require_complete", True) and r.get("assembly_level") != "Complete Genome":
             out = "not a complete genome"
         if not out and r["protein_coding"] < 1:
@@ -193,6 +215,7 @@ def viruses(cands, recs, host_recs, catalogue, rules):
                   taxid=r["taxid"], host_taxid=host, species_taxid=lin["species"], accession=acc, paired_accession=r["paired_accession"],
                   ena_assembly=ena_assembly(acc, r["paired_accession"]), replicon_types="", table=11, proteins_low=lo, proteins_central=ce, proteins_high=hi,
                   proteins_level="annotated", quality=(r.get("refseq_category") != "reference genome", acc), out=out, host_known=bool(host),
+                  hosts=";".join(str(h) for h in hosts),
                   **{k: lin[k] for k in RANKS if k != "species"})
 
 
@@ -213,6 +236,8 @@ def eukaryotes(cands, recs, annotation, catalogue_of, rules):
         if not out:
             why = ex.reason(r["taxonomy_id"], [r["assembly_accession"]])
             out = "excluded: %s" % why[0] if why else ""
+        if not out:
+            out = cands.sealed_reason(r["taxonomy_id"])
         if not out and not r.get("genebuild"):
             out = "no gene build"
         pc = 0
@@ -229,7 +254,7 @@ def eukaryotes(cands, recs, annotation, catalogue_of, rules):
     # protein counts: the NCBI annotation of the assembly; without one, the median of the group's annotated genomes
     med = {}
     for g in sorted({r["group"] for r in rows if r["group"]}):
-        known = sorted(r["pc"] for r in rows if r["group"] == g and r["pc"])
+        known = sorted(r["pc"] for r in rows if r["group"] == g and r["pc"] and not r["out"])
         med[g] = known[len(known) // 2] if known else 0
     for r in rows:
         if r["pc"]:
@@ -256,12 +281,16 @@ def pick_order(rows, outer, seed, group):
     rng = random.Random(group_seed(seed, group))
     by_genus = {}
     for r in sorted(rows, key=lambda r: (r["genus"], r["species_taxid"], r["id"])):
-        by_genus.setdefault(r["genus"], []).append(r)
+        # a species without a genus is its own genus, a genus without the outer rank its own outer taxon (never one
+        # pooled bucket, which would get one pick per round for all of them)
+        key = ("g", r["genus"]) if r["genus"] else ("s", r["species_taxid"])
+        by_genus.setdefault(key, []).append(r)
     for g in sorted(by_genus):
         rng.shuffle(by_genus[g])
     by_outer = {}
     for g in sorted(by_genus):
-        by_outer.setdefault(by_genus[g][0][outer], []).append(by_genus[g])
+        o = by_genus[g][0][outer]
+        by_outer.setdefault(("o", o) if o else ("x",) + g, []).append(by_genus[g])
     out, depth = [], 0
     maxdepth = max((len(v) for v in by_genus.values()), default=0)
     while depth < maxdepth:
@@ -356,25 +385,37 @@ def main():
         repair = []
         if floors and spec.get("share_repair", True):
             rule = floors["protein_share"]
-            for _ in range(10000):
+
+            def shares_now():
                 prot = {}
                 for g, (ch, _) in chosen.items():
                     prot[_major(g)] = prot.get(_major(g), 0) + sum(r["proteins_central"] for _, r in ch)
                 total = sum(prot.values()) or 1
-                short = [cls for cls, key in (("viral_mobile", "min_viral_mobile"), ("eukaryotes", "min_eukaryotes")) if prot.get(cls, 0) / total < rule[key]]
+                return {k: v / total for k, v in prot.items()}
+            for _ in range(10000):
+                sh = shares_now()
+                short = [cls for cls, key in (("viral_mobile", "min_viral_mobile"), ("eukaryotes", "min_eukaryotes")) if sh.get(cls, 0) < rule[key]]
                 if not short:
                     break
-                grown = False
+                exhausted = []
                 for cls in short:
+                    grown = False
                     for g in kmap.names:
                         if _major(g) == cls and chosen[g][1] < sum(r["units"] for _, r in orders[g]):
-                            step = max(1, int(math.ceil(0.05 * (floors["min_genomes"][g]))))
-                            targets[g] += step
+                            targets[g] += max(1, int(math.ceil(0.05 * (floors["min_genomes"][g]))))
                             grown = True
-                if not grown:
-                    repair.append(dict(note="cannot repair: no more candidates in %s" % short))
-                    break
+                    if not grown:
+                        exhausted.append(cls)
+                if exhausted:
+                    repair.append(dict(note="cannot repair %s: every candidate of the class is selected" % exhausted))
+                    if len(exhausted) == len(short):
+                        break
                 chosen = choose()
+            else:
+                repair.append(dict(note="share repair stopped after 10000 steps"))
+            over = {k: round(v, 4) for k, v in shares_now().items() if v > rule["max_any_major"]}
+            if over:
+                repair.append(dict(note="after the repair a class is above max_any_major", shares=over))
             changed = {g: dict(floor_target=targets0[g], target=targets[g]) for g in kmap.names if targets[g] != targets0[g]}
             if changed:
                 repair.append(dict(raised=changed))
@@ -406,7 +447,9 @@ def main():
                                cap_passed=max((d for d, _ in ch), default=-1) + 1 > cap, coverage_selected=coverage(sel_rows), coverage_eligible=coverage(eligible[g]),
                                proteins={b: sum(r["proteins_" + b] for r in sel_rows) for b in ("low", "central", "high")},
                                proteins_levels=dict(sorted({lv: sum(1 for r in sel_rows if r["proteins_level"] == lv) for lv in {r["proteins_level"] for r in sel_rows}}.items())),
-                               host_unknown=sum(1 for r in sel_rows if r["part"] == "viruses" and not r.get("host_known")))
+                               host_unknown=sum(1 for r in sel_rows if r["part"] == "viruses" and not r.get("host_known")),
+                               eligible_without_genus=sum(1 for r in eligible[g] if not r["genus"]),
+                               eligible_without_outer_rank=sum(1 for r in eligible[g] if not r[rules[part_of.get(g) or ("viruses" if g.startswith("viruses.") else "eukaryotes")].get("outer", "order")]))
         ungrouped = {}                                   # rejected before a group could be given (conflicts, unknown taxids)
         for r in cands.rows:
             if not r["group"]:
@@ -440,7 +483,8 @@ def main():
                 w.writerow([r.get(c, "") if c != "selected" else int(bool(r.get("selected"))) for c in CAND_COLS])
         bg = st.path("select", "by_group.json")
         write_json(bg, dict(spec=spec["name"], tier=spec.get("tier"), groups=by_group, ungrouped=ungrouped, shares=shares, repair=repair, inputs=inputs,
-                            catalogues={e["id"]: dict(kind=e["kind"], records=e["records"], sha256=e["sha256"]) for e in cman["entries"]},
+                            catalogues={e["id"]: dict(kind=e["kind"], records=e["records"], sha256=e["sha256"], query=e["query"], totals=e.get("totals") or {})
+                                        for e in cman["entries"]},
                             selected_genomes=len(sel), selected_units=sum(r["units"] for r in sel)))
         man = M.build("select-" + spec["name"], "selection", [dict(id=r["id"], group=r["group"], taxid=int(r["taxid"]), accession=r["accession"], units=r["units"]) for r in sel],
                       meta=dict(inputs=inputs))

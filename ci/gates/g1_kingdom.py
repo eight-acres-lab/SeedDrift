@@ -131,6 +131,7 @@ def select_targets(spec: dict, kmap: KingdomMap = None) -> dict:
     """Target per group (genomes; plasmid replicons for mobile.plasmid): `groups.<g>.target` if given, else the floor
     (tier full: configs/corpus/floors.yaml; other tiers: `min_genomes`) times `target_factor`, rounded up."""
     import math
+    from fractions import Fraction
     kmap = kmap or KingdomMap()
     floors = _floors()["min_genomes"] if spec.get("tier") == "full" else {}
     groups = spec.get("groups") or {}
@@ -138,7 +139,7 @@ def select_targets(spec: dict, kmap: KingdomMap = None) -> dict:
     for g in kmap.names:
         floor = floors.get(g) if floors else (groups.get(g) or {}).get("min_genomes", 1)
         t = (groups.get(g) or {}).get("target")
-        out[g] = int(t) if t is not None else int(math.ceil(floor * float(spec.get("target_factor", 1.0))))
+        out[g] = int(t) if t is not None else int(math.ceil(floor * Fraction(str(spec.get("target_factor", 1.0)))))   # exact: 10 x 1.1 is 11
     return out
 
 

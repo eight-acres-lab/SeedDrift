@@ -4,8 +4,8 @@
 # Catalogues: the sources the charter names per kingdom. NCBI RefSeq reference genomes (complete, annotated) for
 # bacteria and archaea; NCBI RefSeq complete viral assemblies (their hosts from the NCBI virus reports); Ensembl release
 # 116 and Ensembl Genomes release 63 for eukaryotes (protein counts from the NCBI annotation of the same assemblies).
-# What these catalogues leave out (GenBank-only viruses, draft-only and uncultured prokaryotes, eukaryotes outside
-# Ensembl) is reported with the selection; widening a catalogue is a decision for the user.
+# What these catalogues leave out is counted with wider queries (`totals`) and reported with the selection; widening a
+# catalogue (GenBank-only viruses, draft-only and uncultured prokaryotes, eukaryotes outside Ensembl) is the user's decision.
 name: v1
 tier: full
 seed: 20261117
@@ -14,10 +14,21 @@ target_factor: 1.0
 catalogues:
   - id: bacteria
     ncbi_genome_reports: {taxon: 2, params: {filters.reference_only: "true", filters.assembly_source: refseq, filters.assembly_level: complete_genome, filters.has_annotation: "true"}}
+    totals:
+      refseq complete annotated (not only reference genomes): {filters.assembly_source: refseq, filters.assembly_level: complete_genome, filters.has_annotation: "true"}
+      refseq, every assembly level: {filters.assembly_source: refseq}
+      every assembly (GenBank and RefSeq): {}
   - id: archaea
     ncbi_genome_reports: {taxon: 2157, params: {filters.reference_only: "true", filters.assembly_source: refseq, filters.assembly_level: complete_genome, filters.has_annotation: "true"}}
+    totals:
+      refseq complete annotated (not only reference genomes): {filters.assembly_source: refseq, filters.assembly_level: complete_genome, filters.has_annotation: "true"}
+      refseq, every assembly level: {filters.assembly_source: refseq}
+      every assembly (GenBank and RefSeq): {}
   - id: viruses
     ncbi_genome_reports: {taxon: 10239, params: {filters.assembly_source: refseq, filters.assembly_level: complete_genome}}
+    totals:
+      complete assemblies, GenBank and RefSeq: {filters.assembly_level: complete_genome}
+      every viral assembly: {}
   - id: virus_hosts
     ncbi_virus_reports: {taxon: 10239, params: {filter.refseq_only: "true", filter.complete_only: "true"}}
   - {id: ens_vertebrates, ensembl_species: {site: ensembl, division: vertebrates, release: 116}}
@@ -27,6 +38,8 @@ catalogues:
   - {id: ens_protists, ensembl_species: {site: ensemblgenomes, division: protists, release: 63}}
   - id: ens_annotation
     ncbi_genome_accessions: {from: [ens_vertebrates, ens_plants, ens_fungi, ens_metazoa, ens_protists], field: assembly_accession}
+    totals:
+      NCBI annotated eukaryote reference genomes (outside Ensembl too): {_kind: ncbi_genome_reports, _taxon: 2759, filters.reference_only: "true", filters.has_annotation: "true"}
 rules:
   prokaryotes: {catalogues: [bacteria, archaea], min_protein_coding: 500, outer: order, cap_per_genus: 3}
   plasmids: {outer: order, cap_per_genus: 3}

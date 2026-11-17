@@ -3,7 +3,9 @@
 # [low, central, high]. Changing this file is a new CI version.
 protein_factor:
   # proteins the corpus stage will keep, relative to the catalogue's annotated protein-coding genes
-  prokaryote_chromosomes: [0.80, 0.93, 1.05]   # chromosomes only (plasmid genes count as mobile.plasmid), genes called again by pyrodigal; assumed
+  # applied to the whole assembly's annotated count: the factor takes out the plasmid genes (counted separately in
+  # mobile.plasmid) and allows for genes called again by pyrodigal on the chromosomes; assumed
+  prokaryote_chromosomes: [0.80, 0.93, 1.05]
   virus: [0.80, 1.00, 1.30]                    # pyrodigal (metagenome mode on small genomes) against the annotation; assumed
   eukaryote_annotated: [0.75, 1.00, 1.30]      # Ensembl gene build against the NCBI annotation of the same assembly; assumed
   eukaryote_median: [0.40, 1.00, 2.50]         # no NCBI annotation found: the median of the group; assumed

@@ -106,12 +106,17 @@ def phase_select(st, cfg, run_dir):
         rows = list(csv.DictReader(f, delimiter="\t"))
     tax = Taxonomy(st.repo(cfg["taxdump"]))
     results = [run(g1_kingdom.selection(spec, rows, tax, cfg.get("tier")), run_dir)]
-    g2 = g2_exclusion.entries([dict(id=r["id"], taxid=int(r["taxid"]), accession=r["accession"], paired_accession=r["paired_accession"],
-                                    host_taxid=int(r["host_taxid"] or 0)) for r in rows], tax)
+    def hosts(r):
+        return sorted({int(h) for h in (r.get("hosts") or "").split(";") if h} | ({int(r["host_taxid"])} if r.get("host_taxid") not in ("", "0", None) else set()))
+    ent = []
+    for r in rows:                                     # one entry per host, so every host of a virus is checked by lineage
+        base = dict(id=r["id"], taxid=int(r["taxid"]), accession=r["accession"], paired_accession=r["paired_accession"])
+        ent += [dict(base, host_taxid=h) for h in hosts(r)] or [base]
+    g2 = g2_exclusion.entries(ent, tax)
     g2.gate = "G2_select"
     results.append(run(g2, run_dir))
     files = [os.path.join(d, n) for n in ("selected.tsv", "by_group.json", "manifest.json")]
-    results.append(run(g3_sealed.selection(files, tax, {r["id"]: [int(r["taxid"]), int(r["host_taxid"] or 0)] for r in rows}, cfg.get("tier")), run_dir))
+    results.append(run(g3_sealed.selection(files, tax, {r["id"]: [int(r["taxid"])] + hosts(r) for r in rows}, cfg.get("tier")), run_dir))
     bad = [r.gate for r in results if r.status == "fail"]
     if bad:
         raise GateFailure("gates failed: %s" % ", ".join(bad))

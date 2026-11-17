@@ -7,6 +7,8 @@ Catalogue kinds (configs/select/<name>.yaml, `catalogues:`; each entry has an `i
   ncbi_virus_reports: {taxon, params}      NCBI Datasets v2 virus dataset_report (the host of every nucleotide record)
   ensembl_species: {site, division, release}  the release's species_<Division>.txt
   file: <repository path>                  a committed snapshot in the canonical form (the fixtures of select-tiny)
+An NCBI catalogue may name `totals: {label: params}`: wider queries whose record counts are kept with the snapshot, so
+the report can say what the catalogue's filters leave out (`_kind`, `_taxon` count another endpoint or taxon).
 Every snapshot is reduced to the fields the selection reads and made canonical: one JSON object per line, sorted keys,
 records sorted by their key, no duplicate keys. A paged catalogue is accepted only when the number of distinct records
 equals the total the server announced (pages of a catalogue that changes while it is read can skip or repeat records);
@@ -55,7 +57,7 @@ def kind_of(c):
 
 def describe(c):
     k = kind_of(c)
-    return {"kind": k, k: c[k]}
+    return {"kind": k, k: c[k], "totals": c.get("totals") or {}}
 
 
 def canonical(records, key):
@@ -107,14 +109,34 @@ def reduce_ensembl(row, site, division, release):
 
 # ---- fetchers ----------------------------------------------------------------------------------------------------
 
+def params(p):
+    """Query parameters as NCBI expects them: booleans as true/false, lists as repeated keys; nothing else."""
+    out = []
+    for k, v in sorted((p or {}).items()):
+        for x in (v if isinstance(v, list) else [v]):
+            if isinstance(x, bool):
+                x = "true" if x else "false"
+            if not isinstance(x, (str, int)):
+                raise SystemExit("query parameter %s: %r is not a string, number, boolean or list of them" % (k, x))
+            out.append((k, str(x)))
+    return out
+
+
 def _paged(url_of, reducer, key, fetch=get, tries=3):
-    """All pages of a dataset_report; (records, total) once the distinct count equals the announced total."""
+    """All pages of a dataset_report; (records, total, pages) once the distinct count equals the announced total. A
+    page without total_count, or a catalogue with no record at all, is refused (an error body or a filter that
+    matches nothing must not become an empty snapshot)."""
     last = None
     for attempt in range(tries):
         out, token, total, pages = [], "", None, 0
         while True:
             d = json.loads(fetch(url_of(token)))
-            total = d.get("total_count", 0) if total is None else total
+            if total is None:
+                if "total_count" not in d:
+                    raise SystemExit("catalogue page without total_count: %s" % str(d)[:300])
+                total = int(d["total_count"])
+                if total == 0:
+                    raise SystemExit("catalogue query matches no record")
             out += [reducer(r) for r in d.get("reports") or []]
             pages += 1
             token = d.get("next_page_token") or ""
@@ -125,7 +147,8 @@ def _paged(url_of, reducer, key, fetch=get, tries=3):
         if n == total:
             return out, total, pages
         last = "distinct records %d, announced %d" % (n, total)
-        time.sleep(30 * (attempt + 1))
+        if attempt + 1 < tries:
+            time.sleep(30 * (attempt + 1))
     raise SystemExit("catalogue did not read consistently in %d tries: %s" % (tries, last))
 
 
@@ -134,7 +157,7 @@ def fetch_genome_reports(c, fetch=get):
     base = "%s/genome/taxon/%d/dataset_report?" % (NCBI, int(c["ncbi_genome_reports"]["taxon"]))
     def url(tok):
         q = dict(p, page_size=1000, **({"page_token": tok} if tok else {}))
-        return base + urllib.parse.urlencode(sorted(q.items()))
+        return base + urllib.parse.urlencode(params(q))
     return _paged(url, reduce_genome, "accession", fetch)
 
 
@@ -143,8 +166,17 @@ def fetch_virus_reports(c, fetch=get):
     base = "%s/virus/taxon/%d/dataset_report?" % (NCBI, int(c["ncbi_virus_reports"]["taxon"]))
     def url(tok):
         q = dict(p, page_size=1000, **({"page_token": tok} if tok else {}))
-        return base + urllib.parse.urlencode(sorted(q.items()))
+        return base + urllib.parse.urlencode(params(q))
     return _paged(url, reduce_virus, "accession", fetch)
+
+
+def count(kind, taxon, p, fetch=get):
+    """The total_count of a query (one record asked for): how much a catalogue's filters leave out."""
+    base = "%s/%s/taxon/%d/dataset_report?" % (NCBI, "genome" if kind == "ncbi_genome_reports" else "virus", int(taxon))
+    d = json.loads(fetch(base + urllib.parse.urlencode(params(dict(p or {}, page_size=1)))))
+    if "total_count" not in d:
+        raise SystemExit("count query without total_count: %s" % str(d)[:300])
+    return int(d["total_count"])
 
 
 def fetch_accessions(accs, fetch=get, batch=50):
@@ -152,6 +184,7 @@ def fetch_accessions(accs, fetch=get, batch=50):
     assembly is often the RefSeq one)."""
     out, asked = {}, set()
     todo = sorted({a for a in accs if a})
+    wanted = set(todo)
     for _ in range(2):
         nxt = set()
         for i in range(0, len(todo), batch):
@@ -168,7 +201,8 @@ def fetch_accessions(accs, fetch=get, batch=50):
         todo = sorted(nxt)
         if not todo:
             break
-    return list(out.values()), len(out), len(asked)
+    missing = sorted(wanted - set(out))
+    return list(out.values()), len(out), len(asked), missing
 
 
 def fetch_ensembl(c, fetch=get):
@@ -181,6 +215,13 @@ def fetch_ensembl(c, fetch=get):
     if not lines or not lines[0].startswith("#name"):
         raise SystemExit("%s: not an Ensembl species list" % url)
     rows = list(csv.DictReader(io.StringIO("\n".join([lines[0][1:]] + lines[1:])), delimiter="\t"))
+    need = ("name", "species", "taxonomy_id", "assembly_accession", "genebuild", "core_db")
+    gone = [c for c in need if c not in (rows[0].keys() if rows else lines[0][1:].split("\t"))]
+    if gone or not rows:
+        raise SystemExit("%s: the species list lacks %s" % (url, gone or "rows"))
+    for r in rows:
+        if not r.get("name") or not str(r.get("taxonomy_id") or "").isdigit():
+            raise SystemExit("%s: a row without name or taxonomy id: %r" % (url, r))
     return [reduce_ensembl(r, e.get("site", "ensembl"), e["division"], e["release"]) for r in rows], len(rows), url
 
 
@@ -198,8 +239,8 @@ def snapshot(c, done, cas, fetch=get):
         accs = []
         for pid in src["from"]:
             accs += [r.get(src.get("field", "assembly_accession"), "") for r in read_jsonl(done[pid])]
-        recs, n, asked = fetch_accessions(accs, fetch)
-        prov = dict(asked=asked, found=n)
+        recs, n, asked, missing = fetch_accessions(accs, fetch)
+        prov = dict(asked=asked, found=n, not_found=len(missing), not_found_sha256=sha256_json(missing))
     elif k == "ensembl_species":
         recs, n, url = fetch_ensembl(c, fetch)
         prov = dict(url=url, rows=n)
@@ -242,6 +283,7 @@ def main():
                 done[c["id"]] = path
                 entries.append(dict(id=c["id"], kind=k, query=q, sha256=sha, records=n, path=c["file"], bytes=len(data)))
                 continue
+            totals = {}
             if mode == "lock":
                 want = lock.get(c["id"])
                 if not want:
@@ -262,14 +304,19 @@ def main():
                     notes[c["id"]] = dict(source="fetched", fetched=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **prov)
                     nbytes = len(data)
                 sha = want["sha256"]
+                totals = want.get("totals") or {}
             else:
                 data, n, prov = snapshot(c, done, cas)
                 path, sha = store(cas, data, ".jsonl")
                 notes[c["id"]] = dict(source="fetched", fetched=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **prov)
                 nbytes = len(data)
+                for label, tp in sorted((c.get("totals") or {}).items()):
+                    q2 = dict(tp)                        # _kind / _taxon: count another query than the catalogue's own
+                    totals[label] = dict(params=tp, total=count(q2.pop("_kind", k), q2.pop("_taxon", (c[k] or {}).get("taxon")), q2))
+                    time.sleep(PAUSE)
             done[c["id"]] = path
-            new_lock[c["id"]] = dict(kind=k, query_sha256=qsha, sha256=sha, records=n, bytes=nbytes)
-            entries.append(dict(id=c["id"], kind=k, query=q, sha256=sha, records=n, path=os.path.relpath(path, cas), bytes=nbytes))
+            new_lock[c["id"]] = dict(kind=k, query_sha256=qsha, sha256=sha, records=n, bytes=nbytes, totals=totals)
+            entries.append(dict(id=c["id"], kind=k, query=q, sha256=sha, records=n, path=os.path.relpath(path, cas), bytes=nbytes, totals=totals))
         man = M.build(spec["name"] + "-catalog", "catalog", entries, meta=dict(cas="<data_root>/cas", spec=spec["name"]))
         msha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("catalog", "manifest.json")

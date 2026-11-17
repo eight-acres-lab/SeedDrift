@@ -30,8 +30,11 @@ def main():
             total, scalable = d["total_gb"], d["scalable_gb"]
             room = free - reserve - (total - scalable)
             frac = max(0.0, min(1.0, room / scalable)) if scalable > 0 else 1.0
+            # at that scale, the smallest share of its floor any group would keep (a group above its floor keeps more)
+            floor_part = min((frac * x["units"] / x["floor"] for x in b["groups"].values() if x.get("floor")), default=frac)
             out["cases"][c] = dict(total_gb=total, margin_gb=round(free - reserve - total, 1), verdict="fits" if total <= free - reserve else "does not fit",
-                                   uniform_fraction_that_fits=round(frac, 3), below_half_of_floors=frac < 0.5, search_hours=b["search_hours"][c])
+                                   uniform_fraction_that_fits=round(frac, 3), smallest_fraction_of_a_floor=round(floor_part, 3),
+                                   below_half_of_floors=floor_part < 0.5, search_hours=b["search_hours"][c])
         p = st.path("select", "fit.json")
         write_json(p, out)
         st.output("fit", p)

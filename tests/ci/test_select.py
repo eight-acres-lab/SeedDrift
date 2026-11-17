@@ -140,7 +140,8 @@ def test_selection_covers_every_group_and_records_every_reason(tmp_path, ttax):
     assert bg["ungrouped"]["viruses"].get("group conflict") == 1          # the tailed phage on a eukaryote host
     assert "Rejected before a group could be given" in (d / "data" / "select" / "report.md").read_text()
     assert bg["groups"]["mobile.plasmid"]["selected_units"] >= 3
-    assert bg["groups"]["viruses.eukaryotic"]["host_unknown"] + bg["groups"]["viruses.eukaryotic"]["selected_genomes"] >= 1
+    assert any(v.startswith("host unknown") for v in out.values())        # no host record: the host exclusions cannot be checked
+    assert bg["groups"]["viruses.eukaryotic"]["selected_genomes"] >= 1
     red = [r for r in cand if r["id"].startswith("plants_algae_") and r["catalogue"] == "ens_protists"]
     assert red, "a red alga listed by Ensembl Protists is placed by its taxid"
     assert any(r["proteins_level"].startswith("estimated") for r in sel + cand if r.get("proteins_level"))
@@ -223,3 +224,53 @@ def test_unknown_pipeline_is_refused_fails():
     assert pipeline({})["target"] == "all" and pipeline({"pipeline": "select"})["target"] == "select_all"
     with pytest.raises(SystemExit):
         pipeline({"pipeline": "bogus"})
+
+
+def test_species_without_genus_are_not_pooled():
+    from ci.stages.select import pick_order
+    rows = [dict(id="s%d" % i, genus=0, species_taxid=100 + i, family=0, units=1) for i in range(6)]
+    rows += [dict(id="g%d" % i, genus=50 + i, species_taxid=200 + i, family=7, units=1) for i in range(2)]
+    order = pick_order(rows, "family", 1, "viruses.phage")
+    assert all(d == 0 for d, _ in order)                                # every genus-less species is its own genus: depth 0
+
+
+def test_quality_prefers_zero_contamination(ttax):
+    from ci.gates.g2_exclusion import Excluder
+    from ci.kingdom import KingdomMap
+    from ci.stages import select as S
+    A = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "assumptions.yaml")))
+    c = S.Candidates(ttax, KingdomMap(), Excluder(ttax), A)
+    recs = [json.loads(l) for l in open(os.path.join(ROOT, "tests", "ci", "fixtures", "select", "bacteria.jsonl"))][:1]
+    clean, dirty = dict(recs[0], accession="GCF_900000002.1", checkm_contamination=0.0), dict(recs[0], accession="GCF_900000001.1", checkm_contamination=0.5)
+    S.prokaryotes(c, [dirty, clean], "bacteria", dict(min_protein_coding=0))
+    win = S.one_per_species([r for r in c.rows if r["group"] == "bacteria"])
+    assert [w["accession"] for w in win] == ["GCF_900000002.1"]
+
+
+def test_targets_are_exact():
+    from ci.gates.g1_kingdom import select_targets
+    spec = yaml.safe_load(open(os.path.join(ROOT, "configs", "select", "tiny.yaml")))
+    spec = dict(spec, groups={g: {"min_genomes": 10} for g in spec["groups"]}, target_factor=1.1)
+    assert set(select_targets(spec).values()) == {11}
+
+
+def test_params_normalised():
+    from ci.stages.catalog import params
+    assert params({"b": True, "a": ["x", "y"], "c": 3}) == [("a", "x"), ("a", "y"), ("b", "true"), ("c", "3")]
+    with pytest.raises(SystemExit):
+        params({"a": {"x": 1}})
+
+
+def test_paged_refuses_empty_and_countless_pages(monkeypatch):
+    from ci.stages import catalog
+    with pytest.raises(SystemExit, match="no record"):
+        catalog._paged(lambda t: t, lambda r: r, "accession", fetch=lambda t: json.dumps(dict(total_count=0, reports=[])).encode())
+    with pytest.raises(SystemExit, match="total_count"):
+        catalog._paged(lambda t: t, lambda r: r, "accession", fetch=lambda t: json.dumps(dict(reports=[{"accession": "A"}])).encode())
+
+
+def test_g3_built_still_fails_closed_on_taxid_zero(ttax):
+    from ci.gates import g3_sealed
+    from ci.taxonomy import UnknownTaxid
+    with pytest.raises(UnknownTaxid):
+        g3_sealed.built("/nonexistent", ttax, {"x": [0]}, "tiny")

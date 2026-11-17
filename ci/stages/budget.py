@@ -142,8 +142,19 @@ def main():
                            diamond_tmp_gb=A["diamond_tmp_gb"][i], hits_gb=round(tot["hits"][c] / GB, 2), live_run_copies=runs[i],
                            total_gb=round((fixed + per_run * runs[i]) / GB, 2), scalable_gb=round((tot["downloads"][c] + tot["queries"][c] + per_run * runs[i]) / GB, 2))
         search = {c: round((S["fixed_s"][i] + tot["search_s"][c]) / 3600, 1) for i, c in enumerate(CASES)}
+        # the protein-share rules at the unfavourable ends of the ranges (a class low, the others high, and the reverse)
+        maj = {}
+        for g, x in groups.items():
+            m = "prokaryotes" if g in ("bacteria", "archaea") else ("eukaryotes" if g.startswith("eukaryota.") else "viral_mobile")
+            for c in CASES:
+                maj.setdefault(m, {c2: 0 for c2 in CASES})[c] += x["proteins"][c]
+        worst = {}
+        for m, v in sorted(maj.items()):
+            lo_rest = sum(o["low"] for k, o in maj.items() if k != m)
+            hi_rest = sum(o["high"] for k, o in maj.items() if k != m)
+            worst[m] = dict(lowest=round(v["low"] / ((v["low"] + hi_rest) or 1), 4), highest=round(v["high"] / ((v["high"] + lo_rest) or 1), 4))
         budget = dict(spec=spec["name"], groups=groups, proteins={c: int(tot["proteins"][c]) for c in CASES}, disk=disk, search_hours=search,
-                      search_threads=12, shares=bg["shares"], repair=bg["repair"], rates_basis=rates["basis"], assumptions=A)
+                      search_threads=12, shares=bg["shares"], shares_range=worst, repair=bg["repair"], rates_basis=rates["basis"], assumptions=A)
         bp = st.path("select", "budget.json")
         write_json(bp, budget)
         rep = st.path("select", "report.md")
@@ -172,10 +183,15 @@ def report(spec, bg, b):
               _r(b["proteins"]), _r({c: t[c]["total_gb"] for c in CASES}), _r({c: t[c]["hits_gb"] for c in CASES}), _r({c: t[c]["corpus_gb"] for c in CASES}),
               _r({c: t[c]["downloads_gb"] for c in CASES}), _r({c: t[c]["queries_gb"] for c in CASES}), _r({c: t[c]["diamond_tmp_gb"] for c in CASES}),
               _r({c: t[c]["live_run_copies"] for c in CASES}), _r(b["search_hours"], "%.0f")), "",
-          "**Protein shares** (central estimate; gate G1_select says where the ranges could break a rule): "
-          + "; ".join("%s %s" % (k, "%.3f" % v) for k, v in b["shares"]["central"].items()), ""]
+          "**Protein shares** (central estimate [lowest–highest the ranges allow]; the rules: no class above 0.60, eukaryotes at "
+          "least 0.20, viruses and mobile elements at least 0.05; gate G1_select decides on the central estimate): "
+          + "; ".join("%s %.3f [%.3f–%.3f]" % (k, v, b["shares_range"][k]["lowest"], b["shares_range"][k]["highest"]) for k, v in b["shares"]["central"].items()), ""]
     if b["repair"]:
         L += ["**Share repair**: %s" % json.dumps(b["repair"]), ""]
+    if bg["inputs"].get("event_catalogue") == "absent":
+        L += ["**Test-recipient exclusions are not applied yet**: the public confirmed-event catalogue (bench/catalogue/events.tsv) does not exist "
+              "(gate G5 is waived until 2027-01-16). The selection must be run again once its recipients are excluded, before any search or training of the "
+              "affected groups.", ""]
     L += ["## Coverage and reasons", "", "| group | selected phyla/orders/families/genera | eligible phyla/orders/families/genera | cap passed | hosts unknown | main reasons out |",
           "|---|---|---|---|---|---|"]
     for g, d in bg["groups"].items():
@@ -185,9 +201,15 @@ def report(spec, bg, b):
                                                                  ce["genus"], "yes" if d["cap_passed"] else "no", d["host_unknown"], outs))
     if bg.get("ungrouped"):
         L += ["", "Rejected before a group could be given: " + "; ".join("%s: %s" % (p, ", ".join("%s %d" % kv for kv in v.items())) for p, v in bg["ungrouped"].items()) + "."]
-    L += ["", "## Catalogue snapshots", "", "| catalogue | kind | records | sha256 |", "|---|---|---|---|"]
+    L += ["", "## Catalogue snapshots and what their filters leave out", "",
+          "| catalogue | kind | query | records | wider queries (records) | sha256 |", "|---|---|---|---|---|---|"]
     for cid, c in bg["catalogues"].items():
-        L.append("| %s | %s | %d | %s |" % (cid, c["kind"], c["records"], c["sha256"][:16]))
+        q = c.get("query") or {}
+        body = q.get(c["kind"]) if isinstance(q.get(c["kind"]), dict) else {}
+        qs = ", ".join("%s=%s" % kv for kv in sorted(((body or {}).get("params") or {}).items())) or "—"
+        wider = "; ".join("%s: %d" % (lab, t["total"]) for lab, t in sorted((c.get("totals") or {}).items())) or "—"
+        L.append("| %s | %s | %s | %d | %s | %s |" % (cid, c["kind"], qs, c["records"], wider, c["sha256"][:16]))
+    L += ["", "Widening a catalogue (GenBank-only viruses, draft or uncultured prokaryotes, eukaryotes outside Ensembl) is a decision for the user."]
     L += ["", "Rates: %s. Selection inputs: %s." % (b["rates_basis"], ", ".join("%s %s" % (k, str(v)[:12]) for k, v in sorted(bg["inputs"].items()))), ""]
     return "\n".join(L) + "\n"
 

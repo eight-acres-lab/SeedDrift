@@ -344,6 +344,11 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
             methods["model_seed_%d" % sd] = np.asarray(zs["score"], float)
             per.append(methods["model_seed_%d" % sd])
         methods["model_mean_of_seeds"] = np.mean(per, 0)
+    for a, dd in sorted(((md.get("ablations") or {}) if os.path.exists(mj) else {}).items()):   # one input channel cut
+        zs = np.load(os.path.join(run_dir, dd, "dev_eval.npz"))
+        if [x.decode() for x in zs["recipient"]] != rec or not np.array_equal(zs["gene"], gene):
+            raise SystemExit("ablation %s scored other development examples" % a)
+        methods["model_without_%s" % a] = np.asarray(zs["score"], float)
     # the simple trained baseline: logistic regression on the summary features, fitted on training-genome constructions
     bt = os.path.join(run_dir, "data", "model", "baseline_train.npz")
     baseline = None

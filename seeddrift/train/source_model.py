@@ -219,7 +219,12 @@ def collate(batch, torch):
     return dict(codons=codons, present=present, feats=feats, tracks=tracks, prots=prots, hmask=hmask, src=src, labels=labels)
 
 
-def build(torch, n_lib, d=128):
+def build(torch, n_lib, d=128, ablate=""):
+    """The network. ablate="hits": every gene reads as one without hits (the hit channel is cut); ablate="codons": the
+    codon encodings of the slots and of the genome source are zero (the composition channel is cut). Same parameters,
+    so an ablation trains exactly like the full model."""
+    if ablate not in ("", "hits", "codons"):
+        raise SystemExit("ablate is hits or codons, not %r" % ablate)
     nn = torch.nn
 
     class Pool(nn.Module):
@@ -270,8 +275,12 @@ def build(torch, n_lib, d=128):
             cv = torch.zeros(B * S, cenc.shape[-1], device=cenc.device, dtype=cenc.dtype)
             cv[pres] = cenc
             cv = cv.view(B, S, -1)
+            if ablate == "codons":
+                cv = torch.zeros_like(cv)
             _, _, H, T = x["tracks"].shape
             hm = x["hmask"].view(B * S, H)
+            if ablate == "hits":
+                hm = torch.zeros_like(hm)
             flat = hm.view(-1)                                           # encode only the real hit tracks, packed
             if not bool(flat.any()):                                     # a batch without any hit (small viral genomes)
                 flat = flat.clone()
@@ -290,6 +299,8 @@ def build(torch, n_lib, d=128):
             sv = self.codon(x["src"].view(Bs * Ns, Ls)).view(Bs, Ns, -1)
             smask = (x["src"] > 0).any(-1)
             source = (sv * smask.unsqueeze(-1)).sum(1) / smask.sum(1, keepdim=True).clamp(min=1)
+            if ablate == "codons":
+                source = torch.zeros_like(source)
             seq = torch.cat([self.src_proj(source).unsqueeze(1), slots], 1)
             pad = torch.cat([torch.zeros(B, 1, dtype=torch.bool, device=seq.device), ~x["present"]], 1)
             out = self.ctx(seq, src_key_padding_mask=pad)
@@ -414,7 +425,7 @@ def fit(run_dir, cfg):
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data = Data(run_dir, cfg)
     train_ids = sorted(data.by_split.get("train", []))
-    model = build(torch, data.n_lib).to(dev)
+    model = build(torch, data.n_lib, ablate=cfg.get("ablate", "")).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["lr"]), weight_decay=0.01)
     steps, batch = int(cfg["steps"]), int(cfg["batch"])
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / 200) * 0.5 * (1 + math.cos(math.pi * min(s, steps) / steps)))
@@ -474,7 +485,7 @@ def score(run_dir, cfg, model=None, data=None):
     data = data or Data(run_dir, cfg)
     if model is None:
         z = np.load(os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"), "model.npz"))
-        model = build(torch, data.n_lib).to(dev)
+        model = build(torch, data.n_lib, ablate=cfg.get("ablate", "")).to(dev)
         model.load_state_dict({k[2:]: torch.from_numpy(z[k]) for k in z.files})
     model_dir = os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"))
     os.makedirs(model_dir, exist_ok=True)

@@ -231,9 +231,15 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
         out = os.path.join("data", "model", sub) if multi else os.path.join("data", "model")
         confs.append(dict(base, seed=sd, logs=logs, out=out,
                           resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
+    # ablations (train.ablations: hits, codons): the same network with one input channel cut, first seed, own folders
+    abl = []
+    for a in tc.get("ablations") or []:
+        abl.append(dict(base, seed=seeds[0], ablate=str(a), logs=os.path.join("data", "train", "logs", "ablate-%s" % a),
+                        out=os.path.join("data", "model", "ablate-%s" % a), resume=False))
+    jobs = [(c, "source_config" + ("-seed-%d" % c["seed"] if multi else "")) for c in confs] + [(c, "source_config-ablate-%s" % c["ablate"]) for c in abl]
     par = max(1, int(tc.get("parallel", 1)))
-    for k in range(0, len(confs), par):
-        wait([run("fit", c, "source_config" + ("-seed-%d" % c["seed"] if multi else "")) for c in confs[k:k + par]])
+    for k in range(0, len(jobs), par):
+        wait([run("fit", c, name) for c, name in jobs[k:k + par]])
     model_dir = os.path.join(run_dir, "data", "model")
     if multi:                                                   # the first seed is the run's model; the others sit beside it
         for name in ("model.npz", "eval_scores.npz", "dev_eval.npz"):
@@ -246,11 +252,14 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
     mid = "mdl-source-v0-" + sha256_json([cfg["git"]["sha"], cfg["config_sha256"], [ids_doc["corpus_dataset"], tdi["dataset_id"]], tc["seed"]])[:12]
     write_json(st.path("model", "model.json"), dict(model_id=mid, kind="source_v0", note="pilot: development diagnosis only (charter section 8)",
                                                   steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
-                                                  model_env_sha256=sha256_json(have), seeds=seeds, seed_dirs=[c["out"] for c in confs]))
+                                                  model_env_sha256=sha256_json(have), seeds=seeds, seed_dirs=[c["out"] for c in confs],
+                                                  ablations={c["ablate"]: c["out"] for c in abl}))
     for name in ("model.npz", "eval_scores.npz", "dev_eval.npz", "dev_set.npz", "baseline_train.npz"):
         st.output(name.split(".")[0], os.path.join(model_dir, name))
     for c in confs[1:] if multi else []:
         st.output("dev_eval_seed_%d" % c["seed"], os.path.join(run_dir, c["out"], "dev_eval.npz"))
+    for c in abl:
+        st.output("dev_eval_ablate_%s" % c["ablate"], os.path.join(run_dir, c["out"], "dev_eval.npz"))
     st.output("data_seen", os.path.join(run_dir, confs[0]["logs"], "data_seen.json"))
     st.extra.update(model_id=mid, steps=int(tc["steps"]), model_env=py, seeds=seeds)
 

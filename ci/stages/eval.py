@@ -453,8 +453,9 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                 bgrp = np.array([meta[r]["group"] for r in br])
                 idx = balanced_rows(bgrp)
                 methods["baseline_mlp_proportional"] = methods["baseline_mlp"]
-                for k in (0, 1, 2):
-                    methods["baseline_mlp_balanced_seed_%d" % k] = mlp(XB[idx], yb[idx], seed=k)(XD)
+                for k in (0, 1, 2):                                   # each seed its own resample and initialisation
+                    ik = balanced_rows(bgrp, seed=k)
+                    methods["baseline_mlp_balanced_seed_%d" % k] = mlp(XB[ik], yb[ik], seed=k)(XD)
                 methods["baseline_mlp_balanced"] = methods["baseline_mlp_balanced_seed_0"]
                 methods["baseline_mlp_balanced_mean"] = np.mean([methods["baseline_mlp_balanced_seed_%d" % k] for k in (0, 1, 2)], 0)
                 for name, cols_ in (("composition_only", [0, 1, 2, 3]), ("hits_only", list(range(4, len(FEATURES)))),
@@ -469,8 +470,11 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                     yf = np.array([1.0 if d else 0.0 for d in fd])
                     if not 0 < yf.sum() < len(yf):
                         continue
-                    jdx = balanced_rows(np.array([meta[r]["group"] for r in fr_]))
-                    per = [mlp(XF[jdx], yf[jdx], seed=k)(XD) for k in (0, 1, 2)]
+                    fgrp = np.array([meta[r]["group"] for r in fr_])
+                    per = []
+                    for k in (0, 1, 2):
+                        jk = balanced_rows(fgrp, seed=k)
+                        per.append(mlp(XF[jk], yf[jk], seed=k)(XD))
                     methods["baseline_mlp_balanced_f%g" % f] = per[0]
                     methods["baseline_mlp_balanced_mean_f%g" % f] = np.mean(per, 0)
                     baseline["fractions"]["%g" % f] = dict(train_examples=int(len(yf)), train_recipients=len(set(fr_)))

@@ -195,3 +195,26 @@ def test_hiding_depth_of_an_example_reaches_the_comparators():
     assert DEPTH_COL["genus"] == 4 and DEPTH_COL["order"] == 2
     from seeddrift.train.source_model import DEPTHS, RANKS
     assert all(DEPTH_COL[d] == RANKS.index(d) for d in DEPTHS)
+
+
+def test_training_slots_hold_the_parallel_limit_and_run_wide_models_alone(tmp_path):
+    import subprocess
+    import sys
+    from ci.stages.train import run_slots
+    jobs = [(dict(width=w), "j%d" % i) for i, w in enumerate([128, 128, 128, 512, 128, 64, 256, 512])]
+
+    def start(c, name):
+        logp = tmp_path / (name + ".log")
+        lg = open(logp, "w")
+        return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.3)"], stdout=lg, stderr=subprocess.STDOUT), str(logp), lg
+    got = dict(run_slots(jobs, start, parallel=3, exclusive_width=512, poll=0.05))
+    assert set(got) == {n for _, n in jobs} and max(got.values()) <= 2           # never more than three at once
+    assert got["j3"] == 0 and got["j7"] == 0                                     # the wide ones start with nothing running
+
+    def fail(c, name):
+        logp = tmp_path / (name + ".err")
+        lg = open(logp, "w")
+        return subprocess.Popen([sys.executable, "-c", "import sys; print('boom'); sys.exit(2)"], stdout=lg, stderr=subprocess.STDOUT), str(logp), lg
+    import pytest
+    with pytest.raises(SystemExit, match="boom"):
+        run_slots(jobs[:2], fail, parallel=1, poll=0.05)

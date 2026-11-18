@@ -1,0 +1,73 @@
+# Server (through ci/launch.sh): the medium-scale training of the source model (charter section 8, 2026-11-18: the user
+# chose the medium scale; development diagnosis under the pilot conditions: not a result, not judged on public events,
+# weights not carried into formal training). Corpus configs/corpus/medium.yaml; the search is taken whole from the
+# medium-search run (its search block below must stay equal to the one of ci/profiles/medium-search).
+# Split: train, development (heldout) and a sealed test part (train_data.test_split), by genus or near-relative cluster.
+# Training grid (train.variants): data-scale curve (a quarter, a half and all of the training genomes, nested whole
+# genera per group; width 128; seeds 1-3) and widths 64, 256, 512 on all data (seed 1). The model reads the whole
+# genome's codons as well (genome_composition). Baselines: MLPs on the summary features trained on the model's own
+# construction (random hiding depth, groups weighted equally), three seeds, per data fraction. Development set only;
+# the test part is scored once, after the design is frozen, on the user's word.
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 120
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T100109-exp-0.2-pilot-05af3fdd-medium-search]
+train_data:
+  test_split: true
+  hits: 16
+train:
+  model: source_v0
+  seed: 1
+  dev_seed: 0
+  genome_composition: true
+  baseline_depth: random
+  width: 128
+  variants:
+    - {name: f1-w128-s1, seed: 1}
+    - {name: f1-w128-s2, seed: 2}
+    - {name: f1-w128-s3, seed: 3}
+    - {name: f0.5-w128-s1, seed: 1, fraction: 0.5}
+    - {name: f0.5-w128-s2, seed: 2, fraction: 0.5}
+    - {name: f0.5-w128-s3, seed: 3, fraction: 0.5}
+    - {name: f0.25-w128-s1, seed: 1, fraction: 0.25}
+    - {name: f0.25-w128-s2, seed: 2, fraction: 0.25}
+    - {name: f0.25-w128-s3, seed: 3, fraction: 0.25}
+    - {name: f1-w64-s1, seed: 1, width: 64}
+    - {name: f1-w256-s1, seed: 1, width: 256}
+    - {name: f1-w512-s1, seed: 1, width: 512}
+  parallel: 4
+  exclusive_width: 512
+  steps: 20000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 2000
+  ckpt_every: 2000
+released:
+  tag: v0.1.0
+  lock: ci/envs/released-v0.1.0.lock.yml
+  env_root: /hy-tmp/seeddrift-ci/envs
+  store: /hy-tmp/seeddrift-store
+  links: [reference, pfam]
+  threads: 12

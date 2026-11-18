@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from itertools import product
@@ -172,6 +173,42 @@ def pip_lines(text):
     return sorted(l.strip() for l in text.splitlines() if l.strip() and not l.startswith("#"))
 
 
+def run_slots(jobs, start, parallel, exclusive_width=0, poll=5.0):
+    """Run (config, name) jobs, up to `parallel` at once, each started when a slot frees; a job whose config is at least
+    `exclusive_width` wide runs alone (its activations need most of the GPU's memory). start(config, name) returns
+    (process, log path, open log). Returns [(name, jobs running when it started)]; raises after all have ended if any
+    failed (a failure stops new starts)."""
+    running, bad, started = [], [], []
+
+    def reap(block):
+        while running:
+            for job in list(running):
+                pr, logp, lg = job
+                if pr.poll() is not None:
+                    running.remove(job)
+                    lg.close()
+                    if pr.returncode != 0:
+                        with open(logp) as f:
+                            bad.append("%s (exit %d): %s" % (os.path.basename(logp), pr.returncode, f.read()[-1500:]))
+                    if not block:
+                        return
+            time.sleep(poll)
+    for c, name in jobs:
+        alone = bool(exclusive_width) and int(c.get("width", 128)) >= exclusive_width
+        while running and (alone or len(running) >= parallel):
+            reap(block=alone)
+        if bad:
+            break
+        started.append((name, len(running)))
+        running.append(start(c, name))
+        if alone:
+            reap(block=True)
+    reap(block=True)
+    if bad:
+        raise SystemExit("source model failed: %s" % " | ".join(bad))
+    return started
+
+
 def fit_source(st, cfg, run_dir, ids_doc, tax):
     """Source model v0 (strategy: model-pilot), trained by seeddrift/train/source_model.py in the CUDA Python of the server.
     That interpreter's packages must equal ci/envs/model-torch.pip.txt (else the stage fails: the model environment is
@@ -207,6 +244,9 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
     for v in variants:
         if set(v) - {"name", "seed", "fraction", "width", "ablate"} or not v.get("name") or "seed" not in v:
             raise SystemExit("train.variants: each has a name and a seed, and only fraction, width, ablate besides: %r" % v)
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", str(v["name"])) or not 0 < float(v.get("fraction", 1.0)) <= 1 or int(v.get("width", 128)) % 4 \
+                or v.get("ablate", "") not in ("", "hits", "codons"):
+            raise SystemExit("train.variants: a name of letters, digits, . _ -; a fraction in (0, 1]; a width divisible by 4; ablate hits or codons: %r" % v)
     if len({v["name"] for v in variants}) != len(variants):
         raise SystemExit("train.variants: names repeat")
     base["fractions"] = sorted({float(v.get("fraction", 1.0)) for v in variants} | {1.0})
@@ -260,9 +300,8 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
             abl.append(dict(base, seed=seeds[0], ablate=str(a), logs=os.path.join("data", "train", "logs", "ablate-%s" % a),
                             out=os.path.join("data", "model", "ablate-%s" % a), resume=False))
         jobs = [(c, "source_config" + ("-seed-%d" % c["seed"] if multi else "")) for c in confs] + [(c, "source_config-ablate-%s" % c["ablate"]) for c in abl]
-    par = max(1, int(tc.get("parallel", 1)))
-    for k in range(0, len(jobs), par):
-        wait([run("fit", c, name) for c, name in jobs[k:k + par]])
+    log_ = run_slots(jobs, lambda c, name: run("fit", c, name), max(1, int(tc.get("parallel", 1))), int(tc.get("exclusive_width", 0) or 0))
+    st.extra["schedule"] = log_
     model_dir = os.path.join(run_dir, "data", "model")
     if multi:                                                   # the first seed is the run's model; the others sit beside it
         for name in ("model.npz", "eval_scores.npz", "dev_eval.npz"):
@@ -281,6 +320,9 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
                                                                             out=c["out"], logs=c["logs"]) for c in confs} if variants else {}))
     for name in ("model.npz", "eval_scores.npz", "dev_eval.npz", "dev_set.npz", "baseline_train.npz", "fractions.json"):
         st.output(name.split(".")[0], os.path.join(model_dir, name))
+    for f in base["fractions"]:
+        if f < 1.0:
+            st.output("baseline_train_f%g" % f, os.path.join(model_dir, "baseline_train_f%g.npz" % f))
     for c in (confs[1:] if multi else []):
         st.output("dev_eval_%s" % (c["name"] if variants else "seed_%d" % c["seed"]), os.path.join(run_dir, c["out"], "dev_eval.npz"))
     for c in abl:

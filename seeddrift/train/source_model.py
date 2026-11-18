@@ -391,18 +391,29 @@ def partner_of(by, rng):
     return by[k][rng.integers(len(by[k]))], k
 
 
-def sample(data, rng, genomes, depth=None):
-    """One training example: (slots, source, label, partner stratum, recipient group)."""
+def plan(data, genomes):
+    """What sample() draws from, computed once per training run: the groups, their genomes, and each genome's partners
+    by stratum (the same draws as recomputing them for every example, without the cost at a thousand genomes)."""
+    genomes = list(genomes)
     groups = sorted({data.g[g].meta["group"] for g in genomes})
+    pool = {grp: [g for g in genomes if data.g[g].meta["group"] == grp] for grp in groups}
+    strata = {g: by_stratum(data.g[g], [data.g[o] for o in genomes if o != g]) for g in genomes}
+    return dict(groups=groups, pool=pool, strata=strata)
+
+
+def sample(data, rng, genomes, depth=None, drawn=None):
+    """One training example: (slots, source, label, partner stratum, recipient group). drawn: plan(data, genomes)."""
+    drawn = drawn or plan(data, genomes)
+    groups = drawn["groups"]
     grp = groups[rng.integers(len(groups))]
-    pool = [g for g in genomes if data.g[g].meta["group"] == grp]
+    pool = drawn["pool"][grp]
     gen = data.g[pool[rng.integers(len(pool))]]
     i = int(rng.integers(gen.n))
     depth = depth or DEPTHS[rng.integers(len(DEPTHS))]
-    others = [data.g[g] for g in genomes if g != gen.meta["id"]]
-    if not others:                                                # a corpus of one genome trains on natives only
+    by = drawn["strata"][gen.meta["id"]]
+    if not by:                                                    # a corpus of one genome trains on natives only
         return data.window(gen, i, None, depth), data.source(gen, rng, i), 0.0, -1, grp
-    pg, k = partner_of(by_stratum(gen, others), rng)
+    pg, k = partner_of(by, rng)
     if rng.random() < 0.5:
         dj = int(rng.integers(pg.n))
         return data.window(gen, i, (pg, dj), depth), data.source(gen, rng, i), 1.0, k, grp
@@ -516,6 +527,7 @@ def fit(run_dir, cfg):
     # every step draws from its own generator (seed, step): the data stream does not depend on where a run was resumed
     dev_ex = [(e[0], e[1], e[2], e[3], None, e[5]) for e in dev_set(data, int(cfg.get("dev_seed", 0)))]
     dev_y = np.array([1 if e[2] else 0 for e in dev_ex])
+    drawn = plan(data, train_ids)
     for _ in range(start):
         sched.step()
     t0 = time.time()
@@ -523,7 +535,7 @@ def fit(run_dir, cfg):
         rng = np.random.default_rng([seed, step])
         items, groups = [], []
         for _ in range(batch):
-            slots, src, y, k, grp = sample(data, rng, train_ids)
+            slots, src, y, k, grp = sample(data, rng, train_ids, drawn=drawn)
             items.append((slots, src, 0.05 if y == 0 else 1.0))
             groups.append(grp)
         x = {k: v.to(dev) for k, v in collate(items, torch).items()}

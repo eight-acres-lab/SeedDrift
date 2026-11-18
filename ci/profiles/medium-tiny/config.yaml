@@ -38,6 +38,7 @@ train:
     - {name: f1-w64-s1, seed: 1, width: 64}
     - {name: f1-w128-s1-no-hits, seed: 1, ablate: hits}
   parallel: 3
+  exclusive_width: 100
   steps: 60
   batch: 16
   lr: 3.0e-4

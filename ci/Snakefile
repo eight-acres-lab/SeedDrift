@@ -26,6 +26,15 @@ rule select_all:
         "data/select/fit.json",
 
 
+# pipeline search (profiles with `pipeline: search`): the corpus, the evaluation inputs and the search, with their gates;
+# no training. A later train run takes the search whole (search.reuse_from), which is exact only for the whole run.
+rule search_all:
+    input:
+        "gates/corpus.ok",
+        "gates/eval.ok",
+        "data/hits/manifest.json",
+
+
 rule gates_pre:
     output: "gates/pre.ok"
     shell: STAGE.format(name="gates") + " pre"

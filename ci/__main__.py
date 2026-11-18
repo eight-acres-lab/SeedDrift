@@ -11,8 +11,9 @@
   promote D                   print the catalogue lock of a passed refresh run of pipeline select (with its provenance),
                               to be committed as configs/select/<spec>.lock.yaml (ci/launch.sh promote RUN_ID)
 
-Profiles choose a pipeline (`pipeline:`): `train` (default: corpus, search, training, evaluation) or `select` (catalogue
-snapshots, the multi-kingdom corpus selection and its cost). Each pipeline has its Snakemake target, its required gates
+Profiles choose a pipeline (`pipeline:`): `train` (default: corpus, search, training, evaluation), `select` (catalogue
+snapshots, the multi-kingdom corpus selection and its cost) or `search` (corpus and search only, with their gates: a long
+search runs once, and train runs take it whole through `search.reuse_from`). Each pipeline has its Snakemake target, its required gates
 and the gate phases a resume decides again (PIPELINES).
 """
 from __future__ import annotations
@@ -39,12 +40,15 @@ SETTABLE = ("train.", "search.threads", "search.block_size", "cores", "blas_thre
 # a run passes only when every one of these gates is present and passed (or waived)
 REQUIRED_GATES = ("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G1_corpus", "G2_corpus", "G1_train", "G2_train",
                   "G2_holdout", "G3", "G4")
+SEARCH_GATES = ("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G1_corpus", "G2_corpus", "G2_holdout", "G3")
 SELECT_GATES = ("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_select_spec", "G2_static", "G3_static", "G1_select", "G2_select", "G3_select")
 PIPELINES = {
     "train": dict(target="all", required=REQUIRED_GATES,
                   resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
                           ("report", "data/eval/eval_report.json"))),
     "select": dict(target="select_all", required=SELECT_GATES, resume=(("pre", None), ("select", "data/select/manifest.json"))),   # written last
+    "search": dict(target="search_all", required=SEARCH_GATES,
+                   resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("eval", "data/eval_inputs/manifest.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

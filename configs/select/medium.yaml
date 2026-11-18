@@ -1,0 +1,38 @@
+# Medium-scale corpus (the user chose it on 2026-11-18 after the second pilot; development diagnosis under the pilot
+# conditions of charter section 8: every group present, not reported as a result, weights not carried into formal
+# training): the v1 selection rules and catalogue snapshots, scaled to about one million proteins, so that every group
+# has tens of training genera and at least ten genera for each of the development and the sealed test split. Near
+# relatives (same genus, family, order) of some genomes give the near-distance strata. Eukaryotes and relatives are cut
+# to their first genes in genome order when the corpus spec is emitted (ci emit-corpus --max-genes / --near-max-genes).
+base: configs/select/v1.yaml
+name: medium
+tier: medium
+share_repair: false
+groups:
+  bacteria: {min_genomes: 1, target: 100}
+  archaea: {min_genomes: 1, target: 50}
+  eukaryota.mammals: {min_genomes: 1, target: 50}
+  eukaryota.other_vertebrates: {min_genomes: 1, target: 50}
+  eukaryota.invertebrates: {min_genomes: 1, target: 50}
+  eukaryota.plants_algae: {min_genomes: 1, target: 50}
+  eukaryota.fungi: {min_genomes: 1, target: 50}
+  eukaryota.protists: {min_genomes: 1, target: 50}
+  viruses.phage: {min_genomes: 1, target: 300}
+  viruses.eukaryotic: {min_genomes: 1, target: 300}
+  viruses.giant: {min_genomes: 1, target: 40}
+  mobile.plasmid: {min_genomes: 1, target: 200}
+near_relatives:
+  relations: [genus, family, order]
+  anchors:
+    bacteria: 10
+    archaea: 6
+    eukaryota.mammals: 2
+    eukaryota.other_vertebrates: 2
+    eukaryota.invertebrates: 2
+    eukaryota.plants_algae: 2
+    eukaryota.fungi: 2
+    eukaryota.protists: 2
+    viruses.phage: 10
+    viruses.eukaryotic: 10
+    viruses.giant: 3
+    mobile.plasmid: 8

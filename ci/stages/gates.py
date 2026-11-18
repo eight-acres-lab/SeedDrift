@@ -78,7 +78,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select"):
+    if p not in ("train", "select", "search"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 

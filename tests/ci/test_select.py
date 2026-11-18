@@ -230,6 +230,23 @@ def test_unknown_pipeline_is_refused_fails():
         pipeline({"pipeline": "bogus"})
 
 
+def test_search_pipeline_stops_after_the_search_with_its_gates():
+    import os
+    import re
+    from ci.__main__ import PIPELINES, REQUIRED_GATES, pipeline
+    from ci.stages.gates import pipeline_of
+    p = pipeline({"pipeline": "search"})
+    assert p["target"] == "search_all" and pipeline_of({"pipeline": "search"}) == "search"
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "ci", "Snakefile")) as f:
+        snake = f.read()
+    block = re.search(r"rule search_all:\n    input:\n((?:        .+\n)+)", snake).group(1)
+    assert "data/hits/manifest.json" in block and "gates/corpus.ok" in block and "gates/eval.ok" in block
+    assert "model" not in block and "report" not in block                # no training, no evaluation
+    # every gate the search pipeline requires is one the train pipeline requires too (the same phases decide them)
+    assert set(p["required"]) <= set(REQUIRED_GATES) and {"G1_corpus", "G2_corpus", "G2_holdout", "G3"} <= set(p["required"])
+    assert {k for k, _ in p["resume"]} == {"pre", "corpus", "eval"} and set(PIPELINES) == {"train", "select", "search"}
+
+
 def test_species_without_genus_are_not_pooled():
     from ci.stages.select import pick_order
     rows = [dict(id="s%d" % i, genus=0, species_taxid=100 + i, family=0, units=1) for i in range(6)]

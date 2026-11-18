@@ -1,0 +1,55 @@
+# Server (through ci/launch.sh): ablations of the second pilot (charter section 8: development diagnosis only; the user
+# approved them on 2026-11-18, to run after the seeds). Same corpus, split, construction and development set as the
+# pilot profile (configs/corpus/pilot-near.yaml, dev_seed 0); the source model trained with seed 1 three times in
+# parallel: in full (a matched reference and a repeat of the pilot run's seed 1), without the hit channel and without
+# the codon channel (train.ablations). The search is taken whole from the pilot run when its inputs are equal.
+tier: pilot
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 40
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/pilot-near.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  # hit files of earlier pilot runs with the same reference, settings, search code and DIAMOND version, genome by genome
+  # when a genome's inputs are equal (ci/stages/search_or_reuse.py checks every file's sha256 and searches two of them
+  # again, which must come out byte for byte the same); the near relatives are searched
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T031442-exp-0.2-pilot-f6f696c5-pilot, /hy-tmp/seeddrift-ci/runs/20261117T151529-exp-0.2-pilot-9c94b330-pilot,
+               /hy-tmp/seeddrift-ci/runs/20261117T114754-exp-0.2-pilot-9b69e1b3-pilot]
+  reuse_check: 2
+train:
+  model: source_v0
+  seed: 1
+  seeds: [1]
+  ablations: [hits, codons]
+  parallel: 3
+  dev_seed: 0
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+released:
+  tag: v0.1.0
+  lock: ci/envs/released-v0.1.0.lock.yml
+  env_root: /hy-tmp/seeddrift-ci/envs
+  store: /hy-tmp/seeddrift-store
+  links: [reference, pfam]
+  threads: 12

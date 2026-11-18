@@ -129,6 +129,8 @@ def bootstrap_ci(v, y, rec, reps=500, seed=0):
     """95% interval of the AUROC over recipient genomes resampled with replacement (examples stay with their genome)."""
     rng = np.random.default_rng(seed)
     ids = np.unique(rec)
+    if not len(ids):
+        return None
     rows = {r: np.flatnonzero(rec == r) for r in ids}
     out = []
     for _ in range(reps):
@@ -261,11 +263,11 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
     if os.path.exists(bt):
         zb = np.load(bt)
         br, bg_, bd, bj, _, bp = examples(zb)
-        XB = np.array([features(r, i, d, j, pa)[1] for r, i, d, j, pa in zip(br, bg_, bd, bj, bp)])
+        XB = np.array([features(r, i, d, j, pa)[1] for r, i, d, j, pa in zip(br, bg_, bd, bj, bp)], float).reshape(len(bd), len(FEATURES))
         yb = np.array([1.0 if d else 0.0 for d in bd])
-        if len(XB) and 0 < yb.sum() < len(yb):
+        if len(X) and 0 < yb.sum() < len(yb):                    # both classes to learn from, and examples to score
             mu, sd_, w = logistic(XB, yb)
-            Zd = np.concatenate([(np.array(X) - mu) / sd_, np.ones((len(X), 1))], 1)
+            Zd = np.concatenate([(np.array(X, float) - mu) / sd_, np.ones((len(X), 1))], 1)
             methods["baseline_logistic"] = Zd @ w
             baseline = dict(features=list(FEATURES), train_examples=int(len(yb)), train_insertions=int(yb.sum()), train_recipients=len(set(br)),
                             weights=dict(zip(list(FEATURES) + ["bias"], [round(float(x), 4) for x in w])))

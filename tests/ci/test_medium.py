@@ -3,7 +3,6 @@ repeated genes, nested training fractions, the whole-genome composition input, a
 import json
 
 import numpy as np
-import pytest
 
 
 def _lin(n, genus_of):

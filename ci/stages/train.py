@@ -251,7 +251,12 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
         raise SystemExit("train.variants: names repeat")
     base["fractions"] = sorted({float(v.get("fraction", 1.0)) for v in variants} | {1.0})
     script = os.path.join(st.repo("seeddrift/train/source_model.py"))
-    env = dict(os.environ, PYTHONHASHSEED="0")
+    # expandable segments: the CUDA allocator grows its segments instead of reserving new blocks; without it a width-128
+    # training reserved 30 GB for 10 GB of tensors and four at once ran out of memory (measured 2026-11-18). Memory
+    # layout only, not the numbers.
+    alloc = str(tc.get("cuda_alloc_conf", "expandable_segments:True"))
+    env = dict(os.environ, PYTHONHASHSEED="0", PYTORCH_CUDA_ALLOC_CONF=alloc)
+    st.extra["cuda_alloc_conf"] = alloc
 
     def run(mode, conf, name):
         cp = st.path("train", name + ".json")

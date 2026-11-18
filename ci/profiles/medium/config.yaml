@@ -61,7 +61,9 @@ train:
     - {name: f1-w64-s1, seed: 1, width: 64}
     - {name: f1-w256-s1, seed: 1, width: 256}
     - {name: f1-w512-s1, seed: 1, width: 512}
-  parallel: 4
+  # two trainings at once fill the GPU (5.9 steps per second in all for 2, 3 or 4 at width 128, measured 2026-11-18);
+  # more only take memory. The width-512 variant runs alone (40 GB at its peak).
+  parallel: 2
   exclusive_width: 512
   steps: 20000
   batch: 64

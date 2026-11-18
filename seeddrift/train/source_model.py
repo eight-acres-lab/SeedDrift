@@ -239,40 +239,43 @@ class Data:
 
 
 def collate(batch, torch):
-    """batch: list of (slots, source codon lists, label) -> padded tensors."""
+    """batch: list of (slots, source codon lists, label) -> padded tensors. Built in numpy and handed to torch once per
+    array (one small torch operation per hit track made this the slowest part of a training step); the tensors are
+    the same as filling torch arrays element by element (tests/ci/test_collate.py)."""
     B, S = len(batch), 2 * WIN + 1
     maxc = max([len(sl["c"]) for slots, _, _ in batch for sl in slots if sl] + [len(c) for _, src, _ in batch for c in src] + [1])
-    codons = torch.zeros(B, S, maxc, dtype=torch.long)
-    present = torch.zeros(B, S, dtype=torch.bool)
-    feats = torch.zeros(B, S, 5)
     nh = max([len(sl["tracks"]) for slots, _, _ in batch for sl in slots if sl] + [1])
     maxt = max([len(t) for slots, _, _ in batch for sl in slots if sl for t in sl["tracks"]] + [1])
-    tracks = torch.zeros(B, S, nh, maxt, dtype=torch.long)
-    prots = torch.zeros(B, S, nh, dtype=torch.long)
-    hmask = torch.zeros(B, S, nh, dtype=torch.bool)
     ns = max([len(src) for _, src, _ in batch] + [1])          # at least one slot: a genome of one gene has no other genes
-    src = torch.zeros(B, ns, maxc, dtype=torch.long)
-    labels = torch.zeros(B)
-    gcomp = torch.zeros(B, 66)
-    ccomp = torch.zeros(B, 66)
+    codons = np.zeros((B, S, maxc), np.int64)
+    present = np.zeros((B, S), bool)
+    feats = np.zeros((B, S, 5), np.float32)
+    tracks = np.zeros((B, S, nh, maxt), np.int64)
+    prots = np.zeros((B, S, nh), np.int64)
+    hmask = np.zeros((B, S, nh), bool)
+    src = np.zeros((B, ns, maxc), np.int64)
+    labels = np.zeros(B, np.float32)
+    gcomp = np.zeros((B, 66), np.float32)
+    ccomp = np.zeros((B, 66), np.float32)
     for b, (slots, srcs, y) in enumerate(batch):
         labels[b] = y
         if slots[WIN] and "gcomp" in slots[WIN]:
-            gcomp[b] = torch.from_numpy(slots[WIN]["gcomp"])
-            ccomp[b] = torch.from_numpy(slots[WIN]["ccomp"])
+            gcomp[b] = slots[WIN]["gcomp"]
+            ccomp[b] = slots[WIN]["ccomp"]
         for s, sl in enumerate(slots):
             if not sl:
                 continue
             present[b, s] = True
-            codons[b, s, :len(sl["c"])] = torch.from_numpy(sl["c"])
-            feats[b, s] = torch.tensor(sl["feat"], dtype=torch.float32)
+            codons[b, s, :len(sl["c"])] = sl["c"]
+            feats[b, s] = sl["feat"]
             for h, (t, p) in enumerate(zip(sl["tracks"], sl["prots"])):
-                tracks[b, s, h, :len(t)] = torch.from_numpy(t) + 1      # 0 = padding
+                tracks[b, s, h, :len(t)] = t + 1                         # 0 = padding
                 prots[b, s, h] = int(p) + 1
                 hmask[b, s, h] = True
         for k, c in enumerate(srcs):
-            src[b, k, :len(c)] = torch.from_numpy(c)
-    return dict(codons=codons, present=present, feats=feats, tracks=tracks, prots=prots, hmask=hmask, src=src, labels=labels, gcomp=gcomp, ccomp=ccomp)
+            src[b, k, :len(c)] = c
+    out = dict(codons=codons, present=present, feats=feats, tracks=tracks, prots=prots, hmask=hmask, src=src, labels=labels, gcomp=gcomp, ccomp=ccomp)
+    return {k: torch.from_numpy(v) for k, v in out.items()}
 
 
 def build(torch, n_lib, d=128, ablate="", comp=False):

@@ -224,7 +224,17 @@ def within_bins(v, y, b):
     return (acc / tot if tot else None), rows
 
 
-def dev_constructed(run_dir, path, ranks, lib_taxid=None):
+def model_hits_centre(run_dir, default=16):
+    """How many visible hits the model read for the centre gene (the run's source model configuration)."""
+    for name in ("source_sets.json", "source_config.json", "source_config-seed-1.json"):
+        p = os.path.join(run_dir, "data", "train", name)
+        if os.path.exists(p):
+            with open(p) as f:
+                return int(json.load(f).get("hits_centre", default))
+    return default
+
+
+def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
     """Development diagnosis on constructed insertions (held-out recipients, held-out partners; the genome's own proteome
     and genus hidden for the recipient and for the partner, the donor of an insertion or the decoy of a native): the
     model (each seed and their mean) and the comparators on the same examples, with a logistic regression on summary
@@ -232,6 +242,7 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
     natives whose decoy is of the same stratum) and by recipient group; 95% intervals by resampling recipient genomes.
     Not a result (charter section 8)."""
     z = np.load(path)
+    k_hits = int(k_hits or model_hits_centre(run_dir))
     with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
         meta = {m["id"]: m for m in json.load(f)["genomes"]}
     cache = {}
@@ -248,7 +259,7 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
             ln = np.array([len(x) for x in seqs], dtype=float)
             h = np.load(os.path.join(run_dir, "data", "hits", gid + ".npz"))
             so = h["sseq_off"] if "sseq_off" in h.files else None
-            cache[gid] = dict(seqs=seqs, prof=prof, total=prof.sum(0), n=len(prof), gc=gc, len=ln, gc_mean=float((gc * ln).sum() / max(1.0, ln.sum())),
+            cache[gid] = dict(seqs=seqs, prof=prof, total=prof.sum(0), n=len(prof), gc=gc, len=ln, gc_sum=float((gc * ln).sum()), len_sum=float(ln.sum()),
                               off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"], sseq_off=so)
         return cache[gid]
 
@@ -273,7 +284,8 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
         rules = hide(r) + (hide(partner) if partner else [])
         # the rows the model reads: those that carry aligned residues (the nearest ones), not the extra best-per-genus rows
         cand = [x for x in range(src["off"][k], src["off"][k + 1]) if src["sseq_off"] is None or src["sseq_off"][x + 1] > src["sseq_off"][x]]
-        rows = [x for x in cand if not hidden_row(src["prot"][x], rules)]
+        # the first k_hits of them that are not hidden: exactly the hits the model reads for the centre gene
+        rows = [x for x in cand if not hidden_row(src["prot"][x], rules)][:k_hits]
         rk = meta[r]["ranks"]
         b_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] == rk[0]] or [0.0])
         b_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] != rk[0]] or [0.0])
@@ -289,9 +301,11 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
             ai_fair = math.log(2) * (f_out - f_in)
         best = max([src["pid"][x] / 1000.0 for x in rows] or [0.0])
         genera = len({int(ranks[src["prot"][x], 4]) or -int(src["prot"][x]) for x in rows})
-        bg = (R["total"] - (R["prof"][int(i)] if not d else 0)) / max(1, R["n"] - (0 if d else 1))   # the genome without the gene itself
+        # the genome without gene i, for both classes (a native is scored against the rest; an insertion replaces gene i)
+        bg = (R["total"] - R["prof"][int(i)]) / max(1, R["n"] - 1)
         comp = float(np.abs(src["prof"][k] - bg).sum())
-        gcd = float(src["gc"][k] - R["gc_mean"])
+        rest = R["len_sum"] - R["len"][int(i)]
+        gcd = float(src["gc"][k] - ((R["gc_sum"] - R["gc"][int(i)] * R["len"][int(i)]) / rest if rest > 0 else R["gc"][int(i)]))
         frac = [float(np.mean([ranks[src["prot"][x], c] == rk[c] for x in rows])) if rows and rk[c] else 0.0 for c in (0, 1, 2)]
         feat = [comp, gcd, abs(gcd), math.log1p(src["len"][k] / 3), math.log1p(len(rows)), float(not rows), best,
                 math.copysign(math.log1p(abs(ai)), ai), math.log1p(genera)] + frac
@@ -361,7 +375,7 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
                near_relative_recipients=sorted({r for r in rec if meta[r].get("cluster")}),
                alien_index_phylum_undefined=dict(recipients=ph0, examples=int(sum(1 for r in rec if r in set(ph0))),
                                                  note="no phylum for the recipient: every visible hit counts as outside, the index is not meaningful"),
-               baseline=baseline, gc_bins=list(GC_BINS), methods={})
+               baseline=baseline, gc_bins=list(GC_BINS), hits_read=k_hits, methods={})
     # how far each quantity alone separates insertions from natives (AUROC, larger = higher for insertions); those the
     # construction sets (rows hidden, their fraction) should sit near 0.5, a gene's length and visible rows may carry
     # real signal or a construction artifact (donor genes drawn at random from another genome)

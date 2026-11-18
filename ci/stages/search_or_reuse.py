@@ -42,11 +42,22 @@ def key(run, search_cfg, code_path):
 
 
 def candidate_ok(cand):
-    p = os.path.join(cand, "stages", "search.json")
-    if not os.path.exists(p) or not os.path.exists(os.path.join(cand, "data", "hits", "manifest.json")):
+    """A run whose search stage passed and whose hit manifest is the one that stage reported and covers every genome
+    of its corpus and evaluation inputs (a run killed between the partial search and the full manifest of the
+    per-genome path below leaves a passed partial report: not a candidate)."""
+    p, mp = os.path.join(cand, "stages", "search.json"), os.path.join(cand, "data", "hits", "manifest.json")
+    if not os.path.exists(p) or not os.path.exists(mp):
         return False
     with open(p) as f:
-        return json.load(f).get("status") == "passed"
+        rep = json.load(f)
+    if rep.get("status") != "passed":
+        return False
+    out = {o["name"]: o["sha256"] for o in rep.get("outputs") or []}
+    if out.get("hits_manifest") != sha256_file(mp, use_sidecar=False):
+        return False
+    with open(mp) as f:
+        have = {e["id"] for e in json.load(f)["entries"]}
+    return have == set(inputs(cand))
 
 
 def inputs(run):

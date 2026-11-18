@@ -170,7 +170,10 @@ def test_search_reuse_per_genome(tmp_path, monkeypatch):
     fake_search(old)
     ents = [dict(id=g, files=[M.file_entry(os.path.join(old, "data", "hits", g + ".npz"), old)]) for g in ("W", "X", "Z")]
     (tmp_path / "runs" / "old" / "data" / "hits" / "manifest.json").write_text(_json.dumps(dict(sha256="h", **M.build("hits", "hits", ents))))
-    (tmp_path / "runs" / "old" / "stages" / "search.json").write_text(_json.dumps(dict(status="passed")))
+    def report_old():
+        sha = M.file_entry(os.path.join(old, "data", "hits", "manifest.json"))["sha256"]
+        (tmp_path / "runs" / "old" / "stages" / "search.json").write_text(_json.dumps(dict(status="passed", outputs=[dict(name="hits_manifest", sha256=sha)])))
+    report_old()
     new = make("new", [("W", ">W__g\nMKK\n"), ("X", ">X__g\nMKV\n"), ("Y", ">Y__g\nMLL\n"), ("Z", ">Z__g\nMAW\n")])   # Z changed, Y new
     monkeypatch.setattr(search, "main", lambda: fake_search(new))
     monkeypatch.setattr(_sys, "argv", ["x", new])
@@ -187,8 +190,14 @@ def test_search_reuse_per_genome(tmp_path, monkeypatch):
     hm = _json.loads(open(os.path.join(old, "data", "hits", "manifest.json")).read())
     hm["entries"][0]["files"][0]["sha256"] = M.file_entry(os.path.join(old, "data", "hits", "W.npz"), old)["sha256"]
     (tmp_path / "runs" / "old" / "data" / "hits" / "manifest.json").write_text(_json.dumps(hm))
+    report_old()
     with pytest.raises(SystemExit, match="reuse check"):
         R.main()
+    # a partial manifest (a run killed after the partial search) is not a candidate: everything is searched
+    hm["entries"] = hm["entries"][:1]
+    (tmp_path / "runs" / "old" / "data" / "hits" / "manifest.json").write_text(_json.dumps(hm))
+    report_old()
+    assert not R.candidate_ok(old)
 
 
 def test_dev_constructed_runs_on_a_small_synthetic_run(tmp_path):

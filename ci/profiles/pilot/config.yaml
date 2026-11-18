@@ -31,11 +31,8 @@ search:
   block_size: 4
   nearest: 32
   keep_sseq: 32
-  # hit files of earlier pilot runs with the same reference, settings, search code and DIAMOND version, genome by genome
-  # when a genome's inputs are equal (ci/stages/search_or_reuse.py checks every file's sha256 and searches two of them
-  # again, which must come out byte for byte the same); the near relatives are searched
-  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261117T151529-exp-0.2-pilot-9c94b330-pilot, /hy-tmp/seeddrift-ci/runs/20261117T114754-exp-0.2-pilot-9b69e1b3-pilot]
-  reuse_check: 2
+  # the whole corpus in one search: per-genome reuse failed its byte-for-byte check in run
+  # 20261118T031442-exp-0.2-pilot-f6f696c5-pilot (DIAMOND's hits of a genome depend slightly on the other queries)
 train:
   model: source_v0
   seed: 1

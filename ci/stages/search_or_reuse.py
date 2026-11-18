@@ -1,14 +1,16 @@
 """Stage search, or its outputs taken over from earlier runs with exactly the same inputs (profile `search.reuse_from`).
 
-The search is deterministic: the same proteins, reference, search settings, search code and DIAMOND version give the
-same hit file for a genome, whatever other genomes are searched with it (each query's hits depend only on the query and
-the database). Two levels of reuse, tried in this order:
+The search is deterministic for a given set of queries: the same corpus, evaluation inputs, reference, search
+settings, search code and DIAMOND version give the same hit files. A genome's hits are NOT independent of the other
+queries searched with it: on 2026-11-18 a genome searched again beside other genomes differed in 4 of its 40 genes (1
+within the 32 nearest rows, 3 in the number of reported targets), so per-genome reuse is off unless asked for. Levels:
   whole run   a run named in `reuse_from` whose corpus, evaluation inputs, reference, settings, code and DIAMOND
-              version are all equal and whose search stage passed: every hit file is linked
-  per genome  runs with equal reference, settings, code and DIAMOND version: a genome whose input files (genes.tsv,
-              proteins.faa, cds.fna; sha256 in the corpus or evaluation-input manifest) are equal takes that run's hit
-              file; ci/stages/search.py searches only the others, plus `reuse_check` (default 2) of the reused genomes
-              (the smallest), whose new hit files must equal the reused ones byte for byte, or the stage fails
+              version are all equal and whose search stage passed: every hit file is linked (exact)
+  per genome  only with `search.reuse_per_genome: true`: runs with equal reference, settings, code and DIAMOND version;
+              a genome whose input files (genes.tsv, proteins.faa, cds.fna; sha256 in the corpus or evaluation-input
+              manifest) are equal takes that run's hit file; ci/stages/search.py searches only the others, plus
+              `reuse_check` (default 2) of the reused genomes (the smallest), whose new hit files must equal the reused
+              ones byte for byte, or the stage fails (which, by the measurement above, it usually will)
 Every linked file is checked against its sha256 in the source run's manifest. The stage report records where each part
 came from. Otherwise (no candidate, or any difference) search.py runs as usual; this wrapper lives in its own module so
 that search.py, whose checksum is part of the key, stays unchanged.
@@ -36,7 +38,7 @@ def _sha(run, name):
 def key(run, search_cfg, code_path):
     with open(os.path.join(run, "record.json")) as f:
         rec = json.load(f)
-    sc = {k: v for k, v in (search_cfg or {}).items() if k not in ("reuse_from", "reuse_check")}    # how to reuse, not what to search
+    sc = {k: v for k, v in (search_cfg or {}).items() if k not in ("reuse_from", "reuse_check", "reuse_per_genome")}    # how to reuse, not what to search
     return dict(corpus=_sha(run, "corpus"), eval_inputs=_sha(run, "eval_inputs"), reference=_sha(run, "reference"), search=sha256_json(sc),
                 code=sha256_file(code_path, use_sidecar=False), diamond=(rec.get("env_snapshot") or {}).get("diamond_version.txt"))
 
@@ -114,6 +116,9 @@ def main():
             write_json(mp, man)
             st.output("hits_manifest", mp)
             st.extra.update(reused_from=os.path.basename(cand), reuse_key=ours, genomes=len(man["entries"]))
+        return
+    if not cfg["search"].get("reuse_per_genome"):
+        search.main()
         return
     glob = {k: v for k, v in ours.items() if k not in ("corpus", "eval_inputs")}
     mine = inputs(run_dir)

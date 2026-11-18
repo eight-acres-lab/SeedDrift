@@ -160,7 +160,7 @@ def test_search_reuse_per_genome(tmp_path, monkeypatch):
         (run / "data" / "eval_inputs" / "manifest.json").write_text(_json.dumps(dict(sha256="e", entries=[])))
         (run / "data" / "reference" / "manifest.json").write_text(_json.dumps(dict(sha256="ref")))
         (run / "record.json").write_text(_json.dumps(dict(env_snapshot={"diamond_version.txt": "2.1"})))
-        cfg = dict(search=dict(sensitivity="sensitive", nearest=32, reuse_from=[str(tmp_path / "runs" / "old")], reuse_check=1))
+        cfg = dict(search=dict(sensitivity="sensitive", nearest=32, reuse_from=[str(tmp_path / "runs" / "old")], reuse_check=1, reuse_per_genome=True))
         (run / "config.resolved.yaml").write_text(_yaml.safe_dump(cfg))
         code = tmp_path / "wt" / name / "ci" / "stages"
         code.mkdir(parents=True)

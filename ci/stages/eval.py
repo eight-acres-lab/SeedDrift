@@ -5,6 +5,8 @@ Comparators (always reported next to the model; never a bar, never an input of t
   best_hit      minus the identity of the closest hit (no hit = most foreign)
   counts        minus the number of reference genera with a hit
   composition   synonymous codon usage against the genome's own (bench/islands/composition.py)
+  (development set only: gc_difference, |GC of the gene - GC of the genome|, and two logistic regressions on summary
+  features, all and composition only, trained on the same construction in training genomes)
   released_v0.1.0  the released screen, recomputed in the same run from its tag (stage released, gate G4); it sees
                 the reference as shipped (the donor's genus is not hidden from it)
 Hits to the host's own species and to the donor's genus are hidden for every gene (the donor lineage is taken as
@@ -225,13 +227,13 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
         frac = [float(np.mean([ranks[src["prot"][x], c] == rk[c] for x in rows])) if rows and rk[c] else 0.0 for c in (0, 1, 2)]
         feat = [comp, gcd, abs(gcd), math.log1p(src["len"][k] / 3), math.log1p(len(rows)), float(not rows), best,
                 math.copysign(math.log1p(abs(ai)), ai), math.log1p(genera)] + frac
-        return dict(alien_index=ai, best_hit=-best, counts=-genera, composition=comp), feat
+        return dict(alien_index=ai, best_hit=-best, counts=-genera, composition=comp, gc_difference=abs(gcd)), feat
 
     def examples(zz):
         return ([x.decode() for x in zz["recipient"]], zz["gene"], [x.decode() for x in zz["donor"]], zz["donor_gene"], np.asarray(zz["stratum"]),
                 [x.decode() for x in zz["partner"]] if "partner" in zz.files else [""] * len(zz["gene"]))
     rec, gene, don, dgene, strat, part = examples(z)
-    cols = {m: [] for m in ("alien_index", "best_hit", "counts", "composition")}
+    cols = {m: [] for m in ("alien_index", "best_hit", "counts", "composition", "gc_difference")}
     X = []
     for r, i, d, j, pa in zip(rec, gene, don, dgene, part):
         c, f = features(r, i, d, j, pa)
@@ -266,11 +268,14 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
         XB = np.array([features(r, i, d, j, pa)[1] for r, i, d, j, pa in zip(br, bg_, bd, bj, bp)], float).reshape(len(bd), len(FEATURES))
         yb = np.array([1.0 if d else 0.0 for d in bd])
         if len(X) and 0 < yb.sum() < len(yb):                    # both classes to learn from, and examples to score
-            mu, sd_, w = logistic(XB, yb)
-            Zd = np.concatenate([(np.array(X, float) - mu) / sd_, np.ones((len(X), 1))], 1)
-            methods["baseline_logistic"] = Zd @ w
-            baseline = dict(features=list(FEATURES), train_examples=int(len(yb)), train_insertions=int(yb.sum()), train_recipients=len(set(br)),
-                            weights=dict(zip(list(FEATURES) + ["bias"], [round(float(x), 4) for x in w])))
+            XD = np.array(X, float)
+            baseline = dict(features=list(FEATURES), train_examples=int(len(yb)), train_insertions=int(yb.sum()), train_recipients=len(set(br)))
+            # all features, and the composition features only (no hit feature): what the hits add to composition
+            for name, cols_ in (("baseline_logistic", list(range(len(FEATURES)))), ("baseline_logistic_composition_only", [0, 1, 2, 3])):
+                mu, sd_, w = logistic(XB[:, cols_], yb)
+                methods[name] = np.concatenate([(XD[:, cols_] - mu) / sd_, np.ones((len(XD), 1))], 1) @ w
+                baseline["weights" if name == "baseline_logistic" else "weights_composition_only"] = dict(
+                    zip([FEATURES[c] for c in cols_] + ["bias"], [round(float(x), 4) for x in w]))
     for m, v in cols.items():
         methods[m] = np.array(v, float)
     grp = np.array([meta[r]["group"] for r in rec])

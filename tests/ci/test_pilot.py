@@ -227,7 +227,8 @@ def test_dev_constructed_runs_on_a_small_synthetic_run(tmp_path):
     out = dev_constructed(str(run), str(dp), ranks, lib_taxid)
     assert out["examples"] == 4 and out["insertions"] == 2
     assert out["methods"]["model"]["auroc"] == 1.0
-    assert set(out["methods"]) == {"model", "baseline_logistic", "alien_index", "best_hit", "counts", "composition"}
+    assert set(out["methods"]) == {"model", "baseline_logistic", "baseline_logistic_composition_only", "alien_index", "best_hit", "counts", "composition",
+                                   "gc_difference"}
     st = out["methods"]["model"]["by_stratum"]["other kingdom"]
     assert st["n_pos"] == 2 and st["n_neg"] == 2
     assert len(out["methods"]["model"]["auroc_ci95"]) == 2 and out["methods"]["model"]["macro_auroc_over_groups"] == 1.0

@@ -196,31 +196,63 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
                     g = tax.at_rank(int(t["donor_taxid"]), "genus")
                     if g:
                         hidden.setdefault(t["scenario"], set()).add(g)
-    folder = st.path("train", "logs", "x")[:-2]
-    conf = dict(seed=int(tc["seed"]), lr=float(tc["lr"]), steps=int(tc["steps"]), batch=int(tc["batch"]), eval_every=int(tc.get("eval_every", 500)),
-                ckpt_every=int(tc.get("ckpt_every", 1000)), resume=bool(tc.get("resume")) and os.path.exists(os.path.join(folder, "last.npz")),
-                commit=cfg["git"]["sha"], hidden_genera={k: sorted(v) for k, v in hidden.items()}, max_codons=int(tc.get("max_codons", 512)),
-                hits_centre=int(tc.get("hits_centre", 16)), hits_neighbour=int(tc.get("hits_neighbour", 4)), max_track=int(tc.get("max_track", 512)))
-    cp = st.path("train", "source_config.json")
-    write_json(cp, conf)
-    logp = st.path("train", "source_model.log")
-    with open(logp, "a") as lg:
-        rc = subprocess.run([py, os.path.join(st.repo("seeddrift/train/source_model.py")), "fit", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT,
-                            env=dict(os.environ, PYTHONHASHSEED="0")).returncode
-    if rc != 0:
-        with open(logp) as f:
-            tail = f.read()[-1500:]
-        raise SystemExit("source model training failed (exit %d): %s" % (rc, tail))
+    seeds = [int(x) for x in (tc.get("seeds") or [tc["seed"]])]
+    base = dict(lr=float(tc["lr"]), steps=int(tc["steps"]), batch=int(tc["batch"]), eval_every=int(tc.get("eval_every", 500)),
+                ckpt_every=int(tc.get("ckpt_every", 1000)), commit=cfg["git"]["sha"], hidden_genera={k: sorted(v) for k, v in hidden.items()},
+                max_codons=int(tc.get("max_codons", 512)), hits_centre=int(tc.get("hits_centre", 16)), hits_neighbour=int(tc.get("hits_neighbour", 4)),
+                max_track=int(tc.get("max_track", 512)), dev_seed=int(tc.get("dev_seed", 0)), baseline_per_genome=int(tc.get("baseline_per_genome", 60)))
+    script = os.path.join(st.repo("seeddrift/train/source_model.py"))
+    env = dict(os.environ, PYTHONHASHSEED="0")
+
+    def run(mode, conf, name):
+        cp = st.path("train", name + ".json")
+        write_json(cp, conf)
+        logp = st.path("train", name + ".log")
+        lg = open(logp, "a")
+        return subprocess.Popen([py, script, mode, run_dir, cp], stdout=lg, stderr=subprocess.STDOUT, env=env), logp, lg
+
+    def wait(jobs):
+        bad = []
+        for pr, logp, lg in jobs:
+            rc = pr.wait()
+            lg.close()
+            if rc != 0:
+                with open(logp) as f:
+                    bad.append("%s (exit %d): %s" % (os.path.basename(logp), rc, f.read()[-1500:]))
+        if bad:
+            raise SystemExit("source model failed: %s" % " | ".join(bad))
+    wait([run("sets", base, "source_sets")])                    # the constructed example lists (dev set, baseline training set)
+    # one folder per seed (data/model/seed-<s>, data/train/logs/seed-<s>); with one seed the plain folders, as before
+    multi = len(seeds) > 1
+    confs = []
+    for sd in seeds:
+        sub = "seed-%d" % sd if multi else ""
+        logs = os.path.join("data", "train", "logs", sub) if multi else os.path.join("data", "train", "logs")
+        out = os.path.join("data", "model", sub) if multi else os.path.join("data", "model")
+        confs.append(dict(base, seed=sd, logs=logs, out=out,
+                          resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
+    par = max(1, int(tc.get("parallel", 1)))
+    for k in range(0, len(confs), par):
+        wait([run("fit", c, "source_config" + ("-seed-%d" % c["seed"] if multi else "")) for c in confs[k:k + par]])
+    model_dir = os.path.join(run_dir, "data", "model")
+    if multi:                                                   # the first seed is the run's model; the others sit beside it
+        for name in ("model.npz", "eval_scores.npz", "dev_eval.npz"):
+            dst = os.path.join(model_dir, name)
+            if os.path.exists(dst):
+                os.remove(dst)
+            os.link(os.path.join(run_dir, confs[0]["out"], name), dst)
     with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
         tdi = json.load(f)
     mid = "mdl-source-v0-" + sha256_json([cfg["git"]["sha"], cfg["config_sha256"], [ids_doc["corpus_dataset"], tdi["dataset_id"]], tc["seed"]])[:12]
     write_json(st.path("model", "model.json"), dict(model_id=mid, kind="source_v0", note="pilot: development diagnosis only (charter section 8)",
                                                   steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
-                                                  model_env_sha256=sha256_json(have)))
-    for name in ("model.npz", "eval_scores.npz", "dev_eval.npz"):
-        st.output(name.split(".")[0], os.path.join(run_dir, "data", "model", name))
-    st.output("data_seen", os.path.join(folder, "data_seen.json"))
-    st.extra.update(model_id=mid, steps=int(tc["steps"]), model_env=py)
+                                                  model_env_sha256=sha256_json(have), seeds=seeds, seed_dirs=[c["out"] for c in confs]))
+    for name in ("model.npz", "eval_scores.npz", "dev_eval.npz", "dev_set.npz", "baseline_train.npz"):
+        st.output(name.split(".")[0], os.path.join(model_dir, name))
+    for c in confs[1:] if multi else []:
+        st.output("dev_eval_seed_%d" % c["seed"], os.path.join(run_dir, c["out"], "dev_eval.npz"))
+    st.output("data_seen", os.path.join(run_dir, confs[0]["logs"], "data_seen.json"))
+    st.extra.update(model_id=mid, steps=int(tc["steps"]), model_env=py, seeds=seeds)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@
 Source kinds:
   raw_prokaryote, raw_virus, plasmid   DNA only; genes called by pyrodigal as the app does (single-genome mode from
                                        100 kb of sequence, metagenome mode below), with the source's genetic code;
-                                       `exclude_regions` cuts held-out regions (an evaluation region) out first
+                                       `exclude_regions` cuts held-out regions (an evaluation region) out first;
+                                       `max_genes` keeps the first genes in genome order
   annotated                            DNA plus a gene table (gene_id, replicon, start, end, strand) and proteins; the
                                        coding DNA is cut from the DNA and must translate to the given protein
   annotated_cds                        Ensembl coding sequences (cds.all): protein-coding genes only, the longest
@@ -186,6 +187,9 @@ def build_one(src, out_dir):
             contigs.update({clean_name(k): v for k, v in read_fasta(f).items()})
         contigs = cut_regions(contigs, src.get("exclude_regions") or [])
         genes, mode = call_genes(contigs, table, force_meta=kind in ("raw_virus", "plasmid"))
+        if int(src.get("max_genes", 0)) and len(genes) > int(src["max_genes"]):   # the first genes in genome order
+            genes = genes[:int(src["max_genes"])]
+            mode += ", first %d genes" % int(src["max_genes"])
     else:
         raise SystemExit("unknown source kind %s" % kind)
     os.makedirs(out_dir, exist_ok=True)
@@ -217,7 +221,8 @@ def main():
             genes, mode = build_one(src, out_dir)
             files = [M.file_entry(os.path.join(out_dir, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
             entries.append(dict(id=src["id"], taxid=int(src["taxid"]), source_kind=src["source_kind"], proteins=len(genes), gene_calling=mode, files=files,
-                                accession=src.get("accession", ""), paired_accession=src.get("paired_accession", "")))
+                                accession=src.get("accession", ""), paired_accession=src.get("paired_accession", ""),
+                                **({k: src[k] for k in ("cluster", "relation") if src.get(k)})))
         man = M.build(spec["name"], "corpus", entries, meta=dict(spec=st.config["corpus_spec"]))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("corpus", "manifest.json")

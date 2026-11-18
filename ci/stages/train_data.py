@@ -11,8 +11,8 @@ Per genome data/train_data/<id>.npz (genes in the order of the genome's genes.ts
                                             (an insertion in the query); target residues without a query residue are left
                                             out. Read residue by residue from the CIGAR and the aligned target sequence.
 data/train_data/index.json: every genome with its group, taxid, lineage (phylum, class, order, family, genus, species),
-gene count and split: corpus genomes are split by genus within their group (about one in five genera held out, at
-least one training and, where a group has two genomes or more, one held-out genome); evaluation genomes are "eval".
+gene count, split and near-relative cluster: corpus genomes are split within their group by units of genomes that share
+a genus or a cluster (split() below); evaluation genomes are "eval".
 No summary number of a hit (identity, coverage, score) is written: the model reads alignments, not their summaries.
 """
 from __future__ import annotations
@@ -118,23 +118,57 @@ def one_genome(folder, hits_path, gid, maxc, k):
     return arrays, len(genes), hoff[-1]
 
 
-def split(entries, groups, lin):
-    """{id: train|heldout} by genus within each group (about one genus in five held out). Whole genera move in the
-    fix-ups (at least one training and, where a group has two genera or more, one held-out genus), so no genus is on
-    both sides; a genome without a genus is its own unit (species, else its id)."""
+def split(entries, groups, lin, cluster=None):
+    """{id: train|heldout} within each group. Units: genomes that share a genus, or a near-relative cluster (corpus field
+    `cluster`: an anchor and its relatives), are one unit (connected components); a genome without a genus and without a
+    cluster is its own unit (species, else its id). About one plain unit in five is held out and one cluster unit in
+    two (the clusters exist for the near-distance strata of the development set). Whole units move in the fix-ups (at
+    least one training and, where a group has two units or more, one held-out unit), so no genus and no cluster is on
+    both sides."""
+    cluster = cluster or {}
     out = {}
     for g in sorted(set(groups.values())):
         ids = sorted(e for e in entries if groups[e] == g)
-        unit = {e: ("g", lin[e]["genus"]) if lin[e]["genus"] else (("s", lin[e]["species"]) if lin[e]["species"] else ("id", e)) for e in ids}
+        parent = {e: e for e in ids}
+
+        def find(e):
+            while parent[e] != e:
+                parent[e] = parent[parent[e]]
+                e = parent[e]
+            return e
+        first = {}
+        for e in ids:
+            for k in ([("g", lin[e]["genus"])] if lin[e]["genus"] else []) + ([("c", cluster[e])] if cluster.get(e) else []):
+                if k in first:
+                    parent[find(e)] = find(first[k])
+                else:
+                    first[k] = e
+        comp = {}
+        for e in ids:
+            comp.setdefault(find(e), []).append(e)
+        unit = {}
+        for members in comp.values():
+            cl = sorted({cluster[e] for e in members if cluster.get(e)})
+            if cl:
+                key = ("c", cl[0])
+            else:
+                e = members[0]
+                key = ("g", lin[e]["genus"]) if lin[e]["genus"] else (("s", lin[e]["species"]) if lin[e]["species"] else ("id", e))
+            for e in members:
+                unit[e] = key
         units = sorted(set(unit.values()), key=str)
-        held = {u for u in units if int(hashlib.sha256(("split:%s" % (u,)).encode()).hexdigest(), 16) % 5 == 0}
+        held = {u for u in units if int(hashlib.sha256(("split:%s" % (u,)).encode()).hexdigest(), 16) % (2 if u[0] == "c" else 5) == 0}
         if held == set(units) and units:
             held.discard(units[0])
         elif not held and len(units) >= 2:
             held.add(units[-1])
         for e in ids:
             out[e] = "heldout" if unit[e] in held else "train"
-        assert not ({unit[e] for e in ids if out[e] == "train"} & {unit[e] for e in ids if out[e] == "heldout"})
+        for col in ("genus",):
+            tr = {lin[e][col] for e in ids if out[e] == "train" and lin[e][col]}
+            ho = {lin[e][col] for e in ids if out[e] == "heldout" and lin[e][col]}
+            assert not (tr & ho), "a %s on both sides of the split" % col
+        assert not ({cluster[e] for e in ids if out[e] == "train" and cluster.get(e)} & {cluster[e] for e in ids if out[e] == "heldout" and cluster.get(e)})
     return out
 
 
@@ -157,7 +191,8 @@ def main():
             t = int(e.get("taxid") or e.get("host_taxid"))
             lin[e["id"]] = {r: tax.at_rank(t, r) for r in RANKS}
             groups[e["id"]] = km.group(tax, t, e.get("source_kind", "")) if name == "corpus" else "eval"
-        sp = split([e["id"] for n, e in ents if n == "corpus"], {e["id"]: groups[e["id"]] for n, e in ents if n == "corpus"}, lin)
+        sp = split([e["id"] for n, e in ents if n == "corpus"], {e["id"]: groups[e["id"]] for n, e in ents if n == "corpus"}, lin,
+                   {e["id"]: e["cluster"] for n, e in ents if n == "corpus" and e.get("cluster")})
         out_entries, index = [], []
         for name, e in ents:
             gid = e["id"]
@@ -166,7 +201,7 @@ def main():
             save_npz(p, compress=True, **arrays)
             out_entries.append(dict(id=gid, files=[M.file_entry(p, run_dir)]))
             index.append(dict(id=gid, source=name, group=groups[gid], taxid=int(e.get("taxid") or e.get("host_taxid")), ranks=[lin[gid][r] for r in RANKS],
-                              genes=n_genes, hits=n_hits, split=sp.get(gid, "eval")))
+                              genes=n_genes, hits=n_hits, split=sp.get(gid, "eval"), cluster=e.get("cluster", ""), relation=e.get("relation", "")))
         man = M.build("train-data", "train_data", out_entries, meta=dict(max_codons=maxc, hits=k))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         ip = st.path("train_data", "index.json")

@@ -478,6 +478,10 @@ def cmd_emit_corpus(a):
                 src["max_genes"] = int(a.max_genes)
         else:
             raise SystemExit("unknown source kind %s" % r["source_kind"])
+        if r.get("cluster"):                                   # near relatives (select spec near_relatives)
+            src.update(cluster=r["cluster"], relation=r["relation"])
+            if a.near_max_genes and r["relation"] != "anchor":
+                src["max_genes"] = int(a.near_max_genes)
         sources.append(src)
     spec = dict(name=a.name, tier=a.tier, groups={g: dict(min_genomes=1) for g in sorted(groups)}, sources=sources)
     sys.stdout.write("# Corpus %s, emitted by `python -m ci emit-corpus` from the selection of run %s (CI %s, commit %s, profile %s;\n"
@@ -529,7 +533,8 @@ def main(argv=None):
     em.add_argument("run_dir")
     em.add_argument("--name", required=True)
     em.add_argument("--tier", required=True)
-    em.add_argument("--max-genes", default=0)
+    em.add_argument("--max-genes", default=0, help="eukaryotes (annotated_cds): at most this many genes in genome order")
+    em.add_argument("--near-max-genes", default=0, help="near relatives (not anchors), any source kind: at most this many genes")
     em.add_argument("--allow-gate-failed", action="store_true")
     a = ap.parse_args(argv)
     return dict(check=cmd_check, run=cmd_run, compare=cmd_compare, status=cmd_status, promote=cmd_promote, **{"emit-corpus": cmd_emit_corpus})[a.cmd](a)

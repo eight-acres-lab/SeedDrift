@@ -1,0 +1,22 @@
+# Second pilot (charter section 8: development diagnosis only): the pilot selection unchanged, plus near relatives of
+# some of its genomes (select stage `near_relatives`): for each anchor the first eligible genome in pick order of the
+# same genus (another species), the same family (another genus) and the same order (another family). The constructed
+# development set then has near-distance insertions (same genus, family, order), which the first pilot lacked. The
+# relatives are cut to their first genes when the corpus spec is emitted (ci emit-corpus --near-max-genes).
+base: configs/select/pilot.yaml
+name: pilot-near
+near_relatives:
+  relations: [genus, family, order]
+  anchors:
+    bacteria: 6
+    archaea: 3
+    eukaryota.mammals: 1
+    eukaryota.other_vertebrates: 1
+    eukaryota.invertebrates: 1
+    eukaryota.plants_algae: 1
+    eukaryota.fungi: 1
+    eukaryota.protists: 1
+    viruses.phage: 8
+    viruses.eukaryotic: 8
+    viruses.giant: 2
+    mobile.plasmid: 6

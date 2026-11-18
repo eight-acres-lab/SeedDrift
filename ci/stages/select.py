@@ -23,6 +23,13 @@ then a second, ...). The target (configs: floor x target_factor, or the spec's) 
 larger target only adds genomes; the cap per genus is passed only when a group would otherwise fall short (recorded).
 Protein shares (configs/corpus/floors.yaml) are repaired by raising the targets of a short class, never by lowering
 another below its floor; what cannot be repaired is left to gate G1_select and the report.
+Near relatives (spec `near_relatives`, development pilots only): after the selection, the first `anchors[group]`
+selected genomes of a group in pick order become anchors, and for each the first eligible genome in pick order (one per
+species, not selected, same group) of each relation is added: the same genus (another species), the same family
+(another genus), the same order (another family). A relative's genus is new to the selection (no other selected genome
+has it), and an anchor is used only if no other selected genome shares its genus, so a split by genus that keeps each
+cluster (anchor and relatives, column `cluster`) together never puts one genus on both sides. Column `relation` says
+which relation a row was added for ("anchor" for the anchor).
 Outputs: data/select/{selected.tsv, candidates.tsv, by_group.json, manifest.json}.
 """
 from __future__ import annotations
@@ -49,7 +56,8 @@ from ci.taxonomy import Taxonomy, UnknownTaxid
 RANKS = ("phylum", "class", "order", "family", "genus", "species")
 SELECTED_COLS = ["id", "group", "source_kind", "taxid", "host_taxid", "hosts", "species_taxid", "phylum", "class", "order", "family", "genus", "accession",
                  "paired_accession", "ena_assembly", "replicon_types", "sequences", "ensembl_site", "ensembl_division", "ensembl_species", "ensembl_core_db",
-                 "ensembl_release", "table", "units", "proteins_low", "proteins_central", "proteins_high", "proteins_level", "pick", "catalogue"]
+                 "ensembl_release", "table", "units", "proteins_low", "proteins_central", "proteins_high", "proteins_level", "pick", "catalogue",
+                 "cluster", "relation"]
 CAND_COLS = ["id", "group", "catalogue", "taxid", "host_taxid", "species_taxid", "order", "genus", "accession", "units", "proteins_central", "proteins_level",
              "out", "selected", "pick"]
 
@@ -355,6 +363,41 @@ def take(order, target):
     return chosen, units
 
 
+RELATIONS = (("genus", "genus", "species_taxid"), ("family", "family", "genus"), ("order", "order", "family"))   # (name, shared rank, differing rank)
+
+
+def near_relatives(chosen, orders, rule):
+    """{group: [(anchor, relation, relative)]} for the spec's `near_relatives` rule (see the module doc)."""
+    used = {}                                                  # genus -> number of selected genomes with it
+    for g, (ch, _) in chosen.items():
+        for _, r in ch:
+            if r["genus"]:
+                used[r["genus"]] = used.get(r["genus"], 0) + 1
+    taken = {r["id"] for ch, _ in chosen.values() for _, r in ch}
+    wanted = [x for x in rule.get("relations", ["genus", "family", "order"])]
+    out = {}
+    for g in sorted(rule.get("anchors") or {}):
+        if g not in chosen:
+            raise SystemExit("near_relatives: unknown group %s" % g)
+        n = int(rule["anchors"][g])
+        anchors = [r for _, r in chosen[g][0] if r["genus"] and used.get(r["genus"]) == 1][:n]
+        for a in anchors:
+            for name, same, differ in RELATIONS:
+                if name not in wanted:
+                    continue
+                for _, r in orders[g]:
+                    if r["id"] in taken or not r[same] or r[same] != a[same] or not r[differ] or r[differ] == a[differ]:
+                        continue
+                    if name != "genus" and (not r["genus"] or r["genus"] in used):
+                        continue
+                    taken.add(r["id"])
+                    if name != "genus":
+                        used[r["genus"]] = 1
+                    out.setdefault(g, []).append((a, name, r))
+                    break
+    return out
+
+
 def coverage(rows):
     return {k: len({r[k] for r in rows if r[k]}) for k in ("phylum", "class", "order", "family", "genus")}
 
@@ -460,6 +503,17 @@ def main():
             if changed:
                 repair.append(dict(raised=changed))
 
+        near = near_relatives(chosen, orders, spec["near_relatives"]) if spec.get("near_relatives") else {}
+        for g, trip in near.items():
+            ch, units = chosen[g]
+            ch = list(ch)
+            for a, name, r in trip:
+                a["cluster"], a["relation"] = a["id"], "anchor"
+                r["cluster"], r["relation"] = a["id"], "same " + name
+                ch.append((-1, r))
+                units += r["units"]
+            chosen[g] = (ch, units)
+
         sel = []
         by_group = {}
         for g in kmap.names:
@@ -490,7 +544,8 @@ def main():
                                host_unknown=sum(1 for r in sel_rows if r["part"] == "viruses" and not r.get("host_known")),
                                eligible_without_genus=sum(1 for r in eligible[g] if not r["genus"]),
                                eligible_without_species=sum(1 for r in eligible[g] if not r["species_taxid"]),
-                               eligible_without_outer_rank=sum(1 for r in eligible[g] if not r[rules[part_of.get(g) or ("viruses" if g.startswith("viruses.") else "eukaryotes")].get("outer", "order")]))
+                               eligible_without_outer_rank=sum(1 for r in eligible[g] if not r[rules[part_of.get(g) or ("viruses" if g.startswith("viruses.") else "eukaryotes")].get("outer", "order")]),
+                               near_relatives=dict(sorted({k: sum(1 for _, r in ch if r.get("relation") == k) for k in ("anchor", "same genus", "same family", "same order")}.items())))
         ungrouped = {}                                   # rejected before a group could be given (conflicts, unknown taxids)
         for r in cands.rows:
             if not r["group"]:

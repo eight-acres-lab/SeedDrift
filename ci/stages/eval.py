@@ -113,9 +113,61 @@ def _recall_at(pos, neg, fpr):
     return float(np.mean(pos > thr))
 
 
+def auroc_fast(pos, neg):
+    """AUROC with ties at their mean rank, vectorised (the bootstrap calls it many times)."""
+    pos, neg = np.asarray(pos, float), np.asarray(neg, float)
+    if not len(pos) or not len(neg):
+        return None
+    allv = np.concatenate([pos, neg])
+    u, inv, cnt = np.unique(allv, return_inverse=True, return_counts=True)
+    avg = np.cumsum(cnt) - (cnt - 1) / 2.0
+    r = avg[inv]
+    return float((r[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2.0) / (len(pos) * len(neg)))
+
+
+def bootstrap_ci(v, y, rec, reps=500, seed=0):
+    """95% interval of the AUROC over recipient genomes resampled with replacement (examples stay with their genome)."""
+    rng = np.random.default_rng(seed)
+    ids = np.unique(rec)
+    rows = {r: np.flatnonzero(rec == r) for r in ids}
+    out = []
+    for _ in range(reps):
+        take = np.concatenate([rows[r] for r in rng.choice(ids, size=len(ids), replace=True)])
+        a = auroc_fast(v[take][y[take] == 1], v[take][y[take] == 0])
+        if a is not None:
+            out.append(a)
+    return [float(np.quantile(out, 0.025)), float(np.quantile(out, 0.975))] if out else None
+
+
+FEATURES = ("composition_l1", "gc_diff", "abs_gc_diff", "log_codons", "log1p_rows", "no_hit", "best_identity", "signed_log_ai", "log1p_genera",
+            "frac_rows_same_phylum", "frac_rows_same_class", "frac_rows_same_order")
+
+
+def logistic(X, y, l2=1e-2, iters=50):
+    """L2-regularised logistic regression by Newton steps on standardised features: (mean, std, weights, bias)."""
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Z = np.concatenate([(X - mu) / sd, np.ones((len(X), 1))], 1)
+    w = np.zeros(Z.shape[1])
+    reg = np.full(Z.shape[1], l2 * len(X))
+    reg[-1] = 0.0
+    for _ in range(iters):
+        p = 1 / (1 + np.exp(-np.clip(Z @ w, -30, 30)))
+        g = Z.T @ (p - y) + reg * w
+        H = (Z * (p * (1 - p))[:, None]).T @ Z + np.diag(reg + 1e-9)
+        step = np.linalg.solve(H, g)
+        w -= step
+        if np.abs(step).max() < 1e-8:
+            break
+    return mu, sd, w
+
+
 def dev_constructed(run_dir, path, ranks, lib_taxid=None):
-    """Development diagnosis on constructed insertions (held-out recipients and donors, genus hidden on both sides): the
-    model and the comparators on the same examples, overall, by donor stratum and by recipient group. Not a result."""
+    """Development diagnosis on constructed insertions (held-out recipients, held-out partners; the genome's own proteome
+    and genus hidden for the recipient and for the partner, the donor of an insertion or the decoy of a native): the
+    model (each seed and their mean) and the comparators on the same examples, with a logistic regression on summary
+    features trained on the same construction in training genomes. Overall, by partner stratum (insertions against
+    natives whose decoy is of the same stratum) and by recipient group; 95% intervals by resampling recipient genomes.
+    Not a result (charter section 8)."""
     z = np.load(path)
     with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
         meta = {m["id"]: m for m in json.load(f)["genomes"]}
@@ -129,9 +181,12 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
             cds = read_fasta(os.path.join(folder, "cds.fna"))
             seqs = [cds["%s__%s" % (gid, g)] for g in genes]
             prof = np.array([_codon_profile(x) for x in seqs])
+            gc = np.array([(x.upper().count("G") + x.upper().count("C")) / max(1, len(x)) for x in seqs])
+            ln = np.array([len(x) for x in seqs], dtype=float)
             h = np.load(os.path.join(run_dir, "data", "hits", gid + ".npz"))
             so = h["sseq_off"] if "sseq_off" in h.files else None
-            cache[gid] = dict(seqs=seqs, prof=prof, total=prof.sum(0), n=len(prof), off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"], sseq_off=so)
+            cache[gid] = dict(seqs=seqs, prof=prof, total=prof.sum(0), n=len(prof), gc=gc, len=ln, gc_mean=float((gc * ln).sum() / max(1.0, ln.sum())),
+                              off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"], sseq_off=so)
         return cache[gid]
 
     def hide(gid):
@@ -147,43 +202,104 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
 
     def hidden_row(p, rules):
         return any((lib_taxid[p] == v) if c == "taxid" else (ranks[p, c] == v) for c, v in rules)
-    rec, gene, don, dgene, strat, score = [x.decode() for x in z["recipient"]], z["gene"], [x.decode() for x in z["donor"]], z["donor_gene"], z["stratum"], z["score"]
-    cols = {m: [] for m in ("model", "alien_index", "best_hit", "counts", "composition")}
-    for r, i, d, j, sc in zip(rec, gene, don, dgene, score):
+
+    def features(r, i, d, j, partner):
+        """Comparator scores and baseline features of one example, from the rows the model reads."""
         R = genome(r)
         src, k = (genome(d), int(j)) if d else (R, int(i))
-        rules = hide(r) + (hide(d) if d else [])
+        rules = hide(r) + (hide(partner) if partner else [])
         # the rows the model reads: those that carry aligned residues (the nearest ones), not the extra best-per-genus rows
         cand = [x for x in range(src["off"][k], src["off"][k + 1]) if src["sseq_off"] is None or src["sseq_off"][x + 1] > src["sseq_off"][x]]
         rows = [x for x in cand if not hidden_row(src["prot"][x], rules)]
-        ph = meta[r]["ranks"][0]
-        b_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] == ph] or [0.0])
-        b_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] != ph] or [0.0])
-        cols["model"].append(float(sc))
-        cols["alien_index"].append(math.log(2) * (b_out - b_in))
-        cols["best_hit"].append(-max([src["pid"][x] / 10 for x in rows] or [0.0]))
-        cols["counts"].append(-len({int(ranks[src["prot"][x], 4]) or -int(src["prot"][x]) for x in rows}))
+        rk = meta[r]["ranks"]
+        b_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] == rk[0]] or [0.0])
+        b_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] != rk[0]] or [0.0])
+        ai = math.log(2) * (b_out - b_in)
+        best = max([src["pid"][x] / 1000.0 for x in rows] or [0.0])
+        genera = len({int(ranks[src["prot"][x], 4]) or -int(src["prot"][x]) for x in rows})
         bg = (R["total"] - (R["prof"][int(i)] if not d else 0)) / max(1, R["n"] - (0 if d else 1))   # the genome without the gene itself
-        cols["composition"].append(float(np.abs(src["prof"][k] - bg).sum()))
+        comp = float(np.abs(src["prof"][k] - bg).sum())
+        gcd = float(src["gc"][k] - R["gc_mean"])
+        frac = [float(np.mean([ranks[src["prot"][x], c] == rk[c] for x in rows])) if rows and rk[c] else 0.0 for c in (0, 1, 2)]
+        feat = [comp, gcd, abs(gcd), math.log1p(src["len"][k] / 3), math.log1p(len(rows)), float(not rows), best,
+                math.copysign(math.log1p(abs(ai)), ai), math.log1p(genera)] + frac
+        return dict(alien_index=ai, best_hit=-best, counts=-genera, composition=comp), feat
+
+    def examples(zz):
+        return ([x.decode() for x in zz["recipient"]], zz["gene"], [x.decode() for x in zz["donor"]], zz["donor_gene"], np.asarray(zz["stratum"]),
+                [x.decode() for x in zz["partner"]] if "partner" in zz.files else [""] * len(zz["gene"]))
+    rec, gene, don, dgene, strat, part = examples(z)
+    cols = {m: [] for m in ("alien_index", "best_hit", "counts", "composition")}
+    X = []
+    for r, i, d, j, pa in zip(rec, gene, don, dgene, part):
+        c, f = features(r, i, d, j, pa)
+        for m in cols:
+            cols[m].append(c[m])
+        X.append(f)
     y = np.array([1 if d else 0 for d in don])
-    grp = np.array([meta[r]["group"] for r in rec])
-    strat = np.asarray(strat)
-    out = dict(note="constructed insertions into held-out genomes from held-out donors; the genome's own proteome and genus hidden on both sides; "
-                    "model and comparators read the same nearest hits; development diagnosis, not a result (charter section 8)",
-               examples=int(len(y)), insertions=int(y.sum()), recipients=len(set(rec)), methods={})
+    methods = {}
+    # the model: the run's (first) seed, each seed, and the mean of the seeds' scores on the same examples
+    mj = os.path.join(run_dir, "data", "model", "model.json")
+    seed_dirs = []
+    if os.path.exists(mj):
+        with open(mj) as f:
+            md = json.load(f)
+        seed_dirs = list(zip(md.get("seeds") or [], md.get("seed_dirs") or []))
+    methods["model"] = np.asarray(z["score"], float)
+    if len(seed_dirs) > 1:
+        per = []
+        for sd, dd in seed_dirs:
+            zs = np.load(os.path.join(run_dir, dd, "dev_eval.npz"))
+            if [x.decode() for x in zs["recipient"]] != rec or not np.array_equal(zs["gene"], gene):
+                raise SystemExit("seed %s scored other development examples" % sd)
+            methods["model_seed_%d" % sd] = np.asarray(zs["score"], float)
+            per.append(methods["model_seed_%d" % sd])
+        methods["model_mean_of_seeds"] = np.mean(per, 0)
+    # the simple trained baseline: logistic regression on the summary features, fitted on training-genome constructions
+    bt = os.path.join(run_dir, "data", "model", "baseline_train.npz")
+    baseline = None
+    if os.path.exists(bt):
+        zb = np.load(bt)
+        br, bg_, bd, bj, _, bp = examples(zb)
+        XB = np.array([features(r, i, d, j, pa)[1] for r, i, d, j, pa in zip(br, bg_, bd, bj, bp)])
+        yb = np.array([1.0 if d else 0.0 for d in bd])
+        if len(XB) and 0 < yb.sum() < len(yb):
+            mu, sd_, w = logistic(XB, yb)
+            Zd = np.concatenate([(np.array(X) - mu) / sd_, np.ones((len(X), 1))], 1)
+            methods["baseline_logistic"] = Zd @ w
+            baseline = dict(features=list(FEATURES), train_examples=int(len(yb)), train_insertions=int(yb.sum()), train_recipients=len(set(br)),
+                            weights=dict(zip(list(FEATURES) + ["bias"], [round(float(x), 4) for x in w])))
     for m, v in cols.items():
-        v = np.array(v)
+        methods[m] = np.array(v, float)
+    grp = np.array([meta[r]["group"] for r in rec])
+    reca = np.array(rec)
+    ph0 = sorted({r for r in rec if not meta[r]["ranks"][0]})
+    out = dict(note="constructed insertions into held-out genomes from held-out donors; natives carry a decoy partner drawn like a donor; the "
+                    "genome's own proteome and genus hidden for the recipient and the partner; model and comparators read the same nearest hits; "
+                    "development diagnosis, not a result (charter section 8)",
+               examples=int(len(y)), insertions=int(y.sum()), recipients=len(set(rec)),
+               recipients_by_group={g: len({r for r in rec if meta[r]["group"] == g}) for g in sorted(set(grp))},
+               near_relative_recipients=sorted({r for r in rec if meta[r].get("cluster")}),
+               alien_index_phylum_undefined=dict(recipients=ph0, examples=int(sum(1 for r in rec if r in set(ph0))),
+                                                 note="no phylum for the recipient: every visible hit counts as outside, the index is not meaningful"),
+               baseline=baseline, methods={})
+    for m, v in methods.items():
         pos, neg = v[y == 1], v[y == 0]
-        row = dict(auroc=auroc(pos, neg), recall_at_fpr_0_01=_recall_at(pos, neg, 0.01), recall_at_fpr_0_05=_recall_at(pos, neg, 0.05), by_stratum={}, by_recipient_group={})
+        row = dict(auroc=auroc_fast(pos, neg), auroc_ci95=bootstrap_ci(v, y, reca), recall_at_fpr_0_01=_recall_at(pos, neg, 0.01),
+                   recall_at_fpr_0_05=_recall_at(pos, neg, 0.05), by_stratum={}, by_recipient_group={})
         for k, name in enumerate(STRATA):
-            sel = strat == k
-            if sel.any():                                  # negatives of the same recipient groups only
-                negs = v[(y == 0) & np.isin(grp, np.unique(grp[sel]))]
-                row["by_stratum"][name] = dict(n=int(sel.sum()), auroc=auroc(v[sel], negs))
+            sp, sn = (strat == k) & (y == 1), (strat == k) & (y == 0)
+            if sp.any() and sn.any():                       # insertions against natives whose decoy has the same stratum
+                row["by_stratum"][name] = dict(n_pos=int(sp.sum()), n_neg=int(sn.sum()), recipients=len(set(reca[sp | sn])), auroc=auroc_fast(v[sp], v[sn]))
+        per = []
         for g in sorted(set(grp)):
             sel = grp == g
             if (y[sel] == 1).any() and (y[sel] == 0).any():
-                row["by_recipient_group"][g] = dict(n=int(sel.sum()), auroc=auroc(v[sel & (y == 1)], v[sel & (y == 0)]))
+                a = auroc_fast(v[sel & (y == 1)], v[sel & (y == 0)])
+                per.append(a)
+                row["by_recipient_group"][g] = dict(n=int(sel.sum()), recipients=len(set(reca[sel])), auroc=a,
+                                                    recall_at_fpr_0_05=_recall_at(v[sel & (y == 1)], v[sel & (y == 0)], 0.05))
+        row["macro_auroc_over_groups"] = float(np.mean(per)) if per else None
         out["methods"][m] = row
     return out
 

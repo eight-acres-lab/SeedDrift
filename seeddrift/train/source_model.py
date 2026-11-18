@@ -7,18 +7,25 @@ Run by the train stage of the CI with the CUDA Python of the server (ci/envs/mod
 
   python source_model.py fit   RUN_DIR CONFIG_JSON    train, log, checkpoint (resumable), then score
   python source_model.py score RUN_DIR CONFIG_JSON    score the evaluation genomes and the constructed development set
+  python source_model.py sets  RUN_DIR CONFIG_JSON    write the constructed example lists only (no model, no GPU)
 
-Reads data/train_data (stage train_data) and data/reference/library.npz; writes data/model/{model.npz, model.json,
-eval_scores.npz, dev_eval.npz} and data/train/logs (seeddrift.train.logger). Inputs are raw data only: codons of the
-gene and its neighbours, and its hits as residue-by-residue alignment tracks with the identity of the hit's proteome.
-No identity, coverage, score or lineage path enters the network; lineage is used only to hide the genome's own clade
-(and an inserted gene's donor clade) from the hits, at a random depth during training and at genus depth in evaluation.
+Reads data/train_data (stage train_data) and data/reference/library.npz; writes, in the config's `out` folder (default
+data/model), model.npz, eval_scores.npz, dev_eval.npz, and the training logs in its `logs` folder (default
+data/train/logs; seeddrift.train.logger); `sets` writes data/model/{dev_set.npz, baseline_train.npz}. Inputs are raw
+data only: codons of the gene and its neighbours, and its hits as residue-by-residue alignment tracks with the identity
+of the hit's proteome. No identity, coverage, score or lineage path enters the network; lineage is used only to hide
+clades from the hits, at a random depth during training and at genus depth in evaluation.
+
+Hiding is symmetric: every example has a partner genome, drawn across the distance strata (same genus to another
+kingdom, and mobile elements). For a replacement the partner is the donor; for a native it is a decoy drawn the same
+way. Both lose the recipient's clade and the partner's clade from every slot's hits, so the hit lists of natives and
+replacements are cut by the same rule and their length or make-up alone does not tell them apart.
 
 Training signal (no HGT labels): in training genomes, the centre gene of a window is, half of the time, replaced by a
-gene of another training genome (its codons and its own hits), the donor drawn across distance strata (same genus to
-another kingdom, and mobile elements); the model predicts the replacement. Natives carry the soft label 0.05 because
-training genomes contain unlabelled transfers. The constructed development set uses held-out recipients and held-out
-donors only. This file must never import an evaluation generator (gate G2 static).
+gene of the partner genome (its codons and its own hits); the model predicts the replacement. Natives carry the soft
+label 0.05 because training genomes contain unlabelled transfers. The constructed development set uses held-out
+recipients and held-out partners only and is fixed by `dev_seed` (the same for every training seed). This file must
+never import an evaluation generator (gate G2 static).
 """
 from __future__ import annotations
 
@@ -149,15 +156,18 @@ class Data:
                 break
         return rules
 
-    def window(self, gen, i, donor=None, depth="genus", extra_hide=()):
-        """The 17 slots of gene i of `gen`; the centre replaced by donor = (genome, gene) if given. extra_hide: more
-        (column, value) rules, applied before the hit lists are cut (the donor genera of an evaluation scenario)."""
-        hide = self.hide_for(gen, depth) + list(extra_hide)
+    def window(self, gen, i, donor=None, depth="genus", extra_hide=(), partner=None):
+        """The 17 slots of gene i of `gen`; the centre replaced by donor = (genome, gene) if given. The recipient's clade
+        and the partner's (the donor's genome, else `partner`, a decoy) are hidden from every slot at `depth`.
+        extra_hide: more (column, value) rules, applied before the hit lists are cut (the donor genera of an
+        evaluation scenario)."""
+        partner = donor[0] if donor is not None else partner
+        hide = self.hide_for(gen, depth) + (self.hide_for(partner, depth) if partner is not None else []) + list(extra_hide)
         slots = []
         for s, j in enumerate(gen.neighbours(i)):
             if s == WIN and donor is not None:
                 dg, dj = donor
-                c, tr, pr = self.gene(dg, dj, hide + self.hide_for(dg, depth), self.kc)
+                c, tr, pr = self.gene(dg, dj, hide, self.kc)
                 strand = 1
             elif j < 0:
                 slots.append(None)
@@ -289,8 +299,22 @@ def build(torch, n_lib, d=128):
     return Model()
 
 
+def by_stratum(gen, others):
+    by = {}
+    for o in others:
+        by.setdefault(stratum(gen, o), []).append(o)
+    return by
+
+
+def partner_of(by, rng):
+    """A partner genome: a stratum uniformly among those present, then a genome of it."""
+    ks = sorted(by)
+    k = ks[rng.integers(len(ks))]
+    return by[k][rng.integers(len(by[k]))], k
+
+
 def sample(data, rng, genomes, depth=None):
-    """One training example: (slots, source, label, stratum, recipient group)."""
+    """One training example: (slots, source, label, partner stratum, recipient group)."""
     groups = sorted({data.g[g].meta["group"] for g in genomes})
     grp = groups[rng.integers(len(groups))]
     pool = [g for g in genomes if data.g[g].meta["group"] == grp]
@@ -298,55 +322,64 @@ def sample(data, rng, genomes, depth=None):
     i = int(rng.integers(gen.n))
     depth = depth or DEPTHS[rng.integers(len(DEPTHS))]
     others = [data.g[g] for g in genomes if g != gen.meta["id"]]
-    if others and rng.random() < 0.5:                             # a corpus of one genome trains on natives only
-        by = {}
-        for o in others:
-            by.setdefault(stratum(gen, o), []).append(o)
-        ks = sorted(by)
-        k = ks[rng.integers(len(ks))]
-        dg = by[k][rng.integers(len(by[k]))]
-        dj = int(rng.integers(dg.n))
-        return data.window(gen, i, (dg, dj), depth), data.source(gen, rng, i), 1.0, k, grp
-    return data.window(gen, i, None, depth), data.source(gen, rng, i), 0.0, -1, grp
+    if not others:                                                # a corpus of one genome trains on natives only
+        return data.window(gen, i, None, depth), data.source(gen, rng, i), 0.0, -1, grp
+    pg, k = partner_of(by_stratum(gen, others), rng)
+    if rng.random() < 0.5:
+        dj = int(rng.integers(pg.n))
+        return data.window(gen, i, (pg, dj), depth), data.source(gen, rng, i), 1.0, k, grp
+    return data.window(gen, i, None, depth, partner=pg), data.source(gen, rng, i), 0.0, k, grp
 
 
-def dev_set(data, seed, n_per=120):
-    """Constructed development examples: held-out recipients, held-out donors, genus hidden; fixed by the seed."""
+def constructed(data, seed, split="heldout", n_per=120):
+    """Constructed examples in the genomes of one split, partners from the same split: (recipient, gene, donor, donor
+    gene, partner stratum, partner); donor "" for a native (its partner is the decoy). Fixed by the seed."""
     rng = np.random.default_rng(seed)
-    ho = sorted(data.by_split.get("heldout", []))
+    ho = sorted(data.by_split.get(split, []))
     out = []
     for gid in ho:
         gen = data.g[gid]
         others = [data.g[g] for g in ho if g != gid]
         if not others:
             continue
-        by = {}
-        for o in others:
-            by.setdefault(stratum(gen, o), []).append(o)
+        by = by_stratum(gen, others)
         for _ in range(n_per):
             i = int(rng.integers(gen.n))
+            pg, k = partner_of(by, rng)
             if rng.random() < 0.5:
-                ks = sorted(by)
-                k = ks[rng.integers(len(ks))]
-                dg = by[k][rng.integers(len(by[k]))]
-                out.append((gid, i, dg.meta["id"], int(rng.integers(dg.n)), k))
+                out.append((gid, i, pg.meta["id"], int(rng.integers(pg.n)), k, pg.meta["id"]))
             else:
-                out.append((gid, i, "", -1, -1))
+                out.append((gid, i, "", -1, k, pg.meta["id"]))
     return out
 
 
+def dev_set(data, seed, n_per=120):
+    """The constructed development set: held-out recipients and partners, genus hidden."""
+    return constructed(data, seed, "heldout", n_per)
+
+
+def save_examples(path, ex, scores=None):
+    cols = dict(recipient=np.array([e[0] for e in ex], dtype="S"), gene=np.array([e[1] for e in ex], dtype=np.int64),
+                donor=np.array([e[2] for e in ex], dtype="S"), donor_gene=np.array([e[3] for e in ex], dtype=np.int64),
+                stratum=np.array([e[4] for e in ex], dtype=np.int64), partner=np.array([e[5] for e in ex], dtype="S"))
+    if scores is not None:
+        cols["score"] = scores
+    save_npz(path, **cols)
+
+
 def predict(model, data, torch, dev, examples, rng_seed=0, batch=64, depth="genus"):
+    """examples: (recipient, gene, donor or "", donor gene, hidden scenario genera or None, partner or "")."""
     rng = np.random.default_rng(rng_seed)
     scores = []
     model.eval()
     with torch.no_grad():
         for b0 in range(0, len(examples), batch):
             items = []
-            for gid, i, did, dj, hidden in examples[b0:b0 + batch]:
+            for gid, i, did, dj, hidden, pid in examples[b0:b0 + batch]:
                 gen = data.g[gid]
                 donor = (data.g[did], dj) if did else None
                 extra = [(RANKS.index("genus"), int(g)) for g in sorted(hidden or ())]   # donors of an evaluation scenario
-                slots = data.window(gen, i, donor, depth, extra)
+                slots = data.window(gen, i, donor, depth, extra, partner=data.g[pid] if pid else None)
                 items.append((slots, data.source(gen, rng, i), 0.0))
             x = {k: v.to(dev) for k, v in collate(items, torch).items()}
             scores += torch.sigmoid(model(x)).float().cpu().tolist()
@@ -385,7 +418,7 @@ def fit(run_dir, cfg):
     opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["lr"]), weight_decay=0.01)
     steps, batch = int(cfg["steps"]), int(cfg["batch"])
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / 200) * 0.5 * (1 + math.cos(math.pi * min(s, steps) / steps)))
-    folder = os.path.join(run_dir, "data", "train", "logs")
+    folder = os.path.join(run_dir, cfg.get("logs") or os.path.join("data", "train", "logs"))
     resume = bool(cfg.get("resume")) and os.path.exists(os.path.join(folder, "last.npz"))
     log = TrainLogger(folder, commit=cfg.get("commit", ""), dataset_ids=[data.index["dataset_id"]], resume=resume)
     start = 0
@@ -395,8 +428,8 @@ def fit(run_dir, cfg):
         model.load_state_dict(state)
         start = int(last["step"])
     # every step draws from its own generator (seed, step): the data stream does not depend on where a run was resumed
-    dev_ex = [(g, i, d, j, None) for g, i, d, j, _ in dev_set(data, seed)]
-    dev_y = np.array([1 if d else 0 for _, _, d, _, _ in dev_ex])
+    dev_ex = [(g, i, d, j, None, p) for g, i, d, j, _, p in dev_set(data, int(cfg.get("dev_seed", 0)))]
+    dev_y = np.array([1 if e[2] else 0 for e in dev_ex])
     for _ in range(start):
         sched.step()
     t0 = time.time()
@@ -429,7 +462,7 @@ def fit(run_dir, cfg):
         if step % int(cfg.get("ckpt_every", 1000)) == 0 or step == steps:
             log.checkpoint(step, {"m:" + k: v.detach().cpu().numpy() for k, v in model.state_dict().items()}, final=step == steps)
     log.save_seen("")
-    model_dir = os.path.join(run_dir, "data", "model")
+    model_dir = os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"))
     os.makedirs(model_dir, exist_ok=True)
     save_npz(os.path.join(model_dir, "model.npz"), **{"m:" + k: v.detach().cpu().numpy() for k, v in model.state_dict().items()})
     score(run_dir, cfg, model=model, data=data)
@@ -440,27 +473,36 @@ def score(run_dir, cfg, model=None, data=None):
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data = data or Data(run_dir, cfg)
     if model is None:
-        z = np.load(os.path.join(run_dir, "data", "model", "model.npz"))
+        z = np.load(os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"), "model.npz"))
         model = build(torch, data.n_lib).to(dev)
         model.load_state_dict({k[2:]: torch.from_numpy(z[k]) for k in z.files})
-    seed = int(cfg["seed"])
-    model_dir = os.path.join(run_dir, "data", "model")
+    model_dir = os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"))
+    os.makedirs(model_dir, exist_ok=True)
     # evaluation genomes: every gene, own species hidden, and the scenario's donor genera hidden too (as for the comparators)
     hidden = cfg.get("hidden_genera") or {}
     ev, keys = [], []
     for gid in sorted(data.by_split.get("eval", [])):
         h = set(int(x) for x in hidden.get(gid, []))
         for i in range(data.g[gid].n):
-            ev.append((gid, i, "", -1, h))
+            ev.append((gid, i, "", -1, h, ""))
             keys.append(gid)
     # the scenario comparators hide the host's species and the donor genera (ci/stages/eval.py): the model the same
     s_eval = predict(model, data, torch, dev, ev, depth="species") if ev else np.zeros(0)
     save_npz(os.path.join(model_dir, "eval_scores.npz"), genome=np.array(keys, dtype="S"), gene=np.array([e[1] for e in ev], dtype=np.int64), score=s_eval)
-    dex = dev_set(data, seed)
-    s_dev = predict(model, data, torch, dev, [(g, i, d, j, None) for g, i, d, j, _ in dex]) if dex else np.zeros(0)
-    save_npz(os.path.join(model_dir, "dev_eval.npz"), recipient=np.array([e[0] for e in dex], dtype="S"), gene=np.array([e[1] for e in dex], dtype=np.int64),
-             donor=np.array([e[2] for e in dex], dtype="S"), donor_gene=np.array([e[3] for e in dex], dtype=np.int64),
-             stratum=np.array([e[4] for e in dex], dtype=np.int64), score=s_dev)
+    dex = dev_set(data, int(cfg.get("dev_seed", 0)))
+    s_dev = predict(model, data, torch, dev, [(g, i, d, j, None, p) for g, i, d, j, _, p in dex]) if dex else np.zeros(0)
+    save_examples(os.path.join(model_dir, "dev_eval.npz"), dex, s_dev)
+
+
+def sets(run_dir, cfg):
+    """The example lists without a model: the development set and the training-genome constructions that the simple
+    trained baseline of the eval stage learns from (same construction and hiding, training genomes only)."""
+    data = Data(run_dir, cfg)
+    model_dir = os.path.join(run_dir, "data", "model")
+    os.makedirs(model_dir, exist_ok=True)
+    ds = int(cfg.get("dev_seed", 0))
+    save_examples(os.path.join(model_dir, "dev_set.npz"), dev_set(data, ds))
+    save_examples(os.path.join(model_dir, "baseline_train.npz"), constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60))))
 
 
 def main():
@@ -471,8 +513,10 @@ def main():
         fit(run_dir, cfg)
     elif mode == "score":
         score(run_dir, cfg)
+    elif mode == "sets":
+        sets(run_dir, cfg)
     else:
-        raise SystemExit("mode is fit or score")
+        raise SystemExit("mode is fit, score or sets")
 
 
 if __name__ == "__main__":

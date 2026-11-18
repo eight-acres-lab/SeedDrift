@@ -12,7 +12,8 @@ Per genome data/train_data/<id>.npz (genes in the order of the genome's genes.ts
                                             out. Read residue by residue from the CIGAR and the aligned target sequence.
 data/train_data/index.json: every genome with its group, taxid, lineage (phylum, class, order, family, genus, species),
 gene count, split and near-relative cluster: corpus genomes are split within their group by units of genomes that share
-a genus or a cluster (split() below); evaluation genomes are "eval".
+a genus or a cluster (split() below; with train_data.test_split also a sealed test part, three_way()); evaluation
+genomes are "eval".
 No summary number of a hit (identity, coverage, score) is written: the model reads alignments, not their summaries.
 """
 from __future__ import annotations
@@ -118,13 +119,13 @@ def one_genome(folder, hits_path, gid, maxc, k):
     return arrays, len(genes), hoff[-1]
 
 
-def split(entries, groups, lin, cluster=None):
+def split(entries, groups, lin, cluster=None, salt="split", every=5, every_cluster=2):
     """{id: train|heldout} within each group. Units: genomes that share a genus, or a near-relative cluster (corpus field
     `cluster`: an anchor and its relatives), are one unit (connected components); a genome without a genus and without a
     cluster is its own unit (species, else its id). About one plain unit in five is held out and one cluster unit in
     two (the clusters exist for the near-distance strata of the development set). Whole units move in the fix-ups (at
     least one training and, where a group has two units or more, one held-out unit), so no genus and no cluster is on
-    both sides."""
+    both sides. `salt`, `every` and `every_cluster` choose the hash and the shares (defaults: the pilots' split)."""
     cluster = cluster or {}
     out = {}
     for g in sorted(set(groups.values())):
@@ -157,7 +158,7 @@ def split(entries, groups, lin, cluster=None):
             for e in members:
                 unit[e] = key
         units = sorted(set(unit.values()), key=str)
-        held = {u for u in units if int(hashlib.sha256(("split:%s" % (u,)).encode()).hexdigest(), 16) % (2 if u[0] == "c" else 5) == 0}
+        held = {u for u in units if int(hashlib.sha256(("%s:%s" % (salt, u)).encode()).hexdigest(), 16) % (every_cluster if u[0] == "c" else every) == 0}
         if held == set(units) and units:
             held.discard(units[0])
         elif not held and len(units) >= 2:
@@ -170,6 +171,20 @@ def split(entries, groups, lin, cluster=None):
             assert not (tr & ho), "a %s on both sides of the split" % col
         assert not ({cluster[e] for e in ids if out[e] == "train" and cluster.get(e)} & {cluster[e] for e in ids if out[e] == "heldout" and cluster.get(e)})
     return out
+
+
+def three_way(entries, groups, lin, cluster=None):
+    """{id: train|heldout|test}: split() as above gives the development genomes (heldout); split() again, with its own
+    hash, over the remaining genomes gives the sealed test genomes (test), about as many plain units as the development
+    split takes (one in four of the rest) and half of the remaining clusters. Units stay whole in both steps, so no genus
+    and no cluster is in two of the three parts. Test genomes are never scored by the development code (the source
+    model's dev set and the eval stage read heldout only)."""
+    cluster = cluster or {}
+    first = split(entries, groups, lin, cluster)
+    rest = [e for e in entries if first[e] == "train"]
+    keep = set(rest)
+    second = split(rest, {e: groups[e] for e in rest}, lin, {e: c for e, c in cluster.items() if e in keep}, salt="test", every=4)
+    return {e: ("heldout" if first[e] == "heldout" else ("test" if second[e] == "heldout" else "train")) for e in entries}
 
 
 def main():
@@ -191,8 +206,9 @@ def main():
             t = int(e.get("taxid") or e.get("host_taxid"))
             lin[e["id"]] = {r: tax.at_rank(t, r) for r in RANKS}
             groups[e["id"]] = km.group(tax, t, e.get("source_kind", "")) if name == "corpus" else "eval"
-        sp = split([e["id"] for n, e in ents if n == "corpus"], {e["id"]: groups[e["id"]] for n, e in ents if n == "corpus"}, lin,
-                   {e["id"]: e["cluster"] for n, e in ents if n == "corpus" and e.get("cluster")})
+        part = three_way if dc.get("test_split") else split          # train_data.test_split: a sealed test part as well
+        sp = part([e["id"] for n, e in ents if n == "corpus"], {e["id"]: groups[e["id"]] for n, e in ents if n == "corpus"}, lin,
+                  {e["id"]: e["cluster"] for n, e in ents if n == "corpus" and e.get("cluster")})
         out_entries, index = [], []
         for name, e in ents:
             gid = e["id"]

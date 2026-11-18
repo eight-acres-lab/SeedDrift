@@ -200,7 +200,16 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
     base = dict(lr=float(tc["lr"]), steps=int(tc["steps"]), batch=int(tc["batch"]), eval_every=int(tc.get("eval_every", 500)),
                 ckpt_every=int(tc.get("ckpt_every", 1000)), commit=cfg["git"]["sha"], hidden_genera={k: sorted(v) for k, v in hidden.items()},
                 max_codons=int(tc.get("max_codons", 512)), hits_centre=int(tc.get("hits_centre", 16)), hits_neighbour=int(tc.get("hits_neighbour", 4)),
-                max_track=int(tc.get("max_track", 512)), dev_seed=int(tc.get("dev_seed", 0)), baseline_per_genome=int(tc.get("baseline_per_genome", 60)))
+                max_track=int(tc.get("max_track", 512)), dev_seed=int(tc.get("dev_seed", 0)), baseline_per_genome=int(tc.get("baseline_per_genome", 60)),
+                genome_composition=bool(tc.get("genome_composition", False)), width=int(tc.get("width", 128)),
+                baseline_depth=str(tc.get("baseline_depth", "genus")))
+    variants = [dict(v) for v in tc.get("variants") or []]
+    for v in variants:
+        if set(v) - {"name", "seed", "fraction", "width", "ablate"} or not v.get("name") or "seed" not in v:
+            raise SystemExit("train.variants: each has a name and a seed, and only fraction, width, ablate besides: %r" % v)
+    if len({v["name"] for v in variants}) != len(variants):
+        raise SystemExit("train.variants: names repeat")
+    base["fractions"] = sorted({float(v.get("fraction", 1.0)) for v in variants} | {1.0})
     script = os.path.join(st.repo("seeddrift/train/source_model.py"))
     env = dict(os.environ, PYTHONHASHSEED="0")
 
@@ -222,21 +231,35 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
         if bad:
             raise SystemExit("source model failed: %s" % " | ".join(bad))
     wait([run("sets", base, "source_sets")])                    # the constructed example lists (dev set, baseline training set)
-    # one folder per seed (data/model/seed-<s>, data/train/logs/seed-<s>); with one seed the plain folders, as before
-    multi = len(seeds) > 1
-    confs = []
-    for sd in seeds:
-        sub = "seed-%d" % sd if multi else ""
-        logs = os.path.join("data", "train", "logs", sub) if multi else os.path.join("data", "train", "logs")
-        out = os.path.join("data", "model", sub) if multi else os.path.join("data", "model")
-        confs.append(dict(base, seed=sd, logs=logs, out=out,
-                          resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
-    # ablations (train.ablations: hits, codons): the same network with one input channel cut, first seed, own folders
-    abl = []
-    for a in tc.get("ablations") or []:
-        abl.append(dict(base, seed=seeds[0], ablate=str(a), logs=os.path.join("data", "train", "logs", "ablate-%s" % a),
-                        out=os.path.join("data", "model", "ablate-%s" % a), resume=False))
-    jobs = [(c, "source_config" + ("-seed-%d" % c["seed"] if multi else "")) for c in confs] + [(c, "source_config-ablate-%s" % c["ablate"]) for c in abl]
+    if variants:
+        # train.variants: a grid (data fraction, width, seed, ablation), each in data/model/<name> and data/train/logs/<name>;
+        # the first variant is the run's model
+        multi = True
+        confs = []
+        for v in variants:
+            logs, out = os.path.join("data", "train", "logs", v["name"]), os.path.join("data", "model", v["name"])
+            confs.append(dict(base, seed=int(v["seed"]), train_fraction=float(v.get("fraction", 1.0)), width=int(v.get("width", base["width"])),
+                              ablate=str(v.get("ablate", "")), name=v["name"], logs=logs, out=out,
+                              resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
+        abl = []
+        jobs = [(c, "source_config-%s" % c["name"]) for c in confs]
+        seeds = [c["seed"] for c in confs]
+    else:
+        # one folder per seed (data/model/seed-<s>, data/train/logs/seed-<s>); with one seed the plain folders, as before
+        multi = len(seeds) > 1
+        confs = []
+        for sd in seeds:
+            sub = "seed-%d" % sd if multi else ""
+            logs = os.path.join("data", "train", "logs", sub) if multi else os.path.join("data", "train", "logs")
+            out = os.path.join("data", "model", sub) if multi else os.path.join("data", "model")
+            confs.append(dict(base, seed=sd, logs=logs, out=out,
+                              resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
+        # ablations (train.ablations: hits, codons): the same network with one input channel cut, first seed, own folders
+        abl = []
+        for a in tc.get("ablations") or []:
+            abl.append(dict(base, seed=seeds[0], ablate=str(a), logs=os.path.join("data", "train", "logs", "ablate-%s" % a),
+                            out=os.path.join("data", "model", "ablate-%s" % a), resume=False))
+        jobs = [(c, "source_config" + ("-seed-%d" % c["seed"] if multi else "")) for c in confs] + [(c, "source_config-ablate-%s" % c["ablate"]) for c in abl]
     par = max(1, int(tc.get("parallel", 1)))
     for k in range(0, len(jobs), par):
         wait([run("fit", c, name) for c, name in jobs[k:k + par]])
@@ -252,12 +275,14 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
     mid = "mdl-source-v0-" + sha256_json([cfg["git"]["sha"], cfg["config_sha256"], [ids_doc["corpus_dataset"], tdi["dataset_id"]], tc["seed"]])[:12]
     write_json(st.path("model", "model.json"), dict(model_id=mid, kind="source_v0", note="pilot: development diagnosis only (charter section 8)",
                                                   steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
-                                                  model_env_sha256=sha256_json(have), seeds=seeds, seed_dirs=[c["out"] for c in confs],
-                                                  ablations={c["ablate"]: c["out"] for c in abl}))
-    for name in ("model.npz", "eval_scores.npz", "dev_eval.npz", "dev_set.npz", "baseline_train.npz"):
+                                                  model_env_sha256=sha256_json(have), seeds=[] if variants else seeds,
+                                                  seed_dirs=[] if variants else [c["out"] for c in confs], ablations={c["ablate"]: c["out"] for c in abl},
+                                                  variants={c["name"]: dict(seed=c["seed"], fraction=c["train_fraction"], width=c["width"], ablate=c["ablate"],
+                                                                            out=c["out"], logs=c["logs"]) for c in confs} if variants else {}))
+    for name in ("model.npz", "eval_scores.npz", "dev_eval.npz", "dev_set.npz", "baseline_train.npz", "fractions.json"):
         st.output(name.split(".")[0], os.path.join(model_dir, name))
-    for c in confs[1:] if multi else []:
-        st.output("dev_eval_seed_%d" % c["seed"], os.path.join(run_dir, c["out"], "dev_eval.npz"))
+    for c in (confs[1:] if multi else []):
+        st.output("dev_eval_%s" % (c["name"] if variants else "seed_%d" % c["seed"]), os.path.join(run_dir, c["out"], "dev_eval.npz"))
     for c in abl:
         st.output("dev_eval_ablate_%s" % c["ablate"], os.path.join(run_dir, c["out"], "dev_eval.npz"))
     st.output("data_seen", os.path.join(run_dir, confs[0]["logs"], "data_seen.json"))

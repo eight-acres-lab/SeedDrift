@@ -1,0 +1,48 @@
+# Server only (needs the CUDA Python): the ci-tiny pipeline with the medium-scale training path (a grid of data
+# fractions, widths and seeds; the whole-genome composition input; a sealed test part of the split; baselines on the
+# model's construction), end to end in minutes before the medium runs (charter section 8: development diagnosis).
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 1
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/ci-tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+reference:
+  faa: tests/ci/fixtures/tiny/reference.faa
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 2
+  block_size: 1
+  nearest: 32
+  keep_sseq: 32
+train_data:
+  test_split: true
+train:
+  model: source_v0
+  seed: 1
+  genome_composition: true
+  baseline_depth: random
+  variants:
+    - {name: f1-w128-s1, seed: 1}
+    - {name: f1-w128-s2, seed: 2}
+    - {name: f0.5-w128-s1, seed: 1, fraction: 0.5}
+    - {name: f0.5-w128-s2, seed: 2, fraction: 0.5}
+    - {name: f1-w64-s1, seed: 1, width: 64}
+    - {name: f1-w128-s1-no-hits, seed: 1, ablate: hits}
+  parallel: 3
+  steps: 60
+  batch: 16
+  lr: 3.0e-4
+  eval_every: 30
+  ckpt_every: 30
+# GitHub runners have no reference data for the released screen; only tier tiny may skip it (gate G4)
+comparators:
+  released_v0.1.0: skip

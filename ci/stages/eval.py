@@ -98,6 +98,7 @@ def released_row(run_dir, eid, pairs, truth):
 
 
 STRATA = ("same genus", "same family", "same order", "same phylum", "other phylum", "other kingdom", "mobile element")
+DEPTH_COL = {"species": 5, "genus": 4, "family": 3, "order": 2}    # hiding depth -> lineage column (phylum .. species)
 
 
 def _codon_profile(cds):
@@ -207,6 +208,69 @@ def mlp(X, y, hidden=32, epochs=400, lr=1e-2, l2=1e-4, seed=0):
     return lambda Xn: np.tanh(((Xn - mu) / sd) @ P[0] + P[1]) @ P[2] + P[3][0]
 
 
+def cell_name(v):
+    """The (data fraction, width, ablation) cell of a train variant, e.g. f0.25-w128 or f1-w128-no-hits."""
+    return "f%g-w%d" % (float(v.get("fraction", 1.0)), int(v.get("width", 128))) + ("-no-%s" % v["ablate"] if v.get("ablate") else "")
+
+
+def balanced_rows(groups, seed=0):
+    """Row indices with every group resampled (with replacement) to the size of the largest: groups weigh equally, as
+    the source model samples them in training."""
+    rng = np.random.default_rng(seed)
+    gs = sorted(set(groups))
+    if not gs:
+        return np.zeros(0, int)
+    top = max(int((groups == g).sum()) for g in gs)
+    return np.concatenate([rng.choice(np.flatnonzero(groups == g), size=top, replace=True) for g in gs])
+
+
+def per_recipient_auroc(v, y, rec):
+    """{recipient: AUROC among its own examples} for recipients with both classes."""
+    out = {}
+    for r in np.unique(rec):
+        m = rec == r
+        if (y[m] == 1).any() and (y[m] == 0).any():
+            out[str(r)] = auroc_fast(v[m & (y == 1)], v[m & (y == 0)])
+    return out
+
+
+def paired_contrast(a, b, y, rec, grp, reps=500, seed=0):
+    """a - b on the same examples, with 95% intervals from resampling recipients within each group (each group keeps
+    its number of recipients): the macro AUROC over groups, the mean AUROC within recipients, and the recall at 5% FPR
+    of the pooled examples. Also the share of resamples where a is ahead."""
+    rng = np.random.default_rng(seed)
+    gs = sorted(set(grp))
+    by_g = {g: sorted(set(rec[grp == g])) for g in gs}
+    rows = {r: np.flatnonzero(rec == r) for r in np.unique(rec)}
+    pa, pb = per_recipient_auroc(a, y, rec), per_recipient_auroc(b, y, rec)
+
+    def stats(take_by_group):
+        out = {}
+        for name, v, pr in (("a", a, pa), ("b", b, pb)):
+            macro, within, idx = [], [], []
+            for g, rs in take_by_group.items():
+                t = np.concatenate([rows[r] for r in rs])
+                yy = y[t]
+                if (yy == 1).any() and (yy == 0).any():
+                    macro.append(auroc_fast(v[t][yy == 1], v[t][yy == 0]))
+                within += [pr[str(r)] for r in rs if str(r) in pr]
+                idx.append(t)
+            t = np.concatenate(idx)
+            out[name] = dict(macro_auroc=float(np.mean(macro)) if macro else None, within_recipient_auroc=float(np.mean(within)) if within else None,
+                             recall_at_fpr_0_05=_recall_at(v[t][y[t] == 1], v[t][y[t] == 0], 0.05))
+        return out
+    point = stats(by_g)
+    draws = [stats({g: [rs[k] for k in rng.integers(len(rs), size=len(rs))] for g, rs in by_g.items()}) for _ in range(reps)]
+    res = {}
+    for m in ("macro_auroc", "within_recipient_auroc", "recall_at_fpr_0_05"):
+        if point["a"][m] is None or point["b"][m] is None:
+            continue
+        d = np.array([x["a"][m] - x["b"][m] for x in draws if x["a"][m] is not None and x["b"][m] is not None])
+        res[m] = dict(a=point["a"][m], b=point["b"][m], diff=point["a"][m] - point["b"][m],
+                      ci95=[float(np.quantile(d, 0.025)), float(np.quantile(d, 0.975))] if len(d) else None, share_a_ahead=float((d > 0).mean()) if len(d) else None)
+    return res
+
+
 GC_BINS = (0.0, 0.02, 0.05, 0.10, 1.01)                          # |GC of the gene - GC of the genome|
 
 
@@ -263,25 +327,25 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                               off=h["off"], prot=h["prot"], pid=h["pid"], bits=h["bits"], sseq_off=so)
         return cache[gid]
 
-    def hide(gid):
-        """The model's rule (seeddrift/train/source_model.py hide_for at genus depth): the genome's own proteome, and its
-        genus, or its species when it has no genus."""
+    def hide(gid, depth="genus"):
+        """The model's rule (seeddrift/train/source_model.py hide_for): the genome's own proteome, and its clade at the
+        example's depth, or the nearest defined rank below it (at genus depth: its genus, or its species)."""
         r = meta[gid]["ranks"]
         rules = [("taxid", int(meta[gid]["taxid"]))]
-        if r[4]:
-            rules.append((4, r[4]))
-        elif r[5]:
-            rules.append((5, r[5]))
+        for c in range(DEPTH_COL[depth], 6):
+            if r[c]:
+                rules.append((c, r[c]))
+                break
         return rules
 
     def hidden_row(p, rules):
         return any((lib_taxid[p] == v) if c == "taxid" else (ranks[p, c] == v) for c, v in rules)
 
-    def features(r, i, d, j, partner):
+    def features(r, i, d, j, partner, depth="genus"):
         """Comparator scores and baseline features of one example, from the rows the model reads."""
         R = genome(r)
         src, k = (genome(d), int(j)) if d else (R, int(i))
-        rules = hide(r) + (hide(partner) if partner else [])
+        rules = hide(r, depth) + (hide(partner, depth) if partner else [])
         # the rows the model reads: those that carry aligned residues (the nearest ones), not the extra best-per-genus rows
         cand = [x for x in range(src["off"][k], src["off"][k + 1]) if src["sseq_off"] is None or src["sseq_off"][x + 1] > src["sseq_off"][x]]
         # the first k_hits of them that are not hidden: exactly the hits the model reads for the centre gene
@@ -314,13 +378,15 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
         return dict(alien_index=ai, alien_index_fair=ai_fair, best_hit=-best, counts=-genera, composition=comp, gc_difference=abs(gcd)), feat, bal
 
     def examples(zz):
+        n = len(zz["gene"])
         return ([x.decode() for x in zz["recipient"]], zz["gene"], [x.decode() for x in zz["donor"]], zz["donor_gene"], np.asarray(zz["stratum"]),
-                [x.decode() for x in zz["partner"]] if "partner" in zz.files else [""] * len(zz["gene"]))
-    rec, gene, don, dgene, strat, part = examples(z)
+                [x.decode() for x in zz["partner"]] if "partner" in zz.files else [""] * n,
+                [x.decode() for x in zz["depth"]] if "depth" in zz.files else ["genus"] * n)
+    rec, gene, don, dgene, strat, part, dep = examples(z)
     cols = {m: [] for m in ("alien_index", "alien_index_fair", "best_hit", "counts", "composition", "gc_difference")}
     X, B = [], []
-    for r, i, d, j, pa in zip(rec, gene, don, dgene, part):
-        c, f, bq = features(r, i, d, j, pa)
+    for r, i, d, j, pa, dp in zip(rec, gene, don, dgene, part, dep):
+        c, f, bq = features(r, i, d, j, pa, dp)
         for m in cols:
             cols[m].append(c[m])
         X.append(f)
@@ -349,13 +415,27 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
         if [x.decode() for x in zs["recipient"]] != rec or not np.array_equal(zs["gene"], gene):
             raise SystemExit("ablation %s scored other development examples" % a)
         methods["model_without_%s" % a] = np.asarray(zs["score"], float)
-    # the simple trained baseline: logistic regression on the summary features, fitted on training-genome constructions
+    # train.variants (a grid of data fraction, width, seed, ablation): every variant, and the mean of the seeds of each
+    # (fraction, width, ablation) cell that has two seeds or more
+    variants = (md.get("variants") or {}) if os.path.exists(mj) else {}
+    cells = {}
+    for name, v in sorted(variants.items()):
+        zs = np.load(os.path.join(run_dir, v["out"], "dev_eval.npz"))
+        if [x.decode() for x in zs["recipient"]] != rec or not np.array_equal(zs["gene"], gene):
+            raise SystemExit("variant %s scored other development examples" % name)
+        methods["model_" + name] = np.asarray(zs["score"], float)
+        cells.setdefault(cell_name(v), []).append(methods["model_" + name])
+    for c, per in sorted(cells.items()):
+        if len(per) > 1:
+            methods["model_mean_" + c] = np.mean(per, 0)
+    # the simple trained baselines on the summary features, fitted on training-genome constructions (the same
+    # construction as the model's training when the run sets train.baseline_depth: random)
     bt = os.path.join(run_dir, "data", "model", "baseline_train.npz")
     baseline = None
     if os.path.exists(bt):
         zb = np.load(bt)
-        br, bg_, bd, bj, _, bp = examples(zb)
-        XB = np.array([features(r, i, d, j, pa)[1] for r, i, d, j, pa in zip(br, bg_, bd, bj, bp)], float).reshape(len(bd), len(FEATURES))
+        br, bg_, bd, bj, _, bp, bdep = examples(zb)
+        XB = np.array([features(r, i, d, j, pa, dp)[1] for r, i, d, j, pa, dp in zip(br, bg_, bd, bj, bp, bdep)], float).reshape(len(bd), len(FEATURES))
         yb = np.array([1.0 if d else 0.0 for d in bd])
         if len(X) and 0 < yb.sum() < len(yb):                    # both classes to learn from, and examples to score
             XD = np.array(X, float)
@@ -367,6 +447,36 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                 baseline["weights" if name == "baseline_logistic" else "weights_composition_only"] = dict(
                     zip([FEATURES[c] for c in cols_] + ["bias"], [round(float(x), 4) for x in w]))
             methods["baseline_mlp"] = mlp(XB, yb)(XD)                 # the same features, one hidden layer of 32
+            if variants:
+                # as the model samples them: groups weighted equally (rows resampled to the same count per group), three
+                # seeds and their mean, feature subsets, and one per data fraction of the grid (its own construction)
+                bgrp = np.array([meta[r]["group"] for r in br])
+                idx = balanced_rows(bgrp)
+                methods["baseline_mlp_proportional"] = methods["baseline_mlp"]
+                for k in (0, 1, 2):
+                    methods["baseline_mlp_balanced_seed_%d" % k] = mlp(XB[idx], yb[idx], seed=k)(XD)
+                methods["baseline_mlp_balanced"] = methods["baseline_mlp_balanced_seed_0"]
+                methods["baseline_mlp_balanced_mean"] = np.mean([methods["baseline_mlp_balanced_seed_%d" % k] for k in (0, 1, 2)], 0)
+                for name, cols_ in (("composition_only", [0, 1, 2, 3]), ("hits_only", list(range(4, len(FEATURES)))),
+                                    ("no_lineage", [0, 1, 2, 3, 4, 5, 6, 8])):
+                    methods["baseline_mlp_balanced_" + name] = mlp(XB[idx][:, cols_], yb[idx])(XD[:, cols_])
+                fr_path = os.path.join(run_dir, "data", "model", "fractions.json")
+                baseline["fractions"] = {}
+                for f in sorted({float(v.get("fraction", 1.0)) for v in variants.values()} - {1.0}):
+                    zf = np.load(os.path.join(run_dir, "data", "model", "baseline_train_f%g.npz" % f))
+                    fr_, fg_, fd, fj, _, fp, fdep = examples(zf)
+                    XF = np.array([features(r, i, d, j, pa, dp)[1] for r, i, d, j, pa, dp in zip(fr_, fg_, fd, fj, fp, fdep)], float).reshape(len(fd), len(FEATURES))
+                    yf = np.array([1.0 if d else 0.0 for d in fd])
+                    if not 0 < yf.sum() < len(yf):
+                        continue
+                    jdx = balanced_rows(np.array([meta[r]["group"] for r in fr_]))
+                    per = [mlp(XF[jdx], yf[jdx], seed=k)(XD) for k in (0, 1, 2)]
+                    methods["baseline_mlp_balanced_f%g" % f] = per[0]
+                    methods["baseline_mlp_balanced_mean_f%g" % f] = np.mean(per, 0)
+                    baseline["fractions"]["%g" % f] = dict(train_examples=int(len(yf)), train_recipients=len(set(fr_)))
+                if os.path.exists(fr_path):
+                    with open(fr_path) as fh:
+                        baseline["fraction_genomes"] = {k: len(v) for k, v in json.load(fh).items()}
     for m, v in cols.items():
         methods[m] = np.array(v, float)
     grp = np.array([meta[r]["group"] for r in rec])
@@ -379,7 +489,9 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                recipients_by_group={g: len({r for r in rec if meta[r]["group"] == g}) for g in sorted(set(grp))},
                near_relative_recipients=sorted({r for r in rec if meta[r].get("cluster")}),
                alien_index_phylum_undefined=dict(recipients=ph0, examples=int(sum(1 for r in rec if r in set(ph0))),
-                                                 note="no phylum for the recipient: every visible hit counts as outside, the index is not meaningful"),
+                                                 note="no phylum for the recipient: hits of proteomes without a phylum either (mostly viral) count "
+                                                      "as inside and every other hit as outside, so the index contrasts phylum-less and cellular hits, "
+                                                      "not the recipient's clade with the rest; alien_index_fair uses the recipient's highest defined rank"),
                baseline=baseline, gc_bins=list(GC_BINS), hits_read=k_hits, methods={})
     # how far each quantity alone separates insertions from natives (AUROC, larger = higher for insertions); those the
     # construction sets (rows hidden, their fraction) should sit near 0.5, a gene's length and visible rows may carry
@@ -409,10 +521,24 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                 row["by_recipient_group"][g] = dict(n=int(sel.sum()), recipients=len(set(reca[sel])), auroc=a,
                                                     recall_at_fpr_0_05=_recall_at(v[sel & (y == 1)], v[sel & (y == 0)], 0.05))
         row["macro_auroc_over_groups"] = float(np.mean(per)) if per else None
+        pr = per_recipient_auroc(v, y, reca)
+        row["mean_auroc_within_recipients"] = float(np.mean(list(pr.values()))) if pr else None
         row["average_precision_at_prevalence"] = {"0.02": ap_at_prevalence(pos, neg, 0.02), "0.05": ap_at_prevalence(pos, neg, 0.05)}
         row["auroc_within_gc_bins"], row["by_gc_bin"] = within_bins(v, y, gcb)
         row["auroc_within_composition_quintiles"], _ = within_bins(v, y, compb)
         out["methods"][m] = row
+    # the decisive comparisons of a grid run: the model (mean of its seeds) against the balanced MLP (mean of its three
+    # seeds) at each data fraction, and each single variant against a single balanced MLP of the same fraction
+    out["contrasts"] = {}
+    for c in sorted({cell_name(v) for v in variants.values()}):
+        f = c.split("-")[0][1:]
+        ref = "baseline_mlp_balanced_mean" + ("" if float(f) == 1.0 else "_f%s" % f)
+        if "model_mean_" + c in methods and ref in methods and "-no-" not in c:
+            out["contrasts"]["model_mean_%s - %s" % (c, ref)] = paired_contrast(methods["model_mean_" + c], methods[ref], y, reca, grp)
+    for name, v in sorted(variants.items()):
+        ref = "baseline_mlp_balanced" + ("" if float(v.get("fraction", 1.0)) == 1.0 else "_f%g" % float(v["fraction"]))
+        if ref in methods and not v.get("ablate"):
+            out["contrasts"]["model_%s - %s" % (name, ref)] = paired_contrast(methods["model_" + name], methods[ref], y, reca, grp, reps=200)
     return out
 
 

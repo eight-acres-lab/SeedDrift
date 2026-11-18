@@ -13,7 +13,9 @@ Reads data/train_data (stage train_data) and data/reference/library.npz; writes,
 data/model), model.npz, eval_scores.npz, dev_eval.npz, and the training logs in its `logs` folder (default
 data/train/logs; seeddrift.train.logger); `sets` writes data/model/{dev_set.npz, baseline_train.npz}. Inputs are raw
 data only: codons of the gene and its neighbours, and its hits as residue-by-residue alignment tracks with the identity
-of the hit's proteome. No identity, coverage, score or lineage path enters the network; lineage is used only to hide
+of the hit's proteome; with `genome_composition` also the codons of the whole genome (every gene but the one at the
+centre position, the same for natives and replacements) and of the centre gene, read through the model's own codon
+embedding. No identity, coverage, score or lineage path enters the network; lineage is used only to hide
 clades from the hits, at a random depth during training and at genus depth in evaluation.
 
 Hiding is symmetric: every example has a partner genome, drawn across the distance strata (same genus to another
@@ -24,11 +26,16 @@ replacements are cut by the same rule and their length or make-up alone does not
 Training signal (no HGT labels): in training genomes, the centre gene of a window is, half of the time, replaced by a
 gene of the partner genome (its codons and its own hits); the model predicts the replacement. Natives carry the soft
 label 0.05 because training genomes contain unlabelled transfers. The constructed development set uses held-out
-recipients and held-out partners only and is fixed by `dev_seed` (the same for every training seed). This file must
-never import an evaluation generator (gate G2 static).
+recipients and held-out partners only and is fixed by `dev_seed` (the same for every training seed); each recipient
+contributes distinct genes (drawn without replacement: a genome of three genes gives three natives, not sixty copies).
+Genomes of the sealed test split ("test") are never read here except as hits of nothing: no example uses them.
+Scores are logits. `train_fraction` trains on a nested share of the training genomes (whole genera or clusters, per
+group) for data-scale curves; `width` sets the model width. This file must never import an evaluation generator
+(gate G2 static).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -78,6 +85,10 @@ class Genome:
         self.order, self.rep, self.start, self.end, self.strand = order, rep, start, z["end"], z["strand"]
         self.rep_len = z["replicon_len"]
         self.ranks = np.array(meta["ranks"], dtype=np.int64)
+        self.ccount = np.bincount(self.codons.astype(np.int64), minlength=66)[:66]   # codon tokens of the whole genome
+
+    def gene_count(self, i):
+        return np.bincount(self.codons[self.coff[i]:self.coff[i + 1]].astype(np.int64), minlength=66)[:66]
 
     def neighbours(self, i):
         p = self.pos[i]
@@ -95,6 +106,39 @@ def kingdom(group):
     if group in ("viruses.eukaryotic", "viruses.giant"):
         return "euk_virus"
     return KINGDOM.get(group, group)
+
+
+def frequencies(count):
+    """Codon-token counts -> frequencies over tokens 1..65 (0 is padding); all zero without any codon."""
+    c = np.asarray(count, dtype=np.float64).copy()
+    c[0] = 0.0
+    t = c.sum()
+    return (c / t if t > 0 else c).astype(np.float32)
+
+
+def unit_of(meta):
+    """The unit a genome moves with when training genomes are subsampled: its near-relative cluster, else its genus,
+    else its species, else itself."""
+    if meta.get("cluster"):
+        return "c:%s" % meta["cluster"]
+    r = meta["ranks"]
+    return "g:%d" % r[4] if r[4] else ("s:%d" % r[5] if r[5] else "id:%s" % meta["id"])
+
+
+def fraction_subset(metas, ids, fraction):
+    """A nested share of training genomes: within each group, units (unit_of) in a fixed hash order, the first
+    ceil(fraction x units) of them (at least one). A smaller fraction is always a subset of a larger one."""
+    if fraction >= 1.0:
+        return sorted(ids)
+    keep = []
+    by_group = {}
+    for g in ids:
+        by_group.setdefault(metas[g]["group"], []).append(g)
+    for grp, members in sorted(by_group.items()):
+        units = sorted({unit_of(metas[g]) for g in members}, key=lambda u: hashlib.sha256(("fraction:%s" % u).encode()).hexdigest())
+        take = set(units[:max(1, int(math.ceil(fraction * len(units))))])
+        keep += [g for g in members if unit_of(metas[g]) in take]
+    return sorted(keep)
 
 
 def stratum(r, d):
@@ -126,6 +170,7 @@ class Data:
                 self.by_split.setdefault(m["split"], []).append(m["id"])
         self.maxc = int(cfg.get("max_codons", 512))
         self.kc, self.kn, self.maxt = int(cfg.get("hits_centre", 32)), int(cfg.get("hits_neighbour", 4)), int(cfg.get("max_track", 512))
+        self.comp = bool(cfg.get("genome_composition", False))
 
     # ---- one gene of one genome as arrays; `hide` = list of (column, value) whose hits are removed
     def gene(self, gen, i, hide, k):
@@ -180,6 +225,12 @@ class Data:
             # its replicon are the same for natives and replacements
             edge = math.log1p(max(0, min(int(gen.start[i]), int(gen.rep_len[gen.rep[i]]) - int(gen.end[i])))) if s == WIN else 0.0
             slots.append(dict(c=c, tracks=tr, prots=pr, feat=[strand, 0.0, edge / 15.0, math.log1p(int(gen.rep_len[gen.rep[i]])) / 20.0, (s - WIN) / WIN]))
+        if getattr(self, "comp", False):
+            # the genome without the gene at the centre position (natives and replacements alike) and the centre gene
+            # itself (the donor's gene for a replacement), every codon of the stored gene
+            centre = donor[0].gene_count(donor[1]) if donor is not None else gen.gene_count(i)
+            slots[WIN]["gcomp"] = frequencies(gen.ccount - gen.gene_count(i))
+            slots[WIN]["ccomp"] = frequencies(centre)
         return slots
 
     def source(self, gen, rng, exclude, n=32):
@@ -202,8 +253,13 @@ def collate(batch, torch):
     ns = max([len(src) for _, src, _ in batch] + [1])          # at least one slot: a genome of one gene has no other genes
     src = torch.zeros(B, ns, maxc, dtype=torch.long)
     labels = torch.zeros(B)
+    gcomp = torch.zeros(B, 66)
+    ccomp = torch.zeros(B, 66)
     for b, (slots, srcs, y) in enumerate(batch):
         labels[b] = y
+        if slots[WIN] and "gcomp" in slots[WIN]:
+            gcomp[b] = torch.from_numpy(slots[WIN]["gcomp"])
+            ccomp[b] = torch.from_numpy(slots[WIN]["ccomp"])
         for s, sl in enumerate(slots):
             if not sl:
                 continue
@@ -216,13 +272,14 @@ def collate(batch, torch):
                 hmask[b, s, h] = True
         for k, c in enumerate(srcs):
             src[b, k, :len(c)] = torch.from_numpy(c)
-    return dict(codons=codons, present=present, feats=feats, tracks=tracks, prots=prots, hmask=hmask, src=src, labels=labels)
+    return dict(codons=codons, present=present, feats=feats, tracks=tracks, prots=prots, hmask=hmask, src=src, labels=labels, gcomp=gcomp, ccomp=ccomp)
 
 
-def build(torch, n_lib, d=128, ablate=""):
+def build(torch, n_lib, d=128, ablate="", comp=False):
     """The network. ablate="hits": every gene reads as one without hits (the hit channel is cut); ablate="codons": the
     codon encodings of the slots and of the genome source are zero (the composition channel is cut). Same parameters,
-    so an ablation trains exactly like the full model."""
+    so an ablation trains exactly like the full model. comp: the whole-genome and centre-gene codon frequencies, read
+    through the codon embedding of the encoder (a learned mean over every codon), enter the source token and the head."""
     if ablate not in ("", "hits", "codons"):
         raise SystemExit("ablate is hits or codons, not %r" % ablate)
     nn = torch.nn
@@ -266,7 +323,9 @@ def build(torch, n_lib, d=128, ablate=""):
             self.slot = nn.Linear(2 * d + 5, d)
             self.ctx = nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 2 * d, batch_first=True, dropout=0.1), 2, enable_nested_tensor=False)
             self.src_proj = nn.Linear(d, d)
-            self.head = nn.Sequential(nn.Linear(4 * d, d), nn.GELU(), nn.Linear(d, 1))
+            if comp:
+                self.comp_proj = nn.Linear(64, d)
+            self.head = nn.Sequential(nn.Linear((6 if comp else 4) * d, d), nn.GELU(), nn.Linear(d, 1))
 
         def forward(self, x):
             B, S, L = x["codons"].shape
@@ -301,11 +360,19 @@ def build(torch, n_lib, d=128, ablate=""):
             source = (sv * smask.unsqueeze(-1)).sum(1) / smask.sum(1, keepdim=True).clamp(min=1)
             if ablate == "codons":
                 source = torch.zeros_like(source)
-            seq = torch.cat([self.src_proj(source).unsqueeze(1), slots], 1)
+            token = self.src_proj(source)
+            if comp:
+                emb = self.codon.emb.weight                                # [66, 64], the encoder's own codon embedding
+                gv, cc = self.comp_proj(x["gcomp"] @ emb), self.comp_proj(x["ccomp"] @ emb)
+                if ablate == "codons":
+                    gv, cc = torch.zeros_like(gv), torch.zeros_like(cc)
+                token = token + gv
+            seq = torch.cat([token.unsqueeze(1), slots], 1)
             pad = torch.cat([torch.zeros(B, 1, dtype=torch.bool, device=seq.device), ~x["present"]], 1)
             out = self.ctx(seq, src_key_padding_mask=pad)
             centre_in, centre_out = slots[:, WIN], out[:, 1 + WIN]
-            return self.head(torch.cat([centre_out, centre_in, source, centre_in - source], -1)).squeeze(-1)
+            parts = [centre_out, centre_in, source, centre_in - source] + ([cc - gv, gv] if comp else [])
+            return self.head(torch.cat(parts, -1)).squeeze(-1)
 
     return Model()
 
@@ -342,25 +409,32 @@ def sample(data, rng, genomes, depth=None):
     return data.window(gen, i, None, depth, partner=pg), data.source(gen, rng, i), 0.0, k, grp
 
 
-def constructed(data, seed, split="heldout", n_per=120):
-    """Constructed examples in the genomes of one split, partners from the same split: (recipient, gene, donor, donor
-    gene, partner stratum, partner); donor "" for a native (its partner is the decoy). Fixed by the seed."""
+def constructed(data, seed, split="heldout", n_per=120, depth="genus", ids=None):
+    """Constructed examples in the genomes of one split (or `ids` of it), partners from the same genomes: (recipient,
+    gene, donor, donor gene, partner stratum, partner, hiding depth); donor "" for a native (its partner is the decoy).
+    Per recipient at most n_per / 2 natives and n_per / 2 replacements, each at distinct gene positions (without
+    replacement: a small genome gives as many examples as it has genes, not repeats). depth "random": a hiding depth
+    per example drawn as in training. Fixed by the seed."""
     rng = np.random.default_rng(seed)
-    ho = sorted(data.by_split.get(split, []))
+    ho = sorted(ids if ids is not None else data.by_split.get(split, []))
     out = []
+    half = max(1, n_per // 2)
     for gid in ho:
         gen = data.g[gid]
         others = [data.g[g] for g in ho if g != gid]
         if not others:
             continue
         by = by_stratum(gen, others)
-        for _ in range(n_per):
-            i = int(rng.integers(gen.n))
-            pg, k = partner_of(by, rng)
-            if rng.random() < 0.5:
-                out.append((gid, i, pg.meta["id"], int(rng.integers(pg.n)), k, pg.meta["id"]))
-            else:
-                out.append((gid, i, "", -1, k, pg.meta["id"]))
+        nat = rng.permutation(gen.n)[:min(half, gen.n)]
+        rep_ = rng.permutation(gen.n)[:min(half, gen.n)]
+        for kind, positions in (("native", nat), ("replacement", rep_)):
+            for i in positions:
+                pg, k = partner_of(by, rng)
+                dp = DEPTHS[rng.integers(len(DEPTHS))] if depth == "random" else depth
+                if kind == "replacement":
+                    out.append((gid, int(i), pg.meta["id"], int(rng.integers(pg.n)), k, pg.meta["id"], dp))
+                else:
+                    out.append((gid, int(i), "", -1, k, pg.meta["id"], dp))
     return out
 
 
@@ -372,14 +446,15 @@ def dev_set(data, seed, n_per=120):
 def save_examples(path, ex, scores=None):
     cols = dict(recipient=np.array([e[0] for e in ex], dtype="S"), gene=np.array([e[1] for e in ex], dtype=np.int64),
                 donor=np.array([e[2] for e in ex], dtype="S"), donor_gene=np.array([e[3] for e in ex], dtype=np.int64),
-                stratum=np.array([e[4] for e in ex], dtype=np.int64), partner=np.array([e[5] for e in ex], dtype="S"))
+                stratum=np.array([e[4] for e in ex], dtype=np.int64), partner=np.array([e[5] for e in ex], dtype="S"),
+                depth=np.array([e[6] if len(e) > 6 else "genus" for e in ex], dtype="S"))
     if scores is not None:
         cols["score"] = scores
     save_npz(path, **cols)
 
 
 def predict(model, data, torch, dev, examples, rng_seed=0, batch=64, depth="genus"):
-    """examples: (recipient, gene, donor or "", donor gene, hidden scenario genera or None, partner or "")."""
+    """examples: (recipient, gene, donor or "", donor gene, hidden scenario genera or None, partner or ""). Logits."""
     rng = np.random.default_rng(rng_seed)
     scores = []
     model.eval()
@@ -393,7 +468,7 @@ def predict(model, data, torch, dev, examples, rng_seed=0, batch=64, depth="genu
                 slots = data.window(gen, i, donor, depth, extra, partner=data.g[pid] if pid else None)
                 items.append((slots, data.source(gen, rng, i), 0.0))
             x = {k: v.to(dev) for k, v in collate(items, torch).items()}
-            scores += torch.sigmoid(model(x)).float().cpu().tolist()
+            scores += model(x).float().cpu().tolist()
     model.train()
     return np.array(scores, dtype=np.float64)
 
@@ -424,8 +499,8 @@ def fit(run_dir, cfg):
     torch.use_deterministic_algorithms(False)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data = Data(run_dir, cfg)
-    train_ids = sorted(data.by_split.get("train", []))
-    model = build(torch, data.n_lib, ablate=cfg.get("ablate", "")).to(dev)
+    train_ids = fraction_subset({g: data.g[g].meta for g in data.g}, data.by_split.get("train", []), float(cfg.get("train_fraction", 1.0)))
+    model = build(torch, data.n_lib, d=int(cfg.get("width", 128)), ablate=cfg.get("ablate", ""), comp=data.comp).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["lr"]), weight_decay=0.01)
     steps, batch = int(cfg["steps"]), int(cfg["batch"])
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / 200) * 0.5 * (1 + math.cos(math.pi * min(s, steps) / steps)))
@@ -439,7 +514,7 @@ def fit(run_dir, cfg):
         model.load_state_dict(state)
         start = int(last["step"])
     # every step draws from its own generator (seed, step): the data stream does not depend on where a run was resumed
-    dev_ex = [(g, i, d, j, None, p) for g, i, d, j, _, p in dev_set(data, int(cfg.get("dev_seed", 0)))]
+    dev_ex = [(e[0], e[1], e[2], e[3], None, e[5]) for e in dev_set(data, int(cfg.get("dev_seed", 0)))]
     dev_y = np.array([1 if e[2] else 0 for e in dev_ex])
     for _ in range(start):
         sched.step()
@@ -472,7 +547,7 @@ def fit(run_dir, cfg):
             print("step %d loss %.4f dev AUROC %s" % (step, float(loss), "n/a" if a is None else "%.4f" % a), file=sys.stderr, flush=True)
         if step % int(cfg.get("ckpt_every", 1000)) == 0 or step == steps:
             log.checkpoint(step, {"m:" + k: v.detach().cpu().numpy() for k, v in model.state_dict().items()}, final=step == steps)
-    log.save_seen("")
+    log.save_seen(hashlib.sha256("\n".join(train_ids).encode()).hexdigest())   # which training genomes this variant read
     model_dir = os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"))
     os.makedirs(model_dir, exist_ok=True)
     save_npz(os.path.join(model_dir, "model.npz"), **{"m:" + k: v.detach().cpu().numpy() for k, v in model.state_dict().items()})
@@ -485,7 +560,7 @@ def score(run_dir, cfg, model=None, data=None):
     data = data or Data(run_dir, cfg)
     if model is None:
         z = np.load(os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"), "model.npz"))
-        model = build(torch, data.n_lib, ablate=cfg.get("ablate", "")).to(dev)
+        model = build(torch, data.n_lib, d=int(cfg.get("width", 128)), ablate=cfg.get("ablate", ""), comp=data.comp).to(dev)
         model.load_state_dict({k[2:]: torch.from_numpy(z[k]) for k in z.files})
     model_dir = os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"))
     os.makedirs(model_dir, exist_ok=True)
@@ -501,7 +576,7 @@ def score(run_dir, cfg, model=None, data=None):
     s_eval = predict(model, data, torch, dev, ev, depth="species") if ev else np.zeros(0)
     save_npz(os.path.join(model_dir, "eval_scores.npz"), genome=np.array(keys, dtype="S"), gene=np.array([e[1] for e in ev], dtype=np.int64), score=s_eval)
     dex = dev_set(data, int(cfg.get("dev_seed", 0)))
-    s_dev = predict(model, data, torch, dev, [(g, i, d, j, None, p) for g, i, d, j, _, p in dex]) if dex else np.zeros(0)
+    s_dev = predict(model, data, torch, dev, [(e[0], e[1], e[2], e[3], None, e[5]) for e in dex]) if dex else np.zeros(0)
     save_examples(os.path.join(model_dir, "dev_eval.npz"), dex, s_dev)
 
 
@@ -513,7 +588,19 @@ def sets(run_dir, cfg):
     os.makedirs(model_dir, exist_ok=True)
     ds = int(cfg.get("dev_seed", 0))
     save_examples(os.path.join(model_dir, "dev_set.npz"), dev_set(data, ds))
-    save_examples(os.path.join(model_dir, "baseline_train.npz"), constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60))))
+    # the baseline learns from the same construction as the model: hiding depth drawn per example as in training
+    save_examples(os.path.join(model_dir, "baseline_train.npz"), constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60)),
+                                                                             depth=cfg.get("baseline_depth", "genus")))
+    # the training genomes of each data fraction of the run (the baseline of the eval stage learns from the same ones)
+    metas = {g: data.g[g].meta for g in data.g}
+    fr = sorted({float(f) for f in (cfg.get("fractions") or [1.0])} | {1.0})
+    subsets = {x: fraction_subset(metas, data.by_split.get("train", []), x) for x in fr}
+    with open(os.path.join(model_dir, "fractions.json"), "w") as f:
+        json.dump({"%g" % x: v for x, v in subsets.items()}, f, indent=1)
+    for x in fr:                       # the baseline of a smaller fraction: recipients and partners of that fraction only
+        if x < 1.0:
+            save_examples(os.path.join(model_dir, "baseline_train_f%g.npz" % x),
+                          constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60)), depth=cfg.get("baseline_depth", "genus"), ids=subsets[x]))
 
 
 def main():

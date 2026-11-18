@@ -37,10 +37,14 @@ REMOTE = ("ena_assembly", "ena_sequences", "ensembl")
 ORGANELLE = {"MT", "Mt", "mt", "MtDNA", "mitochondrion", "Mito", "Pt", "chloroplast", "plastid", "apicoplast", "M"}
 
 
-def sources_of(spec, repo, fetched=None):
+def sources_of(spec, repo, fetched=None, unavailable=()):
+    """The corpus sources with their files; remote sources the fetch stage found no record of (`unavailable`, listed
+    in its manifest under fetch.allow_missing) are left out."""
     rows = []
     for r in spec.get("sources") or []:
         if any(k in r for k in REMOTE):
+            if r["id"] in unavailable:
+                continue
             if fetched is None or r["id"] not in fetched:
                 raise SystemExit("source %s needs the fetch stage" % r["id"])
             rows.append(dict(r, files=fetched[r["id"]]))
@@ -209,14 +213,17 @@ def main():
     with Stage(run_dir, "corpus", requires=("pre",)) as st:
         with open(st.repo(st.config["corpus_spec"])) as f:
             spec = yaml.safe_load(f)
-        fetched = None
+        fetched, unavailable = None, set()
         fm = os.path.join(run_dir, "data", "fetch", "manifest.json")
         if os.path.exists(fm):
             cas = os.path.join(st.config["data_root"], "cas")
             with open(fm) as f:
-                fetched = {e["id"]: [os.path.join(cas, x["path"]) for x in e["files"]] for e in json.load(f)["entries"]}
+                fman = json.load(f)
+            fetched = {e["id"]: [os.path.join(cas, x["path"]) for x in e["files"]] for e in fman["entries"]}
+            unavailable = {m["id"] for m in (fman.get("meta") or {}).get("unavailable") or []}
+            st.extra["left_out_no_record"] = sorted(unavailable)
         entries = []
-        for src in sources_of(spec, st.repo, fetched):
+        for src in sources_of(spec, st.repo, fetched, unavailable):
             out_dir = st.path("corpus", src["id"], "x")[:-2]
             genes, mode = build_one(src, out_dir)
             files = [M.file_entry(os.path.join(out_dir, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]

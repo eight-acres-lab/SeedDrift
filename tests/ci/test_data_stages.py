@@ -57,6 +57,42 @@ def test_fetch_refuses_incomplete_downloads_fails(tmp_path, monkeypatch):
     assert not (tmp_path / "cas2").exists()
 
 
+def test_fetch_tells_a_missing_record_from_a_network_failure(monkeypatch):
+    import urllib.error
+    from ci.stages import fetch
+    seen = []
+
+    def opener(code):
+        def urlopen(req, timeout=0):
+            seen.append(code)
+            if code:
+                raise urllib.error.HTTPError(req.full_url, code, "x", {}, None)
+            raise OSError("connection reset")
+        return urlopen
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", opener(404))
+    with pytest.raises(fetch.NoRecord):
+        fetch.get("https://example.invalid/a", tries=5, pause=0)
+    assert len(seen) == 2                                         # asked twice, then no record
+    seen.clear()
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", opener(503))
+    with pytest.raises(RuntimeError):
+        fetch.get("https://example.invalid/b", tries=3, pause=0)
+    assert len(seen) == 3                                         # a server error is retried and stays a failure
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", opener(0))
+    with pytest.raises(RuntimeError):
+        fetch.get("https://example.invalid/c", tries=2, pause=0)
+
+
+def test_corpus_leaves_out_sources_without_a_record():
+    from ci.stages.corpus import sources_of
+    spec = dict(sources=[dict(id="a", source_kind="raw_virus", taxid=1, ena_sequences=["X1.1"]),
+                         dict(id="b", source_kind="raw_virus", taxid=2, ena_sequences=["X2.1"])])
+    rows = sources_of(spec, lambda x: x, {"a": ["/store/a.fna"]}, unavailable={"b"})
+    assert [r["id"] for r in rows] == ["a"]
+    with pytest.raises(SystemExit):                                # a source neither fetched nor listed as unavailable
+        sources_of(spec, lambda x: x, {"a": ["/store/a.fna"]})
+
+
 def test_fetch_ensembl_needs_exactly_one_cds_file_fails(tmp_path, monkeypatch):
     from ci.stages import fetch
     listing = b'<a href="Homo_sapiens.GRCh38.cds.all.fa.gz">x</a> <a href="Homo_sapiens.GRCh38.cds.abinitio.fa.gz">y</a>'

@@ -25,6 +25,10 @@ reference:
 scenario:
   table: tests/ci/fixtures/tiny/scenario.tsv
   truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+# a source the archive has no record of (HTTP 404) is left out and listed, up to 1% of the sources (2 of 1,248 phage
+# assemblies on 2026-11-18); any other download failure still fails the run
+fetch:
+  allow_missing: 0.01
 search:
   sensitivity: sensitive
   max_target_seqs: 1000

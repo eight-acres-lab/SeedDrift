@@ -12,6 +12,9 @@ enters the store only when complete: every requested INSDC sequence present and 
 gzip stream of FASTA. Temporary names are private to the process and the index is merged under a lock, so runs can
 share the store. Paths in the
 index and the manifest are relative to the store, so the store can be moved or merged (its files are named by content).
+A source the archive has no record of (HTTP 404, or an assembly without replicons) is not a transient failure: with
+`fetch.allow_missing` (a share of the remote sources, default 0) up to that many are left out and listed in the manifest
+(`unavailable`, with the reason) and the corpus stage skips them; more than that, or any other failure, fails the stage.
 """
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 
 from ci import ROOT, manifest as M
@@ -36,6 +40,10 @@ ENSEMBL = {"ensembl": "https://ftp.ensembl.org/pub/release-%(release)s/fasta/%(s
            "ensemblgenomes": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/%(division)s/release-%(release)s/fasta/%(species)s/cds/"}
 
 
+class NoRecord(Exception):
+    """The archive answered that it has no such record (not a network failure)."""
+
+
 def get(url, tries=5, pause=10):
     err = None
     for k in range(tries):
@@ -43,6 +51,11 @@ def get(url, tries=5, pause=10):
             req = urllib.request.Request(url, headers={"User-Agent": "python-urllib"})
             with urllib.request.urlopen(req, timeout=600) as r:
                 return r.read()
+        except urllib.error.HTTPError as e:
+            err = e
+            if e.code == 404 and k >= 1:                         # asked twice: the archive has no such record
+                raise NoRecord("%s: HTTP 404" % url)
+            time.sleep(pause * (k + 1))
         except Exception as e:  # noqa: BLE001
             err = e
             time.sleep(pause * (k + 1))
@@ -151,6 +164,8 @@ def fetch_source(src, cas, index):
         reps = replicons(src["ena_assembly"])
         types = set(src.get("replicon_types") or [])
         accs = [a for a, t in reps if not types or t in types]
+        if not reps:
+            raise NoRecord("%s: the ENA assembly record lists no replicons" % src["ena_assembly"])
         if not accs:
             raise SystemExit("%s: no replicons of types %s" % (src["ena_assembly"], sorted(types)))
         url = ENA_FASTA % ",".join(accs)
@@ -220,7 +235,10 @@ def main():
                 os.replace(tmp, index_path)
 
         def one(src):
-            files, prov, hit = fetch_source(src, cas, index)
+            try:
+                files, prov, hit = fetch_source(src, cas, index)
+            except NoRecord as err:
+                return dict(id=src["id"], source=describe(src), unavailable=str(err)), False
             rel = [dict(f, path=os.path.relpath(f["path"], cas)) for f in files]
             if not hit:
                 merge({sha256_json(describe(src)): dict(files=rel, provenance=prov)})
@@ -229,9 +247,15 @@ def main():
         # sources download in parallel (ENA and EBI scale with connections); the manifest keeps the spec's order
         with ThreadPoolExecutor(int((cfg.get("fetch") or {}).get("threads", 8))) as pool:
             done = list(pool.map(one, remote))
-        entries = [e for e, _ in done]
+        missing = [dict(id=e["id"], reason=e["unavailable"]) for e, _ in done if "unavailable" in e]
+        allowed = float((cfg.get("fetch") or {}).get("allow_missing", 0)) * len(remote)
+        st.extra["unavailable"] = missing
+        if len(missing) > allowed:
+            raise SystemExit("%d sources have no record in the archive (fetch.allow_missing allows %d): %s"
+                             % (len(missing), int(allowed), "; ".join("%s (%s)" % (m["id"], m["reason"]) for m in missing[:20])))
+        entries = [e for e, _ in done if "unavailable" not in e]
         reused = sum(1 for _, h in done if h)
-        man = M.build(spec["name"] + "-fetch", "fetch", entries, meta=dict(cas="<data_root>/cas"))
+        man = M.build(spec["name"] + "-fetch", "fetch", entries, meta=dict(cas="<data_root>/cas", unavailable=missing))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("fetch", "manifest.json")
         write_json(mp, dict(sha256=sha, dataset_id=M.dataset_id(man), **man))

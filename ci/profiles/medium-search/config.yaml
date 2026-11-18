@@ -1,0 +1,33 @@
+# Server (through ci/launch.sh): the corpus and the search of the medium scale (charter section 8, 2026-11-18: the user
+# chose the medium scale; development diagnosis under the pilot conditions). Corpus configs/corpus/medium.yaml, emitted
+# from select run 20261118T095604 (configs/select/medium.yaml: about one million proteins once eukaryotes and near
+# relatives are cut to their first 1,500 genes). Pipeline search: corpus, evaluation inputs and the search of the whole
+# corpus in one batch, with their gates, no training (needs_gpu: false: the select lock, the GPU stays free). The train
+# runs of profile medium take this search whole (search.reuse_from): their search block must stay equal to this one.
+pipeline: search
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 80
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32

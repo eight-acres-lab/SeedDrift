@@ -5,8 +5,11 @@ Comparators (always reported next to the model; never a bar, never an input of t
   best_hit      minus the identity of the closest hit (no hit = most foreign)
   counts        minus the number of reference genera with a hit
   composition   synonymous codon usage against the genome's own (bench/islands/composition.py)
-  (development set only: gc_difference, |GC of the gene - GC of the genome|, and two logistic regressions on summary
-  features, all and composition only, trained on the same construction in training genomes)
+  (development set only: gc_difference, |GC of the gene - GC of the genome|; alien_index_fair, inside = the recipient's
+  highest defined rank among phylum, class, order, family; two logistic regressions on summary features, all and
+  composition only, and a one-hidden-layer network on all of them, trained on the same construction in training
+  genomes. Per method also: average precision at 2% and 5% insertions, AUROC within bins of the GC difference and
+  within quintiles of the composition distance; and a balance table of quantities that should not separate the classes)
   released_v0.1.0  the released screen, recomputed in the same run from its tag (stage released, gate G4); it sees
                 the reference as shipped (the donor's genus is not hidden from it)
 Hits to the host's own species and to the donor's genus are hidden for every gene (the donor lineage is taken as
@@ -165,6 +168,62 @@ def logistic(X, y, l2=1e-2, iters=50):
     return mu, sd, w
 
 
+def ap_at_prevalence(pos, neg, pi):
+    """Average precision with the natives weighted so that insertions make up the fraction `pi` of all genes (the
+    constructed set is half insertions; real genomes have a few percent). Tied scores share one precision."""
+    pos, neg = np.asarray(pos, float), np.asarray(neg, float)
+    if not len(pos) or not len(neg):
+        return None
+    w = len(pos) / len(neg) * (1 - pi) / pi
+    v = np.concatenate([pos, neg])
+    lab = np.concatenate([np.ones(len(pos)), np.zeros(len(neg))])
+    u, inv = np.unique(-v, return_inverse=True)                   # descending score groups
+    tp = np.bincount(inv, weights=lab, minlength=len(u))
+    fp = np.bincount(inv, weights=1 - lab, minlength=len(u))
+    ctp, cfp = np.cumsum(tp), np.cumsum(fp) * w
+    prec = ctp / np.maximum(ctp + cfp, 1e-12)
+    return float((tp * prec).sum() / len(pos))
+
+
+def mlp(X, y, hidden=32, epochs=400, lr=1e-2, l2=1e-4, seed=0):
+    """A one-hidden-layer network on standardised features (full batch, Adam, fixed epochs, fixed seed): a predict
+    function. The nonlinear counterpart of logistic() for the summary-feature baseline."""
+    rng = np.random.default_rng(seed)
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Z = (X - mu) / sd
+    P = [rng.normal(0, 1 / np.sqrt(Z.shape[1]), (Z.shape[1], hidden)), np.zeros(hidden), rng.normal(0, 1 / np.sqrt(hidden), hidden), np.zeros(1)]
+    m = [np.zeros_like(p) for p in P]
+    v = [np.zeros_like(p) for p in P]
+    for t in range(1, epochs + 1):
+        H = np.tanh(Z @ P[0] + P[1])
+        p = 1 / (1 + np.exp(-np.clip(H @ P[2] + P[3], -30, 30)))
+        e = (p - y) / len(y)
+        gH = np.outer(e, P[2]) * (1 - H ** 2)
+        grads = [Z.T @ gH + l2 * P[0], gH.sum(0), H.T @ e + l2 * P[2], np.array([e.sum()])]
+        for k in range(4):
+            m[k] = 0.9 * m[k] + 0.1 * grads[k]
+            v[k] = 0.999 * v[k] + 0.001 * grads[k] ** 2
+            P[k] = P[k] - lr * (m[k] / (1 - 0.9 ** t)) / (np.sqrt(v[k] / (1 - 0.999 ** t)) + 1e-8)
+    return lambda Xn: np.tanh(((Xn - mu) / sd) @ P[0] + P[1]) @ P[2] + P[3][0]
+
+
+GC_BINS = (0.0, 0.02, 0.05, 0.10, 1.01)                          # |GC of the gene - GC of the genome|
+
+
+def within_bins(v, y, b):
+    """AUROC of insertions against natives of the same bin, averaged over bins weighted by their insertions: the
+    separation that is left once the binned quantity is held fixed."""
+    tot, acc, rows = 0, 0.0, []
+    for k in np.unique(b):
+        sp, sn = (b == k) & (y == 1), (b == k) & (y == 0)
+        a = auroc_fast(v[sp], v[sn]) if sp.any() and sn.any() else None
+        rows.append(dict(bin=int(k), n_pos=int(sp.sum()), n_neg=int(sn.sum()), auroc=a))
+        if a is not None:
+            tot += int(sp.sum())
+            acc += a * int(sp.sum())
+    return (acc / tot if tot else None), rows
+
+
 def dev_constructed(run_dir, path, ranks, lib_taxid=None):
     """Development diagnosis on constructed insertions (held-out recipients, held-out partners; the genome's own proteome
     and genus hidden for the recipient and for the partner, the donor of an insertion or the decoy of a native): the
@@ -219,6 +278,15 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
         b_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] == rk[0]] or [0.0])
         b_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], 0] != rk[0]] or [0.0])
         ai = math.log(2) * (b_out - b_in)
+        # the fair version: inside = the recipient's highest defined rank among phylum, class, order, family (a
+        # recipient without a phylum, as many viruses, otherwise has every hit outside)
+        cf = next((c for c in (0, 1, 2, 3) if rk[c]), None)
+        if cf is None:
+            ai_fair = 0.0
+        else:
+            f_in = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], cf] == rk[cf]] or [0.0])
+            f_out = max([float(src["bits"][x]) for x in rows if ranks[src["prot"][x], cf] != rk[cf]] or [0.0])
+            ai_fair = math.log(2) * (f_out - f_in)
         best = max([src["pid"][x] / 1000.0 for x in rows] or [0.0])
         genera = len({int(ranks[src["prot"][x], 4]) or -int(src["prot"][x]) for x in rows})
         bg = (R["total"] - (R["prof"][int(i)] if not d else 0)) / max(1, R["n"] - (0 if d else 1))   # the genome without the gene itself
@@ -227,19 +295,22 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
         frac = [float(np.mean([ranks[src["prot"][x], c] == rk[c] for x in rows])) if rows and rk[c] else 0.0 for c in (0, 1, 2)]
         feat = [comp, gcd, abs(gcd), math.log1p(src["len"][k] / 3), math.log1p(len(rows)), float(not rows), best,
                 math.copysign(math.log1p(abs(ai)), ai), math.log1p(genera)] + frac
-        return dict(alien_index=ai, best_hit=-best, counts=-genera, composition=comp, gc_difference=abs(gcd)), feat
+        bal = dict(codons=src["len"][k] / 3, rows_before_hiding=len(cand), rows_visible=len(rows), rows_hidden=len(cand) - len(rows),
+                   hidden_fraction=(len(cand) - len(rows)) / len(cand) if cand else 0.0)
+        return dict(alien_index=ai, alien_index_fair=ai_fair, best_hit=-best, counts=-genera, composition=comp, gc_difference=abs(gcd)), feat, bal
 
     def examples(zz):
         return ([x.decode() for x in zz["recipient"]], zz["gene"], [x.decode() for x in zz["donor"]], zz["donor_gene"], np.asarray(zz["stratum"]),
                 [x.decode() for x in zz["partner"]] if "partner" in zz.files else [""] * len(zz["gene"]))
     rec, gene, don, dgene, strat, part = examples(z)
-    cols = {m: [] for m in ("alien_index", "best_hit", "counts", "composition", "gc_difference")}
-    X = []
+    cols = {m: [] for m in ("alien_index", "alien_index_fair", "best_hit", "counts", "composition", "gc_difference")}
+    X, B = [], []
     for r, i, d, j, pa in zip(rec, gene, don, dgene, part):
-        c, f = features(r, i, d, j, pa)
+        c, f, bq = features(r, i, d, j, pa)
         for m in cols:
             cols[m].append(c[m])
         X.append(f)
+        B.append(bq)
     y = np.array([1 if d else 0 for d in don])
     methods = {}
     # the model: the run's (first) seed, each seed, and the mean of the seeds' scores on the same examples
@@ -276,6 +347,7 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
                 methods[name] = np.concatenate([(XD[:, cols_] - mu) / sd_, np.ones((len(XD), 1))], 1) @ w
                 baseline["weights" if name == "baseline_logistic" else "weights_composition_only"] = dict(
                     zip([FEATURES[c] for c in cols_] + ["bias"], [round(float(x), 4) for x in w]))
+            methods["baseline_mlp"] = mlp(XB, yb)(XD)                 # the same features, one hidden layer of 32
     for m, v in cols.items():
         methods[m] = np.array(v, float)
     grp = np.array([meta[r]["group"] for r in rec])
@@ -289,7 +361,18 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
                near_relative_recipients=sorted({r for r in rec if meta[r].get("cluster")}),
                alien_index_phylum_undefined=dict(recipients=ph0, examples=int(sum(1 for r in rec if r in set(ph0))),
                                                  note="no phylum for the recipient: every visible hit counts as outside, the index is not meaningful"),
-               baseline=baseline, methods={})
+               baseline=baseline, gc_bins=list(GC_BINS), methods={})
+    # how far each quantity alone separates insertions from natives (AUROC, larger = higher for insertions); those the
+    # construction sets (rows hidden, their fraction) should sit near 0.5, a gene's length and visible rows may carry
+    # real signal or a construction artifact (donor genes drawn at random from another genome)
+    out["balance"] = {}
+    for q in ("codons", "rows_before_hiding", "rows_visible", "rows_hidden", "hidden_fraction"):
+        qv = np.array([b[q] for b in B], float)
+        out["balance"][q] = dict(auroc=auroc_fast(qv[y == 1], qv[y == 0]), mean_insertions=float(qv[y == 1].mean()) if y.any() else None,
+                                 mean_natives=float(qv[y == 0].mean()) if (y == 0).any() else None)
+    gcb = np.digitize(np.array(cols["gc_difference"], float), GC_BINS[1:-1]) if len(y) else np.zeros(0, int)
+    comp_v = np.array(cols["composition"], float)
+    compb = np.digitize(comp_v, np.quantile(comp_v, [0.2, 0.4, 0.6, 0.8])) if len(y) else np.zeros(0, int)
     for m, v in methods.items():
         pos, neg = v[y == 1], v[y == 0]
         row = dict(auroc=auroc_fast(pos, neg), auroc_ci95=bootstrap_ci(v, y, reca), recall_at_fpr_0_01=_recall_at(pos, neg, 0.01),
@@ -307,6 +390,9 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None):
                 row["by_recipient_group"][g] = dict(n=int(sel.sum()), recipients=len(set(reca[sel])), auroc=a,
                                                     recall_at_fpr_0_05=_recall_at(v[sel & (y == 1)], v[sel & (y == 0)], 0.05))
         row["macro_auroc_over_groups"] = float(np.mean(per)) if per else None
+        row["average_precision_at_prevalence"] = {"0.02": ap_at_prevalence(pos, neg, 0.02), "0.05": ap_at_prevalence(pos, neg, 0.05)}
+        row["auroc_within_gc_bins"], row["by_gc_bin"] = within_bins(v, y, gcb)
+        row["auroc_within_composition_quintiles"], _ = within_bins(v, y, compb)
         out["methods"][m] = row
     return out
 

@@ -227,8 +227,29 @@ def test_dev_constructed_runs_on_a_small_synthetic_run(tmp_path):
     out = dev_constructed(str(run), str(dp), ranks, lib_taxid)
     assert out["examples"] == 4 and out["insertions"] == 2
     assert out["methods"]["model"]["auroc"] == 1.0
-    assert set(out["methods"]) == {"model", "baseline_logistic", "baseline_logistic_composition_only", "alien_index", "best_hit", "counts", "composition",
-                                   "gc_difference"}
+    assert set(out["methods"]) == {"model", "baseline_logistic", "baseline_logistic_composition_only", "baseline_mlp", "alien_index", "alien_index_fair",
+                                   "best_hit", "counts", "composition", "gc_difference"}
+    assert set(out["balance"]) == {"codons", "rows_before_hiding", "rows_visible", "rows_hidden", "hidden_fraction"}
+    assert out["methods"]["model"]["average_precision_at_prevalence"]["0.02"] == 1.0
     st = out["methods"]["model"]["by_stratum"]["other kingdom"]
     assert st["n_pos"] == 2 and st["n_neg"] == 2
     assert len(out["methods"]["model"]["auroc_ci95"]) == 2 and out["methods"]["model"]["macro_auroc_over_groups"] == 1.0
+
+
+def test_prevalence_weighted_average_precision_and_bins():
+    import numpy as np
+    from ci.stages.eval import ap_at_prevalence, auroc_fast, mlp, within_bins
+    assert ap_at_prevalence([3, 4], [1, 2], 0.02) == 1.0
+    rng = np.random.default_rng(0)
+    a = ap_at_prevalence(rng.random(4000), rng.random(4000), 0.05)
+    assert 0.04 < a < 0.06                                          # no signal: precision is the prevalence
+    assert ap_at_prevalence([1, 1], [1, 1], 0.5) == 0.5             # all tied: one precision for the group
+    # a score that only follows the binned quantity has no separation left within the bins
+    b = rng.integers(0, 4, 2000)
+    y = (rng.random(2000) < 0.2 + 0.2 * b).astype(int)
+    w, rows = within_bins(b.astype(float), y, b)
+    assert abs(w - 0.5) < 1e-9 and len(rows) == 4
+    X = rng.normal(size=(600, 2))
+    yy = ((X[:, 0] * X[:, 1]) > 0).astype(float)                    # not linearly separable
+    f = mlp(X, yy)
+    assert auroc_fast(f(X)[yy == 1], f(X)[yy == 0]) > 0.9

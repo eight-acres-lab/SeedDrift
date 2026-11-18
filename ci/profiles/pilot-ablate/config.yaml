@@ -2,7 +2,7 @@
 # approved them on 2026-11-18, to run after the seeds). Same corpus, split, construction and development set as the
 # pilot profile (configs/corpus/pilot-near.yaml, dev_seed 0); the source model trained with seed 1 three times in
 # parallel: in full (a matched reference and a repeat of the pilot run's seed 1), without the hit channel and without
-# the codon channel (train.ablations). The search is taken whole from the pilot run when its inputs are equal.
+# the codon channel (train.ablations). The search is taken whole from pilot run 20261118T041244 (inputs equal).
 tier: pilot
 seed: 1
 cores: 12
@@ -28,12 +28,9 @@ search:
   block_size: 4
   nearest: 32
   keep_sseq: 32
-  # hit files of earlier pilot runs with the same reference, settings, search code and DIAMOND version, genome by genome
-  # when a genome's inputs are equal (ci/stages/search_or_reuse.py checks every file's sha256 and searches two of them
-  # again, which must come out byte for byte the same); the near relatives are searched
-  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T031442-exp-0.2-pilot-f6f696c5-pilot, /hy-tmp/seeddrift-ci/runs/20261117T151529-exp-0.2-pilot-9c94b330-pilot,
-               /hy-tmp/seeddrift-ci/runs/20261117T114754-exp-0.2-pilot-9b69e1b3-pilot]
-  reuse_check: 2
+  # the whole search of the second pilot run (same corpus, evaluation inputs, reference, settings, code and DIAMOND
+  # version: ci/stages/search_or_reuse.py links every hit file after checking its sha256)
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot]
 train:
   model: source_v0
   seed: 1

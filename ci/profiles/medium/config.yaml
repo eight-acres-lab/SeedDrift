@@ -37,7 +37,7 @@ search:
   block_size: 4
   nearest: 32
   keep_sseq: 32
-  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T100109-exp-0.2-pilot-05af3fdd-medium-search]
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
 train_data:
   test_split: true
   hits: 16

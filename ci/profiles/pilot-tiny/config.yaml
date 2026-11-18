@@ -25,6 +25,8 @@ search:
 train:
   model: source_v0
   seed: 1
+  seeds: [1, 2]
+  parallel: 2
   steps: 60
   batch: 16
   lr: 3.0e-4

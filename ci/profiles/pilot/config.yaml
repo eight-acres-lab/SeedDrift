@@ -1,9 +1,11 @@
 # Server (through ci/launch.sh): the pilot of the source model v0 (charter section 8, 2026-11-17: small experimental
 # training with every group present, development diagnosis only, never judged on public-event catalogue events, weights
-# not carried into formal training). Corpus configs/corpus/pilot.yaml, emitted from a select-pilot run (no provisional
-# test recipient of configs/exclusions/pilot_recipients.tsv); the search keeps the aligned residues of the 32 nearest hits
-# for the model; evaluation: the six comparator rows of the fixture scenario (released v0.1.0 recomputed) and the
-# constructed development set (data/eval/dev_constructed.json).
+# not carried into formal training). Second round: corpus configs/corpus/pilot-near.yaml, emitted from a
+# select-pilot-near run (the first pilot's genomes plus near relatives; no provisional test recipient of
+# configs/exclusions/pilot_recipients.tsv); symmetric hiding (natives carry a decoy partner); three training seeds; the
+# search keeps the aligned residues of the 32 nearest hits for the model; evaluation: the six comparator rows of the
+# fixture scenario (released v0.1.0 recomputed) and the constructed development set (data/eval/dev_constructed.json:
+# each seed, their mean, a logistic regression on summary features, the comparators; intervals over recipients).
 tier: pilot
 seed: 1
 cores: 12
@@ -11,7 +13,7 @@ blas_threads: 4
 disk_gb: 40
 disk_reserve_gb: 30
 gpu_mem_min_mb: 20000
-corpus_spec: configs/corpus/pilot.yaml
+corpus_spec: configs/corpus/pilot-near.yaml
 taxdump: /hy-tmp/seeddrift-store/reference/taxdump
 extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
 reference:
@@ -29,12 +31,17 @@ search:
   block_size: 4
   nearest: 32
   keep_sseq: 32
-  # the search of the stopped run with the same corpus, reference, settings and search code (ci/stages/search_or_reuse.py
-  # checks all of them and every file's sha256); a mismatch searches again
-  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261117T114754-exp-0.2-pilot-9b69e1b3-pilot]
+  # hit files of earlier pilot runs with the same reference, settings, search code and DIAMOND version, genome by genome
+  # when a genome's inputs are equal (ci/stages/search_or_reuse.py checks every file's sha256 and searches two of them
+  # again, which must come out byte for byte the same); the near relatives are searched
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261117T151529-exp-0.2-pilot-9c94b330-pilot, /hy-tmp/seeddrift-ci/runs/20261117T114754-exp-0.2-pilot-9b69e1b3-pilot]
+  reuse_check: 2
 train:
   model: source_v0
   seed: 1
+  seeds: [1, 2, 3]
+  parallel: 3
+  dev_seed: 0
   steps: 8000
   batch: 64
   lr: 3.0e-4

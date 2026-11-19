@@ -269,6 +269,24 @@ def test_fit_and_score_end_to_end_on_cpu():
         assert np.array_equal(r["gene"], np.arange(S.Data(d, cfg).g["g8"].n)) and np.isfinite(r["A"]).all()
 
 
+def test_resume_continues_with_the_optimizer_state():
+    torch = _torch()
+    with tempfile.TemporaryDirectory() as d:
+        make_run(d)
+        cfg = dict(CFG, logs="data/train/logs/r", out="data/model/r", objectives=["A", "B1"], steps=2, ckpt_every=2)
+        SS.fit(d, cfg)
+        last = np.load(os.path.join(d, "data", "train", "logs", "r", "last.npz"))
+        assert any(k.startswith("o:") for k in last.files) and "seen" in last.files
+        SS.fit(d, dict(cfg, steps=4, resume=True))
+        rows = [json.loads(line) for line in open(os.path.join(d, "data", "train", "logs", "r", "metrics.jsonl"))]
+        assert [r["step"] for r in rows] == [1, 2, 3, 4]
+        seen = json.load(open(os.path.join(d, "data", "train", "logs", "r", "data_seen.json")))["counts"]
+        assert sum(seen.values()) == 4 * CFG["batch"]                     # counts carried over the resume
+        opt = torch.optim.AdamW(SS.build(torch, 12, d=8).parameters())
+        SS.load_opt(torch, opt, dict(np.load(os.path.join(d, "data", "train", "logs", "r", "last.npz"))))
+        assert len(opt.state_dict()["state"]) > 0
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

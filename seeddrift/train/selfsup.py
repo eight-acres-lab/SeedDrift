@@ -885,8 +885,8 @@ def fit(run_dir, cfg):
         sched.step()
         log.count(groups)
         try:
-            log.step(step, float(loss), lr=float(sched.get_last_lr()[0]), grad_norm=gn, examples_per_s=len(items) * (step - start) / max(time.time() - t0, 1e-9),
-                     depth=depth, **{k: float(v) for k, v in parts.items()})
+            log.step(step, float(loss.detach()), lr=float(sched.get_last_lr()[0]), grad_norm=gn, examples_per_s=len(items) * (step - start) / max(time.time() - t0, 1e-9),
+                     depth=depth, **{k: float(v.detach()) for k, v in parts.items()})
         except Diverged:
             print("diverged at step %d" % step, file=sys.stderr)
             sys.exit(3)
@@ -894,7 +894,7 @@ def fit(run_dir, cfg):
             m = diagnose(model, torch, dev, held, objectives, cfg, held_c)
             if m:
                 log.evaluate(step, **m)
-            print("step %d loss %.4f %s" % (step, float(loss), " ".join("%s %.4f" % kv for kv in sorted(m.items()))), file=sys.stderr, flush=True)
+            print("step %d loss %.4f %s" % (step, float(loss.detach()), " ".join("%s %.4f" % kv for kv in sorted(m.items()))), file=sys.stderr, flush=True)
         if step % int(cfg.get("ckpt_every", 1000)) == 0 or step == steps:
             arrays = {"m:" + k: v.detach().cpu().numpy() for k, v in model.state_dict().items()}
             arrays.update(opt_arrays(opt))

@@ -78,3 +78,21 @@ def test_contrasts_over_units():
     r = rows[("r1", "m", "c")]
     assert r["n_units"] == 2 and np.allclose(r["per_unit"], [0.2, 0.3]) and np.isclose(r["mean"], 0.25)
     assert r["p_signflip"] == 0.5                                        # 2 of the 4 sign patterns are as extreme
+
+
+def test_keep_bounds_rows_without_changing_the_selection():
+    """Keep() retains what search.select() picks from a full list streamed in non-increasing bit score."""
+    from ci.stages.search import select
+    rng = np.random.default_rng(1)
+    genus = {p: int(p // 7) for p in range(400)}
+    for trial in range(20):
+        n = int(rng.integers(50, 600))
+        bits = np.sort(np.round(rng.uniform(30, 900, n)))[::-1]          # ties included
+        rows = [(int(t), int(rng.integers(0, 400)), 0, 0, 0, 0, 0, 0, 0, float(b), "5M", "AAAAA") for t, b in zip(rng.permutation(n), bits)]
+        k = I.Keep(8, genus)
+        for r in rows:
+            k.add(r)
+        want = [r[:2] for r in select(list(rows), genus, 8)]
+        got = [r[:2] for r in select(list(k.rows), genus, 8)]
+        assert got == want and len(k.rows) <= len(rows)
+        assert all(r[11] for r in select(list(k.rows), genus, 8)[:8])      # the nearest keep their residues

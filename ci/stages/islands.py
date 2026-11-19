@@ -109,6 +109,29 @@ def build_inputs(store, acc, out_dir):
     return int(m.group(1)), len(rows)
 
 
+class Keep:
+    """The rows of one gene that search.select() can choose, kept while DIAMOND streams them in its order (non-increasing
+    bit score): the first 2 x nearest rows and every later row tying with the last of those, and the best rows of every
+    reference genus (ties included); the aligned residues only for the first group. Bounds the memory of 4,000-target
+    lists without changing what select() returns."""
+
+    def __init__(self, nearest, genus_of_prot):
+        self.n, self.gp = nearest, genus_of_prot
+        self.rows, self.best, self.k, self.cut = [], {}, 0, None
+
+    def add(self, r):
+        self.k += 1
+        bits, g = r[9], self.gp[r[1]]
+        top = self.k <= 2 * self.n or (self.cut is not None and bits >= self.cut)
+        if self.k == 2 * self.n:
+            self.cut = bits
+        gb = self.best.get(g)
+        if top or gb is None or bits >= gb:
+            if gb is None or bits > gb:
+                self.best[g] = bits
+            self.rows.append(r if top or len(r) < 12 else r[:11] + ("",))
+
+
 def hidden_of(store, ic, acc):
     return sorted({int(r["taxid"]) for r in _tsv(os.path.join(store, ic.get("views", "dev24_v/genus"), "hidden_%s.tsv" % acc))})
 
@@ -165,7 +188,8 @@ def do_data(run_dir):
                 gid, gene = f[0].split("__", 1)
                 if gid != cur:
                     if cur is not None:
-                        flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), by_gene, nraw, genus_of_prot, sc.get("nearest", 32), keep)
+                        flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), {k: v.rows for k, v in by_gene.items()}, nraw, genus_of_prot,
+                              sc.get("nearest", 32), keep)
                         done.add(cur)
                     if gid in done:
                         raise SystemExit("search output of %s is not contiguous" % gid)
@@ -179,12 +203,15 @@ def do_data(run_dir):
                 if hidden_mask[gid][pr]:                                   # the view: hidden before the nearest are chosen
                     dropped[gid] = dropped.get(gid, 0) + 1
                     continue
-                by_gene.setdefault(gene, []).append((i, pr, int(round(float(f[2]) * 10)), int(f[3]), int(f[4]), int(f[5]), int(f[6]), int(f[7]), int(f[8]),
-                                                     float(f[9]), f[10]) + ((f[11],) if keep else ()))
+                if gene not in by_gene:
+                    by_gene[gene] = Keep(int(sc.get("nearest", 32)), genus_of_prot)
+                by_gene[gene].add((i, pr, int(round(float(f[2]) * 10)), int(f[3]), int(f[4]), int(f[5]), int(f[6]), int(f[7]), int(f[8]),
+                                   float(f[9]), f[10]) + ((f[11],) if keep else ()))
             if p.wait() != 0:
                 raise SystemExit("diamond exited with %d" % p.returncode)
             if cur is not None:
-                flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), by_gene, nraw, genus_of_prot, sc.get("nearest", 32), keep)
+                flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), {k: v.rows for k, v in by_gene.items()}, nraw, genus_of_prot,
+                      sc.get("nearest", 32), keep)
                 done.add(cur)
         finally:
             if p.poll() is None:

@@ -48,7 +48,8 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   training data, split and pairs with the same variant configurations, its model environment's lock is contained in
   this run's, the files its stage record lists have their hashes, and every variant reproduces its held-out scores
   here (same genes and counts; relative deviation at most `train.recheck_max_rel`, correlation at least
-  `train.recheck_min_corr`). `train.models_wait_s` waits for a copy still arriving. model.json records the source.
+  `train.recheck_min_corr`; the published held-out summary matches the recomputed one). `train.models_wait_s` waits
+  for a copy still arriving. model.json records the source.
 - `train.device: cpu` (default auto) hides the GPUs from the model's processes (training, the held-out recheck, the
   island scoring) and gives torch `train.cpu_threads` threads; selfsup.py score writes to `score_out` when given.
 - Profile selfsup-pilot-i1: the island part of the pilot on machine i-1 with the variants of the i-2 pilot imported

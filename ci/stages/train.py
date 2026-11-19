@@ -497,6 +497,20 @@ def compare_heldout(theirs, ours):
     return problems, cols
 
 
+def compare_summary(theirs, ours, max_rel):
+    """heldout_summary.json recomputed here (ours) against the imported one (theirs): the same keys, equal counts and
+    lists, and the means within the relative deviation max_rel (|ours - theirs| / (1 + |theirs|))."""
+    problems = []
+    for k in sorted(set(theirs) | set(ours)):
+        x, y = theirs.get(k), ours.get(k)
+        if isinstance(x, float) or isinstance(y, float):
+            if not (isinstance(x, (int, float)) and isinstance(y, (int, float))) or abs(y - x) > max_rel * (1.0 + abs(x)):
+                problems.append("summary %s: %r here, %r imported" % (k, y, x))
+        elif x != y:
+            problems.append("summary %s differs" % k)
+    return problems
+
+
 def import_selfsup(st, cfg, run_dir, ids_doc):
     """train.models_from: the variants trained by another run of this pipeline, for a machine that does not train them
     (another machine holds the GPU or the data cannot move). The value is a folder holding a copy of that run's
@@ -514,7 +528,8 @@ def import_selfsup(st, cfg, run_dir, ids_doc):
       - every variant, loaded here, reproduces its held-out scores: the same genes and counts, finite in the same
         places, and per score a relative deviation (|ours - theirs| / (1 + |theirs|)) of at most
         train.recheck_max_rel (default 0.05) and a correlation of at least train.recheck_min_corr (default 0.999).
-        (Another seed or variant gives other scores; a GPU and a CPU differ in rounding only.)
+        (Another seed or variant gives other scores; a GPU and a CPU differ in rounding only.) Its heldout_summary.json,
+        which the report publishes, matches the recomputed one (compare_summary, the same relative deviation).
     The recomputed scores stay in data/train/recheck/<variant>; the deviations are in the stage record.
     train.models_wait_s (default 0): while the copy is still arriving, wait up to that many seconds for every file
     named here to exist (a copy that renames each file when it is complete, as rsync does)."""
@@ -608,7 +623,11 @@ def import_selfsup(st, cfg, run_dir, ids_doc):
         if rc != 0:
             raise SystemExit("train.models_from: rescoring the held-out genes with %s failed (exit %d); see %s" % (c["name"], rc, cp[:-5] + ".log"))
         probs, cols = compare_heldout(os.path.join(run_dir, c["out"], "heldout_scores.npz"), os.path.join(run_dir, out, "heldout_scores.npz"))
-        bad = probs + ["%s: max relative deviation %.4g" % (k, v["max_rel"]) for k, v in cols.items() if v["max_rel"] > max_rel] \
+        with open(os.path.join(run_dir, c["out"], "heldout_summary.json")) as f:
+            s_theirs = json.load(f)
+        with open(os.path.join(run_dir, out, "heldout_summary.json")) as f:
+            probs += compare_summary(s_theirs, json.load(f), max_rel)          # the summary the report publishes
+        bad = probs +["%s: max relative deviation %.4g" % (k, v["max_rel"]) for k, v in cols.items() if v["max_rel"] > max_rel] \
             + ["%s: correlation %.6f" % (k, v["corr"]) for k, v in cols.items() if v["corr"] is not None and v["corr"] < min_corr]
         recheck[c["name"]] = dict(columns=cols, problems=bad)
         if bad:

@@ -59,6 +59,16 @@ def test_compare_heldout():
         assert not probs and cols["A"]["corr"] < 0 and cols["A"]["max_rel"] > 0.5
 
 
+def test_compare_summary():
+    s = dict(genomes=3, genes=15, panel=["g0", "g1"], objectives=["A"], A_mean_neglogp_own=1.25, A_chance_neglogp=1.0986)
+    assert T.compare_summary(s, dict(s), 0.05) == []
+    assert T.compare_summary(s, dict(s, A_mean_neglogp_own=1.26), 0.05) == []
+    assert any("A_mean_neglogp_own" in p for p in T.compare_summary(s, dict(s, A_mean_neglogp_own=1.5), 0.05))
+    assert any("genes" in p for p in T.compare_summary(s, dict(s, genes=14), 0.05))
+    assert any("panel" in p for p in T.compare_summary(s, dict(s, panel=["g0"]), 0.05))
+    assert any("B1_lr_mean" in p for p in T.compare_summary(s, dict(s, B1_lr_mean=0.1), 0.05))
+
+
 TC = dict(model="selfsup_v0", seed=1, steps=3, batch=4, lr=1e-3, eval_every=2, ckpt_every=2, width=8, max_codons=64, hits_centre=4, max_track=64,
           source_genes=4, source_codons=64, source_hits=4, b2_hits=2, held_batches=1, held_genes=5, dev_seed=0,
           variants=[dict(name="v1", seed=1, objectives=["A", "B1"]), dict(name="v2", seed=2, objectives=["A"])])

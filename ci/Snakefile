@@ -35,6 +35,58 @@ rule search_all:
         "data/hits/manifest.json",
 
 
+# pipeline selfsup (profiles with `pipeline: selfsup`, the truth-labels line): corpus, search (usually reused whole),
+# training data and the self-supervised model, then its own report: the held-out diagnosis and, with `islands:`, the
+# development island chromosomes (prepared and searched beside the training, scored after it); no released screen and
+# no scenario report (pipeline train)
+ISLANDS = bool(config.get("islands"))
+
+rule selfsup_all:
+    input:
+        "gates/corpus.ok",
+        "gates/eval.ok",
+        "gates/selfsup.ok",
+        "data/model/model.npz",
+
+
+rule islands_data:
+    input: "gates/pre.ok", "data/reference/manifest.json"
+    output: "data/islands/index.json"
+    resources: diamond=1
+    shell: STAGE.format(name="islands") + " data"
+
+
+rule gates_islands:
+    input: "data/islands/index.json"
+    output: "gates/islands.ok"
+    shell: STAGE.format(name="gates") + " islands"
+
+
+rule islands_score:
+    input: "gates/islands.ok", "data/model/model.npz", "data/islands/index.json"
+    output: "data/islands/scores.json"
+    resources: gpu=1
+    shell: STAGE.format(name="islands") + " score"
+
+
+rule islands_report:
+    input: "data/islands/scores.json"
+    output: "data/islands/contrasts.json"
+    shell: STAGE.format(name="islands") + " report"
+
+
+rule selfsup_report:
+    input: ["data/model/model.npz"] + (["data/islands/contrasts.json"] if ISLANDS else [])
+    output: "data/selfsup/report.json"
+    shell: STAGE.format(name="selfsup_report")
+
+
+rule gates_selfsup:
+    input: "data/selfsup/report.json"
+    output: "gates/selfsup.ok"
+    shell: STAGE.format(name="gates") + " selfsup"
+
+
 rule gates_pre:
     output: "gates/pre.ok"
     shell: STAGE.format(name="gates") + " pre"

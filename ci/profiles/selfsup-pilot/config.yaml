@@ -1,0 +1,60 @@
+# Machine i-2: pipeline selfsup of the truth-labels line at pilot scale (the user, 2026-11-19: small data first; medium
+# scale only after this line shows an advantage by its own criteria). Development diagnosis only.
+# - Corpus pilot-near (226 sources: every group present) with the search of run 20261118T041244-exp-0.2-pilot-ac17f283-pilot
+#   taken whole (search.reuse_from; the search block must stay byte-equal to that run's) and that run's reference tables
+#   (reference.tables_from: this machine holds the DIAMOND database, not the 16 GB FASTA).
+# - Training data with the 32 nearest tracked hits per gene; split as in the pilots (train / held out by genus or cluster).
+# - Five variants: A+B1+B2 with seeds 1-3, A alone, B1+B2 alone. 8,000 steps of 64 genes from 64 genomes each.
+# - The GPU lease of the machine stops its other service for the training and the island scoring (ci/gpu_lease.py).
+# - The 24 development chromosomes of the genomic-island set (bench/islands), searched here with the V1 view hidden at
+#   search time, scored by every variant and by this line's comparators, evaluated with bench/hard/evaluate.py.
+#   Sealed chromosomes are refused (G3_islands); none is on this machine.
+pipeline: selfsup
+tier: pilot
+seed: 1
+cores: 8
+blas_threads: 2
+disk_gb: 40
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/pilot-near.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot]
+train_data:
+  hits: 32
+train:
+  model: selfsup_v0
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  seed: 1
+  variants:
+    - {name: abc-s1, seed: 1}
+    - {name: abc-s2, seed: 2}
+    - {name: abc-s3, seed: 3}
+    - {name: a-s1, seed: 1, objectives: [A]}
+    - {name: b-s1, seed: 1, objectives: [B1, B2]}
+  parallel: 2
+  dev_seed: 0
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+islands:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  threads: 6

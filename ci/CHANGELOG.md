@@ -5,6 +5,29 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.3 (branch exp/truth-labels, in progress)
+
+The truth-labels line: a self-supervised model whose training targets are observed facts of real genomes, run as its
+own pipeline kind with its own report and gates; nothing of pipeline train changes.
+- Pipeline selfsup (`pipeline: selfsup`): corpus, search (usually reused whole), training data, the model
+  (`train.model: selfsup_v0`, seeddrift/train/selfsup.py: A genome membership by contrast, B1 synonymous codons from the
+  protein, B2 aligned hit residues from the query, each with a genome-agnostic twin and read as a likelihood ratio),
+  then stage selfsup_report and gate G4_selfsup (every variant diagnosed on the held-out genomes; with `islands:` every
+  island gene scored). No released screen and no scenario report (G4 is not required in this pipeline).
+- Stage islands (data, score, report): the 24 development chromosomes of the genomic-island set, their own search with
+  the V1 view hidden at search time, the model's arrays, scoring by every variant and by this line's comparators,
+  bench/hard/evaluate.py and contrasts paired over units. Gate G3_islands: development chromosomes only, no sealed
+  accession anywhere.
+- Train stage: `train.model: selfsup_v0` (variants with objectives, width, fraction, trim); an unknown model name now
+  fails instead of training the pipeline-check model.
+- GPU lease (ci/gpu_lease.py, per machine in <CI root>/host/gpu_lease.json, absent = no-op): another service holding
+  the GPU is stopped for the GPU part of a selfsup run and started again by a watchdog once no live holder is left for
+  a grace period. G7_resources counts the memory the lease can free (only where a lease is configured).
+- Reference: `reference.tables_from` takes a previous run's reference dataset as it is (manifest checked against its
+  hash, tables against that run's stage record), for a machine that holds the database but not the FASTA.
+- Run record schema: pipeline values search and selfsup.
+- Profiles selfsup-tiny and selfsup-pilot (machine i-2).
+
 ## 0.2 (in progress)
 
 - Pipeline kinds: a profile names its pipeline (`pipeline: train`, the default, or `select`); each kind has its

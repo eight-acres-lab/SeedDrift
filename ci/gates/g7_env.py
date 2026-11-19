@@ -91,7 +91,11 @@ def resources(data_root: str, need_disk_gb: float, reserve_gb: float = 30.0, roo
     if root_free < root_min_gb:
         problems.append(dict(root_free_gb=round(root_free, 2), min_gb=root_min_gb))
     gpu = gpu_free_mb()
-    if gpu_mem_min_mb and (gpu is None or gpu < gpu_mem_min_mb):
-        problems.append(dict(gpu_free_mb=gpu, need_mb=gpu_mem_min_mb))
-    ev = dict(check="resources", disk_free_gb=round(free_gb, 1), root_free_gb=round(root_free, 2), gpu_free_mb=gpu, problems=problems)
+    # memory a GPU lease of this machine frees for the GPU part of the run (ci/gpu_lease.py; 0 without a lease); the
+    # train stage checks the floor again once the lease is held
+    from ci import gpu_lease
+    leasable = gpu_lease.leasable_mb(data_root)
+    if gpu_mem_min_mb and (gpu is None or gpu + leasable < gpu_mem_min_mb):
+        problems.append(dict(gpu_free_mb=gpu, leasable_mb=leasable, need_mb=gpu_mem_min_mb))
+    ev = dict(check="resources", disk_free_gb=round(free_gb, 1), root_free_gb=round(root_free, 2), gpu_free_mb=gpu, gpu_leasable_mb=leasable, problems=problems)
     return GateResult("G7", "fail" if problems else "pass", ev, sha256_json([data_root, need_disk_gb, reserve_gb, gpu_mem_min_mb]))

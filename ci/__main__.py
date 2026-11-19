@@ -12,8 +12,9 @@
                               to be committed as configs/select/<spec>.lock.yaml (ci/launch.sh promote RUN_ID)
 
 Profiles choose a pipeline (`pipeline:`): `train` (default: corpus, search, training, evaluation), `select` (catalogue
-snapshots, the multi-kingdom corpus selection and its cost) or `search` (corpus and search only, with their gates: a long
-search runs once, and train runs take it whole through `search.reuse_from`). Each pipeline has its Snakemake target, its required gates
+snapshots, the multi-kingdom corpus selection and its cost), `search` (corpus and search only, with their gates: a long
+search runs once, and train runs take it whole through `search.reuse_from`) or `selfsup` (the self-supervised model of the
+truth-labels line with its own report and gates). Each pipeline has its Snakemake target, its required gates
 and the gate phases a resume decides again (PIPELINES).
 """
 from __future__ import annotations
@@ -49,6 +50,11 @@ PIPELINES = {
     "select": dict(target="select_all", required=SELECT_GATES, resume=(("pre", None), ("select", "data/select/manifest.json"))),   # written last
     "search": dict(target="search_all", required=SEARCH_GATES,
                    resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("eval", "data/eval_inputs/manifest.json"))),
+    # the truth-labels line: training targets are observed facts (seeddrift/train/selfsup.py); judged by its own report
+    # (held-out diagnosis, development island chromosomes), not by the scenario report of pipeline train (G4)
+    "selfsup": dict(target="selfsup_all", required=tuple(g for g in REQUIRED_GATES if g != "G4") + ("G3_islands", "G4_selfsup"),
+                    resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
+                            ("islands", "data/islands/index.json"), ("selfsup", "data/selfsup/report.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

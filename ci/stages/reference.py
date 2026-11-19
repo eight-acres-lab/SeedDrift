@@ -90,10 +90,52 @@ def cached_tables(st, faa, out, lib):
     return n, m, "stored %s" % key[:12]
 
 
+def tables_from(st, cfg, run_dir):
+    """config reference.tables_from (a run directory, absolute or under <data_root>/runs): that run's reference dataset
+    as it is, for a machine that holds the DIAMOND database but not the FASTA. Its manifest must hash to its recorded
+    sha256 and name the profile's FASTA and database paths; its two tables are copied after checking them against that
+    run's stage record. The files of the dataset are checked here where they exist (with their size-and-time sidecars);
+    a search needs the database (the search stage and the island stage use it from the manifest)."""
+    src = cfg["tables_from"]
+    src = src if os.path.isabs(src) else os.path.join(st.config["data_root"], "runs", src)
+    with open(os.path.join(src, "data", "reference", "manifest.json")) as f:
+        pm = json.load(f)
+    man = {k: pm[k] for k in ("name", "kind", "entries", "meta")}
+    if M.digest(man) != pm["sha256"]:
+        raise SystemExit("reference.tables_from: the manifest of %s does not hash to its sha256" % src)
+    files = {e["path"]: e for e in pm["entries"][0]["files"]}
+    want = [st.repo(cfg["faa"])] + ([st.repo(cfg["dmnd"])] if cfg.get("dmnd") else [])
+    if sorted(files) != sorted(want):
+        raise SystemExit("reference.tables_from: %s holds %s, the profile names %s" % (src, sorted(files), want))
+    present = {}
+    for p, e in sorted(files.items()):
+        if os.path.exists(p):
+            if os.path.getsize(p) != e["bytes"] or sha256_file(p) != e["sha256"]:
+                raise SystemExit("reference.tables_from: %s differs from the dataset of %s" % (p, src))
+            present[p] = True
+        else:
+            present[p] = False
+    with open(os.path.join(src, "stages", "reference.json")) as f:
+        rec = {o["name"]: o for o in json.load(f)["outputs"]}
+    for name in ("index", "library"):
+        a, b = os.path.join(src, rec[name]["path"]), st.path("reference", name + ".npz")
+        if sha256_file(a, use_sidecar=False) != rec[name]["sha256"]:
+            raise SystemExit("reference.tables_from: %s does not match the stage record of %s" % (a, src))
+        shutil.copyfile(a, b)
+        st.output(name, b)
+    mp = st.path("reference", "manifest.json")
+    write_json(mp, pm)
+    M.write(man, os.path.join(run_dir, "manifests"))
+    st.output("reference_manifest", mp)
+    st.extra.update(tables_from=src, files_present=present, proteins=pm["entries"][0]["proteins"], proteomes=pm["entries"][0]["proteomes"])
+
+
 def main():
     run_dir = main_args()
     with Stage(run_dir, "reference", requires=("pre",)) as st:
         cfg = st.config["reference"]
+        if cfg.get("tables_from"):
+            return tables_from(st, cfg, run_dir)
         faa = st.repo(cfg["faa"])
         out = st.path("reference", "index.npz")
         lib = st.path("reference", "library.npz")

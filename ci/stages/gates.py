@@ -1,4 +1,4 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -9,6 +9,8 @@ train    on the exact id list the training loader will read: non-empty, no dupli
 eval     G2_holdout: no evaluation gene (protein or coding DNA) occurs in the training corpus; G3: no evaluation genome
          under a sealed genus and no sealed accession in any manifest of the run
 report   G4 on the evaluation report: six rows per scenario on one gene set, the released screen recomputed from its tag
+islands  (pipeline selfsup) G3_islands: the island chromosomes are development chromosomes, no sealed accession anywhere
+selfsup  (pipeline selfsup) G4_selfsup on data/selfsup/report.json: every variant diagnosed, every island gene scored
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
@@ -78,9 +80,82 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search"):
+    if p not in ("train", "select", "search", "selfsup"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
+
+
+def phase_islands(st, cfg, run_dir):
+    """G3_islands (pipeline selfsup): the island chromosomes of the run are development chromosomes only (listed in
+    bench/islands/results/dev_genomes.tsv, none in bench/hard/results/sealed.tsv), and no sealed accession occurs in
+    the island index, the island manifest or the gene tables written for them."""
+    import csv
+    with open(os.path.join(run_dir, "data", "islands", "index.json")) as f:
+        idx = json.load(f)
+    with open(st.repo("bench/hard/results/sealed.tsv")) as f:
+        sealed = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    with open(st.repo("bench/islands/results/dev_genomes.tsv")) as f:
+        dev = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    accs = [g["id"] for g in idx["genomes"]]
+    problems = [dict(accession=a, error="sealed" if a in sealed else "not a development chromosome") for a in accs if a in sealed or a not in dev]
+    files = [os.path.join(run_dir, "data", "islands", n) for n in ("index.json", "manifest.json")] + \
+        [os.path.join(run_dir, g["folder"], "genes.tsv") for g in idx["genomes"]]
+    for p in files:
+        text = open(p).read()
+        problems += [dict(file=os.path.relpath(p, run_dir), sealed_accession=a) for a in sorted(sealed) if a in text]
+    require(GateResult("G3_islands", "fail" if problems else "pass", dict(chromosomes=accs, problems=problems[:50])), run_dir)
+    return sha256_json([sha256_file(p, use_sidecar=False) for p in files])
+
+
+def phase_selfsup(st, cfg, run_dir):
+    """G4_selfsup on data/selfsup/report.json: every variant has its held-out diagnosis with finite numbers; with
+    islands, every gene of every island chromosome of the index is scored by every variant (a gene without visible
+    hits may lack B2 only), only development chromosomes were evaluated, and the contrasts exist."""
+    import math
+    p = os.path.join(run_dir, "data", "selfsup", "report.json")
+    with open(p) as f:
+        rep = json.load(f)
+    if not cfg.get("islands"):                    # a run without island chromosomes (tiny) has none to check
+        require(GateResult("G3_islands", "pass", dict(note="no island chromosomes in this run")), run_dir)
+    problems = []
+    if not rep.get("variants"):
+        problems.append(dict(error="no variants"))
+    for name, v in (rep.get("variants") or {}).items():
+        h = v.get("heldout") or {}
+        nums = [x for k, x in h.items() if isinstance(x, (int, float)) and not isinstance(x, bool)]
+        if not h or any(not math.isfinite(x) for x in nums):
+            problems.append(dict(variant=name, error="held-out diagnosis missing or not finite"))
+    if cfg.get("islands"):
+        isl = rep.get("islands") or {}
+        if not isl:
+            problems.append(dict(error="islands configured but not in the report"))
+        else:
+            if isl.get("genes") != isl.get("index_genes"):
+                problems.append(dict(error="scored genes %s differ from the genes of the island index %s" % (isl.get("genes"), isl.get("index_genes"))))
+            with open(st.repo("bench/hard/results/sealed.tsv")) as f:
+                import csv
+                sealed = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+            if set(isl.get("evaluated") or []) & sealed or set(isl.get("chromosomes") or []) & sealed:
+                problems.append(dict(error="a sealed chromosome was scored or evaluated"))
+            if not isl.get("contrasts"):
+                problems.append(dict(error="no contrasts on the island chromosomes"))
+            for name in rep.get("variants") or {}:
+                d = os.path.join(run_dir, "data", "islands", "scores", name)
+                for acc in isl.get("chromosomes") or []:
+                    sp = os.path.join(d, "scores_%s.tsv" % acc)
+                    if not os.path.exists(sp):
+                        problems.append(dict(variant=name, accession=acc, error="no score table"))
+                        continue
+                    with open(sp) as f:
+                        head = f.readline().rstrip("\n").split("\t")
+                        for line in f:
+                            cells = dict(zip(head, line.rstrip("\n").split("\t")))
+                            empty = [k for k, x in cells.items() if k != "gene_id" and x == "" and not k.endswith("_B2") and not k.endswith("_comb")]
+                            if empty:
+                                problems.append(dict(variant=name, accession=acc, gene=cells.get("gene_id"), error="unscored: %s" % empty))
+                                break
+    require(GateResult("G4_selfsup", "fail" if problems else "pass", dict(problems=problems[:50])), run_dir)
+    return sha256_file(p, use_sidecar=False)
 
 
 def _g3_files(st, cfg, run_dir):
@@ -91,7 +166,8 @@ def _g3_files(st, cfg, run_dir):
         return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(spec["assumptions"])] + [st.repo(f) for f in read] + \
             ([st.repo(lock)] if lock and os.path.exists(st.repo(lock)) else [])
     sc = cfg.get("scenario") or {}
-    return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["corpus_spec"])] + [st.repo(sc[k]) for k in ("table", "truth") if sc.get(k)]
+    isl = [st.repo((cfg.get("islands") or {}).get("genomes", "bench/islands/results/dev_genomes.tsv"))] if cfg.get("islands") else []
+    return [os.path.join(run_dir, "config.resolved.yaml"), st.repo(cfg["corpus_spec"])] + [st.repo(sc[k]) for k in ("table", "truth") if sc.get(k)] + isl
 
 
 def phase_select(st, cfg, run_dir):
@@ -220,6 +296,10 @@ def main():
                 key = phase_report(st, cfg, run_dir)
             elif phase == "select":
                 key = phase_select(st, cfg, run_dir)
+            elif phase == "islands":
+                key = phase_islands(st, cfg, run_dir)
+            elif phase == "selfsup":
+                key = phase_selfsup(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

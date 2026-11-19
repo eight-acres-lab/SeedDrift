@@ -97,6 +97,10 @@ def do_fit(run_dir):
         tax = Taxonomy(st.repo(cfg["taxdump"]))
         if tc.get("model") == "source_v0":
             return fit_source(st, cfg, run_dir, ids_doc, tax)
+        if tc.get("model") == "selfsup_v0":
+            return fit_selfsup(st, cfg, run_dir, ids_doc)
+        if tc.get("model") not in (None, "toy_source_id"):
+            raise SystemExit("train.model %r is not known (source_v0, selfsup_v0, or toy_source_id, the pipeline check)" % tc.get("model"))
         km = KingdomMap()
         group_of = {e["id"]: km.group(tax, e["taxid"], e["source_kind"]) for e in man["entries"]}
         X, y, names = load_genes(run_dir, ids)
@@ -334,6 +338,111 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
         st.output("dev_eval_ablate_%s" % c["ablate"], os.path.join(run_dir, c["out"], "dev_eval.npz"))
     st.output("data_seen", os.path.join(run_dir, confs[0]["logs"], "data_seen.json"))
     st.extra.update(model_id=mid, steps=int(tc["steps"]), model_env=py, seeds=seeds)
+
+
+SELFSUP_KEYS = ("objectives", "width", "fraction", "trim")
+
+
+def model_env(st, py):
+    """The packages of the model interpreter; they must equal ci/envs/model-torch.pip.txt (else the stage fails)."""
+    import subprocess
+    r = subprocess.run([py, "-m", "pip", "freeze"], capture_output=True, text=True)
+    with open(st.repo(MODEL_LOCK)) as f:
+        want = pip_lines(f.read())
+    have = pip_lines(r.stdout)
+    if r.returncode != 0 or have != want:
+        raise SystemExit("the model environment %s differs from %s: %s" % (py, MODEL_LOCK, sorted(set(have) ^ set(want))[:20]))
+    return have
+
+
+def gpu_free_mb():
+    import subprocess
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits"], capture_output=True, text=True,
+                             timeout=30, check=True).stdout
+        return sum(float(a) - float(b) for a, b in (line.split(",") for line in out.strip().splitlines()))
+    except Exception:
+        return None
+
+
+def selfsup_confs(tc, run_dir, commit):
+    """The configurations of the self-supervised variants (train.variants: name, seed, and optionally objectives of A,
+    B1, B2, width, fraction, trim; without variants one model "main" with train.seed)."""
+    base = dict(lr=float(tc["lr"]), steps=int(tc["steps"]), batch=int(tc["batch"]), eval_every=int(tc.get("eval_every", 500)),
+                ckpt_every=int(tc.get("ckpt_every", 1000)), commit=commit, max_codons=int(tc.get("max_codons", 512)),
+                hits_centre=int(tc.get("hits_centre", 32)), max_track=int(tc.get("max_track", 512)), dev_seed=int(tc.get("dev_seed", 0)),
+                width=int(tc.get("width", 128)), objectives=list(tc.get("objectives") or ["A", "B1", "B2"]), trim=float(tc.get("trim", 0.1)),
+                trim_genes=float(tc.get("trim_genes", 0.2)), source_genes=int(tc.get("source_genes", 64)), source_codons=int(tc.get("source_codons", 512)),
+                source_hits=int(tc.get("source_hits", 8)), b2_hits=int(tc.get("b2_hits", 8)), held_batches=int(tc.get("held_batches", 8)),
+                held_genes=int(tc.get("held_genes", 200)))
+    variants = [dict(v) for v in tc.get("variants") or [dict(name="main", seed=int(tc["seed"]))]]
+    for v in variants:
+        if set(v) - {"name", "seed"} - set(SELFSUP_KEYS) or not v.get("name") or "seed" not in v:
+            raise SystemExit("train.variants: each has a name and a seed, and only %s besides: %r" % (", ".join(SELFSUP_KEYS), v))
+        obj = v.get("objectives", base["objectives"])
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", str(v["name"])) or not 0 < float(v.get("fraction", 1.0)) <= 1 or int(v.get("width", 128)) % 4 \
+                or not obj or set(obj) - {"A", "B1", "B2"} or not 0 <= float(v.get("trim", base["trim"])) < 1:
+            raise SystemExit("train.variants: a name of letters, digits, . _ -; a fraction in (0, 1]; a width divisible by 4; objectives of A, B1, "
+                             "B2; a trim in [0, 1): %r" % v)
+    if len({v["name"] for v in variants}) != len(variants):
+        raise SystemExit("train.variants: names repeat")
+    confs = []
+    for v in variants:
+        logs, out = os.path.join("data", "train", "logs", v["name"]), os.path.join("data", "model", v["name"])
+        confs.append(dict(base, seed=int(v["seed"]), name=v["name"], train_fraction=float(v.get("fraction", 1.0)), width=int(v.get("width", base["width"])),
+                          objectives=list(v.get("objectives", base["objectives"])), trim=float(v.get("trim", base["trim"])), logs=logs, out=out,
+                          resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
+    return base, confs
+
+
+def fit_selfsup(st, cfg, run_dir, ids_doc):
+    """Self-supervised model v0 (truth-labels line; seeddrift/train/selfsup.py) in the CUDA Python of the machine, whose
+    packages are locked like those of the source model. The training and the scoring of the held-out genomes hold the
+    machine's GPU lease (ci/gpu_lease.py: on a machine where another service holds the GPU, that service is stopped for
+    this part and started again afterwards); with the lease held, the free GPU memory must reach gpu_mem_min_mb."""
+    import subprocess
+    from ci import gpu_lease
+    tc = cfg["train"]
+    py = tc.get("python", "/usr/local/bin/python3")
+    have = model_env(st, py)
+    base, confs = selfsup_confs(tc, run_dir, cfg["git"]["sha"])
+    script = st.repo("seeddrift/train/selfsup.py")
+    alloc = str(tc.get("cuda_alloc_conf", "expandable_segments:True"))
+    env = dict(os.environ, PYTHONHASHSEED="0", PYTORCH_CUDA_ALLOC_CONF=alloc)
+    st.extra["cuda_alloc_conf"] = alloc
+
+    def start(conf, name):
+        cp = st.path("train", name + ".json")
+        write_json(cp, conf)
+        logp = st.path("train", name + ".log")
+        lg = open(logp, "a")
+        return subprocess.Popen([py, script, "fit", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT, env=env), logp, lg
+    with gpu_lease.hold("train-" + os.path.basename(run_dir), enabled=bool(tc.get("gpu_lease", True))) as lease:
+        st.extra["gpu_lease"] = lease
+        need, free = int(cfg.get("gpu_mem_min_mb", 0)), gpu_free_mb()
+        if need and (free is None or free < need):
+            raise SystemExit("with the GPU lease held %.0f MB of GPU memory are free; the profile needs %d" % (free or 0, need))
+        st.extra["schedule"] = run_slots([(c, "selfsup-%s" % c["name"]) for c in confs], start, max(1, int(tc.get("parallel", 1))),
+                                         int(tc.get("exclusive_width", 0) or 0))
+    model_dir = os.path.join(run_dir, "data", "model")
+    for name in ("model.npz", "heldout_scores.npz", "heldout_summary.json"):          # the first variant is the run's model
+        dst = os.path.join(model_dir, name)
+        if os.path.exists(dst):
+            os.remove(dst)
+        os.link(os.path.join(run_dir, confs[0]["out"], name), dst)
+    with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
+        tdi = json.load(f)
+    mid = "mdl-selfsup-v0-" + sha256_json([cfg["git"]["sha"], cfg["config_sha256"], [ids_doc["corpus_dataset"], tdi["dataset_id"]], [c["seed"] for c in confs]])[:12]
+    write_json(st.path("model", "model.json"), dict(model_id=mid, kind="selfsup_v0", note="truth-labels line: development diagnosis only",
+                                                  steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
+                                                  model_env_sha256=sha256_json(have), python=py, base={k: v for k, v in base.items() if k != "commit"},
+                                                  variants={c["name"]: {k: c[k] for k in ("seed", "train_fraction", "width", "objectives", "trim", "out", "logs")}
+                                                            for c in confs}))
+    st.output("model", os.path.join(model_dir, "model.npz"))
+    for c in confs:
+        st.output("heldout_scores_%s" % c["name"], os.path.join(run_dir, c["out"], "heldout_scores.npz"))
+        st.output("data_seen_%s" % c["name"], os.path.join(run_dir, c["logs"], "data_seen.json"))
+    st.extra.update(model_id=mid, steps=int(tc["steps"]), model_env=py, variants=[c["name"] for c in confs])
 
 
 if __name__ == "__main__":

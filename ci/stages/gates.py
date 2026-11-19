@@ -89,9 +89,10 @@ def phase_islands(st, cfg, run_dir):
     """G3_islands (pipeline selfsup): the island chromosomes are development chromosomes only (listed in
     bench/islands/results/dev_genomes.tsv, none in bench/hard/results/sealed.tsv), no sealed accession occurs (with or
     without version, any case, inside composite names: the scanner of gate G3) in the island index, manifest or gene
-    tables, and no training-corpus genome shares an island chromosome's genus (the island chromosomes are new to the
-    model at genus level). Proteins identical between an island chromosome and the corpus are counted (a real shared
-    gene is not a leak; the count is reported)."""
+    tables, no corpus genome shares an island chromosome's genus (merged as in the evaluation: Shigella=Escherichia)
+    or belongs to a taxon the chromosome's view hides (the island chromosomes are new to the model at genus level), and
+    every chromosome has a genus. Proteins identical between an island chromosome and the corpus are counted (a real
+    shared gene is not a leak; the count is reported)."""
     import csv
     from ci.gates import g3_sealed
     with open(os.path.join(run_dir, "data", "islands", "index.json")) as f:
@@ -108,20 +109,28 @@ def phase_islands(st, cfg, run_dir):
     problems += [dict(file=k, sealed_accessions=v) for k, v in sorted(found.items())]
     tax = Taxonomy(st.repo(cfg["taxdump"]))
     corpus = _manifest(run_dir, "corpus")["entries"]
-    genera = {}
+    merge = dict(x.split("=", 1) for x in (cfg.get("islands") or {}).get("merge", ["Shigella=Escherichia"]))
+    unit = lambda name: merge.get(name, name)
+    by_unit = {}
     for e in corpus:
-        g = tax.at_rank(int(e["taxid"]), "genus")
-        if g:
-            genera.setdefault(g, []).append(e["id"])
-    shared = 0
-    corpus_prot = set()
-    for e in corpus:
-        corpus_prot |= {h for n, h in _seq_hashes(os.path.join(run_dir, "data", "corpus", e["id"]), ("proteins.faa",))}
+        gt = tax.at_rank(int(e["taxid"]), "genus")
+        if gt:
+            by_unit.setdefault(unit(tax.name(gt)), []).append(e["id"])
+    island_prot = set()
     for g in idx["genomes"]:
-        gg = g["ranks"][4]
-        if gg and gg in genera:
-            problems.append(dict(accession=g["id"], error="corpus genomes of the same genus", genomes=genera[gg][:10]))
-        shared += len({h for n, h in _seq_hashes(os.path.join(run_dir, g["folder"]), ("proteins.faa",))} & corpus_prot)
+        if not g["ranks"][4]:
+            problems.append(dict(accession=g["id"], error="no genus in the taxonomy: the genus hold-out cannot be checked"))
+        same = by_unit.get(unit(g["genus"]), [])
+        if same:
+            problems.append(dict(accession=g["id"], error="corpus genomes of the same genus (merged as in the evaluation)", genomes=same[:10]))
+        hid = set(g.get("hidden_taxids") or []) | {int(g["taxid"])}
+        close = [e["id"] for e in corpus if int(e["taxid"]) in hid]
+        if close:
+            problems.append(dict(accession=g["id"], error="corpus genomes of a taxon the chromosome's view hides", genomes=close[:10]))
+        island_prot |= {h for n, h in _seq_hashes(os.path.join(run_dir, g["folder"]), ("proteins.faa",))}
+    shared = 0
+    for e in corpus:                                       # one corpus genome at a time against the island proteins
+        shared += len({h for n, h in _seq_hashes(os.path.join(run_dir, "data", "corpus", e["id"]), ("proteins.faa",))} & island_prot)
     require(GateResult("G3_islands", "fail" if problems else "pass", dict(chromosomes=accs, identical_proteins_with_corpus=shared, problems=problems[:50])), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False) for p in files])
 

@@ -43,6 +43,14 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   V1 views) and counts the lists it empties; contrasts use bench/hard/metrics.py; score tables and gate G4_selfsup
   follow each variant's objectives; G3_islands uses the scanner of gate G3 and refuses a corpus genome of an island
   chromosome's genus; reference.tables_from checks the taxonomy; ci/gpu_lease.py is part of the pipeline hash.
+- A second review (objective C, the lease rework, the island streaming): the partner genome is hidden when scored as
+  in training and its composition never contains the partner gene; island partners exclude the corpus genomes the
+  chromosome's view hides, its own taxon and its (merged) genus, before the nearest genomes are chosen; pair rows must
+  start in the stored codons; a C run without eligible pairs fails clearly; pair_track checks the CIGAR against the
+  residues; pairs memory is bounded; G3_islands is merge-aware, checks the view's taxa and counts identical proteins
+  genome by genome; the lease drains and stops outside its state lock, keeps running children registered on release,
+  ignores reused pids, counts the grace period from when the last holder went away, gives up after repeated failed
+  starts (status shows it), and its watchdog leaves under the lock.
 - Profiles selfsup-tiny and selfsup-pilot (machine i-2).
 
 ## 0.2 (in progress)

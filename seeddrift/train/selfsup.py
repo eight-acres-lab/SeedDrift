@@ -202,6 +202,8 @@ def pair_track(cigar, sseq, ss):
             pos.append(np.full(n, -1, dtype=np.int64))
         else:
             j, tp = j + n, tp + n
+    if j != len(sb):
+        raise SystemExit("pair row: CIGAR %s does not consume the aligned target residues (%d of %d)" % (bytes(cigar).decode(), j, len(sb)))
     if not tok:
         return np.zeros(0, np.int64), np.zeros(0, np.int64)
     return np.concatenate(tok), np.concatenate(pos)
@@ -223,10 +225,12 @@ class Pairs:
             self.z[gid] = {k: z[k] for k in z.files}
         return self.z[gid]
 
-    def rows(self, gid, i, allowed, path=None):
-        """Row indices of gene i whose target genome is in `allowed` (genome ids), nearest first."""
+    def rows(self, gid, i, allowed, path=None, n_codons=None):
+        """Row indices of gene i whose target genome is in `allowed` (genome ids), nearest first; with n_codons, only
+        rows whose alignment starts within the gene's first n_codons codons (the stored part)."""
         z = self.of(gid, path)
-        return [r for r in range(int(z["off"][i]), int(z["off"][i + 1])) if self.order[int(z["tgenome"][r])] in allowed]
+        return [r for r in range(int(z["off"][i]), int(z["off"][i + 1])) if self.order[int(z["tgenome"][r])] in allowed
+                and (n_codons is None or int(z["qs"][r]) - 1 < n_codons)]
 
 
 def source_of(data, gen, exclude, hidden, rng, cfg):
@@ -337,6 +341,15 @@ def build(torch, n_lib, d=128, trim_genes=0.2):
             self.register_buffer("nsyn", torch.from_numpy(N_SYN.astype(np.int64)), persistent=False)
 
         def genome_rep(self, x):
+            cmean, prof = self.genome_parts(x)
+            return self.genome_head(cmean, prof, x["gcomp"])
+
+        def genome_head(self, cmean, prof, gcomp):
+            comp = self.comp_proj(gcomp @ self.codon.emb.weight)
+            return self.genome(torch.cat([cmean, comp, prof], -1))
+
+        def genome_parts(self, x):
+            """(robust mean of the source genes' codon encodings, mean proteome embedding of their visible hits)."""
             B, K, L = x["src"].shape
             flat = x["src"].view(B * K, L)
             pres = (flat > 0).any(-1)
@@ -348,8 +361,7 @@ def build(torch, n_lib, d=128, trim_genes=0.2):
             cmean = (cv * keep.unsqueeze(-1)).sum(1) / keep.sum(1, keepdim=True).clamp(min=1)
             pm = (x["src_prots"] > 0) & keep.unsqueeze(-1)
             prof = (self.prot(x["src_prots"]) * pm.unsqueeze(-1)).sum((1, 2)) / pm.sum((1, 2)).clamp(min=1).unsqueeze(-1)
-            comp = self.comp_proj(x["gcomp"] @ self.codon.emb.weight)
-            return self.genome(torch.cat([cmean, comp, prof], -1))
+            return cmean, prof
 
         def gene_vec(self, x):
             cvec = self.codon(x["codons"])
@@ -568,7 +580,12 @@ class CSampler:
         self.has = {}
         for g in self.ids:
             z = pairs.of(g)
-            tg = np.array([pairs.order[int(x)] in self.partners and pairs.order[int(x)] != g for x in z["tgenome"]], dtype=np.int64)
+            gen = data.g[g]
+            gene_of_row = np.repeat(np.arange(len(z["off"]) - 1), np.diff(z["off"].astype(np.int64)))
+            stored = np.minimum(np.diff(gen.coff), data.maxc)[gene_of_row] if len(gene_of_row) else np.zeros(0, np.int64)
+            inside = (z["qs"].astype(np.int64) - 1) < stored
+            tg = np.array([pairs.order[int(x)] in self.partners and pairs.order[int(x)] != g for x in z["tgenome"]], dtype=bool) & inside
+            tg = tg.astype(np.int64)
             cs = np.concatenate([[0], np.cumsum(tg)])
             off = z["off"].astype(np.int64)
             self.has[g] = np.flatnonzero(cs[off[1:]] - cs[off[:-1]] > 0)
@@ -591,7 +608,8 @@ class CSampler:
         picks = []
         for g in chosen:
             i = int(self.has[g][rng.integers(len(self.has[g]))])
-            rows = [r for r in self.pairs.rows(g, i, self.partners) if self.pairs.order[int(self.pairs.of(g)["tgenome"][r])] != g]
+            n_cod = min(int(self.data.g[g].coff[i + 1] - self.data.g[g].coff[i]), self.data.maxc)
+            rows = [r for r in self.pairs.rows(g, i, self.partners, n_codons=n_cod) if self.pairs.order[int(self.pairs.of(g)["tgenome"][r])] != g]
             r = rows[rng.integers(len(rows))]
             picks.append((g, i, r, self.pairs.order[int(self.pairs.of(g)["tgenome"][r])]))
         depth = DEPTHS[rng.integers(len(DEPTHS))]
@@ -688,7 +706,7 @@ def score_genome(model, data, torch, dev, gen, hidden_taxids, panel, cfg, object
                     na, ng, n = out[key]
                     res[key + "_aware"][sl], res[key + "_agn"][sl], res[key + "_n"][sl] = na.cpu().numpy(), ng.cpu().numpy(), n.cpu().numpy()
         if "C" in objectives and pairs is not None:
-            c_scores(model, data, torch, dev, gen, genes, Gs, hidden, rng, cfg, pairs, partners, ppath, res, batch)
+            c_scores(model, data, torch, dev, gen, genes, Gs, hidden, rng, cfg, pairs, partners, ppath, res, batch, depth=depth)
     model.train()
     for key, b in (("B1", "b1"), ("B2", "b2")):
         n = res[b + "_n"]
@@ -698,39 +716,48 @@ def score_genome(model, data, torch, dev, gen, hidden_taxids, panel, cfg, object
     return res
 
 
-def c_scores(model, data, torch, dev, gen, genes, Gs, hidden, rng, cfg, pairs, partners, ppath, res, batch):
-    """Objective C for the scored genes: every pair row of a gene to an allowed partner genome (the nearest c_partners),
-    the log-likelihood ratio (residues plus codons, per position) with the gene's own representation (from the scoring
-    pass, without the gene) and the partner's (one per partner genome, sampled once; resampled without the partner
-    gene when it is among the sampled genes); res["C"] = minus the lowest ratio, res["c_partner"] = its genome index."""
+def c_scores(model, data, torch, dev, gen, genes, Gs, hidden, rng, cfg, pairs, partners, ppath, res, batch, depth="genus"):
+    """Objective C for the scored genes: every pair row of a gene to an allowed partner genome (the nearest c_partners
+    whose alignment starts in the stored codons), the log-likelihood ratio (residues plus codons, per position) with
+    the gene's own representation (from the scoring pass, without the gene) and the partner's. The partner is hidden as
+    in training (its own proteome and clade at `depth`, on top of the scored genome's hiding); its source genes are
+    sampled once per partner genome (again without the partner gene when it is among them) and its composition is
+    taken without the partner gene for every row. res["C"] = minus the lowest ratio, res["c_partner"] = its genome."""
     allowed = set(partners) - {gen.meta["id"]}
     cap = int(cfg.get("c_partners", 16))
     work = []
     for k, i in enumerate(genes):
-        for r in pairs.rows(gen.meta["id"], i, allowed, ppath)[:cap]:
+        n_cod = min(int(gen.coff[i + 1] - gen.coff[i]), data.maxc)
+        for r in pairs.rows(gen.meta["id"], i, allowed, ppath, n_codons=n_cod)[:cap]:
             work.append((k, i, r))
-    reps = {}
+    parts = {}                                                         # partner -> (source, hidden, cmean, prof)
     z = pairs.of(gen.meta["id"], ppath)
     best = {}
     for b0 in range(0, len(work), batch * 4):
         part = work[b0:b0 + batch * 4]
-        items, GA, GB = [], [], []
+        items, GA, cm, pf, gc = [], [], [], [], []
         for k, i, r in part:
             pid = pairs.order[int(z["tgenome"][r])]
             pg = data.g[pid]
-            if pid not in reps:
-                src = source_of(data, pg, -1, hidden, rng, cfg)
-                reps[pid] = (src, model.genome_rep({k2: v.to(dev) for k2, v in _src_tensors([src], torch).items()})[0])
-            src, G = reps[pid]
+            if pid not in parts:
+                hp = hidden | hidden_rows(data, [pg], depth)
+                src = source_of(data, pg, -1, hp, rng, cfg)
+                c0, p0 = model.genome_parts({k2: v.to(dev) for k2, v in _src_tensors([src], torch).items()})
+                parts[pid] = (src, hp, c0[0], p0[0])
+            src, hp, c0, p0 = parts[pid]
             j = int(z["tgene"][r])
             if j in src["idx"]:                                            # the partner gene must not describe its genome
-                alt = source_of(data, pg, j, hidden, rng, cfg)
-                G = model.genome_rep({k2: v.to(dev) for k2, v in _src_tensors([alt], torch).items()})[0]
+                alt = source_of(data, pg, j, hp, rng, cfg)
+                c1, p1 = model.genome_parts({k2: v.to(dev) for k2, v in _src_tensors([alt], torch).items()})
+                c0, p0 = c1[0], p1[0]
             items.append(c_example(data, pairs, gen, i, r, hidden, rng, cfg, pg, ppath=ppath, sources=False))
             GA.append(Gs[i])
-            GB.append(G)
+            cm.append(c0)
+            pf.append(p0)
+            gc.append(torch.from_numpy(S.frequencies(pg.ccount - pg.gene_count(j))))
+        GB = model.genome_head(torch.stack(cm), torch.stack(pf), torch.stack(gc).to(dev))
         x = {k2: v.to(dev) for k2, v in collate_c(items, torch).items()}
-        ra, rg, nr, ca, cg, nc = model.c(x, torch.stack(GA), torch.stack(GB))
+        ra, rg, nr, ca, cg, nc = model.c(x, torch.stack(GA), GB)
         lr = ((rg - ra) * (nr > 0) + (cg - ca) * (nc > 0)).cpu().numpy()
         ok = ((nr > 0) | (nc > 0)).cpu().numpy()
         for (k, i, r), v, o in zip(part, lr, ok):
@@ -860,6 +887,8 @@ def fit(run_dir, cfg):
     if "C" in objectives:
         pairs = Pairs(run_dir, cfg.get("pairs_dir", os.path.join("data", "pairs")))
         csampler = CSampler(data, pairs, train_ids, train_ids)
+        if not csampler.ids:
+            raise SystemExit("objective C: no training genome has a pair row to another training genome")
         held_c = held_c_batches(data, pairs, data.by_split.get("heldout", []), train_ids, cfg, int(cfg.get("held_batches", 8)), int(cfg.get("c_batch", batch)))
     n2 = int(cfg.get("b2_hits", 8))
     t0 = time.time()
@@ -878,6 +907,8 @@ def fit(run_dir, cfg):
                 groups = groups + c_groups
                 depth = depth or c_depth
         loss, parts = losses(torch, model, out, objectives, trim)
+        if not parts:
+            raise SystemExit("step %d: no objective produced a loss (empty batches)" % step)
         opt.zero_grad()
         loss.backward()
         gn = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
@@ -978,6 +1009,8 @@ def score_genomes(run_dir, cfg):
                          seed=int(cfg.get("dev_seed", 0)), depth=e.get("depth", "genus"), pairs=pairs, partners=train_ids,
                          ppath=os.path.join(run_dir, e["pairs"]) if e.get("pairs") else None)
         save_npz(os.path.join(out_dir, e["id"] + ".npz"), **r)
+        if pairs is not None:
+            pairs.z.pop(e["id"], None)
 
 
 def main():

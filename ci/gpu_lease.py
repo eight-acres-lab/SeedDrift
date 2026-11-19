@@ -17,7 +17,7 @@ release(holder): unregisters the holder. The watchdog starts the service again o
   dropped by its pid), and waits for the health check.
 State: <CI root>/locks/gpu_lease/ (holders/<holder>.json, state.json, lease.log), changed under a file lock.
 
-  python -m ci.gpu_lease status|acquire HOLDER|release HOLDER|watch
+  python -m ci.gpu_lease status|acquire HOLDER PID|release HOLDER|watch
 
 Processes of a holder (the training children) are registered with Held.add(pid): the lease stays held while any of
 them lives, even if the stage process that took it dies.
@@ -90,6 +90,22 @@ def _alive(pid):
         return False
 
 
+def _start_time(pid):
+    """The process's start time in clock ticks (/proc/<pid>/stat field 22), "" where /proc is not there."""
+    try:
+        with open("/proc/%d/stat" % int(pid)) as f:
+            return f.read().rsplit(")", 1)[1].split()[19]
+    except (OSError, ValueError, IndexError):
+        return ""
+
+
+def _holder_alive(h):
+    """A registered process is alive when its pid runs and, where recorded, started at the recorded time (a reused pid
+    does not hold the lease)."""
+    pid = h.get("pid", -1)
+    return _alive(pid) and (not h.get("start") or _start_time(pid) == h["start"])
+
+
 def _holders(d):
     """Live holders; files of dead pids are removed."""
     out = {}
@@ -100,7 +116,7 @@ def _holders(d):
             h = json.load(open(p))
         except (OSError, ValueError):
             continue
-        if _alive(h.get("pid", -1)):
+        if _holder_alive(h):
             out[n[:-5]] = h
         else:
             os.remove(p)
@@ -205,7 +221,7 @@ def _start_watchdog(c, d):
 
 def _register(d, name, pid):
     with open(os.path.join(d, "holders", name + ".json"), "w") as f:
-        json.dump(dict(pid=int(pid), since=time.time()), f)
+        json.dump(dict(pid=int(pid), start=_start_time(pid), since=time.time()), f)
 
 
 def acquire(holder, pid=None, ci_root=None):
@@ -223,11 +239,15 @@ def acquire(holder, pid=None, ci_root=None):
         if running:
             st["stopped_by_lease"] = True
         st["last_acquire"] = time.time()
+        st.pop("restore_failed", None)
         _save_state(d, st)
         _log(d, "acquired by %s" % holder)
         _start_watchdog(c, d)
-        if running:
-            _stop(c, d)
+    if running:                    # the drain and stop outside the state lock (a registered holder keeps the watchdog off)
+        with open(os.path.join(d, "stop.lock"), "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            if service_running(c):
+                _stop(c, d)
     return dict(lease=c["service"], stopped_now=running, gpu_used_mb_after=_gpu_used_mb())
 
 
@@ -249,8 +269,16 @@ def release(holder, ci_root=None):
     with _locked(d):
         hd = os.path.join(d, "holders")
         for n in os.listdir(hd):
-            if n == holder + ".json" or n.startswith(holder + "@"):
-                os.remove(os.path.join(hd, n))
+            p = os.path.join(hd, n)
+            if n == holder + ".json":
+                os.remove(p)
+            elif n.startswith(holder + "@"):                               # a child still running keeps its registration
+                try:
+                    h = json.load(open(p))
+                except (OSError, ValueError):
+                    h = {}
+                if not _holder_alive(h):
+                    os.remove(p)
         st = _state(d)
         st["last_release"] = time.time()
         _save_state(d, st)
@@ -295,6 +323,7 @@ def watch(ci_root=None, poll=30, once=False):
         return
     d = _dir(ci_root)
     pf = os.path.join(d, "watchdog.pid")
+    failures = 0
     try:
         while True:
             time.sleep(poll)
@@ -303,19 +332,39 @@ def watch(ci_root=None, poll=30, once=False):
                 st = _state(d)
                 if not hs and not st.get("stopped_by_lease"):
                     _log(d, "watchdog: nothing to restore")
+                    if os.path.exists(pf) and open(pf).read().strip() == str(os.getpid()):
+                        os.remove(pf)                                      # under the lock: a new acquire starts a new watchdog
                     return
-                due = not hs and time.time() - max(float(st.get("last_release", 0)), float(st.get("last_acquire", 0))) >= float(c.get("grace_s", 600))
+                now = time.time()
+                if hs:
+                    st.pop("empty_since", None)
+                elif "empty_since" not in st:
+                    st["empty_since"] = now                                # grace counts from when the last holder went away
+                _save_state(d, st)
+                due = not hs and now - max(float(st.get("empty_since", now)), float(st.get("last_release", 0))) >= float(c.get("grace_s", 600))
                 started = False
                 if due:
                     code, out = _ctl(c, "start")
                     _log(d, "start %s: supervisorctl %d: %s" % (c["service"], code, out))
                     if code == 0 or service_running(c):
                         st["stopped_by_lease"] = False
+                        st.pop("empty_since", None)
                         _save_state(d, st)
-                        started = True
+                        started, failures = True, 0
+                    else:
+                        failures += 1
+                        if failures >= int(c.get("start_attempts", 10)):
+                            st["restore_failed"] = "%d failed starts, last: %s" % (failures, out)
+                            _save_state(d, st)
+                            _log(d, "watchdog: giving up after %d failed starts; the service stays stopped (status shows restore_failed)" % failures)
+                            if os.path.exists(pf) and open(pf).read().strip() == str(os.getpid()):
+                                os.remove(pf)
+                            return
             if not started:
                 if once:
                     return
+                if due:
+                    time.sleep(min(300, poll * (2 ** min(failures, 4))))     # back off between failed starts
                 continue
             t0 = time.time()
             while time.time() - t0 < float(c.get("restore_wait_s", 1200)):
@@ -353,7 +402,9 @@ def main(argv):
     if argv[0] == "status":
         print(json.dumps(status(), indent=1, sort_keys=True))
     elif argv[0] == "acquire":
-        print(json.dumps(acquire(argv[1], pid=int(argv[2]) if len(argv) > 2 else None), sort_keys=True))
+        if len(argv) < 3:
+            raise SystemExit("acquire HOLDER PID: the process that holds the lease (the CLI itself ends at once)")
+        print(json.dumps(acquire(argv[1], pid=int(argv[2])), sort_keys=True))
     elif argv[0] == "release":
         release(argv[1])
     else:

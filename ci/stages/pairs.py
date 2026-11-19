@@ -73,10 +73,13 @@ def write_genome(path, n_genes, rows_by_gene, keep):
     return off[-1]
 
 
-def search(diamond, queries, db, pc, genome_index, gene_index, query_genes, out_dir, own=True):
+def search(diamond, queries, db, pc, genome_index, gene_index, query_genes, out_dir, own=True, skip=None):
     """Stream DIAMOND's rows of `queries` against `db` into out_dir/<query genome>.npz. genome_index: {genome id: index};
     gene_index: {genome id: {gene name: index}} of the database; query_genes: {query genome id: [gene names]}.
-    own: the query genomes are database genomes, whose own rows are left out."""
+    own: the query genomes are database genomes, whose own rows are left out. skip: {query genome id: set of target
+    genome indices} left out as well, before the nearest genomes are chosen (the hiding view of an evaluation genome).
+    Per gene at most 4 x `genomes` target genomes are held while the rows stream (the best ones: DIAMOND reports a
+    query's targets best first)."""
     keep = int(pc.get("genomes", 64))
     cmd = [diamond, "blastp", "-q", queries, "-d", db, "-o", "/dev/stdout", "--" + pc.get("sensitivity", "sensitive"),
            "--max-target-seqs", str(pc.get("max_target_seqs", 500)), "--max-hsps", "1", "-e", str(pc.get("evalue", 1e-5)),
@@ -99,11 +102,18 @@ def search(diamond, queries, db, pc, genome_index, gene_index, query_genes, out_
             tg, tn = f[1].split("__", 1)
             if own and tg == qg:
                 continue
-            r = (float(f[4]), genome_index[tg], gene_index[tg][tn], int(f[2]), int(f[3]), f[5], f[6])
+            ti = genome_index[tg]
+            if skip and ti in skip.get(qg, ()):
+                continue
+            r = (float(f[4]), ti, gene_index[tg][tn], int(f[2]), int(f[3]), f[5], f[6])
             best = rows.setdefault(qidx[qg][qn], {})                      # the best row per target genome only
             old = best.get(r[1])
             if old is None or (-r[0], r[2]) < (-old[0], old[2]):
                 best[r[1]] = r
+                if len(best) > 4 * keep:                                   # bounded memory: the best 2 x keep genomes
+                    kept = sorted(best.values(), key=lambda x: (-x[0], x[1], x[2]))[:2 * keep]
+                    best.clear()
+                    best.update({x[1]: x for x in kept})
         if p.wait() != 0:
             raise SystemExit("diamond exited with %d" % p.returncode)
         if cur is not None:

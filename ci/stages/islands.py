@@ -231,9 +231,21 @@ def do_data(run_dir):
                 order = json.load(f)["genomes"]
             corpus_dirs = dict(P.corpus(run_dir))
             names = {g: gene_ids(corpus_dirs[g]) for g in order}
+            # the view for partners too: corpus genomes of a hidden proteome's taxon, of the chromosome's own taxon or of
+            # its genus (merged as in the evaluation) are not partners, left out before the nearest genomes are chosen
+            with open(os.path.join(run_dir, "data", "corpus", "manifest.json")) as f:
+                ctax = {e["id"]: int(e["taxid"]) for e in json.load(f)["entries"]}
+            merge = dict(x.split("=", 1) for x in ic.get("merge", ["Shigella=Escherichia"]))
+            unit = lambda name: merge.get(name, name)
+            cgenus = {g: tax.name(tax.at_rank(t, "genus")) if tax.at_rank(t, "genus") else "" for g, t in ctax.items()}
+            skip = {}
+            for g in genomes:
+                hid = set(g["hidden_taxids"]) | {g["taxid"]}
+                skip[g["id"]] = {i for i, c in enumerate(order) if ctax[c] in hid or (cgenus[c] and unit(cgenus[c]) == unit(g["genus"]))}
+                g["partners_skipped"] = len(skip[g["id"]])
             P.search(cfg["tools"]["diamond"], q, os.path.join(run_dir, "data", "pairs", "db.dmnd"), dict(cfg["pairs"], threads=ic.get("threads", 2)),
                      {g: i for i, g in enumerate(order)}, {g: {n: i for i, n in enumerate(v)} for g, v in names.items()},
-                     {g["id"]: gene_ids(folders[g["id"]]) for g in genomes}, pdir, own=False)
+                     {g["id"]: gene_ids(folders[g["id"]]) for g in genomes}, pdir, own=False, skip=skip)
             for g in genomes:
                 g["pairs"] = os.path.relpath(os.path.join(pdir, g["id"] + ".npz"), run_dir)
         os.remove(q)
@@ -401,7 +413,7 @@ def do_report(run_dir):
         table = {}
         for acc, v in per.items():
             for m, mv in v.items():
-                if m != "_unit" and isinstance(mv, dict):
+                if m not in ("_unit", "_n") and isinstance(mv, dict):
                     table.setdefault(m, {})[acc] = {k: mv.get(k) for k in ("r1", "auroc", "mr5")}
         out = st.path("islands", "contrasts.json")
         write_json(out, dict(units=units, chromosomes=sorted(per), contrasts=rows, metrics=table,

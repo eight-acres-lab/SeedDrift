@@ -148,3 +148,22 @@ def test_unreadable_configuration_counts_nothing_as_leasable(tmp_path):
     (tmp_path / "host").mkdir()
     (tmp_path / "host" / "gpu_lease.json").write_text("{not json")
     assert gpu_lease.leasable_mb(str(tmp_path)) == 0
+
+
+def test_release_keeps_a_running_child(tmp_path, monkeypatch):
+    monkeypatch.setenv("CI_ROOT", str(tmp_path))
+    monkeypatch.setenv("PATH", str(_fake(tmp_path)) + os.pathsep + os.environ["PATH"])
+    _config(tmp_path)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        gpu_lease.acquire("run")
+        gpu_lease.add("run", child.pid)
+        gpu_lease.release("run")                                        # the stage ends while its child still runs
+        gpu_lease.watch(poll=0, once=True)
+        assert (tmp_path / "svc").read_text().strip() == "STOPPED"
+        assert gpu_lease.status()["holders"] == ["run@%d" % child.pid]
+    finally:
+        child.kill()
+        child.wait()
+    gpu_lease.watch(poll=0)
+    assert (tmp_path / "svc").read_text().strip() == "RUNNING"

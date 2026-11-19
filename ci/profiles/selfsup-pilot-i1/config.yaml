@@ -6,9 +6,11 @@
 # Everything but the training is computed here as in selfsup-pilot: the reference tables of 041244, its search reused
 # whole, the training data and the pairs (both must equal the i-2 run's datasets, or the import fails), the islands.
 # The import also rescores every variant's held-out genes here and compares them with the i-2 scores.
-# The model's Python is i-1's interpreter (its own lock); scoring on the CPU unless train.device says otherwise.
+# The model's Python is i-1's interpreter (its own lock). Scoring on the CPU (train.device: cpu hides the GPU), so the
+# run takes the server's select lock (needs_gpu: false), not the GPU's; selfsup-pilot-i1-gpu scores on the GPU.
 # Everything not specific to i-1 is as in selfsup-pilot (the train block must give the same variant configurations).
 pipeline: selfsup
+needs_gpu: false
 tier: pilot
 seed: 1
 cores: 14

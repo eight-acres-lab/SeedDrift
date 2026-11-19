@@ -1,0 +1,74 @@
+# Machine i-1: the island part of the selfsup pilot of the truth-labels line, with the six variants trained on i-2 by
+# run 20261119T145408-exp-truth-labels-c73296e9-selfsup-pilot imported (train.models_from), not trained again.
+# Why: from about 16:00 UTC on 2026-11-19 i-2's network was throttled to about 15 KB/s both ways, so the 17 GB reference
+# database the island search needs could not reach it (9.9 GB arrived). i-1 holds the database, the FASTA and the
+# pilot run 041244; the models (about 45 MB) were copied from i-2 into <CI root>/imports/<that run>.
+# Everything but the training is computed here as in selfsup-pilot: the reference tables of 041244, its search reused
+# whole, the training data and the pairs (both must equal the i-2 run's datasets, or the import fails), the islands.
+# The import also rescores every variant's held-out genes here and compares them with the i-2 scores.
+# The model's Python is i-1's interpreter (its own lock). This profile scores on i-1's GPU (train.device: auto; the run
+# holds the server's GPU lock, i-1 has no lease); selfsup-pilot-i1 is the same on the CPU.
+# Everything not specific to i-1 is as in selfsup-pilot (the train block must give the same variant configurations).
+pipeline: selfsup
+gpu_mem_min_mb: 20000
+tier: pilot
+seed: 1
+cores: 14
+blas_threads: 2
+disk_gb: 40
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/pilot-near.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot]
+  reuse_required: true
+train_data:
+  hits: 32
+pairs:
+  sensitivity: sensitive
+  max_target_seqs: 500
+  evalue: 1.0e-5
+  genomes: 64
+  threads: 6
+  block_size: 4
+train:
+  model: selfsup_v0
+  models_from: /hy-tmp/seeddrift-ci/imports/20261119T145408-exp-truth-labels-c73296e9-selfsup-pilot
+  models_wait_s: 14400
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt
+  gpu_lease: false
+  device: auto
+  seed: 1
+  variants:
+    - {name: all-s1, seed: 1, objectives: [A, B1, B2, C]}
+    - {name: all-s2, seed: 2, objectives: [A, B1, B2, C]}
+    - {name: all-s3, seed: 3, objectives: [A, B1, B2, C]}
+    - {name: a-s1, seed: 1, objectives: [A]}
+    - {name: b-s1, seed: 1, objectives: [B1, B2]}
+    - {name: c-s1, seed: 1, objectives: [C]}
+  parallel: 2
+  dev_seed: 0
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+islands:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  threads: 12

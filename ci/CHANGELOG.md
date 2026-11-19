@@ -52,8 +52,9 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   for a copy still arriving. model.json records the source.
 - `train.device: cpu` (default auto) hides the GPUs from the model's processes (training, the held-out recheck, the
   island scoring) and gives torch `train.cpu_threads` threads; selfsup.py score writes to `score_out` when given.
-- Profile selfsup-pilot-i1: the island part of the pilot on machine i-1 with the variants of the i-2 pilot imported
-  (i-2's network was throttled to about 15 KB/s, below what the 17 GB reference database needs).
+- Profiles selfsup-pilot-i1 (scoring on the CPU, `needs_gpu: false`: the select lock) and selfsup-pilot-i1-gpu
+  (scoring on the GPU, the GPU lock): the island part of the pilot on machine i-1 with the variants of the i-2 pilot
+  imported (i-2's network was throttled to about 15 KB/s, below what the 17 GB reference database needs).
 - A second review (objective C, the lease rework, the island streaming): the partner genome is hidden when scored as
   in training and its composition never contains the partner gene; island partners exclude the corpus genomes the
   chromosome's view hides, its own taxon and its (merged) genus, before the nearest genomes are chosen; pair rows must

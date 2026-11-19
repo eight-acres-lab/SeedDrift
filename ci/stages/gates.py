@@ -153,6 +153,8 @@ def phase_selfsup(st, cfg, run_dir):
         nums = [x for k, x in h.items() if isinstance(x, (int, float)) and not isinstance(x, bool)]
         if not h or any(not math.isfinite(x) for x in nums):
             problems.append(dict(variant=name, error="held-out diagnosis missing or not finite"))
+        elif cfg.get("tier") != "tiny" and not h.get("genes"):          # the fixture of tier tiny may hold out nothing
+            problems.append(dict(variant=name, error="no held-out gene was diagnosed"))
     if cfg.get("islands"):
         isl = rep.get("islands") or {}
         if not isl:

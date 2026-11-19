@@ -7,7 +7,8 @@ bench/hard) scored by the self-supervised model and by this line's own comparato
 
 Configuration (`islands:`): store (the benchmark's folder: dev_genomes/<acc>.gb, genes/, labels/, labels_panel/, the V1
 views), genomes (default bench/islands/results/dev_genomes.tsv), sealed (default bench/hard/results/sealed.tsv),
-views (default dev24_v/genus: hidden_<acc>.tsv), threads, merge (default Shigella=Escherichia).
+views (default dev24_v/genus: hidden_<acc>.tsv), threads, merge (default Shigella=Escherichia), max_target_seqs (4,000),
+wait_for_database_s (0: a machine still copying the reference database in waits for its full size).
 
 data   Only accessions of the development list; a sealed accession, or one outside the development list, stops the stage
        (and gate G3_islands checks the result again). Per chromosome: the benchmark's gene table genes/<acc>.tsv
@@ -35,6 +36,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 import numpy as np
 
@@ -147,6 +149,12 @@ def do_data(run_dir):
             ref = json.load(f)
         db = ref["database"] if os.path.isabs(ref["database"]) else os.path.join(run_dir, ref["database"])
         dbe = [e for e in ref["entries"][0]["files"] if os.path.abspath(e["path"]) == os.path.abspath(db) or os.path.join(run_dir, e["path"]) == db]
+        # islands.wait_for_database_s: on a machine where the database is still being copied in, wait (up to that many
+        # seconds) until it has its full size; the hash below decides whether it is the dataset's database
+        t0 = time.time()
+        while dbe and time.time() - t0 < float(ic.get("wait_for_database_s", 0)) and not (os.path.exists(db) and os.path.getsize(db) == dbe[0]["bytes"]):
+            time.sleep(60)
+        st.extra["waited_for_database_s"] = round(time.time() - t0)
         if dbe and (not os.path.exists(db) or sha256_file(db) != dbe[0]["sha256"]):
             raise SystemExit("islands: the reference database %s is missing or differs from the reference dataset" % db)
         idx = np.load(os.path.join(run_dir, "data", "reference", "index.npz"))

@@ -70,3 +70,4 @@ train:
 islands:
   store: /hy-tmp/seeddrift-store/evalsets/islandpick
   threads: 6
+  wait_for_database_s: 21600

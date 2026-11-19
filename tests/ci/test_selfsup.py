@@ -67,7 +67,37 @@ def make_run(root, n_genomes=10, seed=0):
                           ranks=[int(x) for x in ranks[row]], genes=n, hits=hoff[-1], split="train" if k < 7 else "heldout", cluster="", relation=""))
     with open(os.path.join(root, "data", "train_data", "index.json"), "w") as f:
         json.dump(dict(dataset_id="ds-test", genomes=metas, library="data/reference/library.npz"), f)
+    make_pairs(root, metas, rng)
     return root
+
+
+def make_pairs(root, metas, rng):
+    """data/pairs in the layout of ci/stages/pairs.py: per gene up to three homologs in other genomes, ungapped or with
+    one insertion and one deletion, starting at the first residues."""
+    d = os.path.join(root, "data", "pairs")
+    os.makedirs(d, exist_ok=True)
+    order = [m["id"] for m in metas]
+    with open(os.path.join(d, "genomes.json"), "w") as f:
+        json.dump(dict(genomes=order), f)
+    for a, m in enumerate(metas):
+        off, tg, tj, qs, ss, cig, cig_off, sq, sq_off = [0], [], [], [], [], bytearray(), [0], bytearray(), [0]
+        for i in range(m["genes"]):
+            for b in rng.choice([x for x in range(len(order)) if x != a], size=int(rng.integers(0, 4)), replace=False):
+                n = int(rng.integers(6, 12))
+                c = "%dM" % n if rng.random() < 0.5 else "3M1I%dM1D2M" % (n - 6)
+                n_t = sum(int(k) for k, op in __import__("re").findall(r"(\d+)([MID])", c) if op in "MD")
+                tg.append(int(b))
+                tj.append(int(rng.integers(0, metas[b]["genes"])))
+                qs.append(1)
+                ss.append(1)
+                cig += c.encode()
+                cig_off.append(len(cig))
+                sq += "".join(rng.choice(list("ACDEFGHIKLMNPQRSTVWY"), n_t)).encode()
+                sq_off.append(len(sq))
+            off.append(len(tg))
+        np.savez(os.path.join(d, m["id"] + ".npz"), off=np.array(off, np.int32), tgenome=np.array(tg, np.int32), tgene=np.array(tj, np.int32),
+                 qs=np.array(qs, np.uint32), ss=np.array(ss, np.uint32), bits=np.ones(len(tg), np.float32), cigar=np.frombuffer(bytes(cig), np.uint8),
+                 cigar_off=np.array(cig_off, np.int64), sseq=np.frombuffer(bytes(sq), np.uint8), sseq_off=np.array(sq_off, np.int64))
 
 
 CFG = dict(seed=1, lr=1e-3, steps=3, batch=4, width=8, eval_every=2, ckpt_every=2, source_genes=4, source_codons=64, source_hits=4, b2_hits=2,
@@ -81,10 +111,31 @@ def test_synonym_table():
     assert SS.N_SYN[aa["M"]] == 1 and SS.N_SYN[aa["W"]] == 1 and SS.N_SYN[aa["L"]] == 6 and SS.N_SYN[21] == 3
 
 
+def test_pair_track_follows_the_cigar():
+    t, pos = SS.pair_track(b"2M1I1M2D1M", b"ACDEFG", 5)
+    assert t.tolist() == [1, 2, 22, 3, 6] and pos.tolist() == [4, 5, -1, 6, 9]
+
+
+def test_c_sampler_and_example():
+    with tempfile.TemporaryDirectory() as d:
+        data = S.Data(make_run(d), CFG)
+        pairs = SS.Pairs(d)
+        train = data.by_split["train"]
+        cs = SS.CSampler(data, pairs, train, train)
+        items, groups, depth = cs.batch(np.random.default_rng(0), 4, CFG)
+        assert 0 < len(items) <= 4 and depth in SS.DEPTHS
+        for e in items:
+            assert len(e["t"]) == len(e["tcod"]) and e["qs"] == 0
+            ok = (e["tcod"] > 0)
+            assert ((e["t"][ok] == 22) | (S.CODE[e["tcod"][ok]] > 0)).all()
+            assert e["partner_gene"] not in e["B"]["idx"]               # the partner gene does not describe its genome
+
+
 def test_objectives_validated():
     assert SS.objectives_of({}) == ["A", "B1", "B2"]
+    assert SS.objectives_of({"objectives": ["C", "A"]}) == ["A", "C"]
     assert SS.objectives_of({"objectives": ["B2", "A"]}) == ["A", "B2"]
-    for bad in (["C"], [], ["A", "A"]):
+    for bad in (["D"], [], ["A", "A"]):
         try:
             SS.objectives_of({"objectives": bad})
         except SystemExit:
@@ -197,18 +248,20 @@ def test_fit_and_score_end_to_end_on_cpu():
     _torch()
     with tempfile.TemporaryDirectory() as d:
         make_run(d)
-        cfg = dict(CFG, logs="data/train/logs/t", out="data/model/t", objectives=["A", "B1", "B2"])
+        cfg = dict(CFG, logs="data/train/logs/t", out="data/model/t", objectives=["A", "B1", "B2", "C"], c_batch=4, c_partners=2)
         SS.fit(d, cfg)
         out = os.path.join(d, "data", "model", "t")
         z = np.load(os.path.join(out, "heldout_scores.npz"))
         summ = json.load(open(os.path.join(out, "heldout_summary.json")))
         assert summ["genomes"] == 3 and len(z["gene"]) == summ["genes"] > 0
         assert np.isfinite(z["A"]).all() and np.isfinite(z["B1"]).all() and np.isfinite(z["comb"]).all()
+        assert np.isfinite(z["C"]).any() and (z["c_partner"][np.isfinite(z["C"])] >= 0).all()
         assert all(np.isfinite(v) for v in summ.values() if isinstance(v, float))
         rows = [json.loads(line) for line in open(os.path.join(d, "data", "train", "logs", "t", "metrics.jsonl"))]
         assert [r["step"] for r in rows] == [1, 2, 3] and all(np.isfinite(r["loss"]) for r in rows)
         # an external genome is scored gene by gene, in its order, with its hidden proteomes
-        idx = dict(genomes=[dict(id="x", path="data/train_data/g8.npz", taxid=108, ranks=[1, 0, 31, 52, 74, 108], group="bacteria", hidden_taxids=[109])])
+        idx = dict(genomes=[dict(id="x", path="data/train_data/g8.npz", taxid=108, ranks=[1, 0, 31, 52, 74, 108], group="bacteria", hidden_taxids=[109],
+                                 pairs="data/pairs/g8.npz")])
         with open(os.path.join(d, "ext.json"), "w") as f:
             json.dump(idx, f)
         SS.score_genomes(d, dict(cfg, genomes_index="ext.json", genomes_out="data/ext"))

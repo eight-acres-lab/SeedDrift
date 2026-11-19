@@ -26,6 +26,23 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
 - Reference: `reference.tables_from` takes a previous run's reference dataset as it is (manifest checked against its
   hash, tables against that run's stage record), for a machine that holds the database but not the FASTA.
 - Run record schema: pipeline values search and selfsup.
+- `train.python_lock` names the lock of the model's Python (default ci/envs/model-torch.pip.txt, unchanged for the
+  source model). New ci/envs/model-torch-venv.pip.txt: the same packages and versions without the 24 Ubuntu system
+  packages i-1's interpreter also lists, for a virtual environment built from i-1's packages (machine i-2).
+- tests/ci/test_select.py: the pipeline kinds now include selfsup.
+- Objective C and stage pairs: the corpus searched against itself (the nearest homolog in each other genome, with
+  its alignment); the island stage searches its chromosomes against the same database. C predicts the partner's
+  residues and synonymous codons given both genomes' representations (aware) or neither (agnostic).
+- `search.reuse_required: true`: a run whose search key matches no reuse candidate fails instead of searching.
+- After an independent review (four reviewers, each finding checked by a skeptic): padded positions are masked in
+  the amino-acid states; resume restores AdamW's state and the counts, dropout is drawn per step; the model loads the
+  training and held-out genomes only; the GPU lease records its state and starts its watchdog before stopping, retries
+  a failed start, takes up a restore interrupted by a new run, registers the training children (a killed stage does
+  not free the GPU under them), treats BACKOFF and STOPPING as running, and an unreadable configuration counts no
+  memory as leasable; the island search keeps 4,000 targets per gene before the view is applied (as the benchmark's
+  V1 views) and counts the lists it empties; contrasts use bench/hard/metrics.py; score tables and gate G4_selfsup
+  follow each variant's objectives; G3_islands uses the scanner of gate G3 and refuses a corpus genome of an island
+  chromosome's genus; reference.tables_from checks the taxonomy; ci/gpu_lease.py is part of the pipeline hash.
 - Profiles selfsup-tiny and selfsup-pilot (machine i-2).
 
 ## 0.2 (in progress)

@@ -18,6 +18,9 @@ release(holder): unregisters the holder. The watchdog starts the service again o
 State: <CI root>/locks/gpu_lease/ (holders/<holder>.json, state.json, lease.log), changed under a file lock.
 
   python -m ci.gpu_lease status|acquire HOLDER|release HOLDER|watch
+
+Processes of a holder (the training children) are registered with Held.add(pid): the lease stays held while any of
+them lives, even if the stage process that took it dies.
 """
 from __future__ import annotations
 
@@ -106,13 +109,17 @@ def _holders(d):
 
 
 def _ctl(c, action):
-    r = subprocess.run(["supervisorctl", action, c["service"]], capture_output=True, text=True, timeout=180)
+    try:
+        r = subprocess.run(["supervisorctl", action, c["service"]], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as err:
+        return 125, "%s: %s" % (type(err).__name__, err)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
 def service_running(c):
+    """The service is up or on its way (supervisord RUNNING, STARTING, BACKOFF, STOPPING)."""
     _, out = _ctl(c, "status")
-    return bool(re.search(r"\b(RUNNING|STARTING)\b", out))
+    return bool(re.search(r"\b(RUNNING|STARTING|BACKOFF|STOPPING)\b", out))
 
 
 def _in_flight(c):
@@ -146,13 +153,12 @@ def _healthy(c):
 
 
 def leasable_mb(ci_root=None):
-    """GPU memory the lease can free now (gate G7_resources): holds_mb while the service runs, else 0."""
-    c = config(ci_root)
-    if not c:
-        return 0
+    """GPU memory the lease can free now (gate G7_resources): holds_mb while the service runs, else 0 (also for a
+    configuration that cannot be read: the gate then decides on the free memory alone)."""
     try:
-        return int(c.get("holds_mb", 0)) if service_running(c) else 0
-    except Exception:
+        c = config(ci_root)
+        return int(c.get("holds_mb", 0)) if c and service_running(c) else 0
+    except (Exception, SystemExit):
         return 0
 
 
@@ -176,11 +182,19 @@ def _stop(c, d):
         time.sleep(3)
 
 
+def _is_watchdog(pid):
+    try:
+        with open("/proc/%d/cmdline" % int(pid), "rb") as f:
+            return b"ci.gpu_lease" in f.read()
+    except (OSError, ValueError):
+        return _alive(pid) if not os.path.exists("/proc") else False
+
+
 def _start_watchdog(c, d):
     if not c.get("watchdog", True):                                     # tests call watch() themselves
         return
     pf = os.path.join(d, "watchdog.pid")
-    if os.path.exists(pf) and _alive(open(pf).read().strip() or -1):
+    if os.path.exists(pf) and _is_watchdog(open(pf).read().strip() or -1):
         return
     log = open(os.path.join(d, "watchdog.out"), "a")
     p = subprocess.Popen([sys.executable, "-m", "ci.gpu_lease", "watch"], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -189,26 +203,42 @@ def _start_watchdog(c, d):
         f.write(str(p.pid))
 
 
+def _register(d, name, pid):
+    with open(os.path.join(d, "holders", name + ".json"), "w") as f:
+        json.dump(dict(pid=int(pid), since=time.time()), f)
+
+
 def acquire(holder, pid=None, ci_root=None):
-    """Returns a record of what was done (for the stage report); no-op without a configuration."""
+    """Returns a record of what was done (for the stage report); no-op without a configuration. The holder and the
+    state "stopped by the lease" are recorded and the watchdog is running before the service is stopped, so a stop
+    that fails half way is still restored once the holder is gone."""
     c = config(ci_root)
     if not c:
         return dict(lease="none")
     d = _dir(ci_root)
     with _locked(d):
-        with open(os.path.join(d, "holders", holder + ".json"), "w") as f:
-            json.dump(dict(pid=int(pid or os.getpid()), since=time.time()), f)
+        _register(d, holder, pid or os.getpid())
         st = _state(d)
-        stopped_now = False
-        if service_running(c):
-            _stop(c, d)
+        running = service_running(c)
+        if running:
             st["stopped_by_lease"] = True
-            stopped_now = True
         st["last_acquire"] = time.time()
         _save_state(d, st)
         _log(d, "acquired by %s" % holder)
-    _start_watchdog(c, d)
-    return dict(lease=c["service"], stopped_now=stopped_now, gpu_used_mb_after=_gpu_used_mb())
+        _start_watchdog(c, d)
+        if running:
+            _stop(c, d)
+    return dict(lease=c["service"], stopped_now=running, gpu_used_mb_after=_gpu_used_mb())
+
+
+def add(holder, pid, ci_root=None):
+    """Register a process of the holder (a training or scoring child): the lease stays held while it lives, even if
+    the holder itself dies."""
+    c = config(ci_root)
+    if c:
+        d = _dir(ci_root)
+        with _locked(d):
+            _register(d, "%s@%d" % (holder, int(pid)), pid)
 
 
 def release(holder, ci_root=None):
@@ -217,13 +247,26 @@ def release(holder, ci_root=None):
         return
     d = _dir(ci_root)
     with _locked(d):
-        p = os.path.join(d, "holders", holder + ".json")
-        if os.path.exists(p):
-            os.remove(p)
+        hd = os.path.join(d, "holders")
+        for n in os.listdir(hd):
+            if n == holder + ".json" or n.startswith(holder + "@"):
+                os.remove(os.path.join(hd, n))
         st = _state(d)
         st["last_release"] = time.time()
         _save_state(d, st)
         _log(d, "released by %s" % holder)
+
+
+class Held(dict):
+    """The record of an acquired lease; add(pid) registers a child process of the holder."""
+
+    def __init__(self, holder, rec):
+        super().__init__(rec)
+        self.holder = holder
+
+    def add(self, pid):
+        if self.get("lease") not in (None, "none") and not str(self.get("lease", "")).startswith("not taken"):
+            add(self.holder, pid)
 
 
 @contextlib.contextmanager
@@ -231,47 +274,68 @@ def hold(holder, enabled=True):
     """The lease for the duration of a with block; enabled=False (a profile's train.gpu_lease: false, e.g. a tiny run
     that fits beside the service) records that it was not taken."""
     if not enabled:
-        yield dict(lease="not taken (train.gpu_lease: false)")
+        yield Held(holder, dict(lease="not taken (train.gpu_lease: false)"))
         return
-    rec = acquire(holder)
     try:
-        yield rec
+        rec = acquire(holder)
+    except BaseException:
+        release(holder)
+        raise
+    try:
+        yield Held(holder, rec)
     finally:
         release(holder)
 
 
 def watch(ci_root=None, poll=30, once=False):
-    """Restore the service once no live holder is left for grace_s seconds, then exit (once: one check only)."""
+    """Restore the service once no live holder is left for grace_s seconds; exit when nothing is left to restore
+    (once: a single check). A failed start is retried; a restore interrupted by a new acquire is taken up again."""
     c = config(ci_root)
     if not c:
         return
     d = _dir(ci_root)
-    while True:
-        time.sleep(poll)
-        with _locked(d):
-            hs = _holders(d)
-            st = _state(d)
-            if not hs and not st.get("stopped_by_lease"):
-                _log(d, "watchdog: nothing to restore")
-                return
-            due = not hs and time.time() - max(float(st.get("last_release", 0)), float(st.get("last_acquire", 0))) >= float(c.get("grace_s", 600))
-            if due:
-                code, out = _ctl(c, "start")
-                _log(d, "started %s (supervisorctl %d: %s)" % (c["service"], code, out))
-                st["stopped_by_lease"] = False
-                _save_state(d, st)
-        if not due:
+    pf = os.path.join(d, "watchdog.pid")
+    try:
+        while True:
+            time.sleep(poll)
+            with _locked(d):
+                hs = _holders(d)
+                st = _state(d)
+                if not hs and not st.get("stopped_by_lease"):
+                    _log(d, "watchdog: nothing to restore")
+                    return
+                due = not hs and time.time() - max(float(st.get("last_release", 0)), float(st.get("last_acquire", 0))) >= float(c.get("grace_s", 600))
+                started = False
+                if due:
+                    code, out = _ctl(c, "start")
+                    _log(d, "start %s: supervisorctl %d: %s" % (c["service"], code, out))
+                    if code == 0 or service_running(c):
+                        st["stopped_by_lease"] = False
+                        _save_state(d, st)
+                        started = True
+            if not started:
+                if once:
+                    return
+                continue
+            t0 = time.time()
+            while time.time() - t0 < float(c.get("restore_wait_s", 1200)):
+                if _healthy(c):
+                    _log(d, "%s healthy after %.0f s" % (c["service"], time.time() - t0))
+                    break
+                with _locked(d):
+                    if _state(d).get("stopped_by_lease"):                  # a run took the GPU again meanwhile
+                        break
+                time.sleep(10)
+            else:
+                _log(d, "%s not healthy after %.0f s (supervisor keeps trying)" % (c["service"], time.time() - t0))
             if once:
                 return
-            continue
-        t0 = time.time()
-        while time.time() - t0 < float(c.get("restore_wait_s", 1200)):
-            if _healthy(c):
-                _log(d, "%s healthy after %.0f s" % (c["service"], time.time() - t0))
-                return
-            time.sleep(10)
-        _log(d, "%s not healthy after %.0f s (supervisor keeps trying)" % (c["service"], time.time() - t0))
-        return
+    finally:
+        try:
+            if os.path.exists(pf) and open(pf).read().strip() == str(os.getpid()):
+                os.remove(pf)
+        except OSError:
+            pass
 
 
 def status(ci_root=None):

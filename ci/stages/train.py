@@ -343,15 +343,16 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
 SELFSUP_KEYS = ("objectives", "width", "fraction", "trim")
 
 
-def model_env(st, py):
-    """The packages of the model interpreter; they must equal ci/envs/model-torch.pip.txt (else the stage fails)."""
+def model_env(st, py, lock=MODEL_LOCK):
+    """The packages of the model interpreter; they must equal the lock (train.python_lock, default
+    ci/envs/model-torch.pip.txt), else the stage fails."""
     import subprocess
     r = subprocess.run([py, "-m", "pip", "freeze"], capture_output=True, text=True)
-    with open(st.repo(MODEL_LOCK)) as f:
+    with open(st.repo(lock)) as f:
         want = pip_lines(f.read())
     have = pip_lines(r.stdout)
     if r.returncode != 0 or have != want:
-        raise SystemExit("the model environment %s differs from %s: %s" % (py, MODEL_LOCK, sorted(set(have) ^ set(want))[:20]))
+        raise SystemExit("the model environment %s differs from %s: %s" % (py, lock, sorted(set(have) ^ set(want))[:20]))
     return have
 
 
@@ -365,25 +366,28 @@ def gpu_free_mb():
         return None
 
 
-def selfsup_confs(tc, run_dir, commit):
+def selfsup_confs(tc, run_dir, commit, has_pairs=False):
     """The configurations of the self-supervised variants (train.variants: name, seed, and optionally objectives of A,
     B1, B2, width, fraction, trim; without variants one model "main" with train.seed)."""
     base = dict(lr=float(tc["lr"]), steps=int(tc["steps"]), batch=int(tc["batch"]), eval_every=int(tc.get("eval_every", 500)),
                 ckpt_every=int(tc.get("ckpt_every", 1000)), commit=commit, max_codons=int(tc.get("max_codons", 512)),
                 hits_centre=int(tc.get("hits_centre", 32)), max_track=int(tc.get("max_track", 512)), dev_seed=int(tc.get("dev_seed", 0)),
                 width=int(tc.get("width", 128)), objectives=list(tc.get("objectives") or ["A", "B1", "B2"]), trim=float(tc.get("trim", 0.1)),
-                trim_genes=float(tc.get("trim_genes", 0.2)), source_genes=int(tc.get("source_genes", 64)), source_codons=int(tc.get("source_codons", 512)),
+                trim_genes=float(tc.get("trim_genes", 0.2)), source_genes=int(tc.get("source_genes", 64)), source_codons=int(tc.get("source_codons", 256)),
                 source_hits=int(tc.get("source_hits", 8)), b2_hits=int(tc.get("b2_hits", 8)), held_batches=int(tc.get("held_batches", 8)),
-                held_genes=int(tc.get("held_genes", 200)))
+                held_genes=int(tc.get("held_genes", 200)), c_batch=int(tc.get("c_batch", tc["batch"])), c_partners=int(tc.get("c_partners", 16)),
+                pairs_dir=os.path.join("data", "pairs"))
     variants = [dict(v) for v in tc.get("variants") or [dict(name="main", seed=int(tc["seed"]))]]
     for v in variants:
         if set(v) - {"name", "seed"} - set(SELFSUP_KEYS) or not v.get("name") or "seed" not in v:
             raise SystemExit("train.variants: each has a name and a seed, and only %s besides: %r" % (", ".join(SELFSUP_KEYS), v))
         obj = v.get("objectives", base["objectives"])
         if not re.fullmatch(r"[A-Za-z0-9._-]+", str(v["name"])) or not 0 < float(v.get("fraction", 1.0)) <= 1 or int(v.get("width", 128)) % 4 \
-                or not obj or set(obj) - {"A", "B1", "B2"} or not 0 <= float(v.get("trim", base["trim"])) < 1:
+                or not obj or set(obj) - {"A", "B1", "B2", "C"} or not 0 <= float(v.get("trim", base["trim"])) < 1:
             raise SystemExit("train.variants: a name of letters, digits, . _ -; a fraction in (0, 1]; a width divisible by 4; objectives of A, B1, "
-                             "B2; a trim in [0, 1): %r" % v)
+                             "B2, C; a trim in [0, 1): %r" % v)
+        if "C" in obj and not has_pairs:
+            raise SystemExit("train.variants: objective C needs the pairs stage (a `pairs:` block in the profile): %r" % v)
     if len({v["name"] for v in variants}) != len(variants):
         raise SystemExit("train.variants: names repeat")
     confs = []
@@ -404,8 +408,8 @@ def fit_selfsup(st, cfg, run_dir, ids_doc):
     from ci import gpu_lease
     tc = cfg["train"]
     py = tc.get("python", "/usr/local/bin/python3")
-    have = model_env(st, py)
-    base, confs = selfsup_confs(tc, run_dir, cfg["git"]["sha"])
+    have = model_env(st, py, tc.get("python_lock", MODEL_LOCK))
+    base, confs = selfsup_confs(tc, run_dir, cfg["git"]["sha"], has_pairs=bool(cfg.get("pairs")))
     script = st.repo("seeddrift/train/selfsup.py")
     alloc = str(tc.get("cuda_alloc_conf", "expandable_segments:True"))
     env = dict(os.environ, PYTHONHASHSEED="0", PYTORCH_CUDA_ALLOC_CONF=alloc)
@@ -416,7 +420,9 @@ def fit_selfsup(st, cfg, run_dir, ids_doc):
         write_json(cp, conf)
         logp = st.path("train", name + ".log")
         lg = open(logp, "a")
-        return subprocess.Popen([py, script, "fit", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT, env=env), logp, lg
+        pr = subprocess.Popen([py, script, "fit", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT, env=env)
+        lease.add(pr.pid)                                       # the lease stays held while the training lives
+        return pr, logp, lg
     with gpu_lease.hold("train-" + os.path.basename(run_dir), enabled=bool(tc.get("gpu_lease", True))) as lease:
         st.extra["gpu_lease"] = lease
         need, free = int(cfg.get("gpu_mem_min_mb", 0)), gpu_free_mb()
@@ -435,7 +441,7 @@ def fit_selfsup(st, cfg, run_dir, ids_doc):
     mid = "mdl-selfsup-v0-" + sha256_json([cfg["git"]["sha"], cfg["config_sha256"], [ids_doc["corpus_dataset"], tdi["dataset_id"]], [c["seed"] for c in confs]])[:12]
     write_json(st.path("model", "model.json"), dict(model_id=mid, kind="selfsup_v0", note="truth-labels line: development diagnosis only",
                                                   steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
-                                                  model_env_sha256=sha256_json(have), python=py, base={k: v for k, v in base.items() if k != "commit"},
+                                                  model_env_sha256=sha256_json(have), python=py, python_lock=tc.get("python_lock", MODEL_LOCK), base={k: v for k, v in base.items() if k != "commit"},
                                                   variants={c["name"]: {k: c[k] for k in ("seed", "train_fraction", "width", "objectives", "trim", "out", "logs")}
                                                             for c in confs}))
     st.output("model", os.path.join(model_dir, "model.npz"))

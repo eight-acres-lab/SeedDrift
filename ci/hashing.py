@@ -91,7 +91,7 @@ def walk(root: str, prefixes, suffixes=None):
 
 PIPELINE_FILES = ["ci/Snakefile", "ci/rules", "ci/gates", "ci/envs", "ci/profiles", "ci/stages", "ci/schemas", "ci/waivers", "configs",
                   "ci/__init__.py", "ci/__main__.py", "ci/hygiene.py", "ci/hashing.py", "ci/manifest.py", "ci/record.py", "ci/taxonomy.py",
-                  "ci/kingdom.py", "ci/VERSION", "seeddrift/train", "bench/hard/EXCLUDE.tsv", "bench/islands/composition.py"]
+                  "ci/kingdom.py", "ci/gpu_lease.py", "ci/VERSION", "seeddrift/train", "bench/hard/EXCLUDE.tsv", "bench/islands/composition.py"]
 
 
 def pipeline_hash(root: str) -> str:

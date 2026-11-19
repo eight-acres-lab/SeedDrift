@@ -99,3 +99,52 @@ def test_dead_holder_is_dropped(tmp_path, monkeypatch):
     gpu_lease.watch(poll=0)
     assert (tmp_path / "svc").read_text().strip() == "RUNNING"
     assert gpu_lease.status()["holders"] == []
+
+
+def test_a_live_child_keeps_the_lease_after_its_holder_died(tmp_path, monkeypatch):
+    monkeypatch.setenv("CI_ROOT", str(tmp_path))
+    monkeypatch.setenv("PATH", str(_fake(tmp_path)) + os.pathsep + os.environ["PATH"])
+    _config(tmp_path)
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait()
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        gpu_lease.acquire("run", pid=dead.pid)
+        gpu_lease.add("run", child.pid)
+        gpu_lease.watch(poll=0, once=True)
+        assert (tmp_path / "svc").read_text().strip() == "STOPPED"     # the training child still runs
+    finally:
+        child.kill()
+        child.wait()
+    gpu_lease.watch(poll=0)
+    assert (tmp_path / "svc").read_text().strip() == "RUNNING"
+
+
+def test_a_failed_start_is_retried(tmp_path, monkeypatch):
+    monkeypatch.setenv("CI_ROOT", str(tmp_path))
+    bin_dir = _fake(tmp_path)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    _config(tmp_path)
+    gpu_lease.acquire("r1")
+    gpu_lease.release("r1")
+    good = (bin_dir / "supervisorctl").read_text()
+    (bin_dir / "supervisorctl").write_text(good.replace("start) echo RUNNING > %s/svc; echo \"$2: started\";;" % tmp_path,
+                                                        "start) echo \"$2: ERROR (spawn error)\"; exit 7;;"))
+    gpu_lease.watch(poll=0, once=True)
+    assert (tmp_path / "svc").read_text().strip() == "STOPPED" and gpu_lease.status()["state"]["stopped_by_lease"]
+    (bin_dir / "supervisorctl").write_text(good)
+    gpu_lease.watch(poll=0)
+    assert (tmp_path / "svc").read_text().strip() == "RUNNING" and not gpu_lease.status()["state"]["stopped_by_lease"]
+
+
+def test_backoff_counts_as_running(tmp_path, monkeypatch):
+    monkeypatch.setenv("CI_ROOT", str(tmp_path))
+    monkeypatch.setenv("PATH", str(_fake(tmp_path, state="BACKOFF")) + os.pathsep + os.environ["PATH"])
+    _config(tmp_path)
+    assert gpu_lease.acquire("r1")["stopped_now"] and (tmp_path / "svc").read_text().strip() == "STOPPED"
+
+
+def test_unreadable_configuration_counts_nothing_as_leasable(tmp_path):
+    (tmp_path / "host").mkdir()
+    (tmp_path / "host" / "gpu_lease.json").write_text("{not json")
+    assert gpu_lease.leasable_mb(str(tmp_path)) == 0

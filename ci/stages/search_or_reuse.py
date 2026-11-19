@@ -11,6 +11,7 @@ within the 32 nearest rows, 3 in the number of reported targets), so per-genome 
               manifest) are equal takes that run's hit file; ci/stages/search.py searches only the others, plus
               `reuse_check` (default 2) of the reused genomes (the smallest), whose new hit files must equal the reused
               ones byte for byte, or the stage fails (which, by the measurement above, it usually will)
+With `search.reuse_required: true` a run whose key matches no candidate fails instead of searching.
 Every linked file is checked against its sha256 in the source run's manifest. The stage report records where each part
 came from. Otherwise (no candidate, or any difference) search.py runs as usual; this wrapper lives in its own module so
 that search.py, whose checksum is part of the key, stays unchanged.
@@ -38,7 +39,7 @@ def _sha(run, name):
 def key(run, search_cfg, code_path):
     with open(os.path.join(run, "record.json")) as f:
         rec = json.load(f)
-    sc = {k: v for k, v in (search_cfg or {}).items() if k not in ("reuse_from", "reuse_check", "reuse_per_genome")}    # how to reuse, not what to search
+    sc = {k: v for k, v in (search_cfg or {}).items() if k not in ("reuse_from", "reuse_check", "reuse_per_genome", "reuse_required")}    # how to reuse, not what to search
     return dict(corpus=_sha(run, "corpus"), eval_inputs=_sha(run, "eval_inputs"), reference=_sha(run, "reference"), search=sha256_json(sc),
                 code=sha256_file(code_path, use_sidecar=False), diamond=(rec.get("env_snapshot") or {}).get("diamond_version.txt"))
 
@@ -117,6 +118,9 @@ def main():
             st.output("hits_manifest", mp)
             st.extra.update(reused_from=os.path.basename(cand), reuse_key=ours, genomes=len(man["entries"]))
         return
+    if cfg["search"].get("reuse_required"):                      # a profile that must not search (its machine cannot)
+        diffs = {os.path.basename(c): sorted(k for k in ours if ck.get(k) != ours[k]) for c, ck in cands}
+        raise SystemExit("search.reuse_required: no run of search.reuse_from has this search's key; differing parts per candidate: %s" % (diffs or "no candidate"))
     if not cfg["search"].get("reuse_per_genome"):
         search.main()
         return

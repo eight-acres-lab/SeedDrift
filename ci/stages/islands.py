@@ -14,13 +14,16 @@ data   Only accessions of the development list; a sealed accession, or one outsi
        (ids, coordinates; the record is parsed the way bench/islands/labels.py parses it and must give the same table),
        proteins and coding sequences from the GenBank record, the taxid from the record. One DIAMOND search of all
        their proteins against the run's reference database (checked against the reference dataset) with the settings
-       of the profile's search; the proteomes of the chromosome's view (V1: the benchmark's hidden_<acc>.tsv, measured
-       closeness; plus its own taxid and genus) are dropped before the nearest rows are chosen (hiding at search time,
-       not a filter on a stored list). Then the model's arrays (train_data.one_genome) and data/islands/index.json.
-score  The model scores with source_model's loader and selfsup.score_genomes; no label file is opened. The comparators
-       of this line, from the same arrays: cmp_codon (divergence of the gene's codon frequencies from the rest of the
-       chromosome), cmp_gc3 (|GC3 of the gene - GC3 of the rest|), cmp_hits (minus the visible hit rows), cmp_short
-       (minus the gene's codons). The model must beat them; they are not the other line's comparators.
+       of the profile's search, but a list of islands.max_target_seqs (default 4,000) targets per gene, as long as the
+       benchmark's own V1 views; the proteomes of the chromosome's view (V1: the benchmark's hidden_<acc>.tsv, measured
+       closeness; plus its own taxid and genus) are dropped from that list before the nearest rows are chosen. Genes
+       whose list was full and lost every row to the view are counted (a truncation the view cannot undo). Then the
+       model's arrays (train_data.one_genome) and data/islands/index.json.
+score  The model scores with selfsup.score_genomes; no label file is opened. The comparators of this line, from the
+       same arrays: cmp_codon (divergence of the gene's codon frequencies from the rest of the chromosome), cmp_gc3
+       (|GC3 of the gene - GC3 of the rest|), cmp_hits (minus the tracked hit rows under the V1 view), cmp_short (minus
+       the gene's codons). The model must beat them; they are not the other line's comparators. (The model also hides
+       its panel genomes' genera, which these comparators do not know of.)
 report bench/hard/evaluate.py (gated labels, units by genus, the registered metrics) on every score; this line's
        contrasts (each model score against each comparator, paired over units) from its per-chromosome results.
 """
@@ -148,7 +151,7 @@ def do_data(run_dir):
         os.replace(q + ".part", q)
         keep = int(sc.get("keep_sseq", 0))
         cmd = [cfg["tools"]["diamond"], "blastp", "-q", q, "-d", db, "-o", "/dev/stdout", "--" + sc.get("sensitivity", "sensitive"),
-               "--max-target-seqs", str(sc.get("max_target_seqs", 1000)), "--max-hsps", "1", "-e", str(sc.get("evalue", 1e-5)),
+               "--max-target-seqs", str(ic.get("max_target_seqs", 4000)), "--max-hsps", "1", "-e", str(sc.get("evalue", 1e-5)),
                "--threads", str(ic.get("threads", sc.get("threads", 2))), "-b", str(sc.get("block_size", 4)), "-c", "1",
                "--tmpdir", os.environ.get("TMPDIR", "/tmp"), "--quiet", "--outfmt", "6"] + FIELDS + (["sseq"] if keep else [])
         hits_dir = os.path.join(base, "hits")
@@ -189,6 +192,23 @@ def do_data(run_dir):
         for g in genomes:
             if g["id"] not in done:
                 flush(os.path.join(hits_dir, g["id"] + ".npz"), gene_ids(folders[g["id"]]), {}, {}, genus_of_prot, sc.get("nearest", 32), keep)
+        cap = int(ic.get("max_target_seqs", 4000))
+        for g in genomes:                                                  # full lists that the view emptied
+            h = np.load(os.path.join(hits_dir, g["id"] + ".npz"))
+            g["full_and_emptied"] = int(np.sum((h["nraw"].astype(np.int64) >= min(cap, 65535)) & (np.diff(h["off"]) == 0)))
+        if cfg.get("pairs"):                                              # objective C: the chromosomes against the corpus
+            from ci.stages import pairs as P
+            pdir = os.path.join(base, "pairs")
+            os.makedirs(pdir, exist_ok=True)
+            with open(os.path.join(run_dir, "data", "pairs", "genomes.json")) as f:
+                order = json.load(f)["genomes"]
+            corpus_dirs = dict(P.corpus(run_dir))
+            names = {g: gene_ids(corpus_dirs[g]) for g in order}
+            P.search(cfg["tools"]["diamond"], q, os.path.join(run_dir, "data", "pairs", "db.dmnd"), dict(cfg["pairs"], threads=ic.get("threads", 2)),
+                     {g: i for i, g in enumerate(order)}, {g: {n: i for i, n in enumerate(v)} for g, v in names.items()},
+                     {g["id"]: gene_ids(folders[g["id"]]) for g in genomes}, pdir, own=False)
+            for g in genomes:
+                g["pairs"] = os.path.relpath(os.path.join(pdir, g["id"] + ".npz"), run_dir)
         os.remove(q)
         entries = []
         arr_dir = os.path.join(base, "train_data")
@@ -200,8 +220,10 @@ def do_data(run_dir):
             save_npz(path, compress=True, **arrays)
             g.update(path=os.path.relpath(path, run_dir), tracked_hits=n_hits, hidden_rows_dropped=dropped.get(g["id"], 0))
             entries.append(dict(id=g["id"], files=[M.file_entry(os.path.join(folders[g["id"]], n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
-                                + [M.file_entry(os.path.join(hits_dir, g["id"] + ".npz"), run_dir), M.file_entry(path, run_dir)]))
-        man = M.build("islands", "islands", entries, meta=dict(reference=ref["sha256"], search={k: sc.get(k) for k in ("sensitivity", "max_target_seqs", "evalue", "nearest", "keep_sseq")},
+                                + [M.file_entry(os.path.join(hits_dir, g["id"] + ".npz"), run_dir), M.file_entry(path, run_dir)]
+                                + ([M.file_entry(os.path.join(run_dir, g["pairs"]), run_dir)] if g.get("pairs") else [])))
+        man = M.build("islands", "islands", entries, meta=dict(reference=ref["sha256"], search=dict({k: sc.get(k) for k in ("sensitivity", "evalue", "nearest", "keep_sseq")},
+                                                                                                       max_target_seqs=cap),
                                                                 views=ic.get("views", "dev24_v/genus")))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         write_json(os.path.join(base, "manifest.json"), dict(sha256=sha, dataset_id=M.dataset_id(man), **man))
@@ -209,7 +231,8 @@ def do_data(run_dir):
         write_json(ip, dict(genomes=genomes, dataset_id=M.dataset_id(man)))
         st.output("islands_index", ip)
         st.output("islands_manifest", os.path.join(base, "manifest.json"))
-        st.extra.update(chromosomes=len(genomes), genes=sum(g["genes"] for g in genomes), hidden_rows_dropped=sum(dropped.values()))
+        st.extra.update(chromosomes=len(genomes), genes=sum(g["genes"] for g in genomes), hidden_rows_dropped=sum(dropped.values()),
+                        full_lists_emptied_by_the_view=sum(g["full_and_emptied"] for g in genomes))
 
 
 def comparators(gen):
@@ -252,8 +275,8 @@ def do_score(run_dir):
         from seeddrift.train import source_model as S
         tc = cfg["train"]
         py = tc.get("python", "/usr/local/bin/python3")
-        model_env(st, py)
-        _, confs = selfsup_confs(tc, run_dir, cfg["git"]["sha"])
+        model_env(st, py, tc.get("python_lock", "ci/envs/model-torch.pip.txt"))
+        _, confs = selfsup_confs(tc, run_dir, cfg["git"]["sha"], has_pairs=bool(cfg.get("pairs")))
         base = os.path.join(run_dir, "data", "islands")
         with open(os.path.join(base, "index.json")) as f:
             idx = json.load(f)
@@ -266,9 +289,11 @@ def do_score(run_dir):
                 cp = st.path("islands", "score-%s.json" % c["name"])
                 write_json(cp, conf)
                 with open(st.path("islands", "score-%s.log" % c["name"]), "w") as lg:
-                    r = subprocess.run([py, script, "genomes", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT, env=env)
-                if r.returncode != 0:
-                    raise SystemExit("scoring the islands with variant %s failed (exit %d); see %s" % (c["name"], r.returncode, cp[:-5] + ".log"))
+                    pr = subprocess.Popen([py, script, "genomes", run_dir, cp], stdout=lg, stderr=subprocess.STDOUT, env=env)
+                    lease.add(pr.pid)
+                    rc = pr.wait()
+                if rc != 0:
+                    raise SystemExit("scoring the islands with variant %s failed (exit %d); see %s" % (c["name"], rc, cp[:-5] + ".log"))
         n_genes = 0
         for g in idx["genomes"]:
             names = gene_ids(os.path.join(run_dir, g["folder"]))
@@ -279,7 +304,8 @@ def do_score(run_dir):
                     raise SystemExit("islands: the scores of %s (%s) do not cover its genes in order" % (g["id"], c["name"]))
                 d = os.path.join(base, "scores", c["name"])
                 os.makedirs(d, exist_ok=True)
-                write_scores(os.path.join(d, "scores_%s.tsv" % g["id"]), names, {"%s_%s" % (c["name"], k): z[k] for k in ("A", "B1", "B2", "comb") if k in z.files})
+                write_scores(os.path.join(d, "scores_%s.tsv" % g["id"]), names, {"%s_%s" % (c["name"], k): z[k] for k in ("A", "B1", "B2", "C", "comb")
+                                                                                    if k in z.files and k in set(c["objectives"]) | {"comb"}})
             gen = S.Genome(dict(id=g["id"], taxid=g["taxid"], ranks=g["ranks"], group=g["group"]), os.path.join(run_dir, g["path"]))
             d = os.path.join(base, "scores", "comparators")
             os.makedirs(d, exist_ok=True)
@@ -292,10 +318,9 @@ def do_score(run_dir):
 
 def contrasts(per, units, methods, comps):
     """Paired over units: for every model score and comparator, the mean difference of the unit means of a metric with a
-    t-interval (95%) and the sign-flip p over units (exact)."""
-    from itertools import product
-    import math
-    tq = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228}
+    t-interval (95%) and the sign-flip p over units (bench/hard/metrics.py, as the benchmark's evaluator)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "bench", "hard"))
+    import metrics as BM
     out = []
     for metric in ("r1", "auroc"):
         for a in methods:
@@ -308,13 +333,8 @@ def contrasts(per, units, methods, comps):
                         d.append(float(np.mean(va)) - float(np.mean(vb)))
                 if not d:
                     continue
-                d = np.array(d)
-                n, mean = len(d), float(d.mean())
-                se = float(d.std(ddof=1) / math.sqrt(n)) if n > 1 else float("nan")
-                t = tq.get(n - 1, 2.0)
-                signs = [np.array(s) for s in product((1, -1), repeat=n)]
-                p = float(np.mean([abs((s * d).mean()) >= abs(mean) - 1e-12 for s in signs]))
-                out.append(dict(metric=metric, a=a, b=b, n_units=n, mean=mean, lo=mean - t * se, hi=mean + t * se, p_signflip=p, per_unit=d.tolist()))
+                mean, lo, hi = BM.t_interval(d)
+                out.append(dict(metric=metric, a=a, b=b, n_units=len(d), mean=mean, lo=lo, hi=hi, p_signflip=BM.sign_flip_p(d), per_unit=list(d)))
     return out
 
 
@@ -346,7 +366,10 @@ def do_report(run_dir):
                 continue
             per[acc] = dict(gated, _unit=res["units"][acc])
         units = sorted({v["_unit"] for v in per.values()})
-        model_cols = ["%s_%s" % (v, k) for v in sj["variants"] for k in ("A", "B1", "B2", "comb")]
+        model_cols = []                                                    # the columns the variants have (their objectives)
+        for v in sj["variants"]:
+            with open(os.path.join(base, "scores", v, "scores_%s.tsv" % sj["chromosomes"][0])) as f:
+                model_cols += f.readline().rstrip("\n").split("\t")[1:]
         rows = contrasts(per, units, model_cols, list(COMPARATORS)) + contrasts(per, units, [m + "_nb" for m in model_cols], [c + "_nb" for c in COMPARATORS])
         table = {}
         for acc, v in per.items():

@@ -1,6 +1,6 @@
 # Machine i-2 (needs its CUDA Python, train.python): pipeline selfsup of the truth-labels line on the CI fixture, end to
-# end in minutes: corpus, search, training data, three variants of the self-supervised model (A+B1+B2, A, B1+B2), the
-# held-out diagnosis and gate G4_selfsup. No island chromosomes. The GPU lease is not taken (the tiny model fits beside
+# end in minutes: corpus, search, the corpus against itself (pairs), training data, four variants of the
+# self-supervised model (A+B1+B2+C, A, B1+B2, C), the held-out diagnosis and gate G4_selfsup. No island chromosomes. The GPU lease is not taken (the tiny model fits beside
 # the machine's other service). Development diagnosis only.
 pipeline: selfsup
 tier: tiny
@@ -25,16 +25,21 @@ search:
   block_size: 1
   nearest: 32
   keep_sseq: 32
+pairs:
+  threads: 2
+  block_size: 1
 train:
   model: selfsup_v0
   python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt
   gpu_lease: false
   seed: 1
   variants:
-    - {name: abc-s1, seed: 1}
+    - {name: all-s1, seed: 1, objectives: [A, B1, B2, C]}
     - {name: a-s1, seed: 1, objectives: [A]}
     - {name: b-s1, seed: 1, objectives: [B1, B2]}
-  parallel: 3
+    - {name: c-s1, seed: 1, objectives: [C]}
+  parallel: 4
   steps: 40
   batch: 8
   lr: 3.0e-4

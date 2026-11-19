@@ -40,6 +40,7 @@ rule search_all:
 # development island chromosomes (prepared and searched beside the training, scored after it); no released screen and
 # no scenario report (pipeline train)
 ISLANDS = bool(config.get("islands"))
+PAIRS = bool(config.get("pairs"))                         # objective C: the corpus searched against itself
 
 rule selfsup_all:
     input:
@@ -49,8 +50,15 @@ rule selfsup_all:
         "data/model/model.npz",
 
 
+rule pairs:
+    input: "gates/corpus.ok"
+    output: "data/pairs/manifest.json"
+    resources: diamond=1
+    shell: STAGE.format(name="pairs")
+
+
 rule islands_data:
-    input: "gates/pre.ok", "data/reference/manifest.json"
+    input: ["gates/pre.ok", "data/reference/manifest.json"] + (["data/pairs/manifest.json"] if PAIRS else [])
     output: "data/islands/index.json"
     resources: diamond=1
     shell: STAGE.format(name="islands") + " data"
@@ -178,7 +186,7 @@ rule train_data:
 
 
 rule train:
-    input: "gates/train.ok", "data/hits/manifest.json", "data/train_data/index.json"
+    input: ["gates/train.ok", "data/hits/manifest.json", "data/train_data/index.json"] + (["data/pairs/manifest.json"] if config.get("pairs") else [])
     output: "data/model/model.npz"
     resources: gpu=1
     shell: STAGE.format(name="train") + " fit"

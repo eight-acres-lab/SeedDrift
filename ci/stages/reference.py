@@ -93,8 +93,8 @@ def cached_tables(st, faa, out, lib):
 def tables_from(st, cfg, run_dir):
     """config reference.tables_from (a run directory, absolute or under <data_root>/runs): that run's reference dataset
     as it is, for a machine that holds the DIAMOND database but not the FASTA. Its manifest must hash to its recorded
-    sha256 and name the profile's FASTA and database paths; its two tables are copied after checking them against that
-    run's stage record. The files of the dataset are checked here where they exist (with their size-and-time sidecars);
+    sha256 and name the profile's FASTA and database paths, the taxonomy must hash as that run's, and its two tables are
+    copied after checking them against that run's stage record. The files of the dataset are checked here where they exist (with their size-and-time sidecars);
     a search needs the database (the search stage and the island stage use it from the manifest)."""
     src = cfg["tables_from"]
     src = src if os.path.isabs(src) else os.path.join(st.config["data_root"], "runs", src)
@@ -115,6 +115,10 @@ def tables_from(st, cfg, run_dir):
             present[p] = True
         else:
             present[p] = False
+    with open(os.path.join(src, "record.json")) as f:
+        theirs = json.load(f).get("taxdump_sha256")
+    if theirs != taxdump_hash(st.config["taxdump"]):
+        raise SystemExit("reference.tables_from: the taxonomy differs from that of %s (the tables carry its lineages)" % src)
     with open(os.path.join(src, "stages", "reference.json")) as f:
         rec = {o["name"]: o for o in json.load(f)["outputs"]}
     for name in ("index", "library"):

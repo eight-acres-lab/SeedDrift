@@ -244,7 +244,24 @@ def test_search_pipeline_stops_after_the_search_with_its_gates():
     assert "model" not in block and "report" not in block                # no training, no evaluation
     # every gate the search pipeline requires is one the train pipeline requires too (the same phases decide them)
     assert set(p["required"]) <= set(REQUIRED_GATES) and {"G1_corpus", "G2_corpus", "G2_holdout", "G3"} <= set(p["required"])
-    assert {k for k, _ in p["resume"]} == {"pre", "corpus", "eval"} and set(PIPELINES) == {"train", "select", "search"}
+    assert {k for k, _ in p["resume"]} == {"pre", "corpus", "eval"} and set(PIPELINES) == {"train", "select", "search", "selfsup"}
+
+
+def test_selfsup_pipeline_has_its_own_report_and_gates():
+    """Pipeline selfsup (truth-labels line): every gate of pipeline train but the scenario report G4, plus G3_islands
+    and G4_selfsup; its target is its own report gate and the model, never the released screen or the eval stage."""
+    import os
+    import re
+    from ci.__main__ import REQUIRED_GATES, pipeline
+    from ci.stages.gates import pipeline_of
+    p = pipeline({"pipeline": "selfsup"})
+    assert p["target"] == "selfsup_all" and pipeline_of({"pipeline": "selfsup"}) == "selfsup"
+    assert set(p["required"]) == (set(REQUIRED_GATES) - {"G4"}) | {"G3_islands", "G4_selfsup"}
+    assert {k for k, _ in p["resume"]} == {"pre", "corpus", "train", "eval", "islands", "selfsup"}
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "ci", "Snakefile")) as f:
+        snake = f.read()
+    block = re.search(r"rule selfsup_all:\n    input:\n((?:        .+\n)+)", snake).group(1)
+    assert "gates/selfsup.ok" in block and "data/model/model.npz" in block and "released" not in block and "eval_report" not in block
 
 
 def test_species_without_genus_are_not_pooled():

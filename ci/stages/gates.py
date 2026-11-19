@@ -86,24 +86,43 @@ def pipeline_of(cfg):
 
 
 def phase_islands(st, cfg, run_dir):
-    """G3_islands (pipeline selfsup): the island chromosomes of the run are development chromosomes only (listed in
-    bench/islands/results/dev_genomes.tsv, none in bench/hard/results/sealed.tsv), and no sealed accession occurs in
-    the island index, the island manifest or the gene tables written for them."""
+    """G3_islands (pipeline selfsup): the island chromosomes are development chromosomes only (listed in
+    bench/islands/results/dev_genomes.tsv, none in bench/hard/results/sealed.tsv), no sealed accession occurs (with or
+    without version, any case, inside composite names: the scanner of gate G3) in the island index, manifest or gene
+    tables, and no training-corpus genome shares an island chromosome's genus (the island chromosomes are new to the
+    model at genus level). Proteins identical between an island chromosome and the corpus are counted (a real shared
+    gene is not a leak; the count is reported)."""
     import csv
+    from ci.gates import g3_sealed
     with open(os.path.join(run_dir, "data", "islands", "index.json")) as f:
         idx = json.load(f)
-    with open(st.repo("bench/hard/results/sealed.tsv")) as f:
-        sealed = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    sealed = g3_sealed.load_sealed(st.repo("bench/hard/results/sealed.tsv"))
     with open(st.repo("bench/islands/results/dev_genomes.tsv")) as f:
         dev = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
     accs = [g["id"] for g in idx["genomes"]]
-    problems = [dict(accession=a, error="sealed" if a in sealed else "not a development chromosome") for a in accs if a in sealed or a not in dev]
+    sealed_acc = {a for a, _ in sealed}
+    problems = [dict(accession=a, error="sealed" if a in sealed_acc else "not a development chromosome") for a in accs if a in sealed_acc or a not in dev]
     files = [os.path.join(run_dir, "data", "islands", n) for n in ("index.json", "manifest.json")] + \
         [os.path.join(run_dir, g["folder"], "genes.tsv") for g in idx["genomes"]]
-    for p in files:
-        text = open(p).read()
-        problems += [dict(file=os.path.relpath(p, run_dir), sealed_accession=a) for a in sorted(sealed) if a in text]
-    require(GateResult("G3_islands", "fail" if problems else "pass", dict(chromosomes=accs, problems=problems[:50])), run_dir)
+    found = g3_sealed._scan(files, g3_sealed._pattern(sealed))
+    problems += [dict(file=k, sealed_accessions=v) for k, v in sorted(found.items())]
+    tax = Taxonomy(st.repo(cfg["taxdump"]))
+    corpus = _manifest(run_dir, "corpus")["entries"]
+    genera = {}
+    for e in corpus:
+        g = tax.at_rank(int(e["taxid"]), "genus")
+        if g:
+            genera.setdefault(g, []).append(e["id"])
+    shared = 0
+    corpus_prot = set()
+    for e in corpus:
+        corpus_prot |= {h for n, h in _seq_hashes(os.path.join(run_dir, "data", "corpus", e["id"]), ("proteins.faa",))}
+    for g in idx["genomes"]:
+        gg = g["ranks"][4]
+        if gg and gg in genera:
+            problems.append(dict(accession=g["id"], error="corpus genomes of the same genus", genomes=genera[gg][:10]))
+        shared += len({h for n, h in _seq_hashes(os.path.join(run_dir, g["folder"]), ("proteins.faa",))} & corpus_prot)
+    require(GateResult("G3_islands", "fail" if problems else "pass", dict(chromosomes=accs, identical_proteins_with_corpus=shared, problems=problems[:50])), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False) for p in files])
 
 
@@ -139,7 +158,10 @@ def phase_selfsup(st, cfg, run_dir):
                 problems.append(dict(error="a sealed chromosome was scored or evaluated"))
             if not isl.get("contrasts"):
                 problems.append(dict(error="no contrasts on the island chromosomes"))
-            for name in rep.get("variants") or {}:
+            # every gene scored by A; B1 for at least 90% of a chromosome's genes (a gene of unknown or synonym-free
+            # codons only has none); B2, C and the combination for at least one gene (B2 needs visible hits, C a partner)
+            for name, v in (rep.get("variants") or {}).items():
+                want = ["%s_%s" % (name, k) for k in list(v.get("objectives") or []) + ["comb"]]
                 d = os.path.join(run_dir, "data", "islands", "scores", name)
                 for acc in isl.get("chromosomes") or []:
                     sp = os.path.join(d, "scores_%s.tsv" % acc)
@@ -148,12 +170,15 @@ def phase_selfsup(st, cfg, run_dir):
                         continue
                     with open(sp) as f:
                         head = f.readline().rstrip("\n").split("\t")
-                        for line in f:
-                            cells = dict(zip(head, line.rstrip("\n").split("\t")))
-                            empty = [k for k, x in cells.items() if k != "gene_id" and x == "" and not k.endswith("_B2") and not k.endswith("_comb")]
-                            if empty:
-                                problems.append(dict(variant=name, accession=acc, gene=cells.get("gene_id"), error="unscored: %s" % empty))
-                                break
+                        rows = [line.rstrip("\n").split("\t") for line in f]
+                    if sorted(head[1:]) != sorted(want):
+                        problems.append(dict(variant=name, accession=acc, error="columns %s, the objectives give %s" % (head[1:], want)))
+                        continue
+                    for k, col in enumerate(head[1:], 1):
+                        share = sum(1 for r in rows if r[k] != "") / max(len(rows), 1)
+                        need = 1.0 if col.endswith("_A") else 0.9 if col.endswith("_B1") else 1e-9
+                        if share < need:
+                            problems.append(dict(variant=name, accession=acc, column=col, scored_share=round(share, 4), error="too few genes scored"))
     require(GateResult("G4_selfsup", "fail" if problems else "pass", dict(problems=problems[:50])), run_dir)
     return sha256_file(p, use_sidecar=False)
 

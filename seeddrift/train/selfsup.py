@@ -940,7 +940,8 @@ def fit(run_dir, cfg):
 
 def score(run_dir, cfg, model=None, data=None):
     """Every gene (up to held_genes per genome) of the held-out genomes, own genus hidden, against the panel:
-    data/model/heldout_scores.npz and heldout_summary.json (diagnosis only)."""
+    heldout_scores.npz and heldout_summary.json (diagnosis only) in the model's folder (cfg out), or in cfg score_out
+    when given (a recomputation that must not replace the model's own scores)."""
     import torch
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data = data or load_data(run_dir, cfg)
@@ -961,7 +962,7 @@ def score(run_dir, cfg, model=None, data=None):
             cols[k].append(r[k])
         keys += [gid] * len(sel)
         genes.append(r["gene"])
-    model_dir = os.path.join(run_dir, cfg.get("out") or os.path.join("data", "model"))
+    model_dir = os.path.join(run_dir, cfg.get("score_out") or cfg.get("out") or os.path.join("data", "model"))
     os.makedirs(model_dir, exist_ok=True)
     arrays = {k: (np.concatenate(v) if v else np.zeros(0)) for k, v in cols.items()}
     save_npz(os.path.join(model_dir, "heldout_scores.npz"), genome=np.array(keys, dtype="S"), gene=np.concatenate(genes) if genes else np.zeros(0, np.int64), **arrays)

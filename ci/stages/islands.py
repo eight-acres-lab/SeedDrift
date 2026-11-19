@@ -318,7 +318,7 @@ def do_score(run_dir):
     with Stage(run_dir, "islands_score", requires=("pre", "islands")) as st:
         cfg = st.config
         from ci import gpu_lease
-        from ci.stages.train import model_env, selfsup_confs
+        from ci.stages.train import model_env, selfsup_confs, selfsup_env
         from seeddrift.train import source_model as S
         tc = cfg["train"]
         py = tc.get("python", "/usr/local/bin/python3")
@@ -327,7 +327,8 @@ def do_score(run_dir):
         base = os.path.join(run_dir, "data", "islands")
         with open(os.path.join(base, "index.json")) as f:
             idx = json.load(f)
-        env = dict(os.environ, PYTHONHASHSEED="0", PYTORCH_CUDA_ALLOC_CONF=str(tc.get("cuda_alloc_conf", "expandable_segments:True")))
+        env = selfsup_env(tc)                                              # train.device cpu: the GPUs hidden
+        st.extra["device"] = tc.get("device", "auto")
         script = st.repo("seeddrift/train/selfsup.py")
         with gpu_lease.hold("islands-" + os.path.basename(run_dir), enabled=bool(tc.get("gpu_lease", True))) as lease:
             st.extra["gpu_lease"] = lease

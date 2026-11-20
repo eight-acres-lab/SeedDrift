@@ -17,7 +17,8 @@ For every score s (higher = more foreign; NaN = not scored) on the gated labels 
   matched_auroc    natives reweighted to the islands' joint distribution of length and homolog count (coarsened exact
                    matching per chromosome): a homolog-counting or length score falls to about 0.5 (benchmark v2,
                    family A); matched_positives_kept is the share of islands with a matching native cell
-  accessory_auroc  islands against genus-accessory genes outside islands (orthologue share <= 0.5, no published label):
+  accessory_auroc  islands against genus-accessory genes outside islands (orthologue share <= 0.5, published "none";
+                   before 2026-11-20 evening the published-backbone and "both" genes of that share were let in too):
                    a noisy negative (some are unlabelled transfers or losses), for sensitivity only
 """
 from __future__ import annotations

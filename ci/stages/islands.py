@@ -645,7 +645,9 @@ def island_table(dirs, store, per, units_of):
         hits = t["cols"].get("e5_n_rows", -np.asarray(t["cols"]["cmp_hits"], float))     # the sign does not matter for the cells
         t["match"] = [np.log(np.maximum(length, 1)), np.asarray(hits, float)]
         f = np.array([float(rows[g]["f"]) if g in rows and rows[g].get("f") not in (None, "") else np.nan for g in t["names"]])
-        t["accessory"] = np.array([g in rows and rows[g]["class"] == "unresolved" and (rows[g].get("label") or "none") == "none" for g in t["names"]]) & (f <= 0.5)
+        # genus-accessory genes outside islands with no published label: class unresolved, published "none" (the label
+        # column is "none" for every unresolved gene, so it would let published-backbone and "both" genes in), f <= 0.5
+        t["accessory"] = np.array([g in rows and rows[g]["class"] == "unresolved" and (rows[g].get("published") or "none") == "none" for g in t["names"]]) & (f <= 0.5)
         t["start"] = np.array([float(rows[g]["start"]) if g in rows else np.nan for g in t["names"]])
     return table, units, e5
 

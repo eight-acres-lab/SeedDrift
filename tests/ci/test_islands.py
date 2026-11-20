@@ -295,3 +295,23 @@ def test_matched_auroc_removes_a_covariate_and_keeps_an_independent_signal():
     assert abs(PR.weighted_auroc(cov[y == 1][kp], cov[y == 0], w) - 0.5) < 0.06
     assert PR.weighted_auroc(sig[y == 1][kp], sig[y == 0], w) > 0.75
     assert abs(PR.weighted_auroc(sig[y == 1], sig[y == 0], np.ones((y == 0).sum())) - PR.auroc(sig[y == 1], sig[y == 0])) < 1e-12
+
+
+def test_accessory_negatives_are_unpublished_genes_only(tmp_path):
+    """The accessory view's negatives: class unresolved, published "none", f <= 0.5. The label column is "none" for every
+    unresolved gene, so a published-backbone or "both" gene of low orthologue share must not enter."""
+    store = tmp_path / "store"
+    (store / "labels_panel").mkdir(parents=True)
+    rows = [("g1", "island", "island", "0.2"), ("g2", "native", "backbone", "1.0"), ("g3", "unresolved", "none", "0.3"),
+            ("g4", "unresolved", "backbone", "0.3"), ("g5", "unresolved", "both", "0.1"), ("g6", "unresolved", "none", "0.7")]
+    head = "gene_id\tcontig\tstart\tend\tstrand\tlabel\tregion\tproduct\tclass\tpublished\tf\n"
+    (store / "labels_panel" / "NC_1.tsv").write_text(head + "".join(
+        "%s\t0\t%d\t%d\t+\t%s\t\t\t%s\t%s\t%s\n" % (g, 100 * i, 100 * i + 90, "island" if c == "island" else "backbone" if c == "native" else "none", c, p, f)
+        for i, (g, c, p, f) in enumerate(rows)))
+    sd = tmp_path / "scores"
+    sd.mkdir()
+    (sd / "scores_NC_1.tsv").write_text("gene_id\tcmp_hits\n" + "".join("%s\t-%d\n" % (g, i) for i, (g, _, _, _) in enumerate(rows)))
+    table, units, _ = I.island_table([str(sd)], str(store), {"NC_1": {}}, {"NC_1": "U"})
+    t = table["NC_1"]
+    assert [g for g, a in zip(t["names"], t["accessory"]) if a] == ["g3"]
+    assert list(t["y"]) == [1, 0, -1, -1, -1, -1] and list(t["start"]) == [0.0, 100.0, 200.0, 300.0, 400.0, 500.0]

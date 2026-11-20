@@ -263,3 +263,20 @@ def test_protocol_measures_what_known_features_leave():
     sp = PR.spearman_matrix(table, ["copy", "new", "cmp_gc3"])
     assert PR.collapsed(sp, ["copy", "new"], ["cmp_gc3"]) == {"copy": ["cmp_gc3"]}
     assert PR.auroc([1.0, np.nan], [0.5]) == 0.5                      # an unscored positive ranks below the negatives
+
+
+def test_e5_comparators_are_read_by_gene_id_and_fused(tmp_path):
+    """The benchmark's own scores join the protocol as e5_<name> by gene id; e5_fuse3 is its maximum-of-quantiles
+    fusion of kmer, n_rows and viral."""
+    store = tmp_path / "store"
+    (store / "dev_composition").mkdir(parents=True)
+    (store / "dev24_v" / "genus").mkdir(parents=True)
+    (store / "dev_composition" / "scores_NC_1.tsv").write_text("gene_id\tgc3\tcodon\tkmer\tshort\nNC_1__g2\t0.1\t0.2\t0.9\t-5\ng1\t0.3\t0.4\t0.1\t-6\n")
+    (store / "dev24_v" / "genus" / "scores_NC_1.tsv").write_text("gene_id\tn_rows\tviral\nNC_1__g1\t-3\t0.0\ng2\t-1\t0.5\n")
+    table = {"NC_1": dict(y=np.array([0, 1]), cols={}, unit="U", names=["g1", "g2"])}
+    added = I.add_e5_comparators(table, str(store))
+    c = table["NC_1"]["cols"]
+    assert "e5_kmer" in added and "e5_n_rows" in added and "e5_fuse3" in added
+    assert c["e5_kmer"].tolist() == [0.1, 0.9] and c["e5_n_rows"].tolist() == [-3.0, -1.0]
+    assert c["e5_fuse3"][1] > c["e5_fuse3"][0]
+    assert "e5_ai_all" not in added                                    # absent from the tables: not a comparator

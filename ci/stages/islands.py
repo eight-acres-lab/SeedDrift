@@ -623,16 +623,50 @@ def protocol_report(run_dir, base, sj, store, per, units_of, model_cols):
                 if k != "gene_id":
                     cols[k] = np.array([float(r[k]) if r[k] != "" else np.nan for r in rows])
         y = np.array([1 if lab.get(g) == "island" else 0 if lab.get(g) == "native" else -1 for g in names])
-        table[acc] = dict(y=y, cols=cols, unit=units_of[acc])
+        table[acc] = dict(y=y, cols=cols, unit=units_of[acc], names=names)
     units = sorted({t["unit"] for t in table.values()})
-    scores = list(model_cols) + list(COMPARATORS)
-    ev = PR.evaluate(table, units, scores, list(COMPARATORS))
+    e5 = add_e5_comparators(table, store)                              # the benchmark's own scores, where the store has them
+    comps = list(COMPARATORS) + e5
+    scores = list(model_cols) + comps
+    ev = PR.evaluate(table, units, scores, comps)
     names = [n for n in scores if all(n in t["cols"] for t in table.values())]
     spear = PR.spearman_matrix(table, names)
     against = list(PR.KNOWN[:3]) + ["cmp_hits", "cmp_short"] + [n for n in model_cols if n.endswith(("_A", "_B1", "_C")) and "_R_" not in n]
     leak = leak_audit(run_dir, base, sj, table)
     return dict(note=PR.__doc__.strip().splitlines()[0], scores=ev, spearman=spear, collapsed=PR.collapsed(spear, names, against),
                 leak_audit=leak, chromosomes=sorted(table), units=units, not_implemented=list(PR.NOT_IMPLEMENTED))
+
+
+E5_DNA = ("gc3", "codon", "kmer", "short")
+E5_TABLE = ("ai_all", "ai_narrow", "ai_gene", "n_rows", "absent_near", "best_id", "viral", "copies")
+
+
+def add_e5_comparators(table, store):
+    """The benchmark's own per-gene scores (bench/hard: the DNA scores of dev_composition, the hit-table scores of the
+    V1 view dev24_v/genus) as no-model comparators e5_<name>, aligned by gene id, when the store holds their tables;
+    and e5_fuse3, the benchmark's cheap fusion of kmer, n_rows and viral (maximum of quantiles), which was chosen on
+    these same development chromosomes (in-sample). Returns the names added."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "bench", "hard"))
+    import evaluate as EVB
+    import metrics as BM
+    specs = [(os.path.join(store, "dev_composition"), E5_DNA), (os.path.join(store, "dev24_v", "genus"), E5_TABLE)]
+    added = []
+    for acc, t in table.items():
+        names = t["names"]
+        got = {}
+        for d, cols in specs:
+            if os.path.isdir(d):
+                got.update(EVB.read_scores("%s:%s" % (d, ",".join(cols)), acc))
+        for c, m in got.items():
+            if m:                                                          # a column the table has (read_scores lists every one asked for)
+                t["cols"]["e5_" + c] = np.array([m.get(g, np.nan) for g in names], float)
+        if all(("e5_" + c) in t["cols"] for c in ("kmer", "n_rows", "viral")):
+            q = {c: BM.quantile(t["cols"]["e5_" + c]) for c in ("kmer", "n_rows", "viral")}
+            t["cols"]["e5_fuse3"] = BM.fuse(BM.fuse(q["kmer"], q["n_rows"], "max"), q["viral"], "max")
+    for c in [x for x in E5_DNA + E5_TABLE] + ["fuse3"]:
+        if table and all(("e5_" + c) in t["cols"] for t in table.values()):
+            added.append("e5_" + c)
+    return added
 
 
 def leak_audit(run_dir, base, sj, table):

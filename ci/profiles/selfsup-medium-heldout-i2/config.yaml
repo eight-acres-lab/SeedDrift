@@ -1,9 +1,10 @@
 # Machine i-2, round R2 of the truth-labels line (2026-11-20), beside profile selfsup-medium-heldout-i1: the medium
-# corpus (rebuilt here from the content store copied from i-1, batch 2) with the medium search taken whole (imported
-# from i-1), a random held-out set the model never trains on, A alone with two seeds (R1's a-s1 was 0.886 on the
-# islands, trained on train+heldout), and the readouts of round 1 on both. No objective C, so no corpus-against-itself
-# search. The GPU is shared with the qwen35-bio vLLM service, which must not be stopped: one model at a time.
-# Development diagnosis only.
+# corpus (rebuilt here from the content store copied from i-1), the medium search's hits manifest without its hit files
+# (search.reuse_manifest_only) and the training data of round R1 taken whole (train_data.reuse_from; same corpus, hits,
+# settings and code, imported from i-1: 3.3 GB instead of 12 GB of hits over the slow link), a random held-out set the
+# model never trains on, A alone with two seeds (R1's a-s1 was 0.886 on the islands, trained on train+heldout), and the
+# readouts of round 1 on both. No objective C, so no corpus-against-itself search. The GPU is shared with the qwen35-bio
+# vLLM service, which must not be stopped: one model at a time. Development diagnosis only.
 pipeline: selfsup
 tier: medium
 seed: 1
@@ -34,8 +35,11 @@ search:
   keep_sseq: 32
   reuse_from: [/hy-tmp/seeddrift-ci/imports/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
   reuse_required: true
+  reuse_manifest_only: true
 train_data:
   hits: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/imports/runs/20261120T054457-exp-truth-labels-9170e09e-selfsup-medium-i1]
+  reuse_required: true
 train:
   model: selfsup_v0
   python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python

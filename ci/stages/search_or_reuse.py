@@ -12,6 +12,10 @@ within the 32 nearest rows, 3 in the number of reported targets), so per-genome 
               `reuse_check` (default 2) of the reused genomes (the smallest), whose new hit files must equal the reused
               ones byte for byte, or the stage fails (which, by the measurement above, it usually will)
 With `search.reuse_required: true` a run whose key matches no candidate fails instead of searching.
+With `search.reuse_manifest_only: true` (pipeline selfsup only, and only with train_data.reuse_from and
+train_data.reuse_required: the hit files are read by stage train_data alone, which then takes its output whole from a
+run of the same key, ci/stages/train_data_or_reuse.py) the matching run's hits manifest is taken without its hit files,
+for a machine that holds the training data but not the hits; no candidate fails the stage.
 Every linked file is checked against its sha256 in the source run's manifest. The stage report records where each part
 came from. Otherwise (no candidate, or any difference) search.py runs as usual; this wrapper lives in its own module so
 that search.py, whose checksum is part of the key, stays unchanged.
@@ -29,6 +33,7 @@ from ci.stages import search
 from ci.stages.common import Stage, main_args, write_json
 
 SEARCH_CODE = os.path.join(ROOT, "ci", "stages", "search.py")
+REUSE_KEYS = ("reuse_from", "reuse_check", "reuse_per_genome", "reuse_required", "reuse_manifest_only")
 
 
 def _sha(run, name):
@@ -39,7 +44,7 @@ def _sha(run, name):
 def key(run, search_cfg, code_path):
     with open(os.path.join(run, "record.json")) as f:
         rec = json.load(f)
-    sc = {k: v for k, v in (search_cfg or {}).items() if k not in ("reuse_from", "reuse_check", "reuse_per_genome", "reuse_required")}    # how to reuse, not what to search
+    sc = {k: v for k, v in (search_cfg or {}).items() if k not in REUSE_KEYS}    # how to reuse, not what to search
     return dict(corpus=_sha(run, "corpus"), eval_inputs=_sha(run, "eval_inputs"), reference=_sha(run, "reference"), search=sha256_json(sc),
                 code=sha256_file(code_path, use_sidecar=False), diamond=(rec.get("env_snapshot") or {}).get("diamond_version.txt"))
 
@@ -100,6 +105,12 @@ def main():
     run_dir = main_args()
     with open(os.path.join(run_dir, "config.resolved.yaml")) as f:
         cfg = yaml.safe_load(f)
+    only = bool(cfg["search"].get("reuse_manifest_only"))
+    if only:
+        tc = cfg.get("train_data") or {}
+        if cfg.get("pipeline") != "selfsup" or not tc.get("reuse_from") or not tc.get("reuse_required"):
+            raise SystemExit("search.reuse_manifest_only needs pipeline selfsup with train_data.reuse_from and train_data.reuse_required "
+                             "(the hit files are read by stage train_data alone)")
     ours = key(run_dir, cfg["search"], SEARCH_CODE)
     cands = list(candidates(cfg))
     from ci import manifest as M
@@ -109,16 +120,17 @@ def main():
         with Stage(run_dir, "search", requires=("pre", "corpus")) as st:
             with open(os.path.join(cand, "data", "hits", "manifest.json")) as f:
                 man = json.load(f)
-            for e in man["entries"]:
-                for fe in e["files"]:
-                    link(os.path.join(cand, fe["path"]), os.path.join(run_dir, fe["path"]), fe["sha256"])
+            if not only:
+                for e in man["entries"]:
+                    for fe in e["files"]:
+                        link(os.path.join(cand, fe["path"]), os.path.join(run_dir, fe["path"]), fe["sha256"])
             M.write({k: man[k] for k in ("name", "kind", "entries", "meta")}, os.path.join(run_dir, "manifests"))   # content-addressed copy
             mp = st.path("hits", "manifest.json")
             write_json(mp, man)
             st.output("hits_manifest", mp)
-            st.extra.update(reused_from=os.path.basename(cand), reuse_key=ours, genomes=len(man["entries"]))
+            st.extra.update(reused_from=os.path.basename(cand), reuse_key=ours, genomes=len(man["entries"]), manifest_only=only)
         return
-    if cfg["search"].get("reuse_required"):                      # a profile that must not search (its machine cannot)
+    if cfg["search"].get("reuse_required") or only:                      # a profile that must not search (its machine cannot)
         diffs = {os.path.basename(c): sorted(k for k in ours if ck.get(k) != ours[k]) for c, ck in cands}
         raise SystemExit("search.reuse_required: no run of search.reuse_from has this search's key; differing parts per candidate: %s" % (diffs or "no candidate"))
     if not cfg["search"].get("reuse_per_genome"):

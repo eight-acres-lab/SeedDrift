@@ -208,7 +208,7 @@ rule gates_train:
 rule train_data:
     input: "gates/corpus.ok", "data/hits/manifest.json", "data/eval_inputs/manifest.json", "data/reference/manifest.json"
     output: "data/train_data/index.json"
-    shell: STAGE.format(name="train_data")
+    shell: STAGE.format(name="train_data_or_reuse")              # train_data.py, or its output of a run with the same key
 
 
 rule train:

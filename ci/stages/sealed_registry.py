@@ -21,6 +21,7 @@ import csv
 import datetime
 import json
 import os
+import re
 
 from ci.hashing import sha256_file
 from ci.stages.common import Stage, main_args, write_json
@@ -54,6 +55,14 @@ def chromosomes(repo, store):
     if len({r["accession"] for r in rows}) != len(rows):
         raise SystemExit("sealed_registry: a chromosome is listed twice")
     return sorted(rows, key=lambda r: r["accession"])
+
+
+def aliases(gid, entry):
+    """Every name of a corpus genome: its corpus id, the assembly accessions of its manifest entry, and a GCA/GCF
+    accession written into the id (genomes annotated by Ensembl have empty accession fields: "..._gca_001661345")."""
+    out = {gid} | {x for x in (entry.get("accession"), entry.get("paired_accession")) if x}
+    out |= {"%s_%s" % (m.group(1).upper(), m.group(2)) for m in re.finditer(r"(?<![a-z0-9])(gc[af])_(\d{9})", gid.lower())}
+    return sorted(out)
 
 
 def test_splits(runs, ci_runs):
@@ -90,8 +99,8 @@ def test_splits(runs, ci_runs):
         out.append(dict(run=os.path.basename(run), dataset_id=man.get("dataset_id"), train_data_index_sha256=sha,
                         split_code_sha256=sha256_file(code, use_sidecar=False) if os.path.exists(code) else None,
                         settings=dict(test_split=True, split="three_way", heldout=dict(salt="split", every=5, every_cluster=2), test=dict(salt="test", every=4)),
-                        genomes=[dict(id=g["id"], aliases=sorted({x for x in (acc.get(g["id"], {}).get("accession"), acc.get(g["id"], {}).get("paired_accession")) if x}),
-                                      taxid=int(g["taxid"]), group=g["group"]) for g in sorted(test, key=lambda g: g["id"])],
+                        genomes=[dict(id=g["id"], aliases=aliases(g["id"], acc.get(g["id"], {})), taxid=int(g["taxid"]), group=g["group"])
+                                 for g in sorted(test, key=lambda g: g["id"])],
                         opened_by=opened))
     return out
 

@@ -195,7 +195,8 @@ def test_sealed_registry(tmp_path, monkeypatch):
     assert out["counts"]["sealed_v1"] == 17 and out["counts"]["sealed_secondary"] == 1 and out["counts"]["v2_candidates"] == 61
     assert out["counts"]["corpus_test_genomes"] == 2
     ts = out["corpus_test_splits"][0]
-    assert [g["aliases"] for g in ts["genomes"]] == [["GCA_2.1", "GCF_2.1"], ["GCA_3.1", "GCF_3.1"]]
+    assert [g["aliases"] for g in ts["genomes"]] == [["GCA_2.1", "GCF_2.1", "b_G2"], ["GCA_3.1", "GCF_3.1", "b_G3"]]
+    assert SG.aliases("fungi_ascoidea_rubescens_dsm_1968_gca_001661345", dict(accession="")) == ["GCA_001661345", "fungi_ascoidea_rubescens_dsm_1968_gca_001661345"]
     assert ts["opened_by"] == [dict(run="two", genomes_in_train_or_heldout=2)] and ts["split_code_sha256"]
     st = type("St", (), dict(repo=staticmethod(repo)))
     GA.phase_register(st, cfg2, str(run))

@@ -90,6 +90,12 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   publish or move data (the sealed island chromosomes and the benchmark-v2 candidates with aliases and taxids; the
   sealed test part of every corpus split three ways, with assembly accessions, the split code's sha256 and the runs
   that trained on those genomes); checked by G3_register; installed unchanged as host/sealed_registry.json.
+- Pipeline family_a (`pipeline: family_a`, ci/stages/family_a.py, rules bench/hard/V2_FAMILY_A.md, thresholds
+  configs/benchmark_v2/family_a.yaml): benchmark v2 family A re-cut on the development chromosomes; increment 1: GTDB
+  R232 (md5-checked, in the CAS), the chromosomes' GTDB placement, the re-cut same- and other-species panels, three
+  graded outgroup genera from the GTDB tree with two genomes each and reserves, their genomes from ENA; gates G3_famA
+  (development only, no forbidden genus, family or taxon, focal NCBI order, no score or search import in the label code)
+  and G4_famA_taxa. Run record schema: pipeline value family_a.
 
 ## 0.2 (in progress)
 

@@ -1,0 +1,18 @@
+# Machine i-1: benchmark v2 family A re-cut, increment 1 (pipeline family_a, ci/stages/family_a.py, rules
+# bench/hard/V2_FAMILY_A.md part 1; the user, 2026-11-20: "Yes, with defaults"): the 24 development chromosomes'
+# GTDB R232 placement, the re-cut same- and other-species panels, three graded outgroup genera with two genomes each,
+# and the genomes not yet in the store (ENA, into the CAS; downloads on this machine only). CPU and network only.
+pipeline: family_a
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+famA:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  spec: configs/benchmark_v2/family_a.yaml
+  threads: 8

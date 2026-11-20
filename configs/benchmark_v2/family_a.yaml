@@ -1,0 +1,15 @@
+# Benchmark v2 family A re-cut: every threshold of bench/hard/V2_FAMILY_A.md. Changes only by a dated amendment there.
+gtdb:
+  base: https://data.gtdb.ecogenomic.org/releases/release232/232.0
+  files: [bac120_taxonomy_r232.tsv.gz, bac120_r232.tree.gz]
+panel:
+  salt: panel-v2
+  same: 5
+  other: 5
+  other_min: 3
+outgroups:
+  salt: outgroup-v1
+  genera: 3
+  genomes: 2
+  min_assemblies: 2
+  n_run_max: 100

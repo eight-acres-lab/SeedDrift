@@ -126,6 +126,30 @@ rule gates_audit:
     shell: STAGE.format(name="gates") + " audit"
 
 
+# pipeline family_a (profiles with `pipeline: family_a`): benchmark v2 family A re-cut on the development chromosomes
+# (ci/stages/family_a.py, rules bench/hard/V2_FAMILY_A.md); increment 1: GTDB, panels, outgroups, genomes
+rule famA_all:
+    input: "gates/famA_taxa.ok"
+
+
+rule famA_taxa:
+    input: "gates/pre.ok"
+    output: "data/famA/taxa.json"
+    shell: STAGE.format(name="family_a") + " taxa"
+
+
+rule famA_fetch:
+    input: "data/famA/taxa.json"
+    output: "data/famA/fetch.json"
+    shell: STAGE.format(name="family_a") + " fetch"
+
+
+rule gates_famA_taxa:
+    input: "data/famA/fetch.json"
+    output: "gates/famA_taxa.ok"
+    shell: STAGE.format(name="gates") + " famA_taxa"
+
+
 rule pairs:
     input: "gates/corpus.ok"
     output: "data/pairs/manifest.json"

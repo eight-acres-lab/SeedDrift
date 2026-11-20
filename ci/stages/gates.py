@@ -1,4 +1,4 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit|famA_taxa [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -21,6 +21,11 @@ register (pipeline register) G3_register on data/register/: the parts as the lis
 audit    (pipeline audit) G3_audit: development chromosomes only, and no accession of the register's other parts (the
          committed bench/hard/results/v2_reference_set.tsv) in any audit output; G4_audit: the admitted chromosomes,
          column coverage, the negative control back at 0.5, the fused baselines and the detector present
+famA_taxa (pipeline family_a) G3_famA: development chromosomes only; no panel or outgroup genome of an island-set taxon,
+         a library assembly, or a forbidden genus or family (EXCLUDE.tsv, the register's other parts); outgroups in the
+         focal NCBI order; the label code imports no score or search module; no accession of the register's other parts in
+         the outputs. G4_famA_taxa: at least 3 other species per chromosome, 3 outgroup genera with 2 genomes each, every
+         chosen genome fetched without a long N-run
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
@@ -90,7 +95,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit"):
+    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit", "family_a"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 
@@ -415,6 +420,80 @@ def phase_audit(st, cfg, run_dir):
     return sha256_file(os.path.join(base, "report.json"), use_sidecar=False)
 
 
+FAMA_BANNED = ("islands", "audit", "protocol", "search", "eval", "codon", "train_data")
+
+
+def phase_famA_taxa(st, cfg, run_dir):
+    """G3_famA and G4_famA_taxa (pipeline family_a, ci/stages/family_a.py: taxa and fetch)."""
+    import csv
+    import re as _re
+    from ci.stages import family_a as FA
+    base = os.path.join(run_dir, "data", "famA")
+    with open(os.path.join(base, "taxa.json")) as f:
+        taxa = json.load(f)
+    with open(os.path.join(base, "fetch.json")) as f:
+        fetched = json.load(f)
+    tax = Taxonomy(st.repo(cfg["taxdump"]))
+    dev = {r["accession"] for r in FA.dev_chromosomes(st.repo)}
+    problems = []
+    if set(taxa["placement"]) != dev:
+        problems.append(dict(error="the placed chromosomes are not the development chromosomes"))
+    forb = FA.forbidden(st.repo, tax)
+    store = cfg["famA"]["store"]
+    with open(os.path.join(store, "panel", "island_set_taxa.json")) as f:
+        island_taxa = {int(v) for v in json.load(f).values()}
+    rows = []
+    for fn in sorted(os.listdir(os.path.join(base, "panel"))):
+        with open(os.path.join(base, "panel", fn)) as f:
+            rows += [dict(r, chromosome=fn[:-4]) for r in csv.DictReader(f, delimiter="\t")]
+    chosen = {a for a, g in fetched["genomes"].items() if not g["role"].endswith("_replaced")}
+    for r in rows:
+        if r["assembly"] not in chosen:
+            continue
+        t = int(r["ncbi_taxid"])
+        g, fam = tax.at_rank(t, "genus"), tax.at_rank(t, "family")
+        if t in island_taxa or g in forb["genera"] or fam in forb["families"]:
+            problems.append(dict(assembly=r["assembly"], role=r["role"], error="an island-set taxon or a forbidden genus or family"))
+        if r["role"].startswith("outgroup") and g in forb["island_genera"]:
+            problems.append(dict(assembly=r["assembly"], error="an outgroup of an island-set genus"))
+    for genus, u in taxa["units"].items():
+        orders = {tax.at_rank(int(n), "order") for n in u["ncbi_genera"]}
+        for r in rows:
+            if r["assembly"] in chosen and r["role"].startswith("outgroup") and r["chromosome"] in u["chromosomes"] and tax.at_rank(int(r["ncbi_taxid"]), "order") not in orders:
+                problems.append(dict(assembly=r["assembly"], error="an outgroup outside the focal NCBI order"))
+    src = open(st.repo("ci/stages/family_a.py")).read()
+    for m in FAMA_BANNED:
+        if _re.search(r"from ci\.stages(\.%s| import [^\n]*\b%s\b)" % (m, m), src):
+            problems.append(dict(module=m, error="the label code imports a score or search module"))
+    with open(st.repo("bench/hard/results/v2_reference_set.tsv")) as f:
+        others = [(r["accession"], r["genus"]) for r in csv.DictReader(f, delimiter="\t") if r["part"] != "development"]
+    texts = [os.path.join(dp, fn) for dp, _, fns in os.walk(base) for fn in fns if fn.endswith((".json", ".tsv"))]
+    found = g3_sealed._scan(texts, g3_sealed._pattern(others))
+    if found:
+        problems.append(dict(error="accessions of the register's other parts in the outputs", found=found))
+    require(GateResult("G3_famA", "fail" if problems else "pass", dict(problems=problems[:50], genomes=len(chosen))), run_dir)
+    problems = []
+    with open(st.repo((cfg["famA"].get("spec")) or FA.SPEC)) as f:
+        spec = yaml.safe_load(f)
+    need_other, need_og, need_g = int(spec["panel"]["other_min"]), int(spec["outgroups"]["genera"]), int(spec["outgroups"]["genomes"])
+    for genus, u in taxa["units"].items():
+        for acc, c in (u.get("panels") or {}).items():
+            if c["other"] < need_other:
+                problems.append(dict(chromosome=acc, other=c["other"], error="fewer other-species genomes than required"))
+        if len(u["outgroups"]) < need_og:
+            problems.append(dict(unit=genus, outgroups=len(u["outgroups"]), error="fewer outgroup genera than required"))
+        for o in u["outgroups"]:
+            ok = [a for a, g in fetched["genomes"].items() if g.get("gtdb_genus") == o["genus"] and g["role"].startswith("outgroup")
+                  and not g["role"].endswith("_replaced") and g.get("n_run_ok")]
+            if len(ok) < need_g:
+                problems.append(dict(unit=genus, outgroup=o["genus"], usable=len(ok), error="fewer usable outgroup genomes than required"))
+    if fetched.get("unavailable"):
+        problems.append(dict(error="chosen genomes not fetched", genomes=fetched["unavailable"][:20]))
+    require(GateResult("G4_famA_taxa", "fail" if problems else "pass", dict(problems=problems[:50], units={g: dict(chromosomes=len(u["chromosomes"]),
+                        outgroups=[o["genus"] for o in u["outgroups"]]) for g, u in taxa["units"].items()})), run_dir)
+    return sha256_file(os.path.join(base, "fetch.json"), use_sidecar=False)
+
+
 def _g3_files(st, cfg, run_dir):
     if pipeline_of(cfg) == "select":
         read = []
@@ -563,6 +642,8 @@ def main():
                 key = phase_register(st, cfg, run_dir)
             elif phase == "audit":
                 key = phase_audit(st, cfg, run_dir)
+            elif phase == "famA_taxa":
+                key = phase_famA_taxa(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

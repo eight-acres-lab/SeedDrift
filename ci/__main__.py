@@ -67,6 +67,10 @@ PIPELINES = {
     # chromosomes; CPU only (profiles set needs_gpu: false)
     "audit": dict(target="audit_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_audit", "G4_audit"),
                   resume=(("pre", None), ("audit", "data/audit/report.json"))),
+    # benchmark v2 family A re-cut on the development chromosomes (ci/stages/family_a.py, rules bench/hard/V2_FAMILY_A.md):
+    # increment 1, GTDB placement, panels, outgroups and their genomes; CPU and network only (needs_gpu: false)
+    "family_a": dict(target="famA_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_famA", "G4_famA_taxa"),
+                     resume=(("pre", None), ("famA_taxa", "data/famA/fetch.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

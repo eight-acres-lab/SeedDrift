@@ -50,6 +50,32 @@ rule selfsup_all:
         "data/model/model.npz",
 
 
+# pipeline codon (profiles with `pipeline: codon`, the truth-labels line): the codon-usage study on the island
+# chromosomes of a passed run with panels from passed runs' training data (ci/stages/codon.py); no corpus, search or
+# training of its own
+rule codon_all:
+    input: "gates/codon.ok"
+
+
+rule codon_study:
+    input: "gates/pre.ok"
+    output: "data/codon/study.json"
+    resources: gpu=1
+    shell: STAGE.format(name="codon") + " study"
+
+
+rule codon_report:
+    input: "data/codon/study.json"
+    output: "data/codon/report.json"
+    shell: STAGE.format(name="codon") + " report"
+
+
+rule gates_codon:
+    input: "data/codon/report.json"
+    output: "gates/codon.ok"
+    shell: STAGE.format(name="gates") + " codon"
+
+
 rule pairs:
     input: "gates/corpus.ok"
     output: "data/pairs/manifest.json"

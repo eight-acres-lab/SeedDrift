@@ -55,6 +55,10 @@ PIPELINES = {
     "selfsup": dict(target="selfsup_all", required=tuple(g for g in REQUIRED_GATES if g != "G4") + ("G3_islands", "G4_selfsup"),
                     resume=(("pre", None), ("corpus", "data/corpus/manifest.json"), ("train", "data/train/ids.json"), ("eval", "data/eval_inputs/manifest.json"),
                             ("islands", "data/islands/index.json"), ("selfsup", "data/selfsup/report.json"))),
+    # the codon-usage study of the truth-labels line (ci/stages/codon.py): no corpus, search or training of its own; the
+    # inputs are passed runs' outputs, checked by sha256; judged by its own gates
+    "codon": dict(target="codon_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_codon", "G4_codon"),
+                  resume=(("pre", None), ("codon", "data/codon/report.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

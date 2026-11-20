@@ -605,19 +605,32 @@ def contrasts(per, units, methods, comps):
     return out
 
 
-def protocol_report(run_dir, base, sj, store, per, units_of, model_cols):
-    """The shared test protocol (ci/stages/protocol.py) on every model column and comparator, gated labels, the
-    chromosomes the evaluator admits at gene level; and the leak audit of objective C's partners."""
-    from ci.stages import protocol as PR
-    if not per:
-        return dict(note="no chromosome admitted at gene level with gated labels", scores={})
+def admitted(res):
+    """The chromosomes of bench/hard/evaluate.py's result `res` (dev.json) that this line evaluates: admitted at gene
+    level (dev_gene) with gated labels (view V1); per chromosome its gated metrics and its unit."""
+    per = {}
+    for acc, pc in res["per_chromosome"].items():
+        gated = (pc.get("v1") or {}).get("gated")
+        if not res["eligibility"][acc].get("dev_gene") or not gated:
+            continue
+        per[acc] = dict(gated, _unit=res["units"][acc])
+    return per
+
+
+def island_table(dirs, store, per, units_of):
+    """The protocol's table of the admitted chromosomes `per`: gated labels (labels_panel), every score column of the
+    folders `dirs` (scores_<acc>.tsv, one gene order), the benchmark's own scores e5_* where the store has them, the
+    matching covariates, the accessory negatives and the genes' starts (the paired intervals' clusters). Returns the
+    table, the units and the e5 names."""
     table = {}
     for acc in sorted(per):
         lab = {r["gene_id"]: r["class"] for r in _tsv(os.path.join(store, "labels_panel", acc + ".tsv"))}
         cols = {}
         names = None
-        for d in sj["folders"]:
-            rows = _tsv(os.path.join(base, "scores", d, "scores_%s.tsv" % acc))
+        for d in dirs:
+            rows = _tsv(os.path.join(d, "scores_%s.tsv" % acc))
+            if names is not None and [r["gene_id"] for r in rows] != names:
+                raise SystemExit("protocol: the score folders disagree on the genes of %s (%s)" % (acc, d))
             names = [r["gene_id"] for r in rows]
             for k in rows[0]:
                 if k != "gene_id":
@@ -633,6 +646,17 @@ def protocol_report(run_dir, base, sj, store, per, units_of, model_cols):
         t["match"] = [np.log(np.maximum(length, 1)), np.asarray(hits, float)]
         f = np.array([float(rows[g]["f"]) if g in rows and rows[g].get("f") not in (None, "") else np.nan for g in t["names"]])
         t["accessory"] = np.array([g in rows and rows[g]["class"] == "unresolved" and (rows[g].get("label") or "none") == "none" for g in t["names"]]) & (f <= 0.5)
+        t["start"] = np.array([float(rows[g]["start"]) if g in rows else np.nan for g in t["names"]])
+    return table, units, e5
+
+
+def protocol_report(run_dir, base, sj, store, per, units_of, model_cols):
+    """The shared test protocol (ci/stages/protocol.py) on every model column and comparator, gated labels, the
+    chromosomes the evaluator admits at gene level; and the leak audit of objective C's partners."""
+    from ci.stages import protocol as PR
+    if not per:
+        return dict(note="no chromosome admitted at gene level with gated labels", scores={})
+    table, units, e5 = island_table([os.path.join(base, "scores", d) for d in sj["folders"]], store, per, units_of)
     comps = list(COMPARATORS) + e5
     scores = list(model_cols) + comps
     ev = PR.evaluate(table, units, scores, comps)
@@ -742,12 +766,7 @@ def do_report(run_dir):
             res = json.load(f)
         # this line's contrasts: chromosomes the evaluator admits at gene level (dev_gene), gated labels, view V1; the
         # gene's own score and its window (_nb) compared like with like
-        per = {}
-        for acc, pc in res["per_chromosome"].items():
-            gated = (pc.get("v1") or {}).get("gated")
-            if not res["eligibility"][acc].get("dev_gene") or not gated:
-                continue
-            per[acc] = dict(gated, _unit=res["units"][acc])
+        per = admitted(res)
         units = sorted({v["_unit"] for v in per.values()})
         model_cols = []                                                    # the columns the variants have (their objectives)
         for v in sj["variants"]:

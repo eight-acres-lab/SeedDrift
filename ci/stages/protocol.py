@@ -29,7 +29,7 @@ import numpy as np
 
 KNOWN = ("cmp_gc3", "cmp_codon", "cmp_kmer", "log_hits", "log_length")
 # parts of the proposal's protocol this module does not compute (named in every report, not silently missing)
-NOT_IMPLEMENTED = ("bootstrap intervals over genomes for every metric (only the combined gain has a t-interval over units)",
+NOT_IMPLEMENTED = ("bootstrap intervals for the metrics other than the AUROC (paired_delta: AUROC and AUROC differences only, for the scores a report asks)",
                    "the placebo gate (relocated and sham-ameliorated natives at AUROC 0.45-0.55): needs the constructed controls of benchmark v2",
                    "a partner-count-matched null for scores that take a maximum over partners",
                    "the hiding-depth curve as a test (the depth readouts are reported as scores; compare them with the default A and B1)")
@@ -320,4 +320,109 @@ def collapsed(spear, names, against=("cmp_hits", "cmp_gc3", "cmp_codon", "cmp_km
             r = spear.get("%s ~ %s" % (n, a), spear.get("%s ~ %s" % (a, n)))
             if r is not None and abs(r) > 0.9 and n != a:
                 out.setdefault(n, []).append(a)
+    return out
+
+
+# --- paired intervals (2026-11-20, the codon study; strategy: "判决改用成对差的自助区间") ------------------------------
+
+DECIDE = 0.05      # a difference inside +-0.05 is reported as small: with 3 units the set cannot resolve less
+
+
+def clusters_of(y, start, block=10):
+    """The resampling clusters of one chromosome's labelled genes in genome order (by start): a run of island genes not
+    broken by a native gene is one cluster (unlabelled genes do not break a run); native genes are cut into blocks of
+    `block` consecutive natives. Returns cluster ids per gene (-1: unlabelled) and whether each cluster is an island."""
+    st = np.asarray(start, float)
+    order = np.argsort(np.where(np.isfinite(st), st, np.inf), kind="mergesort")
+    cid = np.full(len(y), -1)
+    flag, cur, cur_y, count = [], -1, None, 0
+    for i in order:
+        if y[i] < 0:
+            continue
+        if y[i] != cur_y or (y[i] == 0 and count >= block):
+            cur, cur_y, count = cur + 1, y[i], 0
+            flag.append(bool(y[i] == 1))
+        cid[i] = cur
+        count += 1
+    return cid, np.array(flag, bool)
+
+
+def _kernel(v, y, cid, pos_cl, neg_cl):
+    """K[p, q] = sum over island genes of island cluster p and native genes of native cluster q of 1[s_i > s_j] + 1/2
+    1[s_i = s_j], NaN ranked lowest (as auroc)."""
+    v = np.asarray(v, float)
+    fin = np.isfinite(v)
+    lo = np.nanmin(v[fin]) if fin.any() else 0.0
+    v = np.where(fin, v, lo - 1.0)
+    ip, ineg = np.where(y == 1)[0], np.where(y == 0)[0]
+    G = (v[ip][:, None] > v[ineg][None, :]).astype(float) + 0.5 * (v[ip][:, None] == v[ineg][None, :])
+    Ap = np.zeros((len(ip), len(pos_cl)))
+    Ap[np.arange(len(ip)), np.searchsorted(pos_cl, cid[ip])] = 1.0
+    An = np.zeros((len(ineg), len(neg_cl)))
+    An[np.arange(len(ineg)), np.searchsorted(neg_cl, cid[ineg])] = 1.0
+    return Ap.T @ G @ An
+
+
+def paired_delta(table, units, pairs, n_boot=1000, seed=0, block=10):
+    """Bootstrap intervals of AUROC differences, paired (the same draws for both scores). The AUROC is the protocol's
+    (per chromosome, mean over the chromosomes of a unit, mean over units). A draw resamples the chromosomes of each unit
+    (multinomial) and weights every cluster of a chromosome (clusters_of: islands, blocks of natives) by Poisson(1).
+    Strains of one genus share accessory families, which the clusters do not join: the intervals are narrower than the
+    truth by an unknown amount. pairs: [(a, b)] with b None for the interval of a alone. Returns one row per pair:
+    delta (the observed difference), lo and hi (2.5 and 97.5 percent of the draws), p_le0 (share of draws with
+    difference <= 0), verdict (a>b when lo > 0, a<b when hi < 0, else undecided) and small (|delta| < DECIDE)."""
+    rng = np.random.default_rng([int(seed), 13])
+    chroms = sorted(table)
+    prep = {}
+    for acc in chroms:
+        t = table[acc]
+        y = np.asarray(t["y"])
+        cid, flag = clusters_of(y, t.get("start", np.arange(len(y))), block)
+        cl = np.arange(len(flag))
+        pos_cl, neg_cl = cl[flag], cl[~flag]
+        if not len(pos_cl) or not len(neg_cl):
+            continue
+        npos = np.bincount(cid[y == 1], minlength=len(flag))[pos_cl].astype(float)
+        nneg = np.bincount(cid[y == 0], minlength=len(flag))[neg_cl].astype(float)
+        prep[acc] = dict(y=y, cid=cid, pos_cl=pos_cl, neg_cl=neg_cl, npos=npos, nneg=nneg,
+                         wp=rng.poisson(1.0, (n_boot, len(pos_cl))).astype(float), wn=rng.poisson(1.0, (n_boot, len(neg_cl))).astype(float))
+    by_unit = {u: [a for a in chroms if a in prep and table[a]["unit"] == u] for u in units}
+    by_unit = {u: v for u, v in by_unit.items() if v}
+    mult = {u: rng.multinomial(len(v), [1.0 / len(v)] * len(v), size=n_boot).astype(float) for u, v in by_unit.items()}
+    cache = {}
+
+    def draws(s):
+        if s in cache:
+            return cache[s]
+        point, boot = [], np.zeros(n_boot)
+        for u, accs in by_unit.items():
+            pu, bu = [], np.zeros((n_boot, len(accs)))
+            for j, acc in enumerate(accs):
+                p = prep[acc]
+                K = _kernel(table[acc]["cols"][s], p["y"], p["cid"], p["pos_cl"], p["neg_cl"])
+                pu.append(K.sum() / (p["npos"].sum() * p["nneg"].sum()))
+                den = (p["wp"] @ p["npos"]) * (p["wn"] @ p["nneg"])
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    bu[:, j] = np.where(den > 0, ((p["wp"] @ K) * p["wn"]).sum(1) / den, np.nan)
+            point.append(float(np.mean(pu)))
+            m = mult[u] * np.isfinite(bu)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                boot += np.nansum(m * np.nan_to_num(bu), 1) / m.sum(1)
+        cache[s] = (float(np.mean(point)), boot / len(by_unit))
+        return cache[s]
+    out = []
+    for a, b in pairs:
+        pa, ba = draws(a)
+        if b is None:
+            d, bd = pa, ba
+        else:
+            pb, bb = draws(b)
+            d, bd = pa - pb, ba - bb
+        bd = bd[np.isfinite(bd)]
+        lo, hi = (float(np.percentile(bd, 2.5)), float(np.percentile(bd, 97.5))) if len(bd) else (float("nan"), float("nan"))
+        row = dict(a=a, b=b, delta=d, lo=lo, hi=hi, n_boot=int(len(bd)))
+        if b is not None:
+            row.update(p_le0=float((bd <= 0).mean()) if len(bd) else None, small=bool(abs(d) < DECIDE),
+                       verdict="a>b" if lo > 0 else "a<b" if hi < 0 else "undecided")
+        out.append(row)
     return out

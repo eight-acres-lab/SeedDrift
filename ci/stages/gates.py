@@ -1,4 +1,4 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -11,6 +11,10 @@ eval     G2_holdout: no evaluation gene (protein or coding DNA) occurs in the tr
 report   G4 on the evaluation report: six rows per scenario on one gene set, the released screen recomputed from its tag
 islands  (pipeline selfsup) G3_islands: the island chromosomes are development chromosomes, no sealed accession anywhere
 selfsup  (pipeline selfsup) G4_selfsup on data/selfsup/report.json: every variant diagnosed, every island gene scored
+codon    (pipeline codon) G3_codon: no panel or manifold genome shares an island chromosome's genus (merged as in the
+         evaluation) or a taxon its view hides, all of them from the train and held-out splits; G4_codon on
+         data/codon/report.json: every admitted chromosome, every column, the baseline scoring every labelled gene,
+         the reproductions of codon.expect
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
@@ -80,7 +84,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search", "selfsup"):
+    if p not in ("train", "select", "search", "selfsup", "codon"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 
@@ -199,6 +203,84 @@ def phase_selfsup(st, cfg, run_dir):
                             problems.append(dict(variant=name, accession=acc, column=col, scored_share=round(share, 4), error="too few genes scored"))
     require(GateResult("G4_selfsup", "fail" if problems else "pass", dict(problems=problems[:50])), run_dir)
     return sha256_file(p, use_sidecar=False)
+
+
+def phase_codon(st, cfg, run_dir):
+    """G3_codon and G4_codon (pipeline codon, ci/stages/codon.py)."""
+    import math
+    cc = cfg["codon"]
+    with open(os.path.join(run_dir, "data", "codon", "study.json")) as f:
+        study = json.load(f)
+    with open(os.path.join(cc["islands_from"], "data", "islands", "index.json")) as f:
+        chroms = json.load(f)["genomes"]
+    meta = {}                                     # per corpus: a genome's split can differ between corpora
+    for name, src in cc["corpora"].items():
+        with open(os.path.join(src, "data", "train_data", "index.json")) as f:
+            meta[name] = {m["id"]: m for m in json.load(f)["genomes"]}
+    used = {}                                     # genome -> the corpora it was drawn from
+    for p in study["panels"].values():
+        for g in set(p["base"]).union(*[set(v) for v in (p.get("per_chromosome") or {}).values()]):
+            used.setdefault(g, set()).add(p["corpus"])
+    mcorp = {m["name"]: m["corpus"] for m in cc.get("manifolds") or []}
+    for name, m in study["manifolds"].items():
+        for g in m.get("members") or []:
+            used.setdefault(g, set()).add(mcorp.get(name))
+    tax = Taxonomy(st.repo(cfg["taxdump"]))
+    merge = dict(x.split("=", 1) for x in (cfg.get("islands") or {}).get("merge", ["Shigella=Escherichia"]))
+    unit = lambda name: merge.get(name, name)
+    genus, taxid = {}, {}
+    problems = []
+    for g in sorted(used):
+        for c in sorted(used[g], key=str):
+            m = (meta.get(c) or {}).get(g)
+            if m is None or m["split"] not in ("train", "heldout"):
+                problems.append(dict(genome=g, corpus=c, error="not a train or held-out genome of the corpus it was drawn from"))
+                continue
+            taxid.setdefault(g, set()).add(int(m["taxid"]))
+        # the sealed discipline across corpora: a genome in the test part (or the evaluation inputs) of any configured
+        # corpus is not used, even when another corpus has it in a training split
+        for c, mm in sorted(meta.items()):
+            if g in mm and mm[g]["split"] not in ("train", "heldout"):
+                problems.append(dict(genome=g, corpus=c, split=mm[g]["split"], error="in the test part or the evaluation inputs of a configured corpus"))
+        genus[g] = set()
+        for t in taxid.get(g, ()):
+            gt = tax.at_rank(t, "genus")
+            genus[g].add(unit(tax.name(gt)) if gt else "")
+    for ch in chroms:
+        hid = set(ch.get("hidden_taxids") or []) | {int(ch["taxid"])}
+        same = [g for g in sorted(used) if unit(ch["genus"]) in genus.get(g, set())]
+        close = [g for g in sorted(used) if taxid.get(g, set()) & hid]
+        if same:
+            problems.append(dict(accession=ch["id"], error="panel or manifold genomes of the same genus", genomes=same[:10]))
+        if close:
+            problems.append(dict(accession=ch["id"], error="panel or manifold genomes of a taxon the chromosome's view hides", genomes=close[:10]))
+    require(GateResult("G3_codon", "fail" if problems else "pass", dict(genomes=len(used), chromosomes=len(chroms), problems=problems[:50])), run_dir)
+    p = os.path.join(run_dir, "data", "codon", "report.json")
+    with open(p) as f:
+        rep = json.load(f)
+    problems = []
+    with open(os.path.join(cc["islands_from"], "data", "islands", "eval", "dev.json")) as f:
+        res = json.load(f)
+    from ci.stages.islands import admitted
+    want = sorted(admitted(res))
+    if rep.get("chromosomes") != want:
+        problems.append(dict(error="evaluated chromosomes %s differ from the admitted %s" % (rep.get("chromosomes"), want)))
+    cols = [c for c in study.get("columns") or [] if not c.startswith("cd_cu_rc_")]
+    missing = [c for c in cols if c not in (rep.get("scores") or {})]
+    if missing:
+        problems.append(dict(error="columns not evaluated", columns=missing[:20]))
+    b = (rep.get("scores") or {}).get(rep.get("baseline")) or {}
+    if b.get("coverage_island") != 1.0 or b.get("coverage_native") != 1.0:
+        problems.append(dict(error="the baseline %s does not score every labelled gene" % rep.get("baseline")))
+    for c, a in (cc.get("expect") or {}).items():
+        got = ((rep.get("scores") or {}).get(c) or {}).get("auroc")
+        if got is None or not math.isfinite(got) or abs(got - float(a)) > 0.001:
+            problems.append(dict(column=c, expected=a, got=got, error="reproduction"))
+    if not rep.get("intervals"):
+        problems.append(dict(error="no paired intervals"))
+    require(GateResult("G4_codon", "fail" if problems else "pass", dict(problems=problems[:50], baseline=rep.get("baseline"),
+                                                                        reproduced={c: ((rep.get("scores") or {}).get(c) or {}).get("auroc") for c in cc.get("expect") or {}})), run_dir)
+    return sha256_json([sha256_file(p, use_sidecar=False), sha256_file(os.path.join(run_dir, "data", "codon", "study.json"), use_sidecar=False)])
 
 
 def _g3_files(st, cfg, run_dir):
@@ -343,6 +425,8 @@ def main():
                 key = phase_islands(st, cfg, run_dir)
             elif phase == "selfsup":
                 key = phase_selfsup(st, cfg, run_dir)
+            elif phase == "codon":
+                key = phase_codon(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

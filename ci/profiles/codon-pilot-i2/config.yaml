@@ -1,0 +1,70 @@
+# Machine i-2: the codon-usage study (pipeline codon, ci/stages/codon.py; 2026-11-20, the user: "我赞同你的去探究一下为啥
+# 密码子这条路有信号"). Why does the model-free codon-usage score CU (round 1 of the readouts: 0.891 with the 16 bacteria
+# of the pilot's train split as its panel) work on the island chromosomes, and how far does its family go? No corpus,
+# search or training: the island chromosomes, comparators and evaluator output of run 20261120T072828 of this machine
+# (pilot, readouts of round 1) and the pilot's training data from the same run. Model-free columns on the GPU (shared
+# with the qwen35-bio vLLM service, which is not stopped), evaluated with the shared protocol and paired bootstrap
+# intervals. cd_cu_pb16, cd_cu_pd63 and cd_cu_pn63 must reproduce the readouts R_CU_bacteria, R_CU_default and
+# R_CU_near of that run (gate G4_codon). Development diagnosis only.
+pipeline: codon
+tier: pilot
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 4000
+corpus_spec: configs/corpus/pilot-near.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+train:
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt
+  gpu_lease: false
+  device: auto
+codon:
+  islands_from: /hy-tmp/seeddrift-ci/runs/20261120T072828-exp-truth-labels-7a18e92c-selfsup-pilot-i2-r0-readouts
+  corpora:
+    pilot: /hy-tmp/seeddrift-ci/runs/20261120T072828-exp-truth-labels-7a18e92c-selfsup-pilot-i2-r0-readouts
+  baseline: cd_cu_pb16
+  expect: {cd_cu_pb16: 0.8907, cd_cu_pd63: 0.8858, cd_cu_pn63: 0.8784}
+  boot: 1000
+  block: 10
+  panels:
+    # the readouts' panels (train split, selfsup.panel_of: up to 63 genomes, group by group in hash order)
+    - {name: pb16, corpus: pilot, splits: [train], groups: [bacteria], size: 63, scores: [cu, aa, syn, cun, tot, lse, std, m1, relax, host]}
+    - {name: pd63, corpus: pilot, splits: [train], size: 63, scores: [cu]}
+    - {name: pn63, corpus: pilot, splits: [train], groups: [bacteria, mobile.plasmid, viruses.phage], size: 63, scores: [cu]}
+    # every bacterium, every genome (train and held-out: no training here)
+    - {name: pb20, corpus: pilot, splits: [train, heldout], groups: [bacteria], scores: [cu, cun]}
+    - {name: pall, corpus: pilot, splits: [train, heldout], scores: [cu, cun, lse, std]}
+    # does CU need the chromosome's relatives? its clade hidden at each rank, against as many genomes dropped at random
+    - {name: pb16_hfam, base: pb16, hide: family}
+    - {name: pb16_rfam1, base: pb16, hide: family, control: random, seed: 1}
+    - {name: pb16_rfam2, base: pb16, hide: family, control: random, seed: 2}
+    - {name: pb16_rfam3, base: pb16, hide: family, control: random, seed: 3}
+    - {name: pb16_hord, base: pb16, hide: order}
+    - {name: pb16_rord1, base: pb16, hide: order, control: random, seed: 1}
+    - {name: pb16_rord2, base: pb16, hide: order, control: random, seed: 2}
+    - {name: pb16_rord3, base: pb16, hide: order, control: random, seed: 3}
+    - {name: pb16_hcls, base: pb16, hide: class}
+    - {name: pb16_rcls1, base: pb16, hide: class, control: random, seed: 1}
+    - {name: pb16_rcls2, base: pb16, hide: class, control: random, seed: 2}
+    - {name: pb16_rcls3, base: pb16, hide: class, control: random, seed: 3}
+    - {name: pb16_hphy, base: pb16, hide: phylum}
+    - {name: pb16_rphy1, base: pb16, hide: phylum, control: random, seed: 1}
+    - {name: pb16_rphy2, base: pb16, hide: phylum, control: random, seed: 2}
+    - {name: pb16_rphy3, base: pb16, hide: phylum, control: random, seed: 3}
+    - {name: pall_hcls, base: pall, hide: class}
+    - {name: pall_rcls1, base: pall, hide: class, control: random, seed: 1}
+    - {name: pall_rcls2, base: pall, hide: class, control: random, seed: 2}
+    - {name: pall_hphy, base: pall, hide: phylum}
+    - {name: pall_rphy1, base: pall, hide: phylum, control: random, seed: 1}
+    - {name: pall_rphy2, base: pall, hide: phylum, control: random, seed: 2}
+  # how many panel genomes CU needs: random panels of each size, five or three seeds
+  curves:
+    - {name: b, corpus: pilot, splits: [train, heldout], groups: [bacteria], sizes: [1, 2, 4, 8, 16], seeds: [1, 2, 3, 4, 5]}
+    - {name: a, corpus: pilot, splits: [train, heldout], sizes: [4, 16, 64, 128], seeds: [1, 2, 3]}
+  # how many dimensions the codon usage of genomes has, and CU on the continuous manifold instead of a panel
+  manifolds:
+    - {name: a, corpus: pilot, splits: [train, heldout], dims_curve: [1, 2, 3, 4, 6, 8, 12, 16], dims_score: [2, 4, 8], steps: 3000, lr: 0.05}
+    - {name: b, corpus: pilot, splits: [train, heldout], groups: [bacteria], dims_curve: [1, 2, 3, 4, 6], dims_score: [2, 4], steps: 3000, lr: 0.05}

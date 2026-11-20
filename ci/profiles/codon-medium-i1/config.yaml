@@ -1,0 +1,62 @@
+# Machine i-1: the codon-usage study (pipeline codon, ci/stages/codon.py; 2026-11-20, the user: "我赞同你的去探究一下为啥
+# 密码子这条路有信号") with the medium corpus (1,246 genomes, 109 bacteria) as panels and manifold: does CU rise with more
+# panel genomes, with genomes of every group, and does the manifold of 1,246 genomes beat a panel? No corpus, search or
+# training: the island chromosomes, comparators and evaluator output of round R1 (run 20261120T054457 of this machine)
+# and R1's training data (medium; its train and held-out splits only: a genome of its test part is never used, gate
+# G3_codon). The reproductions of the pilot readouts are profile codon-pilot-i2's. Development diagnosis only.
+pipeline: codon
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 4000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+train:
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt
+  gpu_lease: false
+  device: auto
+codon:
+  islands_from: /hy-tmp/seeddrift-ci/runs/20261120T054457-exp-truth-labels-9170e09e-selfsup-medium-i1
+  corpora:
+    medium: /hy-tmp/seeddrift-ci/runs/20261120T054457-exp-truth-labels-9170e09e-selfsup-medium-i1
+  baseline: cd_cu_mb63
+  boot: 1000
+  block: 10
+  panels:
+    - {name: mb63, corpus: medium, splits: [train], groups: [bacteria], size: 63, scores: [cu, cun]}
+    - {name: md63, corpus: medium, splits: [train], size: 63, scores: [cu]}
+    - {name: mb, corpus: medium, splits: [train, heldout], groups: [bacteria], scores: [cu, aa, syn, cun, tot, lse, std, m1, relax, host]}
+    - {name: mn, corpus: medium, splits: [train, heldout], groups: [bacteria, mobile.plasmid, viruses.phage], scores: [cu, cun, lse, std]}
+    - {name: ma, corpus: medium, splits: [train, heldout], scores: [cu, cun, lse, std]}
+    - {name: mb_hfam, base: mb, hide: family}
+    - {name: mb_rfam1, base: mb, hide: family, control: random, seed: 1}
+    - {name: mb_rfam2, base: mb, hide: family, control: random, seed: 2}
+    - {name: mb_rfam3, base: mb, hide: family, control: random, seed: 3}
+    - {name: mb_hord, base: mb, hide: order}
+    - {name: mb_rord1, base: mb, hide: order, control: random, seed: 1}
+    - {name: mb_rord2, base: mb, hide: order, control: random, seed: 2}
+    - {name: mb_rord3, base: mb, hide: order, control: random, seed: 3}
+    - {name: mb_hcls, base: mb, hide: class}
+    - {name: mb_rcls1, base: mb, hide: class, control: random, seed: 1}
+    - {name: mb_rcls2, base: mb, hide: class, control: random, seed: 2}
+    - {name: mb_rcls3, base: mb, hide: class, control: random, seed: 3}
+    - {name: mb_hphy, base: mb, hide: phylum}
+    - {name: mb_rphy1, base: mb, hide: phylum, control: random, seed: 1}
+    - {name: mb_rphy2, base: mb, hide: phylum, control: random, seed: 2}
+    - {name: mb_rphy3, base: mb, hide: phylum, control: random, seed: 3}
+    - {name: ma_hcls, base: ma, hide: class}
+    - {name: ma_rcls1, base: ma, hide: class, control: random, seed: 1}
+    - {name: ma_rcls2, base: ma, hide: class, control: random, seed: 2}
+    - {name: ma_hphy, base: ma, hide: phylum}
+    - {name: ma_rphy1, base: ma, hide: phylum, control: random, seed: 1}
+    - {name: ma_rphy2, base: ma, hide: phylum, control: random, seed: 2}
+  curves:
+    - {name: b, corpus: medium, splits: [train, heldout], groups: [bacteria], sizes: [1, 2, 4, 8, 16, 32, 64], seeds: [1, 2, 3, 4, 5]}
+    - {name: a, corpus: medium, splits: [train, heldout], sizes: [4, 16, 64, 256, 1024], seeds: [1, 2, 3]}
+  manifolds:
+    - {name: a, corpus: medium, splits: [train, heldout], dims_curve: [1, 2, 3, 4, 6, 8, 12, 16, 24, 32], dims_score: [2, 4, 8, 16], steps: 3000, lr: 0.05}
+    - {name: b, corpus: medium, splits: [train, heldout], groups: [bacteria], dims_curve: [1, 2, 3, 4, 6, 8, 12], dims_score: [2, 4, 8], steps: 3000, lr: 0.05}

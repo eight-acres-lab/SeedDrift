@@ -1,0 +1,76 @@
+# Machine i-1: round 1 of the new objectives (readouts only, no training) on the four models of round R1 (run
+# 20261120T054457 of this machine: the medium corpus, all genomes, imported whole with train.models_from), with the
+# same corpus, search, training data, pairs and island search as that run. Readouts on A+B1+B2+C seeds 1 and 2 and A
+# alone: does the whole corpus move D2 and the panel scores of A (the pilot models: CU 0.891, D2 0.857, A near 0.856)?
+# Development diagnosis only.
+pipeline: selfsup
+tier: medium
+seed: 1
+cores: 14
+blas_threads: 2
+disk_gb: 80
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.01
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
+  reuse_required: true
+train_data:
+  hits: 32
+pairs:
+  sensitivity: sensitive
+  max_target_seqs: 500
+  evalue: 1.0e-5
+  genomes: 64
+  threads: 12
+  block_size: 4
+train:
+  model: selfsup_v0
+  models_from: /hy-tmp/seeddrift-ci/runs/20261120T054457-exp-truth-labels-9170e09e-selfsup-medium-i1
+  models_wait_s: 14400
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt
+  gpu_lease: false
+  device: auto
+  seed: 1
+  train_splits: [train, heldout]
+  variants:
+    - {name: all-s1, seed: 1, objectives: [A, B1, B2, C]}
+    - {name: all-s2, seed: 2, objectives: [A, B1, B2, C]}
+    - {name: a-s1, seed: 1, objectives: [A]}
+    - {name: c-s1, seed: 1, objectives: [C]}
+  readouts:
+    variants: [all-s1, all-s2, a-s1]
+    panels: [default, bacteria, near]
+    depths: [family, order]
+    knn: 8
+  parallel: 2
+  dev_seed: 0
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+islands:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  threads: 12
+  reuse_search_from: [/hy-tmp/seeddrift-ci/runs/20261120T023245-exp-truth-labels-d823bfc0-selfsup-pilot-i1-gpu]
+  reuse_search_required: true

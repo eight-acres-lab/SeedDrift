@@ -1,0 +1,71 @@
+# Machine i-2: round 1 of the new objectives (readouts only, no training) on the three models of round P1 (run
+# 20261120T041903 of this machine, imported whole with train.models_from: loss trim 0, trim 0.25, seed 4), the island
+# search of i-1 run 20261120T023245 taken whole (islands.reuse_search_from). The second set of models for the readouts
+# of round 1 (the first: the pilot models of run 20261119T145408), for the spread of D2 and of the panel scores across
+# models. The GPU is shared with the qwen35-bio vLLM service, which must not be stopped: one scoring at a time.
+# Development diagnosis only.
+pipeline: selfsup
+tier: pilot
+seed: 1
+cores: 8
+blas_threads: 2
+disk_gb: 40
+disk_reserve_gb: 30
+gpu_mem_min_mb: 15000
+corpus_spec: configs/corpus/pilot-near.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T041244-exp-0.2-pilot-ac17f283-pilot]
+  reuse_required: true
+train_data:
+  hits: 32
+pairs:
+  sensitivity: sensitive
+  max_target_seqs: 500
+  evalue: 1.0e-5
+  genomes: 64
+  threads: 6
+  block_size: 4
+train:
+  model: selfsup_v0
+  models_from: /hy-tmp/seeddrift-ci/runs/20261120T041903-exp-truth-labels-01ea3391-selfsup-pilot-i2-p1
+  models_wait_s: 14400
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt
+  seed: 1
+  variants:
+    - {name: all-trim0-s1, seed: 1, objectives: [A, B1, B2, C], trim: 0.0}
+    - {name: all-trim25-s1, seed: 1, objectives: [A, B1, B2, C], trim: 0.25}
+    - {name: all-s4, seed: 4, objectives: [A, B1, B2, C]}
+  readouts:
+    variants: [all-trim0-s1, all-trim25-s1, all-s4]
+    panels: [default, bacteria, near]
+    depths: [family, order]
+    knn: 8
+  parallel: 1
+  dev_seed: 0
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+islands:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  threads: 12                      # part of the reuse key (equal to the run whose search is reused; this machine does not search)
+  reuse_search_from: [/hy-tmp/seeddrift-ci/imports/runs/20261120T023245-exp-truth-labels-d823bfc0-selfsup-pilot-i1-gpu]
+  reuse_search_required: true

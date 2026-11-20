@@ -34,8 +34,9 @@ proteome and its clade at one depth drawn per step (species, genus, family, orde
 genomes of a batch, so they cannot tell the genomes apart. Scoring hides the scored genome's own proteome, its genus
 (or the hidden proteomes given for it) and the panel genomes' proteomes and genera.
 Loss: per objective the (1 - trim) lowest per-example losses of a batch: training genomes hold unlabelled transfers.
-Training genomes only (split "train", train_fraction of them); held-out genomes only for diagnosis; genomes of the
-sealed test split and the evaluation inputs are not loaded (load_data). Resume restores the weights, AdamW's state and
+Training genomes: split "train" (or the splits of train_splits), train_fraction of them; held-out genomes only for
+diagnosis (in-sample when train_splits includes them); genomes of the sealed test split and the evaluation inputs are
+not loaded (load_data). Resume restores the weights, AdamW's state and
 the counts; every step draws its data and its dropout from (seed, step). Never imports an evaluation generator (gate
 G2 static).
 """
@@ -636,6 +637,15 @@ def panel_of(data, ids, n):
     return out
 
 
+def training_ids(data, metas, cfg):
+    """The genomes the model trains on (and draws its panel and partners from): those of the splits in
+    cfg["train_splits"] (default: train only; the user, 2026-11-20: early checks train on the whole corpus, with
+    ["train", "heldout"]), then train_fraction of them."""
+    splits = list(cfg.get("train_splits") or ["train"])
+    ids = sorted({g for sp in splits for g in data.by_split.get(sp, [])})
+    return S.fraction_subset(metas, ids, float(cfg.get("train_fraction", 1.0)))
+
+
 def load_data(run_dir, cfg, splits=("train", "heldout")):
     """source_model.Data with the genomes of `splits` only (the sealed test part and the evaluation inputs are not
     opened); the same attributes as Data.__init__ sets."""
@@ -859,7 +869,7 @@ def fit(run_dir, cfg):
     objectives = objectives_of(cfg)
     data = load_data(run_dir, cfg)
     metas = {g: data.g[g].meta for g in data.g}
-    train_ids = S.fraction_subset(metas, data.by_split.get("train", []), float(cfg.get("train_fraction", 1.0)))
+    train_ids = training_ids(data, metas, cfg)
     if len(train_ids) < 2:
         raise SystemExit("selfsup needs at least two training genomes (has %d)" % len(train_ids))
     model = build(torch, data.n_lib, **model_cfg(cfg)).to(dev)
@@ -948,7 +958,7 @@ def score(run_dir, cfg, model=None, data=None):
     model = model or load_model(torch, run_dir, cfg, data, dev)
     objectives = objectives_of(cfg)
     metas = {g: data.g[g].meta for g in data.g}
-    train_ids = S.fraction_subset(metas, data.by_split.get("train", []), float(cfg.get("train_fraction", 1.0)))
+    train_ids = training_ids(data, metas, cfg)
     panel = panel_of(data, train_ids, int(cfg.get("batch", 64)) - 1)
     pairs = Pairs(run_dir, cfg.get("pairs_dir", os.path.join("data", "pairs"))) if "C" in objectives else None
     cap = int(cfg.get("held_genes", 200))
@@ -967,6 +977,8 @@ def score(run_dir, cfg, model=None, data=None):
     arrays = {k: (np.concatenate(v) if v else np.zeros(0)) for k, v in cols.items()}
     save_npz(os.path.join(model_dir, "heldout_scores.npz"), genome=np.array(keys, dtype="S"), gene=np.concatenate(genes) if genes else np.zeros(0, np.int64), **arrays)
     summ = dict(genomes=len(set(keys)), genes=len(keys), panel=panel, objectives=objectives)
+    if "heldout" in (cfg.get("train_splits") or ["train"]):            # an in-sample diagnosis (only then named, so the
+        summ["heldout_in_training"] = True                              # summaries of earlier runs still compare equal)
     for key, (a, g, n) in (("B1", ("b1_aware", "b1_agn", "b1_n")), ("B2", ("b2_aware", "b2_agn", "b2_n"))):
         ok = arrays[n] > 0 if len(arrays[n]) else np.zeros(0, bool)
         if ok.any():
@@ -994,7 +1006,7 @@ def score_genomes(run_dir, cfg):
     model = load_model(torch, run_dir, cfg, data, dev)
     objectives = objectives_of(cfg)
     metas = {g: data.g[g].meta for g in data.g}
-    train_ids = S.fraction_subset(metas, data.by_split.get("train", []), float(cfg.get("train_fraction", 1.0)))
+    train_ids = training_ids(data, metas, cfg)
     panel = panel_of(data, train_ids, int(cfg.get("batch", 64)) - 1)
     pairs = Pairs(run_dir, cfg.get("pairs_dir", os.path.join("data", "pairs"))) if "C" in objectives else None
     with open(os.path.join(run_dir, cfg["genomes_index"])) as f:

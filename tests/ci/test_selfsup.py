@@ -287,8 +287,35 @@ def test_resume_continues_with_the_optimizer_state():
         assert len(opt.state_dict()["state"]) > 0
 
 
+
+def test_training_ids_follow_train_splits():
+    """train_splits: the default trains on split train only; [train, heldout] on the whole corpus (the user, 2026-11-20:
+    early checks without splits made for later training); the sealed test part is never among them."""
+    d = type("D", (), {})()
+    d.by_split = {"train": ["t1", "t2"], "heldout": ["h1"], "test": ["x1"]}
+    metas = {g: dict(id=g, group="bacteria", ranks=[0, 0, 0, 0, 100 + i, 1000 + i], cluster="") for i, g in enumerate(["t1", "t2", "h1", "x1"])}
+    assert SS.training_ids(d, metas, {}) == ["t1", "t2"]
+    assert SS.training_ids(d, metas, {"train_splits": ["train", "heldout"]}) == ["h1", "t1", "t2"]
+
+
+def test_train_splits_validated():
+    from ci.stages.train import selfsup_confs
+    tc = dict(lr=3e-4, steps=10, batch=4, seed=1)
+    base, _ = selfsup_confs(dict(tc), "/tmp/run", "abc")
+    assert "train_splits" not in base                                  # unset: the source config stays as before
+    base, _ = selfsup_confs(dict(tc, train_splits=["train", "heldout"]), "/tmp/run", "abc")
+    assert base["train_splits"] == ["train", "heldout"]
+    for bad in (["test"], [], ["train", "train"], "train"):
+        try:
+            selfsup_confs(dict(tc, train_splits=bad), "/tmp/run", "abc")
+        except SystemExit:
+            continue
+        raise AssertionError("train_splits %r accepted" % (bad,))
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+

@@ -96,3 +96,114 @@ def test_keep_bounds_rows_without_changing_the_selection():
         got = [r[:2] for r in select(list(k.rows), genus, 8)]
         assert got == want and len(k.rows) <= len(rows)
         assert all(r[11] for r in select(list(k.rows), genus, 8)[:8])      # the nearest keep their residues
+
+
+
+def _store(tmp_path, accs):
+    store = tmp_path / "store"
+    for sub in ("dev_genomes", "genes", "dev24_v/genus"):
+        (store / sub).mkdir(parents=True, exist_ok=True)
+    for _, acc in accs:
+        (store / "dev_genomes" / (acc + ".gb")).write_text("LOCUS " + acc)
+        (store / "genes" / (acc + ".tsv")).write_text("gene_id\n" + acc)
+        (store / "dev24_v" / "genus" / ("hidden_%s.tsv" % acc)).write_text("taxid\n1\n")
+    return store
+
+
+def _island_run(root, name, store, accs, cfg_extra=None, version=1, islands_code=None, proteins=None):
+    """A run folder with what search_candidates reads: record, resolved config, reference manifest, a passed island
+    data stage (extras at the top of its report, as Stage writes them) with its manifest, index, input proteins and hit
+    files, and the code of its worktree."""
+    import json
+    import shutil
+    import yaml
+    from ci.hashing import sha256_file
+    run = root / "runs" / name
+    (run / "data" / "reference").mkdir(parents=True)
+    (run / "data" / "islands" / "hits").mkdir(parents=True)
+    (run / "stages").mkdir()
+    (run / "record.json").write_text(json.dumps(dict(env_snapshot={"diamond_version.txt": "d1"}, taxdump_sha256="tax1")))
+    cfg = dict(islands=dict(store=str(store), max_target_seqs=4000, threads=12), search=dict(sensitivity="sensitive", evalue=1e-5, block_size=4, nearest=32,
+                                                                                         keep_sseq=32, threads=12))
+    for k, v in (cfg_extra or {}).items():
+        cfg[k].update(v)
+    (run / "config.resolved.yaml").write_text(yaml.safe_dump(cfg))
+    (run / "data" / "reference" / "manifest.json").write_text(json.dumps(dict(sha256="ref1")))
+    entries, genomes, folders = [], [], {}
+    for genus, acc in accs:
+        folder = run / "data" / "islands" / "inputs" / acc
+        folder.mkdir(parents=True)
+        (folder / "proteins.faa").write_text((proteins or {}).get(acc, ">%s__g1\nMK\n" % acc))
+        hp = run / "data" / "islands" / "hits" / (acc + ".npz")
+        np.savez(hp, off=np.array([0, 1]), nraw=np.array([1]))
+        entries.append(dict(id=acc, files=[dict(path="data/islands/inputs/%s/proteins.faa" % acc, sha256=sha256_file(str(folder / "proteins.faa"), use_sidecar=False)),
+                                           dict(path="data/islands/hits/%s.npz" % acc, sha256=sha256_file(str(hp), use_sidecar=False))]))
+        genomes.append(dict(id=acc, genus=genus, taxid=562, ranks=[1, 2, 3, 4, 561, 562], hidden_taxids=[1], hidden_rows_dropped=3))
+        folders[acc] = str(folder)
+    mp, ip = run / "data" / "islands" / "manifest.json", run / "data" / "islands" / "index.json"
+    mp.write_text(json.dumps(dict(entries=entries)))
+    ip.write_text(json.dumps(dict(genomes=genomes)))
+    rep = dict(status="passed", outputs=[dict(name="islands_manifest", sha256=sha256_file(str(mp), use_sidecar=False)),
+                                         dict(name="islands_index", sha256=sha256_file(str(ip), use_sidecar=False))])
+    if version is not None:
+        rep["search_version"] = version
+    (run / "stages" / "islands_data.json").write_text(json.dumps(rep))
+    code = root / "wt" / name / "ci" / "stages"
+    code.mkdir(parents=True)
+    shutil.copy(I.SEARCH_CODE, code / "search.py")
+    (code / "islands.py").write_text(islands_code if islands_code is not None else "# islands.py of the candidate\n")
+    return run, cfg, genomes, folders
+
+
+def test_island_search_reuse_matches_only_an_equal_key_and_inputs(tmp_path):
+    import json
+    accs = [("Escherichia", "NC_1"), ("Salmonella", "NC_2")]
+    store = _store(tmp_path, accs)
+    cand, _, _, _ = _island_run(tmp_path, "cand", store, accs)
+    ours, cfg, genomes, folders = _island_run(tmp_path, "ours", store, accs, version=None)
+    cfg["islands"]["reuse_search_from"] = [str(cand)]
+    key, inp = I.search_key(str(ours), cfg, accs, I.ISLAND_SEARCH_VERSION, I.SEARCH_CODE), I.search_inputs(genomes, folders)
+    found = list(I.search_candidates(str(ours), cfg))
+    assert [c for c, k, ki, _, _ in found if k == key and ki == inp] == [str(cand)]
+    # the reused hit files are linked and checked; the dropped rows come with them
+    man = json.loads((cand / "data" / "islands" / "manifest.json").read_text())
+    idx = json.loads((cand / "data" / "islands" / "index.json").read_text())
+    new = tmp_path / "new"
+    dropped = I.link_reused_hits(str(new), str(cand), man, idx, ["NC_1", "NC_2"])
+    assert dropped == {"NC_1": 3, "NC_2": 3} and (new / "data" / "islands" / "hits" / "NC_1.npz").exists()
+    try:
+        I.link_reused_hits(str(tmp_path / "new2"), str(cand), man, idx, ["NC_1"])
+        raise AssertionError("other chromosomes accepted")
+    except SystemExit:
+        pass
+    # another setting (threads included), another order of the queries, or other query proteins: no reuse
+    for name, extra in (("other", dict(islands=dict(max_target_seqs=1000))), ("threads", dict(islands=dict(threads=6)))):
+        other, _, _, _ = _island_run(tmp_path, name, store, accs, cfg_extra=extra)
+        cfg["islands"]["reuse_search_from"] = [str(other)]
+        assert all(k != key for _, k, _, _, _ in I.search_candidates(str(ours), cfg))
+    flipped, _, _, _ = _island_run(tmp_path, "flipped", store, accs[::-1])
+    cfg["islands"]["reuse_search_from"] = [str(flipped)]
+    assert all(k != key for _, k, _, _, _ in I.search_candidates(str(ours), cfg))
+    changed, _, _, _ = _island_run(tmp_path, "changed", store, accs, proteins={"NC_2": ">NC_2__g1\nMKV\n"})
+    cfg["islands"]["reuse_search_from"] = [str(changed)]
+    assert all(not (k == key and ki == inp) for _, k, ki, _, _ in I.search_candidates(str(ours), cfg))
+    # a candidate with a file missing is skipped, not a crash
+    (changed / "record.json").unlink()
+    assert list(I.search_candidates(str(ours), cfg)) == []
+
+
+def test_island_search_reuse_needs_a_known_search_version(tmp_path):
+    import hashlib
+    accs = [("Yersinia", "NC_3")]
+    store = _store(tmp_path, accs)
+    unknown, cfg, _, _ = _island_run(tmp_path, "unknown", store, accs, version=None)    # no version, code not version 1
+    cfg["islands"]["reuse_search_from"] = [str(unknown)]
+    assert list(I.search_candidates(str(unknown), cfg)) == []
+    old, cfg2, _, _ = _island_run(tmp_path, "old", store, accs, version=None, islands_code="# v1\n")
+    h = hashlib.sha256(b"# v1\n").hexdigest()
+    I.SEARCH_V1_FILES.add(h)
+    try:
+        cfg2["islands"]["reuse_search_from"] = [str(old)]
+        assert [k["version"] for _, k, _, _, _ in I.search_candidates(str(old), cfg2)] == [1]
+    finally:
+        I.SEARCH_V1_FILES.discard(h)

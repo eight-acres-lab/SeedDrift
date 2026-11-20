@@ -1,0 +1,76 @@
+# Machine i-1, round R1 of the truth-labels line (2026-11-20; the user: use both GPUs, rounds of 2-3 hours, early checks
+# on the whole data without splits made for later training). Development diagnosis only.
+# - Corpus medium (1,246 genomes, every group) with the search of run 20261118T104626-...-medium-search taken whole
+#   (search.reuse_from; the search block must stay equal to profile medium-search).
+# - Training data with the 32 nearest tracked hits per gene; split train / held out as usual, but the model trains on
+#   both (train.train_splits): the whole corpus. The held-out diagnosis is then in-sample.
+# - The corpus searched against itself (stage pairs) for objective C.
+# - Four variants, 8,000 steps each, two at a time: A+B1+B2+C with seeds 1 and 2, A alone, C alone (the same steps and
+#   batches as the pilot of 227 genomes; the change is the data).
+# - The 24 development chromosomes of the genomic-island set, their search against the reference taken whole from the
+#   island stage of run 20261120T023245 (islands.reuse_search_from; same reference, settings and search code); the
+#   partners of objective C are searched again against this corpus.
+pipeline: selfsup
+tier: medium
+seed: 1
+cores: 14
+blas_threads: 2
+disk_gb: 80
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.01
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
+  reuse_required: true
+train_data:
+  hits: 32
+pairs:
+  sensitivity: sensitive
+  max_target_seqs: 500
+  evalue: 1.0e-5
+  genomes: 64
+  threads: 12
+  block_size: 4
+train:
+  model: selfsup_v0
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt
+  gpu_lease: false
+  device: auto
+  seed: 1
+  train_splits: [train, heldout]
+  variants:
+    - {name: all-s1, seed: 1, objectives: [A, B1, B2, C]}
+    - {name: all-s2, seed: 2, objectives: [A, B1, B2, C]}
+    - {name: a-s1, seed: 1, objectives: [A]}
+    - {name: c-s1, seed: 1, objectives: [C]}
+  parallel: 2
+  dev_seed: 0
+  steps: 8000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 500
+  ckpt_every: 1000
+islands:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  threads: 12
+  reuse_search_from: [/hy-tmp/seeddrift-ci/runs/20261120T023245-exp-truth-labels-d823bfc0-selfsup-pilot-i1-gpu]
+  reuse_search_required: true

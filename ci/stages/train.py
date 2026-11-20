@@ -377,6 +377,13 @@ def selfsup_confs(tc, run_dir, commit, has_pairs=False):
                 source_hits=int(tc.get("source_hits", 8)), b2_hits=int(tc.get("b2_hits", 8)), held_batches=int(tc.get("held_batches", 8)),
                 held_genes=int(tc.get("held_genes", 200)), c_batch=int(tc.get("c_batch", tc["batch"])), c_partners=int(tc.get("c_partners", 16)),
                 pairs_dir=os.path.join("data", "pairs"))
+    # train.train_splits: the splits the model trains on (default train; [train, heldout]: the whole corpus, the held-out
+    # diagnosis then in-sample). The sealed test part is never loaded by the model.
+    ts = tc.get("train_splits")
+    if ts is not None:
+        if not isinstance(ts, list) or not ts or set(ts) - {"train", "heldout"} or len(set(ts)) != len(ts):
+            raise SystemExit("train.train_splits: a list of distinct splits among train, heldout: %r" % (ts,))
+        base["train_splits"] = list(ts)
     variants = [dict(v) for v in tc.get("variants") or [dict(name="main", seed=int(tc["seed"]))]]
     for v in variants:
         if set(v) - {"name", "seed"} - set(SELFSUP_KEYS) or not v.get("name") or "seed" not in v:

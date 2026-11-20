@@ -8,7 +8,9 @@ bench/hard) scored by the self-supervised model and by this line's own comparato
 Configuration (`islands:`): store (the benchmark's folder: dev_genomes/<acc>.gb, genes/, labels/, labels_panel/, the V1
 views), genomes (default bench/islands/results/dev_genomes.tsv), sealed (default bench/hard/results/sealed.tsv),
 views (default dev24_v/genus: hidden_<acc>.tsv), threads, merge (default Shigella=Escherichia), max_target_seqs (4,000),
-wait_for_database_s (0: a machine still copying the reference database in waits for its full size).
+wait_for_database_s (0: a machine still copying the reference database in waits for its full size), reuse_search_from
+(runs whose island search to take whole: the hit files of a run with the same search key, see search_key(); the
+partner search of objective C and the model's arrays are made again, as they depend on the corpus).
 
 data   Only accessions of the development list; a sealed accession, or one outside the development list, stops the stage
        (and gate G3_islands checks the result again). Per chromosome: the benchmark's gene table genes/<acc>.tsv
@@ -34,20 +36,122 @@ import csv
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 
 import numpy as np
+import yaml
 
+from ci import ROOT
 from ci import manifest as M
-from ci.hashing import sha256_file
+from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import Stage, main_args, write_json
 from ci.stages.search import FIELDS, flush, gene_ids
 from ci.stages.train_data import RANKS, one_genome
 from ci.taxonomy import Taxonomy
 
 COMPARATORS = ("cmp_codon", "cmp_gc3", "cmp_hits", "cmp_short")
+
+# The search part of do_data (build_inputs, the hidden view, Keep, the DIAMOND call; ci/stages/search.py's flush and FIELDS
+# enter the key through that file's hash): raise ISLAND_SEARCH_VERSION whenever it changes, so that
+# islands.reuse_search_from never takes hits made by other search code. SEARCH_V1_FILES: sha256 of islands.py at the
+# commits made before the constant existed whose search part is version 1 (144bb36, f63bca8, d823bfc, 46f8c7d, 01ea339
+# share this file); runs of those commits record no version.
+ISLAND_SEARCH_VERSION = 1
+SEARCH_V1_FILES = {"0291a2e6a7b2044b3d2cd5fa22575b975feb2625fb198dc81139b7e484dc4ed6"}
+SEARCH_CODE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "search.py")
+
+
+def search_key(run_dir, cfg, accs, version, search_code):
+    """What the island hit files depend on besides the per-chromosome inputs (compared separately, see
+    search_inputs): the reference dataset, the taxonomy (the genus of the view, the genus kept per row), the DIAMOND
+    version, the chromosomes in the order they were searched (a hit list can depend on the other queries of the run),
+    the settings of the search including its threads, and its code."""
+    ic, sc = cfg["islands"], cfg["search"]
+    with open(os.path.join(run_dir, "data", "reference", "manifest.json")) as f:
+        ref = json.load(f)["sha256"]
+    with open(os.path.join(run_dir, "record.json")) as f:
+        rec = json.load(f)
+    return dict(reference=ref, taxdump=rec.get("taxdump_sha256"), diamond=(rec.get("env_snapshot") or {}).get("diamond_version.txt"), version=version,
+                search_code=sha256_file(search_code, use_sidecar=False), order=[acc for _, acc in accs],
+                islands=sha256_json(dict(max_target_seqs=int(ic.get("max_target_seqs", 4000)), views=ic.get("views", "dev24_v/genus"),
+                                         threads=int(ic.get("threads", sc.get("threads", 2))))),
+                search=sha256_json({k: sc.get(k) for k in ("sensitivity", "evalue", "block_size", "nearest", "keep_sseq")}))
+
+
+def search_inputs(genomes, folders):
+    """Per chromosome what its search read: the sha256 of its query proteins, its taxid, lineage and hidden taxids
+    (the view). For our run from the inputs just built; for a candidate from its manifest and index (what it searched,
+    not the benchmark files as they are now)."""
+    return {g["id"]: dict(proteins=sha256_file(os.path.join(folders[g["id"]], "proteins.faa"), use_sidecar=False), taxid=int(g["taxid"]),
+                          ranks=[int(x) for x in g["ranks"]], hidden=sorted(int(x) for x in g["hidden_taxids"])) for g in genomes}
+
+
+def candidate_inputs(cman, cidx):
+    prot = {e["id"]: [fe["sha256"] for fe in e["files"] if fe["path"].endswith("/proteins.faa")] for e in cman["entries"]}
+    return {g["id"]: dict(proteins=(prot.get(g["id"]) or [None])[0], taxid=int(g["taxid"]), ranks=[int(x) for x in g["ranks"]],
+                          hidden=sorted(int(x) for x in g["hidden_taxids"])) for g in cidx["genomes"]}
+
+
+def search_candidates(run_dir, cfg):
+    """(run, its key, its per-chromosome inputs, its island manifest, its index) for every run of
+    islands.reuse_search_from whose island data stage passed and whose island manifest and index are the files that
+    stage reported; the code of a candidate is read from its worktree (<root of the run>/wt/<run>/ci/stages/), as
+    search.reuse_from does; a candidate with a file missing is skipped."""
+    for c in (cfg["islands"].get("reuse_search_from") or []):
+        cand = c if os.path.isabs(c) else os.path.join(ROOT, c)
+        sp, mp, ip = (os.path.join(cand, "stages", "islands_data.json"), os.path.join(cand, "data", "islands", "manifest.json"),
+                      os.path.join(cand, "data", "islands", "index.json"))
+        code_dir = os.path.join(os.path.dirname(os.path.dirname(cand)), "wt", os.path.basename(cand), "ci", "stages")
+        need = [sp, mp, ip, os.path.join(cand, "config.resolved.yaml"), os.path.join(cand, "record.json"),
+                os.path.join(cand, "data", "reference", "manifest.json"), os.path.join(code_dir, "search.py")]
+        if not all(os.path.exists(x) for x in need):
+            continue
+        with open(sp) as f:
+            rep = json.load(f)
+        out = {o["name"]: o["sha256"] for o in rep.get("outputs") or []}
+        if rep.get("status") != "passed" or out.get("islands_manifest") != sha256_file(mp, use_sidecar=False) \
+                or out.get("islands_index") != sha256_file(ip, use_sidecar=False):
+            continue
+        version = rep.get("search_version")                               # stage extras sit at the top of the report
+        if version is None and os.path.exists(os.path.join(code_dir, "islands.py")) and \
+                sha256_file(os.path.join(code_dir, "islands.py"), use_sidecar=False) in SEARCH_V1_FILES:
+            version = 1
+        if version is None:
+            continue
+        with open(os.path.join(cand, "config.resolved.yaml")) as f:
+            ccfg = yaml.safe_load(f)
+        with open(mp) as f:
+            man = json.load(f)
+        with open(ip) as f:
+            idx = json.load(f)
+        accs = [(g["genus"], g["id"]) for g in idx["genomes"]]
+        yield cand, search_key(cand, ccfg, accs, int(version), os.path.join(code_dir, "search.py")), candidate_inputs(man, idx), man, idx
+
+
+def link_reused_hits(run_dir, cand, cman, cidx, ids):
+    """Hard-link (or copy, across file systems) the island hit files of run `cand` (its island manifest `cman` and
+    index `cidx`) into run_dir, each checked against the manifest's sha256; the chromosomes must be exactly `ids`.
+    Returns the rows its view dropped per chromosome."""
+    cdropped = {g["id"]: int(g.get("hidden_rows_dropped", 0)) for g in cidx["genomes"]}
+    files = {e["id"]: [fe for fe in e["files"] if fe["path"].startswith("data/islands/hits/")] for e in cman["entries"]}
+    if sorted(files) != sorted(ids) or any(len(v) != 1 for v in files.values()):
+        raise SystemExit("islands: the reused run %s has other chromosomes or hit files" % cand)
+    for gid in ids:
+        fe = files[gid][0]
+        dst = os.path.join(run_dir, fe["path"])
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.exists(dst):
+            os.remove(dst)
+        try:
+            os.link(os.path.join(cand, fe["path"]), dst)
+        except OSError:
+            shutil.copyfile(os.path.join(cand, fe["path"]), dst)
+        if sha256_file(dst, use_sidecar=False) != fe["sha256"]:
+            raise SystemExit("islands: reused hit file %s does not match its manifest" % dst)
+    return {g: n for g, n in cdropped.items() if n}
 
 
 def _tsv(path):
@@ -149,14 +253,6 @@ def do_data(run_dir):
             ref = json.load(f)
         db = ref["database"] if os.path.isabs(ref["database"]) else os.path.join(run_dir, ref["database"])
         dbe = [e for e in ref["entries"][0]["files"] if os.path.abspath(e["path"]) == os.path.abspath(db) or os.path.join(run_dir, e["path"]) == db]
-        # islands.wait_for_database_s: on a machine where the database is still being copied in, wait (up to that many
-        # seconds) until it has its full size; the hash below decides whether it is the dataset's database
-        t0 = time.time()
-        while dbe and time.time() - t0 < float(ic.get("wait_for_database_s", 0)) and not (os.path.exists(db) and os.path.getsize(db) == dbe[0]["bytes"]):
-            time.sleep(60)
-        st.extra["waited_for_database_s"] = round(time.time() - t0)
-        if dbe and (not os.path.exists(db) or sha256_file(db) != dbe[0]["sha256"]):
-            raise SystemExit("islands: the reference database %s is missing or differs from the reference dataset" % db)
         idx = np.load(os.path.join(run_dir, "data", "reference", "index.npz"))
         acc_s, acc_tax = idx["acc"], idx["taxid"]
         lib = np.load(os.path.join(run_dir, "data", "reference", "library.npz"))
@@ -181,105 +277,142 @@ def do_data(run_dir):
                     fo.write(f.read())
         os.replace(q + ".part", q)
         keep = int(sc.get("keep_sseq", 0))
-        cmd = [cfg["tools"]["diamond"], "blastp", "-q", q, "-d", db, "-o", "/dev/stdout", "--" + sc.get("sensitivity", "sensitive"),
-               "--max-target-seqs", str(ic.get("max_target_seqs", 4000)), "--max-hsps", "1", "-e", str(sc.get("evalue", 1e-5)),
-               "--threads", str(ic.get("threads", sc.get("threads", 2))), "-b", str(sc.get("block_size", 4)), "-c", "1",
-               "--tmpdir", os.environ.get("TMPDIR", "/tmp"), "--quiet", "--outfmt", "6"] + FIELDS + (["sseq"] if keep else [])
         hits_dir = os.path.join(base, "hits")
         os.makedirs(hits_dir, exist_ok=True)
         folders = {g["id"]: os.path.join(run_dir, g["folder"]) for g in genomes}
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
-        cur, by_gene, nraw, done, dropped = None, {}, {}, set(), {}
-        try:
-            for line in p.stdout:
-                f = line.rstrip("\n").split("\t")
-                gid, gene = f[0].split("__", 1)
-                if gid != cur:
-                    if cur is not None:
-                        flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), {k: v.rows for k, v in by_gene.items()}, nraw, genus_of_prot,
-                              sc.get("nearest", 32), keep)
-                        done.add(cur)
-                    if gid in done:
-                        raise SystemExit("search output of %s is not contiguous" % gid)
-                    cur, by_gene, nraw = gid, {}, {}
-                acc, _, t = f[1].partition("|")
-                i = int(np.searchsorted(acc_s, acc.encode()))
-                if i >= len(acc_s) or acc_s[i] != acc.encode():
-                    raise SystemExit("target %s is not in the reference index" % f[1])
-                pr = int(np.searchsorted(lib_tax, acc_tax[i]))
-                nraw[gene] = nraw.get(gene, 0) + 1
-                if hidden_mask[gid][pr]:                                   # the view: hidden before the nearest are chosen
-                    dropped[gid] = dropped.get(gid, 0) + 1
-                    continue
-                if gene not in by_gene:
-                    by_gene[gene] = Keep(int(sc.get("nearest", 32)), genus_of_prot)
-                by_gene[gene].add((i, pr, int(round(float(f[2]) * 10)), int(f[3]), int(f[4]), int(f[5]), int(f[6]), int(f[7]), int(f[8]),
-                                   float(f[9]), f[10]) + ((f[11],) if keep else ()))
-            if p.wait() != 0:
-                raise SystemExit("diamond exited with %d" % p.returncode)
-            if cur is not None:
-                flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), {k: v.rows for k, v in by_gene.items()}, nraw, genus_of_prot,
-                      sc.get("nearest", 32), keep)
-                done.add(cur)
-        finally:
-            if p.poll() is None:
-                p.kill()
-        for g in genomes:
-            if g["id"] not in done:
-                flush(os.path.join(hits_dir, g["id"] + ".npz"), gene_ids(folders[g["id"]]), {}, {}, genus_of_prot, sc.get("nearest", 32), keep)
+        # islands.reuse_search_from: the hit files of a run with this search's key and the same per-chromosome inputs,
+        # taken whole (the reference database is then not read: a machine without it can score the islands)
+        ours, ours_in = search_key(run_dir, cfg, accs, ISLAND_SEARCH_VERSION, SEARCH_CODE), search_inputs(genomes, folders)
+        cands = list(search_candidates(run_dir, cfg))
+        reuse = next(((c, m, x) for c, k, ki, m, x in cands if k == ours and ki == ours_in), None)
+        st.extra.update(search_version=ISLAND_SEARCH_VERSION, search_key=ours)
+        if reuse is None and ic.get("reuse_search_required"):
+            diffs = {os.path.basename(c): sorted(x for x in ours if k.get(x) != ours[x]) + ([] if ki == ours_in else ["inputs"]) for c, k, ki, _, _ in cands}
+            raise SystemExit("islands.reuse_search_required: no run of islands.reuse_search_from has this search's key and inputs; differing parts: %s"
+                             % (diffs or "no candidate"))
+        if reuse is None:
+            # islands.wait_for_database_s: on a machine where the database is still being copied in, wait (up to that
+            # many seconds) until it has its full size; the hash below decides whether it is the dataset's database
+            t0 = time.time()
+            while dbe and time.time() - t0 < float(ic.get("wait_for_database_s", 0)) and not (os.path.exists(db) and os.path.getsize(db) == dbe[0]["bytes"]):
+                time.sleep(60)
+            st.extra["waited_for_database_s"] = round(time.time() - t0)
+            if dbe and (not os.path.exists(db) or sha256_file(db) != dbe[0]["sha256"]):
+                raise SystemExit("islands: the reference database %s is missing or differs from the reference dataset" % db)
+        if reuse is not None:
+            dropped = link_reused_hits(run_dir, reuse[0], reuse[1], reuse[2], [g["id"] for g in genomes])
+            st.extra.update(search_reused_from=os.path.basename(reuse[0]))
+        else:
+            dropped = search_islands(cfg, ic, sc, q, db, keep, hits_dir, folders, genomes, acc_s, acc_tax, lib_tax, hidden_mask, genus_of_prot)
         cap = int(ic.get("max_target_seqs", 4000))
         for g in genomes:                                                  # full lists that the view emptied
             h = np.load(os.path.join(hits_dir, g["id"] + ".npz"))
             g["full_and_emptied"] = int(np.sum((h["nraw"].astype(np.int64) >= min(cap, 65535)) & (np.diff(h["off"]) == 0)))
-        if cfg.get("pairs"):                                              # objective C: the chromosomes against the corpus
-            from ci.stages import pairs as P
-            pdir = os.path.join(base, "pairs")
-            os.makedirs(pdir, exist_ok=True)
-            with open(os.path.join(run_dir, "data", "pairs", "genomes.json")) as f:
-                order = json.load(f)["genomes"]
-            corpus_dirs = dict(P.corpus(run_dir))
-            names = {g: gene_ids(corpus_dirs[g]) for g in order}
-            # the view for partners too: corpus genomes of a hidden proteome's taxon, of the chromosome's own taxon or of
-            # its genus (merged as in the evaluation) are not partners, left out before the nearest genomes are chosen
-            with open(os.path.join(run_dir, "data", "corpus", "manifest.json")) as f:
-                ctax = {e["id"]: int(e["taxid"]) for e in json.load(f)["entries"]}
-            merge = dict(x.split("=", 1) for x in ic.get("merge", ["Shigella=Escherichia"]))
-            unit = lambda name: merge.get(name, name)
-            cgenus = {g: tax.name(tax.at_rank(t, "genus")) if tax.at_rank(t, "genus") else "" for g, t in ctax.items()}
-            skip = {}
-            for g in genomes:
-                hid = set(g["hidden_taxids"]) | {g["taxid"]}
-                skip[g["id"]] = {i for i, c in enumerate(order) if ctax[c] in hid or (cgenus[c] and unit(cgenus[c]) == unit(g["genus"]))}
-                g["partners_skipped"] = len(skip[g["id"]])
-            P.search(cfg["tools"]["diamond"], q, os.path.join(run_dir, "data", "pairs", "db.dmnd"), dict(cfg["pairs"], threads=ic.get("threads", 2)),
-                     {g: i for i, g in enumerate(order)}, {g: {n: i for i, n in enumerate(v)} for g, v in names.items()},
-                     {g["id"]: gene_ids(folders[g["id"]]) for g in genomes}, pdir, own=False, skip=skip)
-            for g in genomes:
-                g["pairs"] = os.path.relpath(os.path.join(pdir, g["id"] + ".npz"), run_dir)
-        os.remove(q)
-        entries = []
-        arr_dir = os.path.join(base, "train_data")
-        os.makedirs(arr_dir, exist_ok=True)
+        _islands_rest(run_dir, st, cfg, ic, sc, dc, tax, ref, base, q, hits_dir, folders, genomes, dropped, cap)
+
+
+def search_islands(cfg, ic, sc, q, db, keep, hits_dir, folders, genomes, acc_s, acc_tax, lib_tax, hidden_mask, genus_of_prot):
+    """The island search (version ISLAND_SEARCH_VERSION): DIAMOND with islands.max_target_seqs targets per gene, the
+    chromosome's view dropped before the nearest rows are chosen; one hit file per chromosome. Returns the rows the view
+    dropped per chromosome."""
+    cmd = [cfg["tools"]["diamond"], "blastp", "-q", q, "-d", db, "-o", "/dev/stdout", "--" + sc.get("sensitivity", "sensitive"),
+           "--max-target-seqs", str(ic.get("max_target_seqs", 4000)), "--max-hsps", "1", "-e", str(sc.get("evalue", 1e-5)),
+           "--threads", str(ic.get("threads", sc.get("threads", 2))), "-b", str(sc.get("block_size", 4)), "-c", "1",
+           "--tmpdir", os.environ.get("TMPDIR", "/tmp"), "--quiet", "--outfmt", "6"] + FIELDS + (["sseq"] if keep else [])
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
+    cur, by_gene, nraw, done, dropped = None, {}, {}, set(), {}
+    try:
+        for line in p.stdout:
+            f = line.rstrip("\n").split("\t")
+            gid, gene = f[0].split("__", 1)
+            if gid != cur:
+                if cur is not None:
+                    flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), {k: v.rows for k, v in by_gene.items()}, nraw, genus_of_prot,
+                          sc.get("nearest", 32), keep)
+                    done.add(cur)
+                if gid in done:
+                    raise SystemExit("search output of %s is not contiguous" % gid)
+                cur, by_gene, nraw = gid, {}, {}
+            acc, _, t = f[1].partition("|")
+            i = int(np.searchsorted(acc_s, acc.encode()))
+            if i >= len(acc_s) or acc_s[i] != acc.encode():
+                raise SystemExit("target %s is not in the reference index" % f[1])
+            pr = int(np.searchsorted(lib_tax, acc_tax[i]))
+            nraw[gene] = nraw.get(gene, 0) + 1
+            if hidden_mask[gid][pr]:                                   # the view: hidden before the nearest are chosen
+                dropped[gid] = dropped.get(gid, 0) + 1
+                continue
+            if gene not in by_gene:
+                by_gene[gene] = Keep(int(sc.get("nearest", 32)), genus_of_prot)
+            by_gene[gene].add((i, pr, int(round(float(f[2]) * 10)), int(f[3]), int(f[4]), int(f[5]), int(f[6]), int(f[7]), int(f[8]),
+                               float(f[9]), f[10]) + ((f[11],) if keep else ()))
+        if p.wait() != 0:
+            raise SystemExit("diamond exited with %d" % p.returncode)
+        if cur is not None:
+            flush(os.path.join(hits_dir, cur + ".npz"), gene_ids(folders[cur]), {k: v.rows for k, v in by_gene.items()}, nraw, genus_of_prot,
+                  sc.get("nearest", 32), keep)
+            done.add(cur)
+    finally:
+        if p.poll() is None:
+            p.kill()
+    for g in genomes:
+        if g["id"] not in done:
+            flush(os.path.join(hits_dir, g["id"] + ".npz"), gene_ids(folders[g["id"]]), {}, {}, genus_of_prot, sc.get("nearest", 32), keep)
+    return dropped
+
+
+def _islands_rest(run_dir, st, cfg, ic, sc, dc, tax, ref, base, q, hits_dir, folders, genomes, dropped, cap):
+    """After the search: the partner search of objective C (it depends on the corpus), the model's arrays, the island
+    manifest and index."""
+    if cfg.get("pairs"):                                              # objective C: the chromosomes against the corpus
+        from ci.stages import pairs as P
+        pdir = os.path.join(base, "pairs")
+        os.makedirs(pdir, exist_ok=True)
+        with open(os.path.join(run_dir, "data", "pairs", "genomes.json")) as f:
+            order = json.load(f)["genomes"]
+        corpus_dirs = dict(P.corpus(run_dir))
+        names = {g: gene_ids(corpus_dirs[g]) for g in order}
+        # the view for partners too: corpus genomes of a hidden proteome's taxon, of the chromosome's own taxon or of
+        # its genus (merged as in the evaluation) are not partners, left out before the nearest genomes are chosen
+        with open(os.path.join(run_dir, "data", "corpus", "manifest.json")) as f:
+            ctax = {e["id"]: int(e["taxid"]) for e in json.load(f)["entries"]}
+        merge = dict(x.split("=", 1) for x in ic.get("merge", ["Shigella=Escherichia"]))
+        unit = lambda name: merge.get(name, name)
+        cgenus = {g: tax.name(tax.at_rank(t, "genus")) if tax.at_rank(t, "genus") else "" for g, t in ctax.items()}
+        skip = {}
         for g in genomes:
-            arrays, n_genes, n_hits = one_genome(folders[g["id"]], os.path.join(hits_dir, g["id"] + ".npz"), g["id"], int(dc.get("max_codons", 1000)), int(dc.get("hits", 32)))
-            from seeddrift.train.logger import save_npz
-            path = os.path.join(arr_dir, g["id"] + ".npz")
-            save_npz(path, compress=True, **arrays)
-            g.update(path=os.path.relpath(path, run_dir), tracked_hits=n_hits, hidden_rows_dropped=dropped.get(g["id"], 0))
-            entries.append(dict(id=g["id"], files=[M.file_entry(os.path.join(folders[g["id"]], n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
-                                + [M.file_entry(os.path.join(hits_dir, g["id"] + ".npz"), run_dir), M.file_entry(path, run_dir)]
-                                + ([M.file_entry(os.path.join(run_dir, g["pairs"]), run_dir)] if g.get("pairs") else [])))
-        man = M.build("islands", "islands", entries, meta=dict(reference=ref["sha256"], search=dict({k: sc.get(k) for k in ("sensitivity", "evalue", "nearest", "keep_sseq")},
-                                                                                                       max_target_seqs=cap),
-                                                                views=ic.get("views", "dev24_v/genus")))
-        sha = M.write(man, os.path.join(run_dir, "manifests"))
-        write_json(os.path.join(base, "manifest.json"), dict(sha256=sha, dataset_id=M.dataset_id(man), **man))
-        ip = os.path.join(base, "index.json")
-        write_json(ip, dict(genomes=genomes, dataset_id=M.dataset_id(man)))
-        st.output("islands_index", ip)
-        st.output("islands_manifest", os.path.join(base, "manifest.json"))
-        st.extra.update(chromosomes=len(genomes), genes=sum(g["genes"] for g in genomes), hidden_rows_dropped=sum(dropped.values()),
-                        full_lists_emptied_by_the_view=sum(g["full_and_emptied"] for g in genomes))
+            hid = set(g["hidden_taxids"]) | {g["taxid"]}
+            skip[g["id"]] = {i for i, c in enumerate(order) if ctax[c] in hid or (cgenus[c] and unit(cgenus[c]) == unit(g["genus"]))}
+            g["partners_skipped"] = len(skip[g["id"]])
+        P.search(cfg["tools"]["diamond"], q, os.path.join(run_dir, "data", "pairs", "db.dmnd"), dict(cfg["pairs"], threads=ic.get("threads", 2)),
+                 {g: i for i, g in enumerate(order)}, {g: {n: i for i, n in enumerate(v)} for g, v in names.items()},
+                 {g["id"]: gene_ids(folders[g["id"]]) for g in genomes}, pdir, own=False, skip=skip)
+        for g in genomes:
+            g["pairs"] = os.path.relpath(os.path.join(pdir, g["id"] + ".npz"), run_dir)
+    os.remove(q)
+    entries = []
+    arr_dir = os.path.join(base, "train_data")
+    os.makedirs(arr_dir, exist_ok=True)
+    for g in genomes:
+        arrays, n_genes, n_hits = one_genome(folders[g["id"]], os.path.join(hits_dir, g["id"] + ".npz"), g["id"], int(dc.get("max_codons", 1000)), int(dc.get("hits", 32)))
+        from seeddrift.train.logger import save_npz
+        path = os.path.join(arr_dir, g["id"] + ".npz")
+        save_npz(path, compress=True, **arrays)
+        g.update(path=os.path.relpath(path, run_dir), tracked_hits=n_hits, hidden_rows_dropped=dropped.get(g["id"], 0))
+        entries.append(dict(id=g["id"], files=[M.file_entry(os.path.join(folders[g["id"]], n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
+                            + [M.file_entry(os.path.join(hits_dir, g["id"] + ".npz"), run_dir), M.file_entry(path, run_dir)]
+                            + ([M.file_entry(os.path.join(run_dir, g["pairs"]), run_dir)] if g.get("pairs") else [])))
+    man = M.build("islands", "islands", entries, meta=dict(reference=ref["sha256"], search=dict({k: sc.get(k) for k in ("sensitivity", "evalue", "nearest", "keep_sseq")},
+                                                                                                   max_target_seqs=cap),
+                                                            views=ic.get("views", "dev24_v/genus")))
+    sha = M.write(man, os.path.join(run_dir, "manifests"))
+    write_json(os.path.join(base, "manifest.json"), dict(sha256=sha, dataset_id=M.dataset_id(man), **man))
+    ip = os.path.join(base, "index.json")
+    write_json(ip, dict(genomes=genomes, dataset_id=M.dataset_id(man)))
+    st.output("islands_index", ip)
+    st.output("islands_manifest", os.path.join(base, "manifest.json"))
+    st.extra.update(chromosomes=len(genomes), genes=sum(g["genes"] for g in genomes), hidden_rows_dropped=sum(dropped.values()),
+                    full_lists_emptied_by_the_view=sum(g["full_and_emptied"] for g in genomes))
 
 
 def comparators(gen):

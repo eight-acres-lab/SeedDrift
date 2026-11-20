@@ -1,0 +1,4 @@
+selector	level	source	evidence
+all	L0	<store>/panel/island_set_taxa.json (bench/hard/panel.py island_set_taxa)	taxids of every accession of the set, fetched to leave island-set strains out of every genus panel; no sequence, label or score
+rest	L1	bench/islands/fetch.py ranked()	published island and backbone regions counted per chromosome of the 18 non-development genera, in memory only, to pick each genus's sealed chromosome; never written or printed; the user, 2026-11-20: not looked at
+NC_009504.1	L2	bench/hard/DESIGN.md (the Brucella replacement planned with amendment (1)); bench/hard/PROTOCOL.md section 3 (lines 130-132)	planned as the Brucella replacement; its replicon status (chromosome II) was checked and Brucella left the sealed set

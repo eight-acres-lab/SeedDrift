@@ -1,4 +1,4 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -15,6 +15,9 @@ codon    (pipeline codon) G3_codon: no panel or manifold genome shares an island
          evaluation) or a taxon its view hides, all of them from the train and held-out splits; G4_codon on
          data/codon/report.json: every admitted chromosome, every column, the baseline scoring every labelled gene,
          the reproductions of codon.expect
+register (pipeline register) G3_register on data/register/: the parts as the lists in the repository define them, the
+         rule of bench/hard/V2_REGISTER.md applied (no candidate outside the rest part or at L2 or above; NC_009504.1
+         demoted; every candidate in a sealed_v1 genus), the outputs as reported
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
@@ -84,7 +87,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search", "selfsup", "codon"):
+    if p not in ("train", "select", "search", "selfsup", "codon", "register"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 
@@ -283,6 +286,57 @@ def phase_codon(st, cfg, run_dir):
     return sha256_json([sha256_file(p, use_sidecar=False), sha256_file(os.path.join(run_dir, "data", "codon", "study.json"), use_sidecar=False)])
 
 
+def phase_register(st, cfg, run_dir):
+    """G3_register (pipeline register, ci/stages/register.py)."""
+    import csv
+    from ci.stages import register as RG
+    base = os.path.join(run_dir, "data", "register")
+    with open(os.path.join(base, "report.json")) as f:
+        rep = json.load(f)
+    with open(os.path.join(base, "reference_set.tsv")) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    with open(os.path.join(base, "candidates.tsv")) as f:
+        cands = [r["accession"] for r in csv.DictReader(f, delimiter="\t")]
+    with open(st.repo("bench/islands/results/dev_genomes.tsv")) as f:
+        dev = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    with open(st.repo("bench/hard/results/sealed.tsv")) as f:
+        sealed = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    rc = cfg.get("register") or {}
+    problems = []
+    if len(rows) != int(rc.get("expect", 104)) or len({r["accession"] for r in rows}) != len(rows):
+        problems.append(dict(error="%d rows (expected %s, distinct)" % (len(rows), rc.get("expect", 104))))
+    by = {r["accession"]: r for r in rows}
+    if {a for a, r in by.items() if r["part"] == "development"} != dev:
+        problems.append(dict(error="the development part is not bench/islands/results/dev_genomes.tsv"))
+    if {a for a, r in by.items() if r["part"] in ("sealed_v1", "sealed_secondary")} != sealed:
+        problems.append(dict(error="the sealed parts are not bench/hard/results/sealed.tsv"))
+    if by.get(RG.SECONDARY, {}).get("part") != "sealed_secondary":
+        problems.append(dict(error="%s is not the sealed_secondary chromosome" % RG.SECONDARY))
+    if by.get("NC_009504.1", {}).get("status") not in ("demoted", None):
+        problems.append(dict(error="NC_009504.1 is not demoted (bench/hard/V2_REGISTER.md)"))
+    genus = lambda r: r["organism"].split()[0] if r["organism"] else ""
+    sealed_genera = {genus(r) for r in rows if r["part"] == "sealed_v1"}
+    for r in rows:
+        cand = r["status"] == "candidate"
+        if (a := r["accession"]) and cand != (a in cands):
+            problems.append(dict(accession=a, error="status and candidates.tsv disagree"))
+        if cand and (r["part"] != "rest" or RG.LEVELS.index(r["level"]) >= RG.LEVELS.index(RG.DEMOTE_FROM) or a in dev or a in sealed):
+            problems.append(dict(accession=a, error="a candidate outside the rest part, at %s or above, or listed" % RG.DEMOTE_FROM))
+        if cand and genus(r) not in sealed_genera:
+            problems.append(dict(accession=a, error="a candidate outside the sealed_v1 genera"))
+        if r["part"] == "rest" and not cand and r["status"] != "demoted":
+            problems.append(dict(accession=a, error="a rest chromosome neither candidate nor demoted"))
+    for name, sha in (rep.get("outputs") or {}).items():
+        if sha256_file(os.path.join(base, name), use_sidecar=False) != sha:
+            problems.append(dict(file=name, error="differs from the report"))
+    rule = st.repo(RG.RULE)
+    if (rep.get("inputs") or {}).get(RG.RULE) != sha256_file(rule, use_sidecar=False):
+        problems.append(dict(error="the rule file is not the one the stage read"))
+    require(GateResult("G3_register", "fail" if problems else "pass", dict(problems=problems[:50], parts=rep.get("parts"), status=rep.get("status"),
+                                                                           candidates_sha256=(rep.get("outputs") or {}).get("candidates.tsv"))), run_dir)
+    return sha256_file(os.path.join(base, "report.json"), use_sidecar=False)
+
+
 def _g3_files(st, cfg, run_dir):
     if pipeline_of(cfg) == "select":
         read = []
@@ -427,6 +481,8 @@ def main():
                 key = phase_selfsup(st, cfg, run_dir)
             elif phase == "codon":
                 key = phase_codon(st, cfg, run_dir)
+            elif phase == "register":
+                key = phase_register(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

@@ -1,0 +1,18 @@
+# Machine i-1: the register of the island reference set for benchmark v2 (pipeline register, ci/stages/register.py)
+# under the rule of bench/hard/V2_REGISTER.md, committed before any register run (1cbd079). Metadata only (the island
+# tables' accessions and organisms, the store's taxid cache, the lists in the repository); no GPU, so it takes the
+# select lock and runs beside a training run. Its candidates.tsv is committed as the hash registration of the
+# sealing candidates; the exposure scans that may demote some of them are a later stage.
+pipeline: register
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+register:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  expect: 104

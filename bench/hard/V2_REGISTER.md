@@ -37,6 +37,15 @@ development, never back).
    register run until it is declared (with its level) in a new commit.
 4. The register reads the island tables for accessions and organisms only: no row is counted and no coordinate kept.
 
+## Scans
+
+Register run 1 (machine i-1) scans names only, never file contents: every path under the island store and under the
+machine's CI runs is matched against the accessions of the set (with or without version). A path naming a chromosome
+is level L3 (its record, proteins, hits, panel or labels exist), L4 under a score folder (`scores/`, `scores_<acc>`,
+`raw/`, `views/`, `dev_composition/`, `dev24_v/`, `dev_views/`), L5 under an evaluation folder (`eval/`). The scan
+roots, the number of paths walked and every finding are part of the register's report. Later register runs add the
+other machine, the git history of every branch and the developer machine's files; they may only demote.
+
 Decided by the user on 2026-11-20 (`fetch.ranked()` counted the published island and backbone regions of every
 chromosome of the 18 non-development genera, in memory only, to pick the sealed chromosome of each genus): this
 counting is level L1, "not looked at". NC_009504.1 (the set's second Brucella record, also chromosome II) entered a

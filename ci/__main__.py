@@ -59,6 +59,10 @@ PIPELINES = {
     # inputs are passed runs' outputs, checked by sha256; judged by its own gates
     "codon": dict(target="codon_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_codon", "G4_codon"),
                   resume=(("pre", None), ("codon", "data/codon/report.json"))),
+    # the register of the island reference set for benchmark v2 (ci/stages/register.py; rule bench/hard/V2_REGISTER.md):
+    # metadata only, no GPU (profiles set needs_gpu: false)
+    "register": dict(target="register_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_register"),
+                     resume=(("pre", None), ("register", "data/register/report.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

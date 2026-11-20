@@ -8,7 +8,7 @@
     "run_id": {"type": "string", "minLength": 1},
     "ci_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
     "pipeline_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "pipeline": {"enum": ["train", "select", "search", "selfsup", "codon"]},
+    "pipeline": {"enum": ["train", "select", "search", "selfsup", "codon", "register"]},
     "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "env_lock_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "git": {"type": "object", "required": ["sha", "branch", "clean", "provenance"],

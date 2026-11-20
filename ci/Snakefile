@@ -76,6 +76,24 @@ rule gates_codon:
     shell: STAGE.format(name="gates") + " codon"
 
 
+# pipeline register (profiles with `pipeline: register`): the register of the island reference set for benchmark v2
+# (ci/stages/register.py, rule bench/hard/V2_REGISTER.md); metadata only
+rule register_all:
+    input: "gates/register.ok"
+
+
+rule register:
+    input: "gates/pre.ok"
+    output: "data/register/report.json"
+    shell: STAGE.format(name="register")
+
+
+rule gates_register:
+    input: "data/register/report.json"
+    output: "gates/register.ok"
+    shell: STAGE.format(name="gates") + " register"
+
+
 rule pairs:
     input: "gates/corpus.ok"
     output: "data/pairs/manifest.json"

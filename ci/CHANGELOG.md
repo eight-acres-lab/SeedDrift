@@ -64,6 +64,22 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   ignores reused pids, counts the grace period from when the last holder went away, gives up after repeated failed
   starts (status shows it), and its watchdog leaves under the lock.
 - Profiles selfsup-tiny and selfsup-pilot (machine i-2).
+- Round 1 of the new objectives (train.readouts): panel, description-length, geometry, codon-usage, shuffled-genome
+  and hiding-depth readouts of trained models on the island chromosomes; train.train_splits (train only by default;
+  [train, heldout] for special runs, whose held-out diagnosis is then in-sample); the shared test protocol
+  (ci/stages/protocol.py) in the island report, with the benchmark's own scores as comparators and the matched and
+  accessory views of benchmark v2 family A; islands.reuse_search_from (the island search of a run with the same key).
+- Pipeline codon (`pipeline: codon`, ci/stages/codon.py, seeddrift/train/codon_study.py): the model-free codon-usage
+  family on the island chromosomes from passed runs' outputs (checked by sha256), with gates G3_codon (panels and
+  manifolds of other genera, train and held-out splits only, none in the test part of any corpus) and G4_codon
+  (coverage, reproductions); paired cluster-bootstrap intervals in the protocol (protocol.paired_delta).
+- Stage train_data through ci/stages/train_data_or_reuse.py: `train_data.reuse_from` takes the output of a run with an
+  equal key whole (datasets, taxdump, settings, code and the helpers that shape the bytes), `reuse_required` fails
+  without one; `search.reuse_manifest_only` (pipeline selfsup, with a required training-data reuse only) takes the
+  hits manifest without the hit files.
+- Pipeline register (`pipeline: register`, ci/stages/register.py, rule bench/hard/V2_REGISTER.md): the register of the
+  island reference set for benchmark v2 (parts, declared exposure levels, sealing candidates), metadata only, gate
+  G3_register. Run record schema: pipeline values codon and register.
 
 ## 0.2 (in progress)
 

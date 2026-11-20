@@ -146,3 +146,62 @@ def test_register_stage_and_gate(tmp_path, monkeypatch):
     (run / "config.resolved.yaml").write_text(yaml.safe_dump(cfg2))
     with pytest.raises(SystemExit, match="expected 103"):
         RG.main()
+
+
+
+def test_sealed_registry(tmp_path, monkeypatch):
+    """The registry of everything sealed: the island chromosomes of sealed.tsv and the candidates with taxids and
+    aliases, a corpus test part with its assembly accessions, the runs that put those genomes in training; G3_register
+    checks it."""
+    import shutil
+    from ci.stages import common as CM
+    from ci.stages import gates as GA
+    from ci.stages import sealed_registry as SG
+    run0, cfg, store = _setup(tmp_path)
+    real = RG.reference_accessions
+    monkeypatch.setattr(RG, "reference_accessions", lambda path, sha: real(path, sha256_file(path, use_sidecar=False)))
+    monkeypatch.setattr(sys, "argv", ["x", str(run0)])
+    RG.main()                                          # the island register of the fixture
+    ci = tmp_path / "ci"                               # the CI layout: runs/<id> and wt/<id>
+    runs = ci / "runs"
+    run = runs / "reg"
+    shutil.copytree(run0, run)
+    fx = {"bench/hard/results/v2_sealed_candidates.tsv": str(run / "data" / "register" / "candidates.tsv"),
+          "bench/hard/results/v2_reference_set.tsv": str(run / "data" / "register" / "reference_set.tsv")}
+    repo = lambda rel: fx.get(rel) or (rel if os.path.isabs(rel) else os.path.join(ROOT, rel))
+    monkeypatch.setattr(CM.Stage, "repo", lambda self, rel: repo(rel))
+
+    def corpus_run(name, splits):                      # a corpus run with its training-data index and stage record
+        r = runs / name
+        (r / "data" / "train_data").mkdir(parents=True)
+        (r / "data" / "corpus").mkdir(parents=True)
+        (r / "data" / "corpus" / "manifest.json").write_text(json.dumps(dict(dataset_id="ds-x", entries=[
+            dict(id="b_G%d" % i, accession="GCF_%d.1" % i, paired_accession="GCA_%d.1" % i) for i in range(4)])))
+        ip = r / "data" / "train_data" / "index.json"
+        ip.write_text(json.dumps(dict(genomes=[dict(id="b_G%d" % i, split=s, taxid=100 + i, group="bacteria") for i, s in enumerate(splits)])))
+        (r / "stages").mkdir()
+        (r / "stages" / "train_data.json").write_text(json.dumps(dict(status="passed", outputs=[dict(name="train_data_index", sha256=sha256_file(str(ip), use_sidecar=False))])))
+        code = ci / "wt" / name / "ci" / "stages"
+        code.mkdir(parents=True)
+        (code / "train_data.py").write_text("# split code")
+        return r
+    three = corpus_run("three", ["train", "heldout", "test", "test"])
+    corpus_run("two", ["train", "heldout", "train", "train"])
+    cfg2 = dict(cfg, git=dict(sha="abc"), register=dict(cfg["register"], sealed=dict(test_split_runs=[str(three)])))
+    (run / "config.resolved.yaml").write_text(yaml.safe_dump(cfg2))
+    monkeypatch.setattr(sys, "argv", ["x", str(run)])
+    SG.main()
+    out = json.loads((run / "data" / "register" / "sealed_registry.json").read_text())
+    assert out["counts"]["sealed_v1"] == 17 and out["counts"]["sealed_secondary"] == 1 and out["counts"]["v2_candidates"] == 61
+    assert out["counts"]["corpus_test_genomes"] == 2
+    ts = out["corpus_test_splits"][0]
+    assert [g["aliases"] for g in ts["genomes"]] == [["GCA_2.1", "GCF_2.1"], ["GCA_3.1", "GCF_3.1"]]
+    assert ts["opened_by"] == [dict(run="two", genomes_in_train_or_heldout=2)] and ts["split_code_sha256"]
+    st = type("St", (), dict(repo=staticmethod(repo)))
+    GA.phase_register(st, cfg2, str(run))
+    assert json.loads((run / "gates" / "G3_register.json").read_text())["status"] == "pass"
+    out["chromosomes"] = out["chromosomes"][1:]        # a sealed chromosome missing from the registry fails the gate
+    (run / "data" / "register" / "sealed_registry.json").write_text(json.dumps(out))
+    with pytest.raises(Exception):
+        GA.phase_register(st, cfg2, str(run))
+    assert json.loads((run / "gates" / "G3_register.json").read_text())["status"] == "fail"

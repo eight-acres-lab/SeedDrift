@@ -86,6 +86,10 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   window scores), gates G3_audit (development chromosomes only, no accession of the register's other parts in any
   output) and G4_audit. The accessory view's negatives: published "none" only (the label column let published
   backbone and "both" genes in). Run record schema: pipeline value audit.
+- Stage sealed_registry (pipeline register, with `register.sealed`): the registry of everything sealed for tools that
+  publish or move data (the sealed island chromosomes and the benchmark-v2 candidates with aliases and taxids; the
+  sealed test part of every corpus split three ways, with assembly accessions, the split code's sha256 and the runs
+  that trained on those genomes); checked by G3_register; installed unchanged as host/sealed_registry.json.
 
 ## 0.2 (in progress)
 

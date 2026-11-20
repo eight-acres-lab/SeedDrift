@@ -88,8 +88,16 @@ rule register:
     shell: STAGE.format(name="register")
 
 
+SEALED = bool((config.get("register") or {}).get("sealed"))       # the registry of everything sealed (ci/stages/sealed_registry.py)
+
+rule sealed_registry:
+    input: "gates/pre.ok"
+    output: "data/register/sealed_registry.json"
+    shell: STAGE.format(name="sealed_registry")
+
+
 rule gates_register:
-    input: "data/register/report.json"
+    input: ["data/register/report.json"] + (["data/register/sealed_registry.json"] if SEALED else [])
     output: "gates/register.ok"
     shell: STAGE.format(name="gates") + " register"
 

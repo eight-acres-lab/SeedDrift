@@ -1,0 +1,20 @@
+# Machine i-1: the register of the island reference set again (pipeline register) and the registry of everything
+# sealed (ci/stages/sealed_registry.py) for the tools that publish or move data (the cross-project data lake, which
+# never uploads anything this registry names): the sealed island chromosomes (sealed.tsv), the 61 benchmark-v2
+# candidates, and the sealed test part of the medium corpus split three ways by run 20261118T212505 (line 0.2). The
+# registry is installed by copying it unchanged to the CI root's host/sealed_registry.json (mode 600). Metadata only.
+pipeline: register
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+register:
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  expect: 104
+  sealed:
+    test_split_runs: [/hy-tmp/seeddrift-ci/runs/20261118T212505-exp-0.2-pilot-89237926-medium]

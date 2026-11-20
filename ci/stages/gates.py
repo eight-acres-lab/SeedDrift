@@ -335,6 +335,28 @@ def phase_register(st, cfg, run_dir):
     rule = st.repo(RG.RULE)
     if (rep.get("inputs") or {}).get(RG.RULE) != sha256_file(rule, use_sidecar=False):
         problems.append(dict(error="the rule file is not the one the stage read"))
+    sp = os.path.join(base, "sealed_registry.json")              # the registry of everything sealed, when configured
+    if rc.get("sealed") and not os.path.exists(sp):
+        problems.append(dict(error="register.sealed is configured but the sealed registry is missing"))
+    if os.path.exists(sp):
+        from ci.stages import sealed_registry as SR
+        with open(sp) as f:
+            reg = json.load(f)
+        want = sealed | set(cands)
+        have = {r["accession"] for r in reg.get("chromosomes") or []}
+        if have != want:
+            problems.append(dict(error="the registry's chromosomes are not sealed.tsv and the candidates", missing=sorted(want - have)[:10], extra=sorted(have - want)[:10]))
+        for p_ in SR.SOURCES:
+            if (reg.get("sources") or {}).get(p_) != sha256_file(st.repo(p_), use_sidecar=False):
+                problems.append(dict(file=p_, error="the registry hashes another version of this source"))
+        if any(not isinstance(r.get("taxid"), int) or not r.get("aliases") for r in reg.get("chromosomes") or []):
+            problems.append(dict(error="a registry chromosome lacks its taxid or aliases"))
+        runs = [os.path.basename(r) for r in ((rc.get("sealed") or {}).get("test_split_runs") or [])]
+        if sorted(s_["run"] for s_ in reg.get("corpus_test_splits") or []) != sorted(runs):
+            problems.append(dict(error="the registry's test splits are not those of register.sealed.test_split_runs"))
+        for s_ in reg.get("corpus_test_splits") or []:
+            if not s_.get("genomes") or any(not g.get("aliases") for g in s_["genomes"]) or not s_.get("split_code_sha256"):
+                problems.append(dict(run=s_.get("run"), error="a test split without genomes, aliases or its split code"))
     require(GateResult("G3_register", "fail" if problems else "pass", dict(problems=problems[:50], parts=rep.get("parts"), status=rep.get("status"),
                                                                            candidates_sha256=(rep.get("outputs") or {}).get("candidates.tsv"))), run_dir)
     return sha256_file(os.path.join(base, "report.json"), use_sidecar=False)

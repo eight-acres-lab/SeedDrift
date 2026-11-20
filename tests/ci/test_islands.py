@@ -67,7 +67,8 @@ def test_comparators_point_to_the_odd_gene(tmp_path):
     c = I.comparators(_genome(tmp_path))
     for k in ("cmp_codon", "cmp_hits", "cmp_short"):
         assert int(np.argmax(c[k])) == 3, k
-    assert all(np.isfinite(c[k]).all() for k in I.COMPARATORS)
+    assert all(np.isfinite(c[k]).all() for k in I.COMPARATORS if k not in ("cmp_pairnull", "cmp_triplet"))   # those need partner rows
+    assert np.isnan(c["cmp_pairnull"]).all() and np.isnan(c["cmp_triplet"]).all()
 
 
 def test_contrasts_over_units():
@@ -207,3 +208,58 @@ def test_island_search_reuse_needs_a_known_search_version(tmp_path):
         assert [k["version"] for _, k, _, _, _ in I.search_candidates(str(old), cfg2)] == [1]
     finally:
         I.SEARCH_V1_FILES.discard(h)
+
+
+
+def test_kmer_and_pair_comparators(tmp_path):
+    """cmp_kmer points to the gene of an odd composition; cmp_pairnull to a gene far closer to a partner genome than
+    the chromosome's genes usually are; cmp_triplet to a gene whose partner order contradicts the chromosome's."""
+    g = object.__new__(S.Genome)
+    rng = np.random.default_rng(0)
+    n = 30
+    cod = [rng.integers(1, 33, 60) for _ in range(n)]                 # codons of half the table (A and C first bases)
+    cod[7] = rng.integers(33, 65, 60)                                  # an odd gene (G and T first bases)
+    g.codons = np.concatenate(cod).astype(np.uint8)
+    g.coff = np.concatenate([[0], np.cumsum([len(c) for c in cod])])
+    g.n = n
+    k = I.kmer_distance(g)
+    assert int(np.nanargmax(k)) == 7
+    # partners: genome 0 is closer to the chromosome than genome 1 for every gene but gene 3 (closest to genome 1) and
+    # gene 5 (far closer to genome 1 than any other gene)
+    off, tg, bits = [0], [], []
+    for i in range(n):
+        s0, s1 = 1.0 + 0.01 * i, 0.5 + 0.01 * (i % 5)
+        if i == 3:
+            s0, s1 = 0.6, 0.9
+        if i == 5:
+            s1 = 3.0
+        tg += [0, 1]
+        bits += [s0 * 60, s1 * 60]
+        off.append(len(tg))
+    np.savez(tmp_path / "p.npz", off=np.array(off), tgenome=np.array(tg), bits=np.array(bits, np.float32))
+    pc = I.pair_comparators(str(tmp_path / "p.npz"), g)
+    assert int(np.nanargmax(pc["cmp_pairnull"])) == 5
+    assert pc["cmp_triplet"][3] == 1.0 and pc["cmp_triplet"][0] == 0.0
+
+
+def test_protocol_measures_what_known_features_leave():
+    """A score that only repeats a known feature has no residual signal and no combined gain; an independent signal
+    keeps both."""
+    from ci.stages import protocol as PR
+    rng = np.random.default_rng(1)
+    table = {}
+    for c, unit in enumerate(["U1", "U1", "U2", "U3"]):
+        m = 600
+        y = (rng.random(m) < 0.1).astype(int)
+        gc3 = rng.normal(0, 1, m) + 1.0 * y
+        sig = rng.normal(0, 1, m) + 1.5 * y
+        cols = dict(cmp_gc3=gc3, cmp_codon=rng.normal(0, 1, m), cmp_kmer=rng.normal(0, 1, m), cmp_hits=-rng.integers(0, 30, m).astype(float),
+                    cmp_short=-rng.integers(50, 500, m).astype(float), copy=gc3 + rng.normal(0, 0.01, m), new=sig, cmp_pairnull=np.full(m, np.nan),
+                    cmp_triplet=np.full(m, np.nan))
+        table["c%d" % c] = dict(y=y, cols=cols, unit=unit)
+    ev = PR.evaluate(table, ["U1", "U2", "U3"], ["copy", "new"], ["cmp_gc3", "cmp_codon", "cmp_kmer", "cmp_hits", "cmp_short"])
+    assert ev["copy"]["auroc"] > 0.7 and abs(ev["copy"]["residual_auroc"] - 0.5) < 0.08 and abs(ev["copy"]["combined_gain"]) < 0.02
+    assert ev["new"]["residual_auroc"] > 0.75 and ev["new"]["combined_gain"] > 0.05
+    sp = PR.spearman_matrix(table, ["copy", "new", "cmp_gc3"])
+    assert PR.collapsed(sp, ["copy", "new"], ["cmp_gc3"]) == {"copy": ["cmp_gc3"]}
+    assert PR.auroc([1.0, np.nan], [0.5]) == 0.5                      # an unscored positive ranks below the negatives

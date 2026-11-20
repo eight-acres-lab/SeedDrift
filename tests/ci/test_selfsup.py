@@ -313,6 +313,29 @@ def test_train_splits_validated():
         raise AssertionError("train_splits %r accepted" % (bad,))
 
 
+
+def test_readouts_on_an_external_genome():
+    """Round-1 readouts (train.readouts): every column scored per gene in order, the panels as named, a GC3-matched
+    genome of another genus for the shuffled representation, deeper hiding for A and B1."""
+    _torch()
+    with tempfile.TemporaryDirectory() as d:
+        make_run(d)
+        cfg = dict(CFG, logs="data/train/logs/t", out="data/model/t", objectives=["A", "B1", "B2"])
+        SS.fit(d, cfg)
+        idx = dict(genomes=[dict(id="x", path="data/train_data/g8.npz", taxid=108, ranks=[1, 0, 31, 52, 74, 108], group="bacteria", hidden_taxids=[109])])
+        with open(os.path.join(d, "ext.json"), "w") as f:
+            json.dump(idx, f)
+        rd = dict(panels=["default", "bacteria", "near"], depths=["family"], knn=2)
+        SS.score_genomes(d, dict(cfg, genomes_index="ext.json", genomes_out="data/ext", readouts=rd))
+        r = np.load(os.path.join(d, "data", "ext", "x.npz"))
+        info = json.load(open(os.path.join(d, "data", "ext", "x.readouts.json")))
+        n = S.Data(d, cfg).g["g8"].n
+        for k in ("R_A_default", "R_D2_default", "R_D3_default", "R_CU_default", "R_A_shuf", "R_B1_shuf", "R_B2_shuf", "R_A_family", "R_B1_family"):
+            assert k in r.files and len(r[k]) == n, k
+        assert np.isfinite(r["R_A_default"]).all() and np.isfinite(r["R_CU_default"]).all() and np.isfinite(r["R_D3_default"]).all()
+        assert set(info["panels"]) == {"default", "bacteria", "near"} and info["shuffle_genome"] not in (None, "g8")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

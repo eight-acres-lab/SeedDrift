@@ -997,6 +997,153 @@ def score(run_dir, cfg, model=None, data=None):
         json.dump(summ, f, indent=1, sort_keys=True)
 
 
+READOUT_GROUPS = dict(default=None, bacteria=("bacteria",), near=("bacteria", "mobile.plasmid", "viruses.phage"))
+
+
+def _gc3(gen):
+    """GC at the third codon position of the whole genome (codon tokens 1..64 in ACGT order: third base = (t-1) % 4)."""
+    cc = gen.ccount[1:65].astype(np.float64)
+    third = np.arange(64) % 4
+    return float(cc[(third == 1) | (third == 2)].sum() / max(cc.sum(), 1.0))
+
+
+def readouts(model, data, torch, dev, gen, hidden_taxids, train_ids, cfg, objectives, seed, batch=64):
+    """Readouts of a trained model on one scored genome, no training (round 1 of the objectives of 2026-11-20; every
+    column is "higher = more foreign", NaN where it does not apply). With rd = cfg["readouts"]:
+      R_A_<panel>      A against the panel <panel> (default, bacteria, near = bacteria, plasmids and phages)
+      R_D2_<panel>     description length: the gene's codons coded by B1 with its own genome's representation, minus
+                       the best (lowest) coding cost with a panel genome's representation (B1 models)
+      R_D3_<panel>     codon-encoder geometry: mean cosine distance of the gene's codon encoding to its 8 nearest
+                       source genes of its own genome, minus the lowest such distance over the panel genomes
+      R_CU_<panel>     model-free: KL divergence of the gene's codon frequencies from its genome's (without the gene),
+                       minus the lowest KL to a panel genome's
+      R_A_shuf, R_B1_shuf, R_B2_shuf   the same scores with the representation of a GC3-matched training genome of
+                       another genus in place of the gene's own (a genome-specific signal must vanish here)
+      R_A_<depth>, R_B1_<depth>        the default scores with the genome's clade hidden at depth (family, order);
+                       compare them with the default A and B1 (the same panel and hiding at genus), not with R_A_default
+    The gene's hits hide its own clade and the union of all panels' genomes, the shuffle genome and their clades (one
+    view for every panel readout). The shuffle genome is GC3-matched, of the scored genome's group (when the corpus has
+    it), of another family (else another genus), and left out of the panel of R_A_shuf."""
+    rd = cfg.get("readouts") or {}
+    rng = np.random.default_rng([seed, 7])
+    n = int(cfg.get("batch", 64)) - 1
+    groups = {g: data.g[g].meta["group"] for g in train_ids}
+    panels = {}
+    for name in rd.get("panels", ["default", "bacteria", "near"]):
+        allowed = READOUT_GROUPS[name]
+        ids = [g for g in train_ids if allowed is None or groups[g] in allowed]
+        panels[name] = [p for p in panel_of(data, ids, n) if p != gen.meta["id"]]
+    allp = sorted({p for v in panels.values() for p in v})
+    # the shuffle genome: GC3-matched, of the scored genome's group (any group when the corpus has none of it), of
+    # another family (else another genus); it is hidden like a panel genome, so its representation is made as every
+    # representation in training, and it is left out of the panel of R_A_shuf
+    own_ranks = [int(r) for r in gen.meta["ranks"]]
+    g3 = _gc3(gen)
+    pool = [g for g in train_ids if groups[g] == gen.meta.get("group")] or list(train_ids)
+    shuf = None
+    for col in (3, 4):                                                   # family, then genus
+        cand = [g for g in pool if not (own_ranks[col] and int(data.g[g].meta["ranks"][col]) == own_ranks[col])]
+        if cand:
+            shuf = min(cand, key=lambda g: (abs(_gc3(data.g[g]) - g3), g))
+            break
+    hidden = hidden_rows(data, [gen] + [data.g[p] for p in allp + ([shuf] if shuf else [])], "genus", hidden_taxids)
+    genes = list(range(gen.n))
+    res = {}
+    k_nn = int(rd.get("knn", 8))
+    model.eval()
+    with torch.no_grad():
+        reps, src_enc = {}, {}
+        for p in sorted(set(allp) | ({shuf} if shuf else set())):
+            pg = data.g[p]
+            ex = [example(data, pg, int(rng.integers(pg.n)), hidden, rng, cfg)]
+            xp = {k: v.to(dev) for k, v in collate(ex, torch).items()}
+            reps[p] = model.genome_rep(xp)[0]
+            src = xp["src"][0]
+            pres = (src > 0).any(-1)
+            src_enc[p] = torch.nn.functional.normalize(model.codon(src[pres]), dim=-1) if bool(pres.any()) else None
+        # the genome's own source genes for D3: source_genes of its genes drawn once (as a source is drawn)
+        ks, ls = int(cfg.get("source_genes", 64)), int(cfg.get("source_codons", 256))
+        own_idx = [int(j) for j in rng.choice(gen.n, size=min(ks, gen.n), replace=False)]
+        own_src = np.zeros((len(own_idx), ls), np.int64)
+        for k, j in enumerate(own_idx):
+            cj = gen.codons[gen.coff[j]:gen.coff[j + 1]][:ls].astype(np.int64)
+            own_src[k, :len(cj)] = cj
+        own_src = torch.from_numpy(own_src).to(dev)
+        keep_rows = (own_src > 0).any(-1)
+        own_kept = [j for j, k in zip(own_idx, keep_rows.cpu().numpy()) if k]
+        own_enc = torch.nn.functional.normalize(model.codon(own_src[keep_rows]), dim=-1)
+        logp = {name: np.log(np.stack([(data.g[p].ccount[1:65].astype(np.float64) + 0.5) / (data.g[p].ccount[1:65].astype(np.float64) + 0.5).sum()
+                                       for p in pan])) for name, pan in panels.items() if pan}
+        cols = {}
+        for b0 in range(0, len(genes), batch):
+            idx = genes[b0:b0 + batch]
+            items = [example(data, gen, i, hidden, rng, cfg) for i in idx]
+            x = {k: v.to(dev) for k, v in collate(items, torch, int(cfg.get("b2_hits", 8))).items()}
+            out = model(x, objectives)
+            G = out["G"]
+            h = model.aa_states(x["aa"]) if ("B1" in objectives or "B2" in objectives) else None
+            cv = torch.nn.functional.normalize(model.codon(x["codons"]), dim=-1)
+
+            def knn_dist(enc, self_cols=None):
+                if enc is None or not len(enc):
+                    return torch.full((len(idx),), float("nan"), device=cv.device)
+                d = 1 - cv @ enc.T
+                if self_cols is not None:                                # a gene is not its own neighbour
+                    d = d.masked_fill(self_cols, float("inf"))
+                return d.topk(min(k_nn, d.shape[1] - (1 if self_cols is not None else 0)), dim=1, largest=False).values.mean(1)
+            own_pos = {j: c for c, j in enumerate(own_kept)}
+            self_cols = torch.zeros((len(idx), len(own_kept)), dtype=torch.bool, device=cv.device)
+            for r_, i in enumerate(idx):
+                if i in own_pos:
+                    self_cols[r_, own_pos[i]] = True
+            d_own = knn_dist(own_enc, self_cols)
+            for name, pan in panels.items():
+                if not pan:
+                    continue
+                Gp = torch.stack([reps[p] for p in pan])
+                if "A" in objectives:
+                    own = model.sim(out["z"], G).diagonal()
+                    allv = torch.cat([own.unsqueeze(1), model.sim(out["z"], Gp)], 1)
+                    cols.setdefault("R_A_" + name, []).append((torch.logsumexp(allv, 1) - own).cpu().numpy())
+                if "B1" in objectives:
+                    na_own = out["b1"][0]
+                    best = None
+                    for k in range(len(pan)):
+                        na_k = model.b1(x, h, Gp[k].unsqueeze(0).expand(len(idx), -1))[0]
+                        best = na_k if best is None else torch.minimum(best, na_k)
+                    cols.setdefault("R_D2_" + name, []).append(torch.where(out["b1"][2] > 0, na_own - best, torch.full_like(na_own, float("nan"))).cpu().numpy())
+                dp = torch.stack([knn_dist(src_enc[p]) for p in pan], 1)
+                cols.setdefault("R_D3_" + name, []).append((d_own - torch.nan_to_num(dp, nan=float("inf")).min(1).values).cpu().numpy())
+                own_c = np.stack([gen.gene_count(i)[1:65].astype(np.float64) for i in idx])
+                F = (own_c + 0.5) / (own_c + 0.5).sum(1, keepdims=True)
+                rest = gen.ccount[1:65].astype(np.float64)[None, :] - own_c + 0.5
+                kl_own = (F * (np.log(F) - np.log(rest / rest.sum(1, keepdims=True)))).sum(1)
+                kl_pan = (F * np.log(F)).sum(1, keepdims=True) - F @ logp[name].T          # [genes, panel]
+                cols.setdefault("R_CU_" + name, []).append(kl_own - kl_pan.min(1))
+            if shuf is not None:
+                Gs = reps[shuf].unsqueeze(0).expand(len(idx), -1)
+                if "A" in objectives:
+                    Gp = torch.stack([reps[p] for p in (panels.get("default") or allp) if p != shuf])
+                    own = model.sim(out["z"], Gs).diagonal()
+                    allv = torch.cat([own.unsqueeze(1), model.sim(out["z"], Gp)], 1)
+                    cols.setdefault("R_A_shuf", []).append((torch.logsumexp(allv, 1) - own).cpu().numpy())
+                for key, fn in (("B1", model.b1), ("B2", model.b2)):
+                    if key in objectives:
+                        na, ng, nn_ = fn(x, h, Gs)
+                        cols.setdefault("R_%s_shuf" % key, []).append(torch.where(nn_ > 0, na - ng, torch.full_like(na, float("nan"))).cpu().numpy())
+        for k, v in cols.items():
+            res[k] = np.concatenate(v).astype(np.float64)
+    model.train()
+    for depth in rd.get("depths", ["family", "order"]):
+        obj = [o for o in objectives if o in ("A", "B1")]
+        if obj:
+            r = score_genome(model, data, torch, dev, gen, hidden_taxids, panels.get("default") or [], cfg, obj, seed=seed, depth=depth)
+            for o in obj:
+                res["R_%s_%s" % (o, depth)] = r[o]
+    return res, dict(panels={k: len(v) for k, v in panels.items()}, panel_groups={k: sorted({groups[p] for p in v}) for k, v in panels.items()},
+                     shuffle_genome=shuf, shuffle_gc3=_gc3(data.g[shuf]) if shuf else None, own_gc3=g3)
+
+
 def score_genomes(run_dir, cfg):
     """Score the genomes of cfg["genomes_index"] (JSON: genomes = [{id, path, taxid, ranks, group, hidden_taxids}],
     paths relative to the run) into cfg["genomes_out"]/<id>.npz: one row per gene in the genome's gene order."""
@@ -1021,6 +1168,11 @@ def score_genomes(run_dir, cfg):
         r = score_genome(model, data, torch, dev, gen, e.get("hidden_taxids") or (), panel, cfg, objectives,
                          seed=int(cfg.get("dev_seed", 0)), depth=e.get("depth", "genus"), pairs=pairs, partners=train_ids,
                          ppath=os.path.join(run_dir, e["pairs"]) if e.get("pairs") else None)
+        if cfg.get("readouts"):
+            extra, info = readouts(model, data, torch, dev, gen, e.get("hidden_taxids") or (), train_ids, cfg, objectives, seed=int(cfg.get("dev_seed", 0)))
+            r.update(extra)
+            with open(os.path.join(out_dir, e["id"] + ".readouts.json"), "w") as f:
+                json.dump(info, f, indent=1, sort_keys=True)
         save_npz(os.path.join(out_dir, e["id"] + ".npz"), **r)
         if pairs is not None:
             pairs.z.pop(e["id"], None)

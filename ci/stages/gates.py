@@ -182,10 +182,17 @@ def phase_selfsup(st, cfg, run_dir):
                     with open(sp) as f:
                         head = f.readline().rstrip("\n").split("\t")
                         rows = [line.rstrip("\n").split("\t") for line in f]
-                    if sorted(head[1:]) != sorted(want):
-                        problems.append(dict(variant=name, accession=acc, error="columns %s, the objectives give %s" % (head[1:], want)))
+                    ro = [h for h in head[1:] if h.startswith(name + "_R_")]          # train.readouts columns (round 1 of
+                    base_cols = [h for h in head[1:] if h not in ro]                  # the objectives of 2026-11-20)
+                    if sorted(base_cols) != sorted(want):
+                        problems.append(dict(variant=name, accession=acc, error="columns %s, the objectives give %s" % (base_cols, want)))
+                        continue
+                    if ro and name not in ((cfg.get("train") or {}).get("readouts") or {}).get("variants", []):
+                        problems.append(dict(variant=name, accession=acc, error="readout columns for a variant without readouts"))
                         continue
                     for k, col in enumerate(head[1:], 1):
+                        if col in ro:
+                            continue
                         share = sum(1 for r in rows if r[k] != "") / max(len(rows), 1)
                         need = 1.0 if col.endswith("_A") else 0.9 if col.endswith("_B1") else 1e-9
                         if share < need:

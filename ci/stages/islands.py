@@ -52,7 +52,8 @@ from ci.stages.search import FIELDS, flush, gene_ids
 from ci.stages.train_data import RANKS, one_genome
 from ci.taxonomy import Taxonomy
 
-COMPARATORS = ("cmp_codon", "cmp_gc3", "cmp_hits", "cmp_short")
+COMPARATORS = ("cmp_codon", "cmp_gc3", "cmp_hits", "cmp_short", "cmp_kmer", "cmp_pairnull", "cmp_triplet")
+_BASES = np.array([0, 1, 2, 3])
 
 # The search part of do_data (build_inputs, the hidden view, Keep, the DIAMOND call; ci/stages/search.py's flush and FIELDS
 # enter the key through that file's hash): raise ISLAND_SEARCH_VERSION whenever it changes, so that
@@ -436,7 +437,85 @@ def comparators(gen):
         out["cmp_gc3"][i] = abs(ga - gb)
         out["cmp_hits"][i] = -float(gen.hoff[i + 1] - gen.hoff[i])
         out["cmp_short"][i] = -float(gen.coff[i + 1] - gen.coff[i])
+    out["cmp_kmer"] = kmer_distance(gen)
+    out["cmp_pairnull"] = np.full(n, np.nan)
+    out["cmp_triplet"] = np.full(n, np.nan)
     return out
+
+
+def kmer_distance(gen, k=4):
+    """cmp_kmer: KL divergence of the gene's overlapping k-mer frequencies (its coding sequence rebuilt from the codon
+    tokens, 1..64 in ACGT order) from those of the rest of the chromosome's genes; higher = more foreign."""
+    n = gen.n
+    counts = np.zeros((n, 4 ** k))
+    for i in range(n):
+        t = gen.codons[gen.coff[i]:gen.coff[i + 1]].astype(np.int64)
+        t = t[(t >= 1) & (t <= 64)] - 1
+        if not len(t):
+            continue
+        nt = np.stack([t // 16, (t // 4) % 4, t % 4], 1).reshape(-1)
+        if len(nt) < k:
+            continue
+        idx = np.zeros(len(nt) - k + 1, np.int64)
+        for j in range(k):
+            idx = idx * 4 + nt[j:len(nt) - k + 1 + j]
+        counts[i] = np.bincount(idx, minlength=4 ** k)
+    total = counts.sum(0)
+    out = np.full(n, np.nan)
+    for i in range(n):
+        if counts[i].sum() == 0:
+            continue
+        a, b = counts[i] + 0.5, total - counts[i] + 0.5
+        pa, pb = a / a.sum(), b / b.sum()
+        out[i] = float(np.sum(pa * np.log(pa / pb)))
+    return out
+
+
+def pair_comparators(path, gen, min_support=10):
+    """cmp_pairnull and cmp_triplet from the chromosome's partner rows (the stage's search against the corpus; per
+    gene the best row in each of the nearest corpus genomes): similarity = bit score per query residue.
+      cmp_pairnull  per gene the largest robust z of its similarity to a partner genome against the similarities of all
+                    the chromosome's genes to that genome (median, 1.4826 MAD): a gene far closer to a genome than the
+                    chromosome's genes usually are
+      cmp_triplet   per gene with two partners or more, the share of its partner pairs whose order (which genome the gene
+                    is closer to) contradicts the chromosome's order of the same two genomes (their median similarities)
+    NaN for genes without partner rows (or with one, for cmp_triplet). The null of a genome is censored to the genes
+    that kept it among their nearest partner genomes (the stage keeps those only); a genome with fewer than min_support
+    supporting genes enters neither score. The query length is the protein's (the gene table's coordinates), not the
+    stored codons, which stop at max_codons."""
+    z = np.load(path)
+    off, tg, bits = z["off"].astype(np.int64), z["tgenome"].astype(np.int64), z["bits"].astype(np.float64)
+    n = gen.n
+    if getattr(gen, "start", None) is not None and getattr(gen, "end", None) is not None and len(gen.start) == n:
+        qlen = np.maximum((np.asarray(gen.end, np.float64) - np.asarray(gen.start, np.float64) + 1) / 3.0 - 1.0, 1.0)
+    else:
+        qlen = np.maximum(np.diff(gen.coff).astype(np.float64), 1.0)
+    gene_of = np.repeat(np.arange(len(off) - 1), np.diff(off))
+    sim = bits / qlen[gene_of] if len(gene_of) else np.zeros(0)
+    med, mad = {}, {}
+    for t in np.unique(tg):
+        v = sim[tg == t]
+        if len(v) < min_support:
+            continue
+        med[int(t)] = float(np.median(v))
+        mad[int(t)] = max(1.4826 * float(np.median(np.abs(v - med[int(t)]))), 0.05 * abs(med[int(t)]), 1e-3)
+    pn, tr = np.full(n, np.nan), np.full(n, np.nan)
+    for i in range(min(n, len(off) - 1)):
+        a, b = int(off[i]), int(off[i + 1])
+        keep = [r for r in range(a, b) if int(tg[r]) in med]
+        if not keep:
+            continue
+        s_i, t_i = sim[keep], tg[keep]
+        zz = np.array([(x - med[int(t)]) / mad[int(t)] for x, t in zip(s_i, t_i)])
+        pn[i] = float(zz.max())
+        a, b = 0, len(keep)
+        if b - a >= 2:
+            c = np.array([med[int(t)] for t in t_i])
+            ds, dc = s_i[:, None] - s_i[None, :], c[:, None] - c[None, :]
+            iu = np.triu_indices(b - a, 1)
+            prod = ds[iu] * dc[iu]
+            tr[i] = float((prod < 0).sum() / len(prod))
+    return dict(cmp_pairnull=pn, cmp_triplet=tr)
 
 
 def write_scores(path, gene_names, cols):
@@ -465,8 +544,11 @@ def do_score(run_dir):
         script = st.repo("seeddrift/train/selfsup.py")
         with gpu_lease.hold("islands-" + os.path.basename(run_dir), enabled=bool(tc.get("gpu_lease", True))) as lease:
             st.extra["gpu_lease"] = lease
+            rd = tc.get("readouts") or {}
             for c in confs:
                 conf = dict(c, genomes_index=os.path.relpath(os.path.join(base, "index.json"), run_dir), genomes_out=os.path.join("data", "islands", "raw", c["name"]))
+                if c["name"] in (rd.get("variants") or []):                  # train.readouts: round 1 of the new objectives
+                    conf["readouts"] = {k: v for k, v in rd.items() if k != "variants"}
                 cp = st.path("islands", "score-%s.json" % c["name"])
                 write_json(cp, conf)
                 with open(st.path("islands", "score-%s.log" % c["name"]), "w") as lg:
@@ -485,12 +567,16 @@ def do_score(run_dir):
                     raise SystemExit("islands: the scores of %s (%s) do not cover its genes in order" % (g["id"], c["name"]))
                 d = os.path.join(base, "scores", c["name"])
                 os.makedirs(d, exist_ok=True)
-                write_scores(os.path.join(d, "scores_%s.tsv" % g["id"]), names, {"%s_%s" % (c["name"], k): z[k] for k in ("A", "B1", "B2", "C", "comb")
-                                                                                    if k in z.files and k in set(c["objectives"]) | {"comb"}})
+                cols = {"%s_%s" % (c["name"], k): z[k] for k in ("A", "B1", "B2", "C", "comb") if k in z.files and k in set(c["objectives"]) | {"comb"}}
+                cols.update({"%s_%s" % (c["name"], k): z[k] for k in sorted(z.files) if k.startswith("R_")})
+                write_scores(os.path.join(d, "scores_%s.tsv" % g["id"]), names, cols)
             gen = S.Genome(dict(id=g["id"], taxid=g["taxid"], ranks=g["ranks"], group=g["group"]), os.path.join(run_dir, g["path"]))
             d = os.path.join(base, "scores", "comparators")
             os.makedirs(d, exist_ok=True)
-            write_scores(os.path.join(d, "scores_%s.tsv" % g["id"]), names, comparators(gen))
+            cmp_cols = comparators(gen)
+            if g.get("pairs"):
+                cmp_cols.update(pair_comparators(os.path.join(run_dir, g["pairs"]), gen))
+            write_scores(os.path.join(d, "scores_%s.tsv" % g["id"]), names, cmp_cols)
         out = os.path.join(base, "scores.json")
         write_json(out, dict(variants=[c["name"] for c in confs], comparators=list(COMPARATORS), chromosomes=[g["id"] for g in idx["genomes"]], genes=n_genes,
                              folders=sorted(os.listdir(os.path.join(base, "scores")))))
@@ -516,6 +602,81 @@ def contrasts(per, units, methods, comps):
                     continue
                 mean, lo, hi = BM.t_interval(d)
                 out.append(dict(metric=metric, a=a, b=b, n_units=len(d), mean=mean, lo=lo, hi=hi, p_signflip=BM.sign_flip_p(d), per_unit=list(d)))
+    return out
+
+
+def protocol_report(run_dir, base, sj, store, per, units_of, model_cols):
+    """The shared test protocol (ci/stages/protocol.py) on every model column and comparator, gated labels, the
+    chromosomes the evaluator admits at gene level; and the leak audit of objective C's partners."""
+    from ci.stages import protocol as PR
+    if not per:
+        return dict(note="no chromosome admitted at gene level with gated labels", scores={})
+    table = {}
+    for acc in sorted(per):
+        lab = {r["gene_id"]: r["class"] for r in _tsv(os.path.join(store, "labels_panel", acc + ".tsv"))}
+        cols = {}
+        names = None
+        for d in sj["folders"]:
+            rows = _tsv(os.path.join(base, "scores", d, "scores_%s.tsv" % acc))
+            names = [r["gene_id"] for r in rows]
+            for k in rows[0]:
+                if k != "gene_id":
+                    cols[k] = np.array([float(r[k]) if r[k] != "" else np.nan for r in rows])
+        y = np.array([1 if lab.get(g) == "island" else 0 if lab.get(g) == "native" else -1 for g in names])
+        table[acc] = dict(y=y, cols=cols, unit=units_of[acc])
+    units = sorted({t["unit"] for t in table.values()})
+    scores = list(model_cols) + list(COMPARATORS)
+    ev = PR.evaluate(table, units, scores, list(COMPARATORS))
+    names = [n for n in scores if all(n in t["cols"] for t in table.values())]
+    spear = PR.spearman_matrix(table, names)
+    against = list(PR.KNOWN[:3]) + ["cmp_hits", "cmp_short"] + [n for n in model_cols if n.endswith(("_A", "_B1", "_C")) and "_R_" not in n]
+    leak = leak_audit(run_dir, base, sj, table)
+    return dict(note=PR.__doc__.strip().splitlines()[0], scores=ev, spearman=spear, collapsed=PR.collapsed(spear, names, against),
+                leak_audit=leak, chromosomes=sorted(table), units=units, not_implemented=list(PR.NOT_IMPLEMENTED))
+
+
+def leak_audit(run_dir, base, sj, table):
+    """Where objective C's chosen partners come from (by corpus group) for island and native genes, and the share of
+    island genes with any partner row to a cellular genome (not phage, plasmid or virus)."""
+    gp = os.path.join(run_dir, "data", "pairs", "genomes.json")
+    if not os.path.exists(gp):
+        return {}
+    with open(gp) as f:
+        order = json.load(f)["genomes"]
+    with open(os.path.join(run_dir, "data", "train_data", "index.json")) as f:
+        grp = {g["id"]: g["group"] for g in json.load(f)["genomes"]}
+    cellular = lambda gid: not grp.get(gid, "").startswith(("viruses.", "mobile."))
+    out = {}
+    for v in sj["variants"]:
+        cnt = {1: {}, 0: {}}
+        for acc, t in table.items():
+            p = os.path.join(base, "raw", v, acc + ".npz")
+            if not os.path.exists(p):
+                continue
+            z = np.load(p)
+            if "c_partner" not in z.files or not np.isfinite(z["C"]).any():
+                continue
+            for cls in (1, 0):
+                for tgi in z["c_partner"][t["y"] == cls]:
+                    key = grp.get(order[int(tgi)], "?") if tgi >= 0 else "none"
+                    cnt[cls][key] = cnt[cls].get(key, 0) + 1
+        if cnt[1] or cnt[0]:
+            out[v] = dict(island=cnt[1], native=cnt[0])
+    any_cell = {1: [0, 0], 0: [0, 0]}
+    with open(os.path.join(base, "index.json")) as f:
+        pairs_of = {g["id"]: g.get("pairs") for g in json.load(f)["genomes"]}
+    for acc, t in table.items():
+        if not pairs_of.get(acc):
+            continue
+        z = np.load(os.path.join(run_dir, pairs_of[acc]))
+        off, tg = z["off"], z["tgenome"]
+        for i, y in enumerate(t["y"]):
+            if y < 0 or i >= len(off) - 1:
+                continue
+            rows = tg[off[i]:off[i + 1]]
+            any_cell[y][0] += int(any(cellular(order[int(r)]) for r in rows))
+            any_cell[y][1] += 1
+    out["share_with_a_cellular_partner"] = {("island" if k else "native"): round(a / max(b, 1), 4) for k, (a, b) in any_cell.items()}
     return out
 
 
@@ -560,6 +721,10 @@ def do_report(run_dir):
         out = st.path("islands", "contrasts.json")
         write_json(out, dict(units=units, chromosomes=sorted(per), contrasts=rows, metrics=table,
                              note="development chromosomes only; units are genera (merged as configured); t-intervals over units"))
+        prot = protocol_report(run_dir, base, sj, store, per, res["units"], model_cols)
+        pp = st.path("islands", "protocol.json")
+        write_json(pp, prot)
+        st.output("islands_protocol", pp)
         st.extra["evaluate"] = sorted(os.listdir(ev))
         st.output("islands_eval", os.path.join(ev, "dev.json"))
         st.output("islands_contrasts", out)

@@ -639,8 +639,10 @@ def panel_of(data, ids, n):
 
 def training_ids(data, metas, cfg):
     """The genomes the model trains on (and draws its panel and partners from): those of the splits in
-    cfg["train_splits"] (default: train only; the user, 2026-11-20: early checks train on the whole corpus, with
-    ["train", "heldout"]), then train_fraction of them."""
+    cfg["train_splits"] (default: train only), then train_fraction of them. ["train", "heldout"] trains on the held-out
+    genomes too, which makes every held-out diagnosis in-sample; the user (2026-11-20) ruled that early checks keep a
+    random held-out set and do not train on it ("这不变成背答案了吗？"), so the option is for special runs only (round
+    R1 used it; its island evaluation stays out of sample, its held-out diagnosis does not)."""
     splits = list(cfg.get("train_splits") or ["train"])
     ids = sorted({g for sp in splits for g in data.by_split.get(sp, [])})
     return S.fraction_subset(metas, ids, float(cfg.get("train_fraction", 1.0)))

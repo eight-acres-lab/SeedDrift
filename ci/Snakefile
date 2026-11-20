@@ -94,6 +94,30 @@ rule gates_register:
     shell: STAGE.format(name="gates") + " register"
 
 
+# pipeline audit (profiles with `pipeline: audit`): benchmark v2 M0, slim: the old island set's bias audit on its
+# development chromosomes (ci/stages/audit.py)
+rule audit_all:
+    input: "gates/audit.ok"
+
+
+rule audit_columns:
+    input: "gates/pre.ok"
+    output: "data/audit/columns.json"
+    shell: STAGE.format(name="audit") + " columns"
+
+
+rule audit_report:
+    input: "data/audit/columns.json"
+    output: "data/audit/report.json"
+    shell: STAGE.format(name="audit") + " report"
+
+
+rule gates_audit:
+    input: "data/audit/report.json"
+    output: "gates/audit.ok"
+    shell: STAGE.format(name="gates") + " audit"
+
+
 rule pairs:
     input: "gates/corpus.ok"
     output: "data/pairs/manifest.json"

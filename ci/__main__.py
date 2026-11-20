@@ -63,6 +63,10 @@ PIPELINES = {
     # metadata only, no GPU (profiles set needs_gpu: false)
     "register": dict(target="register_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_register"),
                      resume=(("pre", None), ("register", "data/register/report.json"))),
+    # benchmark v2 milestone M0, slim (ci/stages/audit.py): the old island set's bias audit on its development
+    # chromosomes; CPU only (profiles set needs_gpu: false)
+    "audit": dict(target="audit_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_audit", "G4_audit"),
+                  resume=(("pre", None), ("audit", "data/audit/report.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

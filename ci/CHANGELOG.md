@@ -80,6 +80,12 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
 - Pipeline register (`pipeline: register`, ci/stages/register.py, rule bench/hard/V2_REGISTER.md): the register of the
   island reference set for benchmark v2 (parts, declared exposure levels, sealing candidates), metadata only, gate
   G3_register. Run record schema: pipeline values codon and register.
+- Pipeline audit (`pipeline: audit`, ci/stages/audit.py): benchmark v2 milestone M0, slim: the old island set's bias
+  audit on its development chromosomes (trivial and metadata columns from the checked records, numpy fused baselines
+  fitted leave one unit out, a metadata-only shortcut detector, a label-shuffle control, the margin-free cell for
+  window scores), gates G3_audit (development chromosomes only, no accession of the register's other parts in any
+  output) and G4_audit. The accessory view's negatives: published "none" only (the label column let published
+  backbone and "both" genes in). Run record schema: pipeline value audit.
 
 ## 0.2 (in progress)
 

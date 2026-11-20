@@ -1,4 +1,4 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -18,6 +18,9 @@ codon    (pipeline codon) G3_codon: no panel or manifold genome shares an island
 register (pipeline register) G3_register on data/register/: the parts as the lists in the repository define them, the
          rule of bench/hard/V2_REGISTER.md applied (no candidate outside the rest part or at L2 or above; NC_009504.1
          demoted; every candidate in a sealed_v1 genus), the outputs as reported
+audit    (pipeline audit) G3_audit: development chromosomes only, and no accession of the register's other parts (the
+         committed bench/hard/results/v2_reference_set.tsv) in any audit output; G4_audit: the admitted chromosomes,
+         column coverage, the negative control back at 0.5, the fused baselines and the detector present
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
@@ -87,7 +90,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search", "selfsup", "codon", "register"):
+    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 
@@ -337,6 +340,59 @@ def phase_register(st, cfg, run_dir):
     return sha256_file(os.path.join(base, "report.json"), use_sidecar=False)
 
 
+def phase_audit(st, cfg, run_dir):
+    """G3_audit and G4_audit (pipeline audit, ci/stages/audit.py)."""
+    import csv
+    from ci.stages.islands import admitted
+    base = os.path.join(run_dir, "data", "audit")
+    with open(os.path.join(base, "report.json")) as f:
+        rep = json.load(f)
+    with open(os.path.join(base, "columns.json")) as f:
+        cols = json.load(f)
+    with open(st.repo("bench/islands/results/dev_genomes.tsv")) as f:
+        dev = {r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    with open(st.repo("bench/hard/results/v2_reference_set.tsv")) as f:
+        others = [(r["accession"], r["genus"]) for r in csv.DictReader(f, delimiter="\t") if r["part"] != "development"]
+    problems = []
+    chroms = set(rep.get("chromosomes") or []) | set(cols.get("coverage") or {})
+    if chroms - dev:
+        problems.append(dict(error="chromosomes outside the development list", accessions=sorted(chroms - dev)))
+    files = [os.path.join(dp, fn) for dp, _, fns in os.walk(base) for fn in fns]
+    found = g3_sealed._scan(files, g3_sealed._pattern(others))
+    if found:
+        problems.append(dict(error="accessions of the register's other parts in audit outputs", found=found))
+    require(GateResult("G3_audit", "fail" if problems else "pass", dict(problems=problems[:50], files=len(files), others=len(others))), run_dir)
+    problems = []
+    ac = cfg["audit"]
+    with open(os.path.join(ac["islands_from"], "data", "islands", "eval", "dev.json")) as f:
+        want = sorted(admitted(json.load(f)))
+    if rep.get("chromosomes") != want:
+        problems.append(dict(error="evaluated chromosomes differ from the admitted ones"))
+    if set(cols.get("coverage") or {}) != set(want) or set(cols.get("records_sha256") or {}) != set(want):
+        problems.append(dict(error="the columns' coverage or record checksums do not cover exactly the admitted chromosomes"))
+    missing = sorted(set(rep.get("scores") or {}) - set(rep.get("negative_control") or {}))
+    if missing or not rep.get("scores"):
+        problems.append(dict(error="the label-shuffle control is missing for scores", scores=missing[:20]))
+    for acc, cv in (cols.get("coverage") or {}).items():
+        for k, share in cv.items():
+            if k == "ribosomal_reference_genes" or (k == "tv_cai" and cv.get("ribosomal_reference_genes", 0) < 20):
+                continue
+            if share < 0.9:
+                problems.append(dict(accession=acc, column=k, coverage=share, error="column covers under 90% of the genes"))
+    tol = float((ac.get("controls") or {}).get("tolerance", 0.01))
+    for k, v in (rep.get("negative_control") or {}).items():
+        if abs(v - 0.5) > tol:
+            problems.append(dict(score=k, shuffled=v, error="the label-shuffle control is not back at 0.5"))
+    for k in ("fz_l1", "fz_gbm"):
+        if ((rep.get("scores") or {}).get(k) or {}).get("auroc") is None:
+            problems.append(dict(score=k, error="fused baseline missing"))
+    for k in ("core", "annotation"):
+        if ((rep.get("detector") or {}).get(k) or {}).get("auroc_within") is None:
+            problems.append(dict(detector=k, error="the shortcut detector did not run"))
+    require(GateResult("G4_audit", "fail" if problems else "pass", dict(problems=problems[:50], detector={k: v.get("auroc_within") for k, v in (rep.get("detector") or {}).items()})), run_dir)
+    return sha256_file(os.path.join(base, "report.json"), use_sidecar=False)
+
+
 def _g3_files(st, cfg, run_dir):
     if pipeline_of(cfg) == "select":
         read = []
@@ -483,6 +539,8 @@ def main():
                 key = phase_codon(st, cfg, run_dir)
             elif phase == "register":
                 key = phase_register(st, cfg, run_dir)
+            elif phase == "audit":
+                key = phase_audit(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

@@ -1,0 +1,21 @@
+# Machine i-1: benchmark v2 milestone M0, slim (pipeline audit, ci/stages/audit.py; the user, 2026-11-20: "Slim, then
+# new units"): the bias audit of the old island set on its 24 development chromosomes, from the island outputs of round
+# R1 (run 20261120T054457 of this machine) and the store's records of the development chromosomes. CPU only (the select
+# lock: it runs beside a training run). No verdict with 3 genus units: the old set's baseline.
+pipeline: audit
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+audit:
+  islands_from: /hy-tmp/seeddrift-ci/runs/20261120T054457-exp-truth-labels-9170e09e-selfsup-medium-i1
+  fused: {lam: 0.01, rounds: 200, depth: 2, lr: 0.05, min_leaf: 50}
+  detector: {lam: 0.01, flag_auroc: 0.6}
+  controls: {draws: 20, tolerance: 0.01}
+  boot: 1000
+  block: 10

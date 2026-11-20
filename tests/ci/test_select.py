@@ -244,7 +244,7 @@ def test_search_pipeline_stops_after_the_search_with_its_gates():
     assert "model" not in block and "report" not in block                # no training, no evaluation
     # every gate the search pipeline requires is one the train pipeline requires too (the same phases decide them)
     assert set(p["required"]) <= set(REQUIRED_GATES) and {"G1_corpus", "G2_corpus", "G2_holdout", "G3"} <= set(p["required"])
-    assert {k for k, _ in p["resume"]} == {"pre", "corpus", "eval"} and set(PIPELINES) == {"train", "select", "search", "selfsup", "codon", "register"}
+    assert {k for k, _ in p["resume"]} == {"pre", "corpus", "eval"} and set(PIPELINES) == {"train", "select", "search", "selfsup", "codon", "register", "audit"}
 
 
 def test_selfsup_pipeline_has_its_own_report_and_gates():

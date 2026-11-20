@@ -280,3 +280,18 @@ def test_e5_comparators_are_read_by_gene_id_and_fused(tmp_path):
     assert c["e5_kmer"].tolist() == [0.1, 0.9] and c["e5_n_rows"].tolist() == [-3.0, -1.0]
     assert c["e5_fuse3"][1] > c["e5_fuse3"][0]
     assert "e5_ai_all" not in added                                    # absent from the tables: not a comparator
+
+
+def test_matched_auroc_removes_a_covariate_and_keeps_an_independent_signal():
+    """Natives matched to the islands on a covariate: a score that is only that covariate falls to about 0.5 under
+    matching, an independent signal keeps its AUROC; the weighted AUROC equals the plain one with equal weights."""
+    from ci.stages import protocol as PR
+    rng = np.random.default_rng(3)
+    m = 4000
+    y = (rng.random(m) < 0.1).astype(int)
+    cov = rng.normal(0, 1, m) + 1.5 * y                                 # islands differ on the covariate
+    sig = rng.normal(0, 1, m) + 1.2 * y
+    w, kp = PR.matching_weights(y, [cov], bins=(10,))
+    assert abs(PR.weighted_auroc(cov[y == 1][kp], cov[y == 0], w) - 0.5) < 0.06
+    assert PR.weighted_auroc(sig[y == 1][kp], sig[y == 0], w) > 0.75
+    assert abs(PR.weighted_auroc(sig[y == 1], sig[y == 0], np.ones((y == 0).sum())) - PR.auroc(sig[y == 1], sig[y == 0])) < 1e-12

@@ -626,6 +626,13 @@ def protocol_report(run_dir, base, sj, store, per, units_of, model_cols):
         table[acc] = dict(y=y, cols=cols, unit=units_of[acc], names=names)
     units = sorted({t["unit"] for t in table.values()})
     e5 = add_e5_comparators(table, store)                              # the benchmark's own scores, where the store has them
+    for acc, t in table.items():                                       # the matching covariates and the accessory negatives
+        rows = {r["gene_id"]: r for r in _tsv(os.path.join(store, "labels_panel", acc + ".tsv"))}
+        length = np.array([(int(rows[g]["end"]) - int(rows[g]["start"]) + 1) / 3.0 if g in rows else np.nan for g in t["names"]])
+        hits = t["cols"].get("e5_n_rows", -np.asarray(t["cols"]["cmp_hits"], float))     # the sign does not matter for the cells
+        t["match"] = [np.log(np.maximum(length, 1)), np.asarray(hits, float)]
+        f = np.array([float(rows[g]["f"]) if g in rows and rows[g].get("f") not in (None, "") else np.nan for g in t["names"]])
+        t["accessory"] = np.array([g in rows and rows[g]["class"] == "unresolved" and (rows[g].get("label") or "none") == "none" for g in t["names"]]) & (f <= 0.5)
     comps = list(COMPARATORS) + e5
     scores = list(model_cols) + comps
     ev = PR.evaluate(table, units, scores, comps)

@@ -12,8 +12,13 @@ For every score s (higher = more foreign; NaN = not scored) on the gated labels 
   strata_auroc     AUROC within deciles (per chromosome) of the tracked hits and of the length, mean over the strata
                    with both classes
   gain_over_best   per chromosome the AUROC of s minus the best comparator's, mean over units
-  spearman         rank correlation with every other score over the labelled genes (NaN genes dropped pairwise);
-                   above 0.9 with a known feature or B1 marks a collapsed score
+  spearman         rank correlation with every other score within each chromosome (ties averaged), median over
+                   chromosomes; above 0.9 with a known feature, A, B1 or C marks a collapsed score
+  matched_auroc    natives reweighted to the islands' joint distribution of length and homolog count (coarsened exact
+                   matching per chromosome): a homolog-counting or length score falls to about 0.5 (benchmark v2,
+                   family A); matched_positives_kept is the share of islands with a matching native cell
+  accessory_auroc  islands against genus-accessory genes outside islands (orthologue share <= 0.5, no published label):
+                   a noisy negative (some are unlabelled transfers or losses), for sensitivity only
 """
 from __future__ import annotations
 
@@ -81,6 +86,45 @@ def auroc(pos, neg):
     return float((ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
 
 
+def weighted_auroc(pos, neg, w):
+    """AUROC of positives against negatives weighted by w (ties one half; NaN ranked lowest)."""
+    pos, neg, w = np.asarray(pos, float), np.asarray(neg, float), np.asarray(w, float)
+    keep = w > 0
+    neg, w = neg[keep], w[keep]
+    if not len(pos) or not len(neg) or w.sum() <= 0:
+        return None
+    allv = np.concatenate([pos, neg])
+    lo = np.nanmin(allv) - 1.0 if np.isfinite(allv).any() else -1.0
+    pos, neg = np.where(np.isfinite(pos), pos, lo), np.where(np.isfinite(neg), neg, lo)
+    order = np.argsort(neg, kind="mergesort")
+    sn, sw = neg[order], w[order]
+    cw = np.concatenate([[0.0], np.cumsum(sw)])
+    below = cw[np.searchsorted(sn, pos, side="left")]
+    equal = cw[np.searchsorted(sn, pos, side="right")] - below
+    return float(np.sum(below + 0.5 * equal) / (len(pos) * sw.sum()))
+
+
+def matching_weights(y, covs, bins=(10, 5)):
+    """Coarsened exact matching of the negatives to the positives of one chromosome: each covariate cut at quantiles of
+    the labelled genes (len(bins) covariates, bins[k] cells each); a negative weighs n_pos / n_neg of its cell, zero in
+    cells without positives; positives in cells without negatives are dropped. Returns (weights for the negatives,
+    mask of the positives kept)."""
+    lab = y >= 0
+    cell = np.zeros(len(y), np.int64)
+    for c, nb in zip(covs, bins):
+        c = np.asarray(c, float)
+        edges = np.unique(np.nanquantile(c[lab & np.isfinite(c)], np.linspace(0, 1, nb + 1)[1:-1])) if (lab & np.isfinite(c)).any() else []
+        cell = cell * (nb + 1) + np.digitize(np.where(np.isfinite(c), c, -np.inf), edges)
+    w = np.zeros(len(y))
+    keep_pos = np.zeros(len(y), bool)
+    for k in np.unique(cell[lab]):
+        p, n = (cell == k) & (y == 1), (cell == k) & (y == 0)
+        if p.any() and n.any():
+            w[n] = p.sum() / n.sum()
+            keep_pos[p] = True
+    return w[y == 0], keep_pos[y == 1]
+
+
 def known_features(cols):
     """The known-feature matrix of one chromosome from its comparator columns (missing values set to the column mean)."""
     hits = np.log1p(np.maximum(-np.asarray(cols["cmp_hits"], float), 0))
@@ -135,7 +179,7 @@ def evaluate(table, units, scores, comparators):
     for s in scores:
         per_unit = {}
         cov = [0, 0, 0, 0]
-        res_u, strata_u, gain_best_u, best_names = {}, {}, {}, {}
+        res_u, strata_u, gain_best_u, best_names, match_u, kept_u, acc_u = {}, {}, {}, {}, {}, {}, {}
         for acc, t in table.items():
             y, v = t["y"], np.asarray(t["cols"][s], float)
             lab = y >= 0
@@ -170,12 +214,26 @@ def evaluate(table, units, scores, comparators):
                 best, bname = max(cands)
                 gain_best_u.setdefault(t["unit"], []).append(a - best)
                 best_names[bname] = best_names.get(bname, 0) + 1
+            # benchmark v2, family A first views: natives matched to the islands on length and homolog count (the
+            # homolog-counting scores can no longer win by construction), and islands against genus-accessory genes
+            # outside islands (accessory, not island; a noisy negative: some are unlabelled transfers or losses)
+            if "match" in t:
+                wn, kp = matching_weights(y, t["match"])
+                ma = weighted_auroc(pos[kp], neg, wn)
+                if ma is not None:
+                    match_u.setdefault(t["unit"], []).append(ma)
+                    kept_u.setdefault(t["unit"], []).append(float(kp.mean()) if len(kp) else 0.0)
+            if "accessory" in t and t["accessory"].any():
+                aa = auroc(pos, v[t["accessory"]])
+                if aa is not None:
+                    acc_u.setdefault(t["unit"], []).append(aa)
         if not per_unit:
             continue
         umean = lambda d: float(np.mean([np.mean(v) for v in d.values()])) if d else None
         row = dict(auroc=umean(per_unit), auroc_per_unit={u: round(float(np.mean(v)), 4) for u, v in per_unit.items()},
                    coverage_island=cov[0] / max(cov[1], 1), coverage_native=cov[2] / max(cov[3], 1),
-                   residual_auroc=umean(res_u), gain_over_best_comparator=umean(gain_best_u), best_comparator_counts=best_names)
+                   residual_auroc=umean(res_u), gain_over_best_comparator=umean(gain_best_u), best_comparator_counts=best_names,
+                   matched_auroc=umean(match_u), matched_positives_kept=umean(kept_u), accessory_auroc=umean(acc_u))
         for key, name in (("cmp_hits", "strata_auroc_hits_deciles"), ("cmp_short", "strata_auroc_length_deciles")):
             if strata_u.get(key):
                 row[name] = umean(strata_u[key])

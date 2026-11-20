@@ -2,8 +2,10 @@
 # GPUs, rounds of 2-3 hours). Development diagnosis only. Same corpus (pilot-near), search, training data and pairs as
 # profile selfsup-pilot (run 20261119T145408); no island stages here: this machine has no complete reference database,
 # so the variants are scored on the island chromosomes afterwards from the island data of the i-1 run, in one batch.
-# Variants (all four objectives): the loss trim 0 and 0.25 against the default 0.1, widths 64 and 256 against 128, and
-# two more seeds (4, 5) beside seeds 1-3 of selfsup-pilot, for the seed spread on the islands.
+# The GPU is shared with the qwen35-bio vLLM service, which must not be stopped (the user, 2026-11-20; the GPU lease of
+# this machine is disabled): about 20 GB are free once that service runs at 0.5 of the GPU, so one training at a time.
+# Variants (all four objectives): the loss trim 0 and 0.25 against the default 0.1, and one more seed (4) beside seeds
+# 1-3 of selfsup-pilot, for the seed spread on the islands.
 pipeline: selfsup
 tier: pilot
 seed: 1
@@ -11,7 +13,7 @@ cores: 8
 blas_threads: 2
 disk_gb: 40
 disk_reserve_gb: 30
-gpu_mem_min_mb: 20000
+gpu_mem_min_mb: 15000
 corpus_spec: configs/corpus/pilot-near.yaml
 taxdump: /hy-tmp/seeddrift-store/reference/taxdump
 extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
@@ -49,11 +51,8 @@ train:
   variants:
     - {name: all-trim0-s1, seed: 1, objectives: [A, B1, B2, C], trim: 0.0}
     - {name: all-trim25-s1, seed: 1, objectives: [A, B1, B2, C], trim: 0.25}
-    - {name: all-w256-s1, seed: 1, objectives: [A, B1, B2, C], width: 256}
-    - {name: all-w64-s1, seed: 1, objectives: [A, B1, B2, C], width: 64}
     - {name: all-s4, seed: 4, objectives: [A, B1, B2, C]}
-    - {name: all-s5, seed: 5, objectives: [A, B1, B2, C]}
-  parallel: 2
+  parallel: 1
   dev_seed: 0
   steps: 8000
   batch: 64

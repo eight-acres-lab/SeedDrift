@@ -7,9 +7,46 @@ panel:
   same: 5
   other: 5
   other_min: 3
+  anchor_majority: 0.5      # amendment 2026-11-21: a short genus is anchored at the GTDB genus holding more than this
+                            # share of its representative's NCBI species in the pool, then walked to other_min species
 outgroups:
   salt: outgroup-v1
   genera: 3
+  genera_min: 2             # amendment 2026-11-21
+  min_size_share: 0.5       # amendment 2026-11-21: median genome length at least this share of the pool's
   genomes: 2
   min_assemblies: 2
   n_run_max: 100
+# part 2: presence calls (diamond blastx, frameshift-aware, of every panel and outgroup genome's DNA against the unit's
+# development proteins) and the labels
+presence:
+  mode: sensitive
+  frameshift: 15
+  evalue: 1.0e-5
+  min_id: 30
+  min_subject_cover: 30
+  ortho: [40, 0.7]          # identity %, target coverage: an owned locus = an ortholog in place
+  hom: [40, 0.5]            # any locus: a homolog somewhere
+  og: [30, 0.5]             # an owned locus in an outgroup genome
+  near_bp: 10000            # pos: both neighbour sides' ortho loci within this distance
+labels:
+  other_min: 3              # usable other-species genomes per chromosome, else class no_panel
+  band_share: 0.5           # S2: ortho in at most this share of the other species
+  min_bp: 4000
+  min_genes: 3
+  gap: 1                    # genes bridged inside a run
+  core: 0.8                 # core: pos in at least this share of the other species
+  margin_genes: 2           # core: not within this many genes of a U run
+  outgroup_genera_min: 2
+  lacking: 1.0              # a genome lacks a segment: this share of its genes without a call
+  flank_genes: 3
+  empty_bp: 5000
+  max_bp: 100000
+  flank_empty: 1
+  flank_empty_or_replaced: 2
+  n_default_kb: 5
+  n_floor_kb: 1
+  n_cap_kb: 10
+  n_quantile: 0.9
+  match_bp: 20000
+  n_min_edges: 10

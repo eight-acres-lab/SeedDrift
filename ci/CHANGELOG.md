@@ -96,6 +96,16 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   graded outgroup genera from the GTDB tree with two genomes each and reserves, their genomes from ENA; gates G3_famA
   (development only, no forbidden genus, family or taxon, focal NCBI order, no score or search import in the label code)
   and G4_famA_taxa. Run record schema: pipeline value family_a.
+- Pipeline family_a, increment 2 (V2_FAMILY_A.md part 2, fixed before its first run): presence calls of every panel
+  and outgroup genome (DIAMOND blastx of genome DNA in 200 kb windows, frameshift-aware, every HSP, against the unit's
+  development proteins; loci merged per protein, places owned by the best score; ortho, hom, og and pos calls) and the
+  labels from the genomes' own evidence only (S1/S2 runs, outgroup polarity, the empty-site test, the edge margin N
+  from the literature islands' edges; classes insertion and core, the rest excluded; the published labels only as an
+  agreement column); gate G4_famA_labels re-checks every insertion and core gene against its rule from the label
+  table. Part 1 amendment of 2026-11-21 (the first run's G4_famA_taxa failed on GTDB R232's split of E. coli): a
+  chromosome whose GTDB genus offers fewer than 3 other species is walked up the tree from an anchor genus (the user's
+  rule); outgroup genera of reduced genomes are not eligible; at least 2 outgroup genera are required. The taxa stage
+  takes the GTDB files from the CAS when the profile pins their sha256 (famA.gtdb_known).
 
 ## 0.2 (in progress)
 

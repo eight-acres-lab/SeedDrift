@@ -1,7 +1,8 @@
-# Machine i-1: benchmark v2 family A re-cut, increment 1 (pipeline family_a, ci/stages/family_a.py, rules
-# bench/hard/V2_FAMILY_A.md part 1; the user, 2026-11-20: "Yes, with defaults"): the 24 development chromosomes'
-# GTDB R232 placement, the re-cut same- and other-species panels, three graded outgroup genera with two genomes each,
-# and the genomes not yet in the store (ENA, into the CAS; downloads on this machine only). CPU and network only.
+# Machine i-1: benchmark v2 family A re-cut (pipeline family_a, ci/stages/family_a.py, rules bench/hard/V2_FAMILY_A.md;
+# the user, 2026-11-20: "Yes, with defaults"). Part 1: the 24 development chromosomes' GTDB R232 placement, the re-cut
+# same- and other-species panels, graded outgroup genera with two genomes each, and the genomes not yet in the store
+# (ENA, into the CAS; downloads on this machine only). Part 2: presence calls (DIAMOND blastx on genome DNA) and the
+# labels. CPU and network only.
 pipeline: family_a
 needs_gpu: false
 tier: medium
@@ -16,3 +17,8 @@ famA:
   store: /hy-tmp/seeddrift-store/evalsets/islandpick
   spec: configs/benchmark_v2/family_a.yaml
   threads: 8
+  # the release files as the first run (20261120T152733) stored them: used from the CAS when they still match the
+  # release's MD5SUM.txt, not downloaded again
+  gtdb_known:
+    bac120_taxonomy_r232.tsv.gz: d565d92730db443cd394a4b685ea682fe3691a3a1da3713804bbef2025d2cc71
+    bac120_r232.tree.gz: 8c51060f740da69ff7076ed0305250a881b23093413108450c90fc233fd54c19

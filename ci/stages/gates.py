@@ -1,4 +1,5 @@
-"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit|famA_taxa [--check-only]`.
+"""Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit|famA_taxa|famA_labels
+[--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -24,8 +25,12 @@ audit    (pipeline audit) G3_audit: development chromosomes only, and no accessi
 famA_taxa (pipeline family_a) G3_famA: development chromosomes only; no panel or outgroup genome of an island-set taxon,
          a library assembly, or a forbidden genus or family (EXCLUDE.tsv, the register's other parts); outgroups in the
          focal NCBI order; the label code imports no score or search module; no accession of the register's other parts in
-         the outputs. G4_famA_taxa: at least 3 other species per chromosome, 3 outgroup genera with 2 genomes each, every
-         chosen genome fetched without a long N-run
+         the outputs. G4_famA_taxa: at least 3 other species per chromosome, at least 2 outgroup genera (3 sought) with 2
+         genomes each, every chosen genome fetched without a long N-run
+famA_labels (pipeline family_a) G4_famA_labels: every development chromosome labelled, its genes those of its record and
+         of its presence calls; every class one of part 2's and every insertion and core gene meeting its rule as written
+         in the label table; insertions and core genes present; the label code imports no score or search module; no
+         accession of the register's other parts in the presence or label outputs
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
@@ -475,7 +480,7 @@ def phase_famA_taxa(st, cfg, run_dir):
     problems = []
     with open(st.repo((cfg["famA"].get("spec")) or FA.SPEC)) as f:
         spec = yaml.safe_load(f)
-    need_other, need_og, need_g = int(spec["panel"]["other_min"]), int(spec["outgroups"]["genera"]), int(spec["outgroups"]["genomes"])
+    need_other, need_og, need_g = int(spec["panel"]["other_min"]), int(spec["outgroups"]["genera_min"]), int(spec["outgroups"]["genomes"])
     for genus, u in taxa["units"].items():
         for acc, c in (u.get("panels") or {}).items():
             if c["other"] < need_other:
@@ -492,6 +497,74 @@ def phase_famA_taxa(st, cfg, run_dir):
     require(GateResult("G4_famA_taxa", "fail" if problems else "pass", dict(problems=problems[:50], units={g: dict(chromosomes=len(u["chromosomes"]),
                         outgroups=[o["genus"] for o in u["outgroups"]]) for g, u in taxa["units"].items()})), run_dir)
     return sha256_file(os.path.join(base, "fetch.json"), use_sidecar=False)
+
+
+FAMA_CLASSES = ("qc_fail", "no_panel", "bridged", "edge_in", "no_polarity", "no_flank", "insertion", "boundary", "unresolved", "accessory",
+                "core", "edge")
+
+
+def phase_famA_labels(st, cfg, run_dir):
+    """G4_famA_labels (pipeline family_a, ci/stages/family_a.py: presence and labels; bench/hard/V2_FAMILY_A.md part 2)."""
+    import csv
+    import re as _re
+    import numpy as np
+    from ci.stages import family_a as FA
+    base = os.path.join(run_dir, "data", "famA")
+    with open(os.path.join(base, "taxa.json")) as f:
+        taxa = json.load(f)
+    with open(os.path.join(base, "labels", "index.json")) as f:
+        idx = json.load(f)
+    with open(st.repo((cfg["famA"].get("spec")) or FA.SPEC)) as f:
+        lc = yaml.safe_load(f)["labels"]
+    n_bp = idx["calibration"]["n_kb"] * 1000
+    problems, totals = [], dict(insertion=0, core=0)
+    if set(idx["counts"]) != set(taxa["placement"]):
+        problems.append(dict(error="the labelled chromosomes are not the placed development chromosomes",
+                             missing=sorted(set(taxa["placement"]) - set(idx["counts"]))))
+    for acc in sorted(idx["counts"]):
+        with open(os.path.join(base, "labels", acc + ".tsv")) as f:
+            rows = list(csv.DictReader(f, delimiter="\t"))
+        with open(os.path.join(base, "labels", "segments", acc + ".json")) as f:
+            segs = {s_["segment"]: s_ for s_ in json.load(f)}
+        z = np.load(os.path.join(base, "presence", acc + ".npz"))
+        if [r["gene_id"] for r in rows] != list(z["names"]):
+            problems.append(dict(chromosome=acc, error="the label genes are not the presence genes"))
+        bad = []
+        for r in rows:
+            c = r["class"]
+            if c not in FAMA_CLASSES:
+                bad.append((r["gene_id"], c, "unknown class"))
+            elif c == "insertion":
+                run_ = int(r["run"])
+                ok = (r["f_ortho"] == "0.0000" and r["og_absent"] == "True" and run_ >= 0 and segs.get(run_, {}).get("passes") is True
+                      and not r["qc"] and float(r["dist_edge"]) > n_bp)
+                if not ok:
+                    bad.append((r["gene_id"], c, "an insertion outside its rule"))
+            elif c == "core":
+                ok = (float(r["f_pos"]) >= lc["core"] and r["multi"] == "False" and not r["qc"] and int(r["run"]) < 0 and r["band"] == "False"
+                      and r["in_u"] == "False" and r["near_u"] == "False" and (r["dist_u"] == "" or float(r["dist_u"]) > n_bp))
+                if not ok:
+                    bad.append((r["gene_id"], c, "a core gene outside its rule"))
+            if c in totals:
+                totals[c] += 1
+        if bad:
+            problems.append(dict(chromosome=acc, error="genes against their class rule", genes=bad[:10], n=len(bad)))
+    if not totals["insertion"] or not totals["core"]:
+        problems.append(dict(error="no insertion or no core gene at all", totals=totals))
+    src = open(st.repo("ci/stages/family_a.py")).read()
+    for m in FAMA_BANNED:
+        if _re.search(r"from ci\.stages(\.%s| import [^\n]*\b%s\b)" % (m, m), src):
+            problems.append(dict(module=m, error="the label code imports a score or search module"))
+    with open(st.repo("bench/hard/results/v2_reference_set.tsv")) as f:
+        others = [(r["accession"], r["genus"]) for r in csv.DictReader(f, delimiter="\t") if r["part"] != "development"]
+    texts = [os.path.join(dp, fn) for d in ("presence", "labels") for dp, _, fns in os.walk(os.path.join(base, d)) for fn in fns
+             if fn.endswith((".json", ".tsv"))]
+    found = g3_sealed._scan(texts, g3_sealed._pattern(others))
+    if found:
+        problems.append(dict(error="accessions of the register's other parts in the outputs", found=found))
+    require(GateResult("G4_famA_labels", "fail" if problems else "pass", dict(problems=problems[:50], n_kb=idx["calibration"]["n_kb"],
+                       calibrated=idx["calibration"]["calibrated"], totals=totals)), run_dir)
+    return sha256_file(os.path.join(base, "labels", "index.json"), use_sidecar=False)
 
 
 def _g3_files(st, cfg, run_dir):
@@ -644,6 +717,8 @@ def main():
                 key = phase_audit(st, cfg, run_dir)
             elif phase == "famA_taxa":
                 key = phase_famA_taxa(st, cfg, run_dir)
+            elif phase == "famA_labels":
+                key = phase_famA_labels(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

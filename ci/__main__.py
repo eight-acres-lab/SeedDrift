@@ -68,9 +68,11 @@ PIPELINES = {
     "audit": dict(target="audit_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_audit", "G4_audit"),
                   resume=(("pre", None), ("audit", "data/audit/report.json"))),
     # benchmark v2 family A re-cut on the development chromosomes (ci/stages/family_a.py, rules bench/hard/V2_FAMILY_A.md):
-    # increment 1, GTDB placement, panels, outgroups and their genomes; CPU and network only (needs_gpu: false)
-    "family_a": dict(target="famA_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_famA", "G4_famA_taxa"),
-                     resume=(("pre", None), ("famA_taxa", "data/famA/fetch.json"))),
+    # GTDB placement, panels, outgroups and their genomes (part 1), presence calls and labels (part 2); CPU and network
+    # only (needs_gpu: false)
+    "family_a": dict(target="famA_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_famA", "G4_famA_taxa",
+                                                  "G4_famA_labels"),
+                     resume=(("pre", None), ("famA_taxa", "data/famA/fetch.json"), ("famA_labels", "data/famA/labels/index.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

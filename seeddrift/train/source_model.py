@@ -22,6 +22,13 @@ Hiding is symmetric: every example has a partner genome, drawn across the distan
 kingdom, and mobile elements). For a replacement the partner is the donor; for a native it is a decoy drawn the same
 way. Both lose the recipient's clade and the partner's clade from every slot's hits, so the hit lists of natives and
 replacements are cut by the same rule and their length or make-up alone does not tell them apart.
+`partner_depths` (a list of ranks, e.g. species .. phylum): the partner's clade is hidden at its own depth, drawn per
+example uniformly among the listed ranks below the deepest rank the partner shares with the recipient (so the
+recipient's own lineage is never hidden with it), for natives and replacements alike, in training, in the development
+set and in the baseline's constructions; the recipient's clade stays at the recipient depth. This stands for a donor
+whose relatives are missing from the reference: a real donor lineage is often sampled sparsely or not at all, so a
+recently transferred gene has few and distant homologs, while the corpus donors have well-sampled relatives. Empty
+(the default): the partner is hidden at the recipient's depth, as before, with the same random draws.
 
 Training signal (no HGT labels): in training genomes, the centre gene of a window is, half of the time, replaced by a
 gene of the partner genome (its codons and its own hits); the model predicts the replacement. Natives carry the soft
@@ -50,6 +57,7 @@ from seeddrift.train.logger import Diverged, TrainLogger, save_npz  # noqa: E402
 
 RANKS = ("phylum", "class", "order", "family", "genus", "species")
 DEPTHS = ("species", "genus", "family", "order")
+PARTNER_DEPTHS = ("species", "genus", "family", "order", "class", "phylum")   # allowed in cfg partner_depths
 STRATA = ("same genus", "same family", "same order", "same phylum", "other phylum", "other kingdom", "mobile element")
 GAP = 22
 WIN = 8                                                  # neighbours on each side
@@ -171,6 +179,9 @@ class Data:
         self.maxc = int(cfg.get("max_codons", 512))
         self.kc, self.kn, self.maxt = int(cfg.get("hits_centre", 32)), int(cfg.get("hits_neighbour", 4)), int(cfg.get("max_track", 512))
         self.comp = bool(cfg.get("genome_composition", False))
+        self.partner_depths = tuple(cfg.get("partner_depths") or ())
+        if set(self.partner_depths) - set(PARTNER_DEPTHS):
+            raise SystemExit("partner_depths: unknown rank in %s" % (self.partner_depths,))
 
     # ---- one gene of one genome as arrays; `hide` = list of (column, value) whose hits are removed
     def gene(self, gen, i, hide, k):
@@ -201,13 +212,13 @@ class Data:
                 break
         return rules
 
-    def window(self, gen, i, donor=None, depth="genus", extra_hide=(), partner=None):
+    def window(self, gen, i, donor=None, depth="genus", extra_hide=(), partner=None, partner_depth=None):
         """The 17 slots of gene i of `gen`; the centre replaced by donor = (genome, gene) if given. The recipient's clade
-        and the partner's (the donor's genome, else `partner`, a decoy) are hidden from every slot at `depth`.
-        extra_hide: more (column, value) rules, applied before the hit lists are cut (the donor genera of an
-        evaluation scenario)."""
+        is hidden from every slot at `depth`, the partner's (the donor's genome, else `partner`, a decoy) at
+        `partner_depth` (default: `depth`). extra_hide: more (column, value) rules, applied before the hit lists are cut
+        (the donor genera of an evaluation scenario)."""
         partner = donor[0] if donor is not None else partner
-        hide = self.hide_for(gen, depth) + (self.hide_for(partner, depth) if partner is not None else []) + list(extra_hide)
+        hide = self.hide_for(gen, depth) + (self.hide_for(partner, partner_depth or depth) if partner is not None else []) + list(extra_hide)
         slots = []
         for s, j in enumerate(gen.neighbours(i)):
             if s == WIN and donor is not None:
@@ -380,6 +391,25 @@ def build(torch, n_lib, d=128, ablate="", comp=False):
     return Model()
 
 
+def partner_depth(r, p, depths, rng):
+    """The depth at which partner p's clade is hidden: drawn uniformly among `depths` that lie below every rank at which
+    p's clade may contain recipient r (a clade at such a rank never contains r). A rank may contain r when both have it
+    and it is the same, or when p has it and r's is undefined (a gap in r's lineage: r may sit inside p's clade there);
+    ranks below the first one at which both are defined and differ cannot contain r. None (hide at the example's depth)
+    when `depths` is empty or none of them lies below; no random draw is made then."""
+    if not depths:
+        return None
+    shared = -1
+    for c in range(len(RANKS)):
+        rc, pc = int(r.ranks[c]), int(p.ranks[c])
+        if rc and pc and rc != pc:
+            break
+        if pc and (rc == pc or not rc):
+            shared = c
+    ok = [d for d in depths if RANKS.index(d) > shared]
+    return ok[rng.integers(len(ok))] if ok else None
+
+
 def by_stratum(gen, others):
     by = {}
     for o in others:
@@ -417,18 +447,21 @@ def sample(data, rng, genomes, depth=None, drawn=None):
     if not by:                                                    # a corpus of one genome trains on natives only
         return data.window(gen, i, None, depth), data.source(gen, rng, i), 0.0, -1, grp
     pg, k = partner_of(by, rng)
+    pdp = partner_depth(gen, pg, getattr(data, "partner_depths", ()), rng)   # no draw without partner_depths (same stream)
     if rng.random() < 0.5:
         dj = int(rng.integers(pg.n))
-        return data.window(gen, i, (pg, dj), depth), data.source(gen, rng, i), 1.0, k, grp
-    return data.window(gen, i, None, depth, partner=pg), data.source(gen, rng, i), 0.0, k, grp
+        return data.window(gen, i, (pg, dj), depth, partner_depth=pdp), data.source(gen, rng, i), 1.0, k, grp
+    return data.window(gen, i, None, depth, partner=pg, partner_depth=pdp), data.source(gen, rng, i), 0.0, k, grp
 
 
-def constructed(data, seed, split="heldout", n_per=120, depth="genus", ids=None):
+def constructed(data, seed, split="heldout", n_per=120, depth="genus", ids=None, partner_depths=()):
     """Constructed examples in the genomes of one split (or `ids` of it), partners from the same genomes: (recipient,
-    gene, donor, donor gene, partner stratum, partner, hiding depth); donor "" for a native (its partner is the decoy).
-    Per recipient at most n_per / 2 natives and n_per / 2 replacements, each at distinct gene positions (without
-    replacement: a small genome gives as many examples as it has genes, not repeats). depth "random": a hiding depth
-    per example drawn as in training. Fixed by the seed."""
+    gene, donor, donor gene, partner stratum, partner, hiding depth, partner hiding depth); donor "" for a native (its
+    partner is the decoy). Per recipient at most n_per / 2 natives and n_per / 2 replacements, each at distinct gene
+    positions (without replacement: a small genome gives as many examples as it has genes, not repeats). depth
+    "random": a hiding depth per example drawn as in training. partner_depths: the partner's depth drawn per example as
+    in training (partner_depth(); empty: the partner is hidden at the example's depth, with the same draws as before).
+    Fixed by the seed."""
     rng = np.random.default_rng(seed)
     ho = sorted(ids if ids is not None else data.by_split.get(split, []))
     out = []
@@ -445,41 +478,65 @@ def constructed(data, seed, split="heldout", n_per=120, depth="genus", ids=None)
             for i in positions:
                 pg, k = partner_of(by, rng)
                 dp = DEPTHS[rng.integers(len(DEPTHS))] if depth == "random" else depth
+                pdp = partner_depth(gen, pg, partner_depths, rng) or dp
                 if kind == "replacement":
-                    out.append((gid, int(i), pg.meta["id"], int(rng.integers(pg.n)), k, pg.meta["id"], dp))
+                    out.append((gid, int(i), pg.meta["id"], int(rng.integers(pg.n)), k, pg.meta["id"], dp, pdp))
                 else:
-                    out.append((gid, int(i), "", -1, k, pg.meta["id"], dp))
+                    out.append((gid, int(i), "", -1, k, pg.meta["id"], dp, pdp))
     return out
 
 
+def load_examples(path):
+    """The example list saved by save_examples, as constructed() returns it (8-tuples)."""
+    z = np.load(path)
+    n = len(z["gene"])
+    dec = lambda k, default: [x.decode() for x in z[k]] if k in z.files else [default] * n
+    dep = dec("depth", "genus")
+    pdep = [x.decode() for x in z["partner_depth"]] if "partner_depth" in z.files else dep
+    return [(r, int(i), d, int(j), int(k), p, dp, pdp) for r, i, d, j, k, p, dp, pdp in
+            zip(dec("recipient", ""), z["gene"], dec("donor", ""), z["donor_gene"], z["stratum"], dec("partner", ""), dep, pdep)]
+
+
+def run_dev_set(run_dir, data, cfg):
+    """The run's development set: data/model/dev_set.npz when the run wrote it (sets runs before every training, so
+    every variant, also one with its own partner_depths, is scored on the same examples), else built here."""
+    p = os.path.join(run_dir, "data", "model", "dev_set.npz")
+    return load_examples(p) if os.path.exists(p) else dev_set(data, int(cfg.get("dev_seed", 0)))
+
+
 def dev_set(data, seed, n_per=120):
-    """The constructed development set: held-out recipients and partners, genus hidden."""
-    return constructed(data, seed, "heldout", n_per)
+    """The constructed development set: held-out recipients and partners, the recipient's genus hidden, the partner's
+    clade at the run's partner depths (default: genus too)."""
+    return constructed(data, seed, "heldout", n_per, partner_depths=getattr(data, "partner_depths", ()))
 
 
 def save_examples(path, ex, scores=None):
     cols = dict(recipient=np.array([e[0] for e in ex], dtype="S"), gene=np.array([e[1] for e in ex], dtype=np.int64),
                 donor=np.array([e[2] for e in ex], dtype="S"), donor_gene=np.array([e[3] for e in ex], dtype=np.int64),
                 stratum=np.array([e[4] for e in ex], dtype=np.int64), partner=np.array([e[5] for e in ex], dtype="S"),
-                depth=np.array([e[6] if len(e) > 6 else "genus" for e in ex], dtype="S"))
+                depth=np.array([e[6] if len(e) > 6 else "genus" for e in ex], dtype="S"),
+                partner_depth=np.array([e[7] if len(e) > 7 else (e[6] if len(e) > 6 else "genus") for e in ex], dtype="S"))
     if scores is not None:
         cols["score"] = scores
     save_npz(path, **cols)
 
 
 def predict(model, data, torch, dev, examples, rng_seed=0, batch=64, depth="genus"):
-    """examples: (recipient, gene, donor or "", donor gene, hidden scenario genera or None, partner or ""). Logits."""
+    """examples: (recipient, gene, donor or "", donor gene, hidden scenario genera or None, partner or "" [, partner
+    hiding depth, default `depth`]). Logits."""
     rng = np.random.default_rng(rng_seed)
     scores = []
     model.eval()
     with torch.no_grad():
         for b0 in range(0, len(examples), batch):
             items = []
-            for gid, i, did, dj, hidden, pid in examples[b0:b0 + batch]:
+            for e in examples[b0:b0 + batch]:
+                gid, i, did, dj, hidden, pid = e[:6]
+                pdp = e[6] if len(e) > 6 else None
                 gen = data.g[gid]
                 donor = (data.g[did], dj) if did else None
                 extra = [(RANKS.index("genus"), int(g)) for g in sorted(hidden or ())]   # donors of an evaluation scenario
-                slots = data.window(gen, i, donor, depth, extra, partner=data.g[pid] if pid else None)
+                slots = data.window(gen, i, donor, depth, extra, partner=data.g[pid] if pid else None, partner_depth=pdp)
                 items.append((slots, data.source(gen, rng, i), 0.0))
             x = {k: v.to(dev) for k, v in collate(items, torch).items()}
             scores += model(x).float().cpu().tolist()
@@ -528,7 +585,7 @@ def fit(run_dir, cfg):
         model.load_state_dict(state)
         start = int(last["step"])
     # every step draws from its own generator (seed, step): the data stream does not depend on where a run was resumed
-    dev_ex = [(e[0], e[1], e[2], e[3], None, e[5]) for e in dev_set(data, int(cfg.get("dev_seed", 0)))]
+    dev_ex = [(e[0], e[1], e[2], e[3], None, e[5], e[7]) for e in run_dev_set(run_dir, data, cfg)]
     dev_y = np.array([1 if e[2] else 0 for e in dev_ex])
     drawn = plan(data, train_ids)
     for _ in range(start):
@@ -590,8 +647,8 @@ def score(run_dir, cfg, model=None, data=None):
     # the scenario comparators hide the host's species and the donor genera (ci/stages/eval.py): the model the same
     s_eval = predict(model, data, torch, dev, ev, depth="species") if ev else np.zeros(0)
     save_npz(os.path.join(model_dir, "eval_scores.npz"), genome=np.array(keys, dtype="S"), gene=np.array([e[1] for e in ev], dtype=np.int64), score=s_eval)
-    dex = dev_set(data, int(cfg.get("dev_seed", 0)))
-    s_dev = predict(model, data, torch, dev, [(e[0], e[1], e[2], e[3], None, e[5]) for e in dex]) if dex else np.zeros(0)
+    dex = run_dev_set(run_dir, data, cfg)
+    s_dev = predict(model, data, torch, dev, [(e[0], e[1], e[2], e[3], None, e[5], e[7]) for e in dex]) if dex else np.zeros(0)
     save_examples(os.path.join(model_dir, "dev_eval.npz"), dex, s_dev)
 
 
@@ -604,8 +661,9 @@ def sets(run_dir, cfg):
     ds = int(cfg.get("dev_seed", 0))
     save_examples(os.path.join(model_dir, "dev_set.npz"), dev_set(data, ds))
     # the baseline learns from the same construction as the model: hiding depth drawn per example as in training
+    pds = data.partner_depths
     save_examples(os.path.join(model_dir, "baseline_train.npz"), constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60)),
-                                                                             depth=cfg.get("baseline_depth", "genus")))
+                                                                             depth=cfg.get("baseline_depth", "genus"), partner_depths=pds))
     # the training genomes of each data fraction of the run (the baseline of the eval stage learns from the same ones)
     metas = {g: data.g[g].meta for g in data.g}
     fr = sorted({float(f) for f in (cfg.get("fractions") or [1.0])} | {1.0})
@@ -615,7 +673,8 @@ def sets(run_dir, cfg):
     for x in fr:                       # the baseline of a smaller fraction: recipients and partners of that fraction only
         if x < 1.0:
             save_examples(os.path.join(model_dir, "baseline_train_f%g.npz" % x),
-                          constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60)), depth=cfg.get("baseline_depth", "genus"), ids=subsets[x]))
+                          constructed(data, ds + 1, "train", int(cfg.get("baseline_per_genome", 60)), depth=cfg.get("baseline_depth", "genus"), ids=subsets[x],
+                                      partner_depths=pds))
 
 
 def main():

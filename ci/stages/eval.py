@@ -98,7 +98,7 @@ def released_row(run_dir, eid, pairs, truth):
 
 
 STRATA = ("same genus", "same family", "same order", "same phylum", "other phylum", "other kingdom", "mobile element")
-DEPTH_COL = {"species": 5, "genus": 4, "family": 3, "order": 2}    # hiding depth -> lineage column (phylum .. species)
+DEPTH_COL = {"species": 5, "genus": 4, "family": 3, "order": 2, "class": 1, "phylum": 0}    # hiding depth -> lineage column
 
 
 def _codon_profile(cds):
@@ -209,8 +209,11 @@ def mlp(X, y, hidden=32, epochs=400, lr=1e-2, l2=1e-4, seed=0):
 
 
 def cell_name(v):
-    """The (data fraction, width, ablation) cell of a train variant, e.g. f0.25-w128 or f1-w128-no-hits."""
-    return "f%g-w%d" % (float(v.get("fraction", 1.0)), int(v.get("width", 128))) + ("-no-%s" % v["ablate"] if v.get("ablate") else "")
+    """The (data fraction, width, construction, ablation) cell of a train variant, e.g. f0.25-w128, f1-w128-no-hits, or
+    f1-w128-pd-recipient for a variant trained on its own construction (train.variants partner_depths; empty: the
+    partner hidden at the recipient's depth)."""
+    pd = ("-pd-" + ("_".join(v["partner_depths"]) or "recipient")) if "partner_depths" in v else ""
+    return "f%g-w%d" % (float(v.get("fraction", 1.0)), int(v.get("width", 128))) + pd + ("-no-%s" % v["ablate"] if v.get("ablate") else "")
 
 
 def balanced_rows(groups, seed=0):
@@ -300,7 +303,8 @@ def model_hits_centre(run_dir, default=16):
 
 def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
     """Development diagnosis on constructed insertions (held-out recipients, held-out partners; the genome's own proteome
-    and genus hidden for the recipient and for the partner, the donor of an insertion or the decoy of a native): the
+    and genus hidden for the recipient and for the partner, the donor of an insertion or the decoy of a native; with
+    train.partner_depths the partner's clade at the depth each example records instead): the
     model (each seed and their mean) and the comparators on the same examples, with a logistic regression on summary
     features trained on the same construction in training genomes. Overall, by partner stratum (insertions against
     natives whose decoy is of the same stratum) and by recipient group; 95% intervals by resampling recipient genomes.
@@ -341,11 +345,12 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
     def hidden_row(p, rules):
         return any((lib_taxid[p] == v) if c == "taxid" else (ranks[p, c] == v) for c, v in rules)
 
-    def features(r, i, d, j, partner, depth="genus"):
+    def features(r, i, d, j, partner, depth="genus", partner_depth=None):
         """Comparator scores and baseline features of one example, from the rows the model reads."""
         R = genome(r)
         src, k = (genome(d), int(j)) if d else (R, int(i))
-        rules = hide(r, depth) + (hide(partner, depth) if partner else [])
+        # the recipient at the example's depth, the partner (donor or decoy) at its own depth (train.partner_depths)
+        rules = hide(r, depth) + (hide(partner, partner_depth or depth) if partner else [])
         # the rows the model reads: those that carry aligned residues (the nearest ones), not the extra best-per-genus rows
         cand = [x for x in range(src["off"][k], src["off"][k + 1]) if src["sseq_off"] is None or src["sseq_off"][x + 1] > src["sseq_off"][x]]
         # the first k_hits of them that are not hidden: exactly the hits the model reads for the centre gene
@@ -381,12 +386,14 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
         n = len(zz["gene"])
         return ([x.decode() for x in zz["recipient"]], zz["gene"], [x.decode() for x in zz["donor"]], zz["donor_gene"], np.asarray(zz["stratum"]),
                 [x.decode() for x in zz["partner"]] if "partner" in zz.files else [""] * n,
-                [x.decode() for x in zz["depth"]] if "depth" in zz.files else ["genus"] * n)
-    rec, gene, don, dgene, strat, part, dep = examples(z)
+                [x.decode() for x in zz["depth"]] if "depth" in zz.files else ["genus"] * n,
+                [x.decode() for x in zz["partner_depth"]] if "partner_depth" in zz.files else
+                ([x.decode() for x in zz["depth"]] if "depth" in zz.files else ["genus"] * n))
+    rec, gene, don, dgene, strat, part, dep, pdep = examples(z)
     cols = {m: [] for m in ("alien_index", "alien_index_fair", "best_hit", "counts", "composition", "gc_difference")}
     X, B = [], []
-    for r, i, d, j, pa, dp in zip(rec, gene, don, dgene, part, dep):
-        c, f, bq = features(r, i, d, j, pa, dp)
+    for r, i, d, j, pa, dp, pdp in zip(rec, gene, don, dgene, part, dep, pdep):
+        c, f, bq = features(r, i, d, j, pa, dp, pdp)
         for m in cols:
             cols[m].append(c[m])
         X.append(f)
@@ -434,8 +441,9 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
     baseline = None
     if os.path.exists(bt):
         zb = np.load(bt)
-        br, bg_, bd, bj, _, bp, bdep = examples(zb)
-        XB = np.array([features(r, i, d, j, pa, dp)[1] for r, i, d, j, pa, dp in zip(br, bg_, bd, bj, bp, bdep)], float).reshape(len(bd), len(FEATURES))
+        br, bg_, bd, bj, _, bp, bdep, bpdep = examples(zb)
+        XB = np.array([features(r, i, d, j, pa, dp, pdp)[1] for r, i, d, j, pa, dp, pdp in zip(br, bg_, bd, bj, bp, bdep, bpdep)],
+                      float).reshape(len(bd), len(FEATURES))
         yb = np.array([1.0 if d else 0.0 for d in bd])
         if len(X) and 0 < yb.sum() < len(yb):                    # both classes to learn from, and examples to score
             XD = np.array(X, float)
@@ -465,8 +473,9 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
                 baseline["fractions"] = {}
                 for f in sorted({float(v.get("fraction", 1.0)) for v in variants.values()} - {1.0}):
                     zf = np.load(os.path.join(run_dir, "data", "model", "baseline_train_f%g.npz" % f))
-                    fr_, fg_, fd, fj, _, fp, fdep = examples(zf)
-                    XF = np.array([features(r, i, d, j, pa, dp)[1] for r, i, d, j, pa, dp in zip(fr_, fg_, fd, fj, fp, fdep)], float).reshape(len(fd), len(FEATURES))
+                    fr_, fg_, fd, fj, _, fp, fdep, fpdep = examples(zf)
+                    XF = np.array([features(r, i, d, j, pa, dp, pdp)[1] for r, i, d, j, pa, dp, pdp in zip(fr_, fg_, fd, fj, fp, fdep, fpdep)],
+                                  float).reshape(len(fd), len(FEATURES))
                     yf = np.array([1.0 if d else 0.0 for d in fd])
                     if not 0 < yf.sum() < len(yf):
                         continue
@@ -486,9 +495,16 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
     grp = np.array([meta[r]["group"] for r in rec])
     reca = np.array(rec)
     ph0 = sorted({r for r in rec if not meta[r]["ranks"][0]})
+    pd_counts = {}
+    for x in pdep:
+        pd_counts[x] = pd_counts.get(x, 0) + 1
+    own_depth = any(a != b for a, b in zip(dep, pdep))
     out = dict(note="constructed insertions into held-out genomes from held-out donors; natives carry a decoy partner drawn like a donor; the "
-                    "genome's own proteome and genus hidden for the recipient and the partner; model and comparators read the same nearest hits; "
-                    "development diagnosis, not a result (charter section 8)",
+                    "genome's own proteome and genus hidden for the recipient, " +
+                    ("the partner's clade at its own depth (train.partner_depths, below the rank it shares with the recipient)"
+                     if own_depth else "and the partner's genus") +
+                    "; model and comparators read the same nearest hits; development diagnosis, not a result (charter section 8)",
+               partner_depths_of_examples=pd_counts,
                examples=int(len(y)), insertions=int(y.sum()), recipients=len(set(rec)),
                recipients_by_group={g: len({r for r in rec if meta[r]["group"] == g}) for g in sorted(set(grp))},
                near_relative_recipients=sorted({r for r in rec if meta[r].get("cluster")}),
@@ -534,14 +550,16 @@ def dev_constructed(run_dir, path, ranks, lib_taxid=None, k_hits=None):
     # the decisive comparisons of a grid run: the model (mean of its seeds) against the balanced MLP (mean of its three
     # seeds) at each data fraction, and each single variant against a single balanced MLP of the same fraction
     out["contrasts"] = {}
+    # (no contrast for a variant trained on its own construction, a control arm: the baselines learn from the run's
+    # construction, so the pair would mix two constructions)
     for c in sorted({cell_name(v) for v in variants.values()}):
         f = c.split("-")[0][1:]
         ref = "baseline_mlp_balanced_mean" + ("" if float(f) == 1.0 else "_f%s" % f)
-        if "model_mean_" + c in methods and ref in methods and "-no-" not in c:
+        if "model_mean_" + c in methods and ref in methods and "-no-" not in c and "-pd-" not in c:
             out["contrasts"]["model_mean_%s - %s" % (c, ref)] = paired_contrast(methods["model_mean_" + c], methods[ref], y, reca, grp)
     for name, v in sorted(variants.items()):
         ref = "baseline_mlp_balanced" + ("" if float(v.get("fraction", 1.0)) == 1.0 else "_f%g" % float(v["fraction"]))
-        if ref in methods and not v.get("ablate"):
+        if ref in methods and not v.get("ablate") and "partner_depths" not in v:
             out["contrasts"]["model_%s - %s" % (name, ref)] = paired_contrast(methods["model_" + name], methods[ref], y, reca, grp, reps=200)
     return out
 

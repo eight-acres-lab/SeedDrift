@@ -1,0 +1,88 @@
+# Server (through ci/launch.sh): the medium-scale source model, second construction (2026-11-20, the user chose "fix the
+# construction first" after the medium grid; development diagnosis under the pilot conditions of charter section 8:
+# not a result, not judged on public events, weights not carried into formal training). Same corpus, the same search
+# (taken whole from the medium-search run), the same split as profile medium.
+# What changes against profile medium (and why):
+# - train.partner_depths: the partner's (donor's or decoy's) clade is hidden at its own depth, drawn per example among
+#   species .. phylum below the rank it shares with the recipient, for natives and replacements alike. On the medium
+#   grid the model kept only part of its constructed-data skill on real genomic islands (AUROC 0.83, level with a
+#   logistic regression and single composition or hit-count scores, no gain with data); the corpus donors have
+#   well-sampled relatives, so a constructed replacement had as many and as close visible homologs as a native, while
+#   real island genes have fewer and more distant ones (top visible identity 70.5% against 88.7%). With the partner
+#   hidden deeper the constructed bacterial replacements reach the islands' share of visible hits (AUROC 0.38 for the
+#   visible-hit count, island genes 0.38; measured before any training).
+# - train_data.hits 32 (= search.keep_sseq): the model reads its 16 visible hits from the same 32 nearest rows the
+#   comparators read (profile medium stored 16, so the comparators could fill in rows 17-32 that the model never saw).
+# - Grid: the data-scale curve on the new construction (a quarter, a half and all of the training genomes; width 128;
+#   seeds 1-3) and a control arm on all data with the old construction (partner at the recipient's depth) and the same
+#   32 stored hits (seeds 1-3), scored on the same development set; no width sweep (width did not help on profile
+#   medium). Judged on the genomic-island development chromosomes after the run (island check), not on this run's
+#   constructed development set, which itself uses the new construction.
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 120
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+# a source the archive has no record of (HTTP 404) is left out and listed, up to 1% of the sources (2 of 1,248 phage
+# assemblies on 2026-11-18); any other download failure still fails the run
+fetch:
+  allow_missing: 0.01
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
+train_data:
+  test_split: true
+  hits: 32
+train:
+  model: source_v0
+  seed: 1
+  dev_seed: 0
+  genome_composition: true
+  baseline_depth: random
+  width: 128
+  partner_depths: [species, genus, family, order, class, phylum]
+  variants:
+    - {name: f1-w128-s1, seed: 1}
+    - {name: f1-w128-s2, seed: 2}
+    - {name: f1-w128-s3, seed: 3}
+    - {name: f0.5-w128-s1, seed: 1, fraction: 0.5}
+    - {name: f0.5-w128-s2, seed: 2, fraction: 0.5}
+    - {name: f0.5-w128-s3, seed: 3, fraction: 0.5}
+    - {name: f0.25-w128-s1, seed: 1, fraction: 0.25}
+    - {name: f0.25-w128-s2, seed: 2, fraction: 0.25}
+    - {name: f0.25-w128-s3, seed: 3, fraction: 0.25}
+    - {name: f1-w128-ctl-s1, seed: 1, partner_depths: []}
+    - {name: f1-w128-ctl-s2, seed: 2, partner_depths: []}
+    - {name: f1-w128-ctl-s3, seed: 3, partner_depths: []}
+  # two trainings at once fill the GPU (5.9 steps per second in all for 2, 3 or 4 at width 128, measured 2026-11-18)
+  parallel: 2
+  steps: 20000
+  batch: 64
+  lr: 3.0e-4
+  eval_every: 2000
+  ckpt_every: 2000
+released:
+  tag: v0.1.0
+  lock: ci/envs/released-v0.1.0.lock.yml
+  env_root: /hy-tmp/seeddrift-ci/envs
+  store: /hy-tmp/seeddrift-store
+  links: [reference, pfam]
+  threads: 12

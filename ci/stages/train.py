@@ -240,10 +240,24 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
                 max_track=int(tc.get("max_track", 512)), dev_seed=int(tc.get("dev_seed", 0)), baseline_per_genome=int(tc.get("baseline_per_genome", 60)),
                 genome_composition=bool(tc.get("genome_composition", False)), width=int(tc.get("width", 128)),
                 baseline_depth=str(tc.get("baseline_depth", "genus")))
+    # the partner's (donor's or decoy's) clade hidden at its own depth, below the rank it shares with the recipient
+    # (seeddrift/train/source_model.py partner_depth); empty: at the recipient's depth, as before
+    pds = tc.get("partner_depths") or []
+    if not isinstance(pds, list):
+        raise SystemExit("train.partner_depths: a list of ranks: %r" % (pds,))
+    pds = [str(x) for x in pds]
+    if set(pds) - {"species", "genus", "family", "order", "class", "phylum"} or len(set(pds)) != len(pds):
+        raise SystemExit("train.partner_depths: distinct ranks among species, genus, family, order, class, phylum: %r" % pds)
+    if pds:
+        base["partner_depths"] = pds
     variants = [dict(v) for v in tc.get("variants") or []]
     for v in variants:
-        if set(v) - {"name", "seed", "fraction", "width", "ablate"} or not v.get("name") or "seed" not in v:
-            raise SystemExit("train.variants: each has a name and a seed, and only fraction, width, ablate besides: %r" % v)
+        if set(v) - {"name", "seed", "fraction", "width", "ablate", "partner_depths"} or not v.get("name") or "seed" not in v:
+            raise SystemExit("train.variants: each has a name and a seed, and only fraction, width, ablate, partner_depths besides: %r" % v)
+        if "partner_depths" in v:
+            pv = v["partner_depths"] or []
+            if not isinstance(pv, list) or set(map(str, pv)) - {"species", "genus", "family", "order", "class", "phylum"} or len(set(pv)) != len(pv):
+                raise SystemExit("train.variants: partner_depths a list of distinct ranks among species, genus, family, order, class, phylum: %r" % v)
         if not re.fullmatch(r"[A-Za-z0-9._-]+", str(v["name"])) or not 0 < float(v.get("fraction", 1.0)) <= 1 or int(v.get("width", 128)) % 4 \
                 or v.get("ablate", "") not in ("", "hits", "codons"):
             raise SystemExit("train.variants: a name of letters, digits, . _ -; a fraction in (0, 1]; a width divisible by 4; ablate hits or codons: %r" % v)
@@ -283,9 +297,12 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
         confs = []
         for v in variants:
             logs, out = os.path.join("data", "train", "logs", v["name"]), os.path.join("data", "model", v["name"])
-            confs.append(dict(base, seed=int(v["seed"]), train_fraction=float(v.get("fraction", 1.0)), width=int(v.get("width", base["width"])),
-                              ablate=str(v.get("ablate", "")), name=v["name"], logs=logs, out=out,
-                              resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz"))))
+            c = dict(base, seed=int(v["seed"]), train_fraction=float(v.get("fraction", 1.0)), width=int(v.get("width", base["width"])),
+                     ablate=str(v.get("ablate", "")), name=v["name"], logs=logs, out=out,
+                     resume=bool(tc.get("resume")) and os.path.exists(os.path.join(run_dir, logs, "last.npz")))
+            if "partner_depths" in v:                           # this variant trains on its own construction (a control arm);
+                c["partner_depths"] = [str(x) for x in v["partner_depths"] or []]   # scored on the run's development set
+            confs.append(c)
         abl = []
         jobs = [(c, "source_config-%s" % c["name"]) for c in confs]
         seeds = [c["seed"] for c in confs]
@@ -321,8 +338,10 @@ def fit_source(st, cfg, run_dir, ids_doc, tax):
                                                   steps=int(tc["steps"]), corpus_dataset=ids_doc["corpus_dataset"], train_data=tdi["dataset_id"],
                                                   model_env_sha256=sha256_json(have), seeds=[] if variants else seeds,
                                                   seed_dirs=[] if variants else [c["out"] for c in confs], ablations={c["ablate"]: c["out"] for c in abl},
-                                                  variants={c["name"]: dict(seed=c["seed"], fraction=c["train_fraction"], width=c["width"], ablate=c["ablate"],
-                                                                            out=c["out"], logs=c["logs"]) for c in confs} if variants else {}))
+                                                  variants={c["name"]: dict(dict(seed=c["seed"], fraction=c["train_fraction"], width=c["width"], ablate=c["ablate"],
+                                                                                 out=c["out"], logs=c["logs"]),
+                                                                            **({"partner_depths": c["partner_depths"]} if "partner_depths" in v else {}))
+                                                            for c, v in zip(confs, variants)} if variants else {}))
     for name in ("model.npz", "eval_scores.npz", "dev_eval.npz", "dev_set.npz", "baseline_train.npz", "fractions.json"):
         st.output(name.split(".")[0], os.path.join(model_dir, name))
     for f in base["fractions"]:

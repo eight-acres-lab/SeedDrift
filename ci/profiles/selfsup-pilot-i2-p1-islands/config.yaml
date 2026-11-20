@@ -1,4 +1,4 @@
-# Machine i-2: the variants of round P1 (run 20261120T035712, imported whole with train.models_from) scored on the 24
+# Machine i-2: the variants of round P1 (run 20261120T041903, imported whole with train.models_from) scored on the 24
 # development chromosomes of the genomic-island set. This machine has no complete reference database: the island search
 # against the reference is taken whole from run 20261120T023245 of i-1 (islands.reuse_search_from; its island hit files,
 # input proteins, stage report, manifest, index, record, reference manifest, configuration and worktree code
@@ -44,7 +44,7 @@ pairs:
   block_size: 4
 train:
   model: selfsup_v0
-  models_from: /hy-tmp/seeddrift-ci/runs/20261120T035712-exp-truth-labels-46f8c7da-selfsup-pilot-i2-p1
+  models_from: /hy-tmp/seeddrift-ci/runs/20261120T041903-exp-truth-labels-01ea3391-selfsup-pilot-i2-p1
   models_wait_s: 14400
   python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
   python_lock: ci/envs/model-torch-venv.pip.txt

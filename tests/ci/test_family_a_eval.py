@@ -80,6 +80,15 @@ def test_hit_covariates_and_outgroup_leak():
     genus_rank = np.array([10, 20, 30])                                 # proteome -> NCBI genus taxid
     count, ident = FE.outgroup_leak(h, genus_rank, [{20}, {30, 31}, set()])
     assert list(count) == [0, 2, 1] and list(ident) == [0.0, 55.0, 70.0]
+    # the leak columns are oriented like every score: a gene without outgroup hits (insertion-like) ranks highest
+    lk, lk_id = FE.leak_columns(h, genus_rank, [{20}, {30, 31}, set()])
+    assert list(lk) == [0, -2, -1] and list(lk_id) == [0.0, -55.0, -70.0]
+    from ci.stages import protocol as PR
+    assert PR.auroc(lk[[0]], lk[[1, 2]]) == 1.0
+    # and the tables every arm, interval and the flag read take them from leak_columns, not the raw counts
+    import inspect
+    src = inspect.getsource(FE.build_tables)
+    assert "leak_columns(" in src and "outgroup_leak(" not in src
 
 
 def test_arm_auroc_means_over_chromosomes_then_units():

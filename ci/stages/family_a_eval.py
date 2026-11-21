@@ -125,8 +125,9 @@ def hit_covariates(h):
 
 
 def outgroup_leak(h, genus_rank, genera_ids):
-    """lk_og per gene: the number of outgroup genera (each a set of NCBI genus taxids) with a visible hit row, and the
-    best identity of those rows (0 without one). genus_rank: the library's genus taxid per proteome."""
+    """Per gene: the number of outgroup genera (each a set of NCBI genus taxids) with a visible hit row, and the best
+    identity of those rows (0 without one); the columns lk_og and lk_og_id are their negatives (leak_columns).
+    genus_rank: the library's genus taxid per proteome."""
     off = np.asarray(h["off"], np.int64)
     prot = np.asarray(h["prot"], np.int64)
     pid = np.asarray(h["pid"], float) / 10.0
@@ -142,6 +143,14 @@ def outgroup_leak(h, genus_rank, genera_ids):
                 count[i] += 1
                 best[i] = max(best[i], pid[sl][m].max())
     return count, best
+
+
+def leak_columns(h, genus_rank, genera_ids):
+    """The columns lk_og and lk_og_id: minus the outgroup genera with a visible hit row and minus their best identity,
+    so that higher is more island-like like every score (an insertion gene is absent from the outgroups by its label;
+    the direction was the count itself before the amendment of 2026-11-21)."""
+    count, best = outgroup_leak(h, genus_rank, genera_ids)
+    return -count, -best
 
 
 # --- matching and metrics --------------------------------------------------------------------------------------------
@@ -300,7 +309,7 @@ def build_tables(fe, spec, lidx, units, isl, folders0, tax):
         info = pidx["chromosomes"][acc]
         og = sorted({d["genus"] for d in info["genomes"].values() if d["role"] == "outgroup" and d.get("genus")})
         ids = [set(tax.genus_by_name(re.sub(r"_[A-Z]+$", "", g))) for g in og]
-        cols["lk_og"], cols["lk_og_id"] = outgroup_leak(h, genus_rank, ids)
+        cols["lk_og"], cols["lk_og_id"] = leak_columns(h, genus_rank, ids)
         out[acc] = dict(names=names, cls=tab["cls"], published=tab["published"], start=tab["start"], cols=cols, has_hit=(rows > 0).astype(float),
                         cat=np.array([dominant_category(m) for m in meta], dtype=object), unit=units[acc], outgroups=og)
     return out

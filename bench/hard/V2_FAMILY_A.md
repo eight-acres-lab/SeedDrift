@@ -193,10 +193,20 @@ tv_win_dev, on the main and the core arm. Strata on the core arm: insertion gene
 - Shuffle: with the labels permuted within each chromosome (200 draws), every score's mean AUROC over all draws and
   chromosomes on the core arm is 0.5 ± 0.01 (gated).
 - Reproduction: every audit column's AUROC on the v1 arm equals the audit report's to 1e-9 (gated).
-- lk_og (the leak column): per gene, the number of the chromosome's outgroup genera (the NCBI genera named by its GTDB
-  outgroup genera, suffix removed) with a visible hit row, and the best identity of those rows. Its AUROC on the main
-  arm is reported; above 0.6, the hit-reading scores (every score but cmp_codon, cmp_gc3, cmp_kmer, cmp_short and
-  tv_*) are marked "label evidence visible" in every arm.
+- lk_og (the leak column; the count and the identity themselves until the amendment below): per gene, minus the
+  number of the chromosome's outgroup genera (the NCBI genera named by its GTDB outgroup genera, suffix removed) with
+  a visible hit row (lk_og), and minus the best identity of those rows (lk_og_id), so that, like every score, higher
+  is more island-like: an insertion gene is absent from the outgroups by its label, and a score that reads their hits
+  can see that. Its AUROC on the main arm is reported; above 0.6, the hit-reading scores (every score but cmp_codon,
+  cmp_gc3, cmp_kmer, cmp_short and tv_*) are marked "label evidence visible" in every arm. lk_og_id is reported and
+  marks nothing.
 - Inputs: the first island run's hits were searched under a view, and every island run used this run's taxdump.
 
 **Outputs.** data/famA/units.json; data/famA/eval/report.json, arms.tsv, balance.tsv and ladder.tsv.
+
+**Amendment of 2026-11-21, after the first evaluation run (20261121T111443, commit 97d05ac; evidence: that run's
+report, scores included; decided by the user: "只翻转方向").** lk_og was the count itself (higher = more outgroup
+genera with hits), so a leak moved its AUROC below 0.5 and the flag above 0.6 could never mark it. Only the direction
+changes: both columns are negated; the threshold (0.6), the column the flag reads (lk_og alone) and everything else
+stay. The outcome was known before the change: on the first run's main arm lk_og becomes 0.577 (0.423 before), below
+the flag, so nothing is marked; lk_og_id becomes 0.620 (0.380 before) and marks nothing by the rule.

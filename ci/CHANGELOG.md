@@ -120,6 +120,9 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   comparators, published strata, and lk_og (the outgroup genera visible in the hits). Gates G3_famA_eval and
   G4_famA_eval (balance in every unit, own-covariate intervals, shuffle at 0.5 over 200 draws, exact reproduction).
   Run record schema: pipeline value family_a_eval.
+- Pipeline family_a_eval, part 3 amendment after its first run (the user's decision): the leak columns lk_og and
+  lk_og_id are negated (fewer outgroup genera with hits, and a lower best identity, rank as more island-like), so the
+  flag above 0.6 can mark a leak; the threshold and the column it reads are unchanged.
 
 ## 0.2 (in progress)
 

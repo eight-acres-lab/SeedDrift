@@ -47,6 +47,6 @@ labels:
   n_default_kb: 5
   n_floor_kb: 1
   n_cap_kb: 10
-  n_quantile: 0.9
+  n_quantile: 0.5           # amendment 2026-11-21 (was 0.9): the median of the matched edge distances
   match_bp: 20000
   n_min_edges: 10

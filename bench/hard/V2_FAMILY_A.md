@@ -99,12 +99,13 @@ U. In every other-species and outgroup genome that lacks the run (no ortho call,
 the innermost flank on each side with a locus there (ortho, og for outgroups) gives the site:
 - empty: both flanks on one replicon with consistent strands, at most 5 kb apart;
 - replaced: 5 to 100 kb apart;
-- broken (different replicons or more than 100 kb), inverted, or flank_lost.
+- broken (different replicons or more than 100 kb apart), inverted (closer, with strands inconsistent with the
+  focal ones), or flank_lost.
 A run passes when at least 1 genome shows it empty and at least 2 show it empty or replaced.
 
-**Edge margin N.** The 0.9 quantile of the distances between the literature islands' edges (SupTable3, the
-development chromosomes only) and the nearest S1-run edge of the same side within 20 kb, rounded up to whole kb and
-clipped to 1 to 10 kb; 5 kb when fewer than 10 edges match.
+**Edge margin N.** The median (the 0.9 quantile until the amendment below) of the distances between the literature
+islands' edges (SupTable3, the development chromosomes only) and the nearest S1-run edge of the same side within
+20 kb, rounded up to whole kb and clipped to 1 to 10 kb; 5 kb when fewer than 10 edges match.
 
 **Classes** (first that applies):
 1. qc_fail; no_panel;
@@ -121,6 +122,16 @@ Insertion genes are the positives and core genes the negatives; every other clas
 reported. Outputs: `data/famA/labels/<chromosome>.tsv` (the class, the columns above, the published label),
 `segments/<chromosome>.json` (every S1 run with its site states) and `index.json` (N, class counts and the
 class-by-published-label table per chromosome).
+
+**Amendment of 2026-11-21, after the first labels run (20261120T164342, commit 1c99f93; evidence: labels and
+literature edges only, no score; decided by the user: "改成中位数 3 kb").** The 0.9 quantile reached the 10 kb cap.
+It rested on 80 matched edges of the 3 development chromosomes with literature islands, and with the 20 kb matching
+window it measured mostly the coarseness of the literature coordinates (matched distances: median 2.65 kb, upper
+quartile 6.1 kb, 0.9 quantile 12.4 kb). A 10 kb margin removes every gene of an S1 segment shorter than 20 kb (the
+median segment is 8.1 kb), so all 187 insertion genes came from 23 segments of 20 kb or more: the length bias this
+benchmark is meant to remove. N is now the median of the matched distances (here 3 kb). Also: a site whose flanks lie
+more than 100 kb apart is broken whatever the strands (it was counted inverted when the strands disagreed); no
+segment's pass changes by this.
 
 ## Part 3: units and evaluation
 

@@ -920,7 +920,7 @@ def runs(absent, order, start, end, closed, min_bp=4000, min_genes=3, gap=1, len
     return out
 
 
-def calibrate_n(lit_edges, own_edges, match_bp=20_000, q=0.9, floor_kb=1, cap_kb=10, default_kb=5, min_edges=10):
+def calibrate_n(lit_edges, own_edges, match_bp=20_000, q=0.5, floor_kb=1, cap_kb=10, default_kb=5, min_edges=10):
     """N (kb) from the literature islands' edges against the own runs' edges of the same side: the q-quantile of the
     distances of matched edges (within match_bp), rounded up to kb and clipped; default_kb when fewer than min_edges
     edges match. lit_edges and own_edges: [(chromosome, side, position)]."""
@@ -939,17 +939,20 @@ def calibrate_n(lit_edges, own_edges, match_bp=20_000, q=0.9, floor_kb=1, cap_kb
 
 def site_state(L, R, focal_strand_l, focal_strand_r, rep_len, circular, empty_bp=5000, max_bp=100_000):
     """The state of a segment's site in one genome from its innermost mapped flank loci L and R (dicts with rep, start,
-    end, strand, or None): empty, replaced, broken, inverted or flank_lost."""
+    end, strand, or None): flank_lost; broken (different replicons, or more than max_bp apart); inverted (strands
+    inconsistent with the focal ones); else empty or replaced by the gap."""
     if L is None or R is None:
         return "flank_lost", None
     if L["rep"] != R["rep"]:
         return "broken", None
-    if (L["strand"] == R["strand"]) != (focal_strand_l == focal_strand_r):
-        return "inverted", None
     a, b = sorted([(L["start"], L["end"]), (R["start"], R["end"])])
     gap = max(b[0] - a[1] - 1, 0)
     if circular and rep_len:
         gap = min(gap, max(rep_len - (b[1] - a[0] + 1), 0))
+    if gap > max_bp:                                      # far apart: broken, whatever the strands
+        return "broken", gap
+    if (L["strand"] == R["strand"]) != (focal_strand_l == focal_strand_r):
+        return "inverted", gap
     if gap <= empty_bp:
         return "empty", gap
     if gap <= max_bp:

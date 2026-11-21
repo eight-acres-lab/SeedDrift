@@ -106,6 +106,11 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   chromosome whose GTDB genus offers fewer than 3 other species is walked up the tree from an anchor genus (the user's
   rule); outgroup genera of reduced genomes are not eligible; at least 2 outgroup genera are required. The taxa stage
   takes the GTDB files from the CAS when the profile pins their sha256 (famA.gtdb_known).
+- Pipeline family_a, part 2 amendment after the first labels run: the edge margin N is the median of the matched
+  literature edge distances (was the 0.9 quantile, which reached the 10 kb cap and left positives only in segments of
+  20 kb or more); a site with flanks more than 100 kb apart is broken whatever the strands. Pipeline selfsup: rule
+  gates_islands takes the corpus manifest as input (G3_islands reads it; a reused island search could run the gate
+  before the corpus existed).
 
 ## 0.2 (in progress)
 

@@ -185,7 +185,7 @@ rule islands_data:
 
 
 rule gates_islands:
-    input: "data/islands/index.json"
+    input: "data/islands/index.json", "data/corpus/manifest.json"      # G3_islands reads the corpus
     output: "gates/islands.ok"
     shell: STAGE.format(name="gates") + " islands"
 

@@ -263,6 +263,7 @@ def test_site_states_and_n_calibration():
     assert FA.site_state(L, dict(R, start=60_000, end=61_000), "+", "+", 0, False)[0] == "replaced"
     assert FA.site_state(L, dict(R, rep="q"), "+", "+", 0, False)[0] == "broken"
     assert FA.site_state(L, dict(R, strand="-"), "+", "+", 0, False)[0] == "inverted"
+    assert FA.site_state(L, dict(R, strand="-", start=500_000, end=501_000), "+", "+", 0, False)[0] == "broken"   # far first
     assert FA.site_state(None, R, "+", "+", 0, False)[0] == "flank_lost"
     # on a circular replicon the gap is the shorter way round
     assert FA.site_state(dict(L, start=10, end=500), dict(R, start=999_000, end=999_800), "+", "+", 1_000_000, True)[0] == "empty"

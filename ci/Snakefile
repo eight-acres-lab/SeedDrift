@@ -151,6 +151,31 @@ rule gates_famA_taxa:
     shell: STAGE.format(name="gates") + " famA_taxa"
 
 
+# pipeline family_a_eval (profiles with `pipeline: family_a_eval`): units and evaluation of family A on the labels of
+# a passed family_a run (ci/stages/family_a_eval.py, rules bench/hard/V2_FAMILY_A.md part 3)
+rule famAe_all:
+    input: "gates/famA_eval.ok"
+
+
+rule famAe_units:
+    input: "gates/pre.ok"
+    output: "data/famA/units.json"
+    resources: diamond=1
+    shell: STAGE.format(name="family_a_eval") + " units"
+
+
+rule famAe_eval:
+    input: "data/famA/units.json"
+    output: "data/famA/eval/report.json"
+    shell: STAGE.format(name="family_a_eval") + " eval"
+
+
+rule gates_famA_eval:
+    input: "data/famA/eval/report.json"
+    output: "gates/famA_eval.ok"
+    shell: STAGE.format(name="gates") + " famA_eval"
+
+
 rule famA_presence:
     input: "gates/famA_taxa.ok"
     output: "data/famA/presence/index.json"

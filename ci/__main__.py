@@ -73,6 +73,11 @@ PIPELINES = {
     "family_a": dict(target="famA_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_famA", "G4_famA_taxa",
                                                   "G4_famA_labels"),
                      resume=(("pre", None), ("famA_taxa", "data/famA/fetch.json"), ("famA_labels", "data/famA/labels/index.json"))),
+    # benchmark v2 family A, part 3 (ci/stages/family_a_eval.py): units and evaluation on the labels of a passed family_a
+    # run; CPU only (needs_gpu: false)
+    "family_a_eval": dict(target="famAe_all", required=("G6", "G7", "G7_prefix", "G7_resources", "G8", "G1_spec", "G2_static", "G3_static", "G3_famA_eval",
+                                                        "G4_famA_eval"),
+                          resume=(("pre", None), ("famA_eval", "data/famA/eval/report.json"))),
 }
 DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 

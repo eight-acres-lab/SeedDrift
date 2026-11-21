@@ -50,3 +50,21 @@ labels:
   n_quantile: 0.5           # amendment 2026-11-21 (was 0.9): the median of the matched edge distances
   match_bp: 20000
   n_min_edges: 10
+# part 3: element clusters, units and the evaluation (pipeline family_a_eval)
+units:
+  identity: 80              # reciprocal blastp hits: identity %, cover % of both proteins
+  cover: 80
+  min_genes: 3              # a link needs max(min_genes, share x the smaller segment's genes)
+  share: 0.5
+  is_like: 3                # a gene with hits in this many segments of one chromosome links nothing
+eval:
+  min_pos: 10               # a chromosome is evaluated with this many insertion genes
+  min_neg: 100              # and this many core genes
+  caliper: 0.1              # matching: every quantile difference at most this
+  smd_max: 0.1              # balance gate, every unit
+  shuffle_draws: 200        # the mean of 200 draws has a null SE near 0.001 (20 gave about 0.003 against the 0.01 band)
+  shuffle_tolerance: 0.01
+  reproduce: 1.0e-9         # v1 arm against the audit report
+  lk_og_flag: 0.6
+  boot: 1000                # cluster-bootstrap draws
+  block: 10                 # negative block size

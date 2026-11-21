@@ -133,6 +133,70 @@ benchmark is meant to remove. N is now the median of the matched distances (here
 more than 100 kb apart is broken whatever the strands (it was counted inverted when the strands disagreed); no
 segment's pass changes by this.
 
-## Part 3: units and evaluation
+## Part 3: units and evaluation (fixed before the first run that evaluates scores on these labels, 2026-11-21)
 
-(Written before the first run that evaluates scores on these labels.)
+The evaluation is its own pipeline (family_a_eval). It reads the labels of a passed family_a run and never changes
+them; the units are computed from the labels alone, before any score is read.
+
+**Inputs.**
+- Labels: a family_a run whose G4_famA_labels passed.
+- Scores and covariates of record:
+  - the per-gene columns of a passed audit run: cmp_codon, cmp_gc3, cmp_hits, cmp_short, cmp_kmer and tv_* (scores),
+    md_cat_* (categories);
+  - the model columns of the named island runs (scores/<variant>/scores_<acc>.tsv), each named `<label>:<column>`;
+  - the first island run's hits (hits/<acc>.npz, after the V1 view) and reference library, for the covariates and lk_og.
+- Every chromosome's gene list equals the island run's genes.tsv and the audit's columns, in order.
+
+**Element clusters and units.** The segments are the S1 runs that hold at least one insertion gene. Their QC-pass,
+single-copy genes are searched all against all (DIAMOND blastp, sensitive). Two segments of different chromosomes are
+linked when at least max(3, half the genes of the smaller S1 run) have reciprocal hits at 80 % identity or more over
+80 % or more of both proteins; a gene with such hits in 3 or more segments of one chromosome (IS-like) links nothing.
+Element clusters are the connected components of the segments. Units (the merge rule): the GTDB genera of the
+family A units of Part 1, joined wherever an element cluster holds segments of two of them; a unit is a connected
+component. Every cross-genus link is reported with its element cluster.
+
+**Chromosomes.** A chromosome is evaluated when it has at least 10 insertion genes and 100 core genes.
+
+**Covariates.** len, the log protein length; hom, log(1 + the gene's hit rows in the island run, after the view);
+ident, the best identity of those rows (0 without one); has_hit, at least one row. Within a chromosome each of len,
+hom and ident becomes a quantile over the arm's positives and core genes.
+
+**Arms** (per chromosome; every other gene is excluded):
+
+| arm | positives | negatives |
+|---|---|---|
+| main | insertion genes with a match | their 1:1 matched core genes |
+| core | insertion | all core genes, unmatched |
+| noise | insertion | accessory genes (a sensitivity view only) |
+| v1 | the old island set's island genes (labels_panel) | its native genes, on the audit's chromosomes and units |
+
+Matching: the positives in ascending SHA-256 of "<chromosome>|<gene>|match-v1" each take the unused core gene with
+the same has_hit, every quantile difference at most 0.1 and the smallest sum of differences (ties by the same key of
+the core gene); a positive without a partner is dropped. The kept share is reported per chromosome and per category
+(a gene's first md_cat flag in the order mobile, ribosomal, transport, regulator, hypothetical, other), and as a
+ladder: len; len + hom; len + hom + ident (the main arm); then adding CAI (tv_cai); then the
+neighbourhood (tv_win_gc, tv_win_dev); then the category as an exact field. Only the main arm is gated.
+
+**Metrics.** For every arm and score: the AUROC per chromosome (ties count one half, a missing score ranks lowest),
+the mean over the chromosomes of a unit, the mean over units, with its 95 % interval from the protocol's paired
+cluster bootstrap (1000 draws; positive clusters are runs of positives in genome order, negative clusters blocks of
+10; chromosomes resampled within units; on the main arm the pairs are not kept together, so the interval is that of
+two independent samples). Contrasts: every model column against cmp_codon, cmp_kmer, cmp_hits and
+tv_win_dev, on the main and the core arm. Strata on the core arm: insertion genes in a published island, and the rest.
+
+**Controls.**
+- Balance: on the main arm, the standardised mean difference between positives and their partners of each of the
+  quantiles of len, hom and ident is at most 0.1 in every evaluated unit, and every evaluated unit has matched pairs
+  (gated).
+- Own scores: on the main arm, the 95 % interval of each matched covariate's own AUROC contains 0.5, from at least
+  90 % finite draws (gated).
+- Shuffle: with the labels permuted within each chromosome (200 draws), every score's mean AUROC over all draws and
+  chromosomes on the core arm is 0.5 ± 0.01 (gated).
+- Reproduction: every audit column's AUROC on the v1 arm equals the audit report's to 1e-9 (gated).
+- lk_og (the leak column): per gene, the number of the chromosome's outgroup genera (the NCBI genera named by its GTDB
+  outgroup genera, suffix removed) with a visible hit row, and the best identity of those rows. Its AUROC on the main
+  arm is reported; above 0.6, the hit-reading scores (every score but cmp_codon, cmp_gc3, cmp_kmer, cmp_short and
+  tv_*) are marked "label evidence visible" in every arm.
+- Inputs: the first island run's hits were searched under a view, and every island run used this run's taxdump.
+
+**Outputs.** data/famA/units.json; data/famA/eval/report.json, arms.tsv, balance.tsv and ladder.tsv.

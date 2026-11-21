@@ -1,0 +1,24 @@
+# Machine i-1: benchmark v2 family A, part 3 (pipeline family_a_eval, ci/stages/family_a_eval.py, rules
+# bench/hard/V2_FAMILY_A.md part 3; the user, 2026-11-21: "开始第 3 步"): element clusters and merge-rule units from the
+# labels of family_a run 20261121T053729 (N = 3 kb), then the arms, matching, metrics and controls. Scores of record:
+# the audit run's columns and the model columns of round R3 (r3, three seeds of A+B1+B2+C, 711 training genomes) and
+# round R2 (r2, the same objectives, 968 training genomes). CPU only.
+pipeline: family_a_eval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+famAe:
+  labels_from: /hy-tmp/seeddrift-ci/runs/20261121T053729-exp-truth-labels-e03a243a-famA-dev24-i1
+  store: /hy-tmp/seeddrift-store/evalsets/islandpick
+  audit_from: /hy-tmp/seeddrift-ci/runs/20261120T140027-exp-truth-labels-d865c1eb-audit-dev24-i1
+  islands_from:
+    - {label: r3, run: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1}
+    - {label: r2, run: /hy-tmp/seeddrift-ci/runs/20261120T121403-exp-truth-labels-a4ea4efb-selfsup-medium-heldout-i1}
+  spec: configs/benchmark_v2/family_a.yaml
+  threads: 8

@@ -1298,6 +1298,122 @@ def do_labels(run_dir):
                         core=sum(c["classes"].get("core", 0) for c in counts.values()))
 
 
+# --- part 3: element clusters and units (from the labels alone; no score is read here) -----------------------------
+
+def read_label_table(path):
+    """A label table (labels/<acc>.tsv) as columns: names, class, run (int), qc, multi (bool), published, start, end."""
+    import numpy as np
+    with open(path) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    return dict(names=[r["gene_id"] for r in rows], cls=np.array([r["class"] for r in rows], dtype=object),
+                run=np.array([int(r["run"]) for r in rows]), qc=[r["qc"] for r in rows], multi=np.array([r["multi"] == "True" for r in rows]),
+                published=np.array([r["published"] for r in rows], dtype=object), start=np.array([int(r["start"]) for r in rows], float),
+                end=np.array([int(r["end"]) for r in rows], float))
+
+
+def insertion_segments(tab):
+    """{segment id: [gene indices]} of the S1 runs that hold an insertion gene: their QC-pass, single-copy genes."""
+    import numpy as np
+    out = {}
+    for k in sorted({int(r) for r, c in zip(tab["run"], tab["cls"]) if c == "insertion"}):
+        idx = [i for i in np.where(tab["run"] == k)[0] if not tab["qc"][i] and not tab["multi"][i]]
+        if idx:
+            out[k] = idx
+    return out
+
+
+def segment_links(hits, seg_of, size_of, min_genes=3, share=0.5, is_like=3):
+    """Linked segment pairs from reciprocal hits. hits: [(gene a, gene b)] passing the identity and cover thresholds
+    (genes as (chromosome, segment, name)); seg_of: {gene: (chromosome, segment)}; size_of: {(chromosome, segment): number
+    of genes}. A gene with hits in is_like or more segments of one other chromosome links nothing (IS-like). Two
+    segments of different chromosomes link when min(genes of each with a reciprocal hit into the other) is at least
+    max(min_genes, share x the smaller segment's genes)."""
+    pairs = set()
+    for a, b in hits:
+        if a != b:
+            pairs.add((a, b))
+    recip = {(a, b) for a, b in pairs if (b, a) in pairs and seg_of[a][0] != seg_of[b][0]}
+    spread = {}
+    for a, b in recip:
+        spread.setdefault((a, seg_of[b][0]), set()).add(seg_of[b])
+    bad = {a for (a, _), segs in spread.items() if len(segs) >= is_like}
+    into = {}
+    for a, b in recip:
+        if a in bad or b in bad:
+            continue
+        into.setdefault((seg_of[a], seg_of[b]), set()).add(a)
+    links = []
+    for (s, t), genes in sorted(into.items()):
+        if s < t:
+            n = min(len(genes), len(into.get((t, s), ())))
+            if n >= max(min_genes, share * min(size_of[s], size_of[t])):
+                links.append((s, t, n))
+    return links
+
+
+def components(nodes, edges):
+    """Connected components (sorted lists, sorted by their first member) of an undirected graph."""
+    parent = {x: x for x in nodes}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a, b in edges:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+    groups = {}
+    for x in nodes:
+        groups.setdefault(find(x), []).append(x)
+    return sorted((sorted(g) for g in groups.values()), key=lambda g: g[0])
+
+
+def merge_units(clusters, genus_of_chrom, genera):
+    """The merge rule: the GTDB unit genera joined wherever an element cluster holds segments of two of them. Returns
+    ({unit name: [genera]}, [cross-genus links]); a unit is named by its genera joined with '+'."""
+    edges, cross = [], []
+    for cid, segs in clusters:
+        gs = sorted({genus_of_chrom[c] for c, _ in segs})
+        for g in gs[1:]:
+            edges.append((gs[0], g))
+        if len(gs) > 1:
+            cross.append(dict(cluster=cid, genera=gs, segments=["%s:%d" % sg for sg in segs]))
+    units = {"+".join(g): g for g in components(sorted(genera), edges)}
+    return units, cross
+
+
+def element_clusters(segs, proteins, exe, threads, work, uc, sizes=None):
+    """Element clusters of the insertion segments of all chromosomes (V2_FAMILY_A.md part 3). segs: {(chromosome,
+    segment): [gene names searched]}; proteins: {(chromosome, name): sequence}; sizes: {(chromosome, segment): genes of
+    the whole S1 run} (the link threshold's denominator; default the searched genes). Returns (clusters [(id,
+    [(chromosome, segment)])], links, hit count)."""
+    import subprocess
+    os.makedirs(work, exist_ok=True)
+    faa = os.path.join(work, "segments.faa")
+    seg_of, size_of = {}, {}
+    with open(faa, "w") as f:
+        for (c, k), names in sorted(segs.items()):
+            size_of[(c, k)] = (sizes or {}).get((c, k), len(names))
+            for nm in names:
+                g = "%s|%d|%s" % (c, k, nm)
+                seg_of[g] = (c, k)
+                f.write(">%s\n%s\n" % (g, proteins[(c, nm)]))
+    db = os.path.join(work, "segments")
+    subprocess.run([exe, "makedb", "--in", faa, "-d", db, "--threads", str(threads)], check=True, capture_output=True)
+    out = os.path.join(work, "segments_self.tsv")
+    subprocess.run([exe, "blastp", "-q", faa, "-d", db, "-o", out, "--sensitive", "--id", str(uc["identity"]), "--query-cover", str(uc["cover"]),
+                    "--subject-cover", str(uc["cover"]), "-k", "0", "--threads", str(threads), "--outfmt", "6", "qseqid", "sseqid"],
+                   check=True, capture_output=True)
+    with open(out) as f:
+        hits = [tuple(line.split()[:2]) for line in f if line.strip()]
+    links = segment_links(hits, seg_of, size_of, int(uc["min_genes"]), float(uc["share"]), int(uc["is_like"]))
+    comps = components(sorted(size_of), [(a, b) for a, b, _ in links])
+    clusters = [("elA_" + hashlib.sha256(json.dumps(["%s:%d" % x for x in g]).encode()).hexdigest()[:10], g) for g in comps]
+    return clusters, links, len(hits)
+
+
 def longest_n_run(path):
     """The longest run of non-ACGT bases in the sequences of a FASTA, EMBL or GenBank file (gz allowed)."""
     opener = gzip.open if path.endswith(".gz") else open

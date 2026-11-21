@@ -1,5 +1,5 @@
 """Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit|famA_taxa|famA_labels
-[--check-only]`.
+|famA_eval [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -27,6 +27,10 @@ famA_taxa (pipeline family_a) G3_famA: development chromosomes only; no panel or
          focal NCBI order; the label code imports no score or search module; no accession of the register's other parts in
          the outputs. G4_famA_taxa: at least 3 other species per chromosome, at least 2 outgroup genera (3 sought) with 2
          genomes each, every chosen genome fetched without a long N-run
+famA_eval (pipeline family_a_eval) G3_famA_eval: development chromosomes only, the label code free of score imports, no
+         other part's accession in the outputs; G4_famA_eval: every arm and score present, the main arm balanced, each
+         matched covariate's own AUROC interval containing 0.5, the shuffle control at 0.5, the v1 arm reproducing the
+         audit, lk_og present
 famA_labels (pipeline family_a) G4_famA_labels: every development chromosome labelled, its genes those of its record and
          of its presence calls; every class one of part 2's and every insertion and core gene meeting its rule as written
          in the label table; insertions and core genes present; the label code imports no score or search module; no
@@ -100,7 +104,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit", "family_a"):
+    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit", "family_a", "family_a_eval"):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 
@@ -567,6 +571,63 @@ def phase_famA_labels(st, cfg, run_dir):
     return sha256_file(os.path.join(base, "labels", "index.json"), use_sidecar=False)
 
 
+def phase_famA_eval(st, cfg, run_dir):
+    """G3_famA_eval and G4_famA_eval (pipeline family_a_eval, ci/stages/family_a_eval.py; bench/hard/V2_FAMILY_A.md part 3)."""
+    import csv
+    import re as _re
+    from ci.stages import family_a as FA
+    from ci.stages import family_a_eval as FE
+    base = os.path.join(run_dir, "data", "famA")
+    with open(os.path.join(base, "eval", "report.json")) as f:
+        rep = json.load(f)
+    with open(st.repo(cfg["famAe"].get("spec") or FA.SPEC)) as f:
+        ec = yaml.safe_load(f)["eval"]
+    # G3: development chromosomes only, the label code still free of score imports, no other part's accession anywhere
+    problems = []
+    dev = {r["accession"] for r in FA.dev_chromosomes(st.repo)}
+    if not set(rep["chromosomes"]) <= dev:
+        problems.append(dict(error="chromosomes outside the development part", found=sorted(set(rep["chromosomes"]) - dev)))
+    src = open(st.repo("ci/stages/family_a.py")).read()
+    for m in FAMA_BANNED:
+        if _re.search(r"from ci\.stages(\.%s| import [^\n]*\b%s\b)" % (m, m), src):
+            problems.append(dict(module=m, error="the label code imports a score or search module"))
+    with open(st.repo("bench/hard/results/v2_reference_set.tsv")) as f:
+        others = [(r["accession"], r["genus"]) for r in csv.DictReader(f, delimiter="\t") if r["part"] != "development"]
+    texts = [os.path.join(dp, fn) for dp, _, fns in os.walk(base) for fn in fns if fn.endswith((".json", ".tsv"))]
+    found = g3_sealed._scan(texts, g3_sealed._pattern(others))
+    if found:
+        problems.append(dict(error="accessions of the register's other parts in the outputs", found=found))
+    require(GateResult("G3_famA_eval", "fail" if problems else "pass", dict(problems=problems[:50])), run_dir)
+    # G4: every arm and score present; balance; own covariates; shuffle; reproduction; lk_og
+    problems = []
+    for arm in FE.ARMS:
+        if arm not in rep["arms"]:
+            problems.append(dict(arm=arm, error="arm missing"))
+    for arm in ("main", "core", "noise"):
+        miss = [s for s in rep["scores"] if (rep["arms"].get(arm) or {}).get(s, {}).get("auroc") is None]
+        if miss:
+            problems.append(dict(arm=arm, error="scores without an AUROC", scores=miss[:20]))
+    bad = [b for b in rep["balance"] if b["smd_after"] is None or abs(b["smd_after"]) > float(ec["smd_max"])]
+    if bad or {b["unit"] for b in rep["balance"]} != set(rep["evaluated_units"]):
+        problems.append(dict(error="main arm out of balance, or a unit without matched pairs", rows=bad))
+    for c in FE.COVS:
+        iv = (rep["intervals"].get("main") or {}).get(c)
+        if not iv or iv["lo"] is None or iv.get("n_boot", 0) < 0.9 * int(ec["boot"]) or not (iv["lo"] <= 0.5 <= iv["hi"]):
+            problems.append(dict(covariate=c, interval=iv, error="a matched covariate's own AUROC interval excludes 0.5"))
+    off = {s: v for s, v in rep["shuffle"].items() if abs(v - 0.5) > float(ec["shuffle_tolerance"])}
+    if off or not rep["shuffle"]:
+        problems.append(dict(error="shuffle control away from 0.5", scores=off))
+    v1 = rep["arms"].get("v1") or {}
+    unrep = {s: r for s, r in v1.items() if r.get("audit") is not None and (r["diff"] is None or r["diff"] > float(ec["reproduce"]))}
+    if unrep or not any(r.get("audit") is not None for r in v1.values()):
+        problems.append(dict(error="the v1 arm does not reproduce the audit", scores=unrep))
+    if rep.get("lk_og", {}).get("auroc_main") is None:
+        problems.append(dict(error="lk_og missing"))
+    require(GateResult("G4_famA_eval", "fail" if problems else "pass", dict(problems=problems[:50], units=rep["evaluated_units"],
+                       lk_og=rep.get("lk_og"), kept=rep["ladder"]["len+hom+ident"])), run_dir)
+    return sha256_file(os.path.join(base, "eval", "report.json"), use_sidecar=False)
+
+
 def _g3_files(st, cfg, run_dir):
     if pipeline_of(cfg) == "select":
         read = []
@@ -719,6 +780,8 @@ def main():
                 key = phase_famA_taxa(st, cfg, run_dir)
             elif phase == "famA_labels":
                 key = phase_famA_labels(st, cfg, run_dir)
+            elif phase == "famA_eval":
+                key = phase_famA_eval(st, cfg, run_dir)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

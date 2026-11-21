@@ -111,6 +111,15 @@ own pipeline kind with its own report and gates; nothing of pipeline train chang
   20 kb or more); a site with flanks more than 100 kb apart is broken whatever the strands. Pipeline selfsup: rule
   gates_islands takes the corpus manifest as input (G3_islands reads it; a reused island search could run the gate
   before the corpus existed).
+- Pipeline family_a_eval (`pipeline: family_a_eval`, ci/stages/family_a_eval.py, rules bench/hard/V2_FAMILY_A.md
+  part 3, written before its first run): on the labels of a passed family_a run, element clusters of the insertion
+  segments (reciprocal blastp 80/80, IS-like genes linking nothing) and the merge-rule units, computed from the labels
+  alone; then the arms (main: insertion against 1:1 matched core on length, homolog rows and best identity; core;
+  noise; v1, the old island set reproduced against the audit report), the matching ladder, AUROCs per chromosome,
+  unit and overall with the protocol's cluster-bootstrap intervals, contrasts of every model column against four
+  comparators, published strata, and lk_og (the outgroup genera visible in the hits). Gates G3_famA_eval and
+  G4_famA_eval (balance in every unit, own-covariate intervals, shuffle at 0.5 over 200 draws, exact reproduction).
+  Run record schema: pipeline value family_a_eval.
 
 ## 0.2 (in progress)
 

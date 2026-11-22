@@ -142,6 +142,14 @@ kinds:
         side: train
         produces: models
         tolerance: true
+      w6_eval:
+        package: W6
+        rule: rel_w6_eval
+        output: data/rel_w6/eval/models.json
+        module: ci.stages.rel.w6_eval
+        gates: [G4_rel_w6_eval]
+        side: train
+        produces: models
       w6_report:
         package: W6
         rule: rel_w6_report

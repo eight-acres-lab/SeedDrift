@@ -20,3 +20,10 @@ rule rel_w5_report:
     input: "gates/pre.ok"
     output: "data/rel_w5/report/report.json"
     shell: STAGE.format(name="rel.stub") + " w5_report"
+
+# w5_baselines: the classical baselines on the held-out tables of a passed tables run (ci/stages/rel/w5_baselines.py;
+# numpy only, no GPU): what the first models have to get under
+rule rel_w5_baselines:
+    input: "gates/pre.ok"
+    output: "data/rel_w5/baselines/results.json"
+    shell: STAGE.format(name="rel.w5_baselines")

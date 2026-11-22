@@ -1,0 +1,31 @@
+# Machine i-1: distances between the genomes of the medium corpus's train and held-out splits from shared amino-acid
+# k-mers (stage w2_dist; package W2), their distribution per group and the occupancy of provisional tiers, and the rows
+# of the tables of version 0 (run 20261122T061139 of this machine) set against them. For sampling and reporting only.
+# The training arrays come from round R3's run of this machine, every file checked against that run's records; the
+# sealed test split is not opened. k = 5, 6 and 7 (6 primary), sketches of 4,096 hashes. CPU only (the select lock),
+# 8 processes, a few minutes. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w2_dist]
+rel_w2_dist:
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  ks: [6, 5, 7]
+  size: 4096
+  edges: [0.05, 0.2, 0.5, 1.0]
+  processes: 8
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1
+train:
+  gpu_lease: false
+  device: cpu

@@ -131,6 +131,29 @@ def test_hierarchical_head_trains():
         assert abs(aa + rest - whole) < 1e-4, c
 
 
+def test_leakfree_layout_trains():
+    """Leak-free scattered and span samples, stored whole genes: the model is built with the ext vector (one more
+    width of parameters), trains, and its checkpoint records the size it was built with."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
+    axial = loop.registry.load("model", "axial")
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and out["steps"] == 3
+    ck = torch.load(os.path.join(cfg["out"], "final.pt"), map_location="cpu", weights_only=True)
+    assert ck["size"] == dict(layers=1, width=256, ext=True) and "ext.weight" in ck["ema"]
+    run = loop.Run(dict(cfg, out=os.path.join(root, "other")))
+    assert loop.layouts_of(run.cfg) == {"scattered": "leakfree", "span": "leakfree", "whole_gene": "stored"}
+    assert sorted({run.sampler.layouts[e["scheme"]] for s in range(8) for e in run.sampler.draw(s)}) == ["leakfree", "stored"]
+    try:
+        loop.Run(dict(cfg, layout="unaligned", out=os.path.join(root, "x")))
+    except SystemExit as err:
+        assert "layouts" in str(err)
+    else:
+        raise AssertionError("a training in the unaligned layout was accepted")
+
+
 def test_moving_average():
     root = tempfile.mkdtemp()
     run = loop.Run(_config(root))

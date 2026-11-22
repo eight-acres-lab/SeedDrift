@@ -238,6 +238,35 @@ def test_sampler():
     assert not e["truth"][1:].any() and not e["truth"][0, :T.T0].any()
 
 
+def test_sampler_layouts_per_mask_scheme():
+    """Leak-free for the scattered and span samples, stored for the whole gene: the leak-free examples carry ext and
+    their layout, the stored ones neither ext nor any difference from the default sampler."""
+    from seeddrift.train.rel.tables import render as RD
+    ts = _set(36)
+    lay = {"scattered": A.LAYOUT_LEAKFREE, "span": A.LAYOUT_LEAKFREE, "whole_gene": A.LAYOUT_STORED}
+    a, b = S.Sampler(ts, seed=3, layouts=lay), S.Sampler(ts, seed=3)
+    kinds = set()
+    for step in range(12):
+        for u, v in zip(a.draw(step), b.draw(step)):
+            assert u["table"] == v["table"] and u["scheme"] == v["scheme"]                      # the same draws
+            name = a.masks[u["scheme"]]
+            assert u["layout"] == lay[name] and v["layout"] == A.LAYOUT_STORED and "ext" not in v
+            if lay[name] == A.LAYOUT_STORED:
+                assert "ext" not in u and (u["grid"] == v["grid"]).all() and (u["truth"] == v["truth"]).all()
+            else:
+                assert u["ext"].shape == u["grid"].shape and not (u["grid"][u["truth"] > 0] != A.MASK).any()
+            kinds.add(u["layout"])
+    assert kinds == {A.LAYOUT_LEAKFREE, A.LAYOUT_STORED} and "ext" in S.collate(a.draw(0) + a.draw(1))
+    for bad in ({"scattered": "sideways"}, {"anyorder": A.LAYOUT_LEAKFREE}):
+        try:
+            S.Sampler(ts, seed=3, layouts=bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("layouts %r were accepted" % (bad,))
+    assert RD.LEAKFREE == A.LAYOUT_LEAKFREE
+
+
 def test_sampler_share_of_tables_without_relatives():
     ts = _set(30)                                         # table 27 has no other row; its group 3 also holds tables 3 and 15
     never = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, alone_share=0.0).draw(st)}

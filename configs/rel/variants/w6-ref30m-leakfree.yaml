@@ -1,0 +1,21 @@
+# Round 1b (task-breakdown section 8.6; the programme lead's ruling of 2026-11-22): w6-ref30m with one change, its
+# layout: the scattered and span samples rendered leak-free by package W3's renderer (tables/render.py, online; no
+# input depends on a hidden residue), the whole-gene samples kept in the stored layout, as today (whole_gene_layout;
+# round 1b reads scattered and span only). The model adds a learned vector to the cells laid by extension (ext).
+# Reference arm: the axial trunk of 12 layers and width 384 (28.4 M parameters), bidirectional fill-in, relatives given.
+name: w6-ref30m-leakfree
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: leakfree
+whole_gene_layout: stored                  # the whole gene stays stored until the frame relative of W3's step two
+rows: [4, 16]
+columns: 1024
+size: 30m
+relatives: true
+optimizer: {lr: 3.0e-4}                   # today's rule: 3e-4 at width 384, scaled by the inverse square root of the width
+gpu_mb: 26000                             # memory allowance; four tables of 16 rows at once were estimated at 22 GB
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws (today's ruling)
+tables: real

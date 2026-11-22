@@ -59,7 +59,7 @@ PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
-VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share")
+VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share", "whole_gene_layout")
 API_VERSION = getattr(api, "API", None) or getattr(api, "API_VERSION", None)
 NAME_RX = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -131,7 +131,7 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     v = arm["variant"]
     tc = cfg.get("train") or {}
     conf = dict(name=arm["name"], author=v["author"], api=v["api"], model=v["model"], size=v["size"], objective=v["objective"], masks=v["masks"],
-                mask_weights=v.get("mask_weights"), layout=v["layout"], rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
+                mask_weights=v.get("mask_weights"), layout=v["layout"], whole_gene_layout=v.get("whole_gene_layout"), rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
                 lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
                 wall_s=s["wall_s"], probe=s["probe"], threads=s["threads"], device="cpu" if tc.get("device") == "cpu" else "auto",
                 out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],

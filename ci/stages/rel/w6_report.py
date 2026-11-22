@@ -429,7 +429,8 @@ def build(st, cfg, run_dir):
            "Bits without relatives minus bits with them (positive: relatives help), on the held-out tables with a relative on the target block. "
            "First at the end, on all such tables: the arm without relatives at its best node (or at its end, where its end is lower: both are "
            "evaluated on all tables) against the arm of the same size with relatives at its end (conservative while the curve with relatives "
-           "still falls); then at the same node, on the tables of the nodes. The column "
+           "still falls; the lower of the two candidates is picked on the same held-out tables it is then read on, a slight selection on the "
+           "test set, one of two, whose effect is small); then at the same node, on the tables of the nodes. The column "
            "'same model' removes the rows from the arm with relatives at evaluation. Then by bin of the nearest identity, without the bin of no "
            "other rows.", ""]
     md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth", "same model, rows removed",

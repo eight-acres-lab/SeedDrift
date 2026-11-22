@@ -33,11 +33,11 @@ A package may add fields; it may not drop or change these without a new format v
   tableset_problems(doc, run_dir)     what is wrong with a table-set manifest (and its files, given run_dir)
   models_problems(doc, run_dir)       what is wrong with a model index
   sealed_problems(doc)                what is wrong with the sealed record of a real or ruler table set
-  from_run(run_dir, path, expect_sha256=None)
+  from_run(run_dir, path, expect_sha256=None, kinds=None)
                                       a hand-off file of another run: the run passed, its stage record lists the file
                                       with this content, the manifest's digest is its sha256 and, when given, the one
-                                      expected, and a real or ruler table set carries a passed sealed record; returns
-                                      the parsed manifest
+                                      expected, a real or ruler table set carries a passed sealed record, and, when kinds
+                                      is given, a table set is of one of those kinds; returns the parsed manifest
 """
 from __future__ import annotations
 
@@ -193,7 +193,7 @@ def models_problems(doc, run_dir="") -> list:
     return out
 
 
-def from_run(run_dir, path, expect_sha256=None) -> dict:
+def from_run(run_dir, path, expect_sha256=None, kinds=None) -> dict:
     """A hand-off file `path` (relative) of the passed run in run_dir, checked against that run's stage record."""
     rp = os.path.join(run_dir, "record.json")
     if not os.path.exists(rp):
@@ -217,4 +217,6 @@ def from_run(run_dir, path, expect_sha256=None) -> dict:
         bad = sealed_problems(doc)
         if bad:
             raise HandoffError("%s of run %s: %s" % (path, rec.get("run_id"), bad[0]["error"]))
+        if kinds is not None and doc.get("kind") not in kinds:
+            raise HandoffError("%s of run %s is a %s table set; this reader takes %s only" % (path, rec.get("run_id"), doc.get("kind"), ", ".join(kinds)))
     return doc

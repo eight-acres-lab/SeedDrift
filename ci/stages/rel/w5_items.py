@@ -24,6 +24,7 @@ import numpy as np
 
 from ci.gates import GateResult, require
 from ci.hashing import sha256_file
+from ci.kingdom import KingdomMap
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common, w2_v0
 from seeddrift.train.rel.evalh import items as I
@@ -50,9 +51,12 @@ def build(st, cfg, run_dir):
     t0 = time.time()
     src = w2_v0.source(s["source"])
     metas = [m for m in src["index"]["genomes"] if m.get("split") == "heldout"]
-    groups = sorted({m["group"] for m in src["index"]["genomes"]})
+    groups = sorted(KingdomMap().names)                     # the 12 groups (configs/kingdom_map.yml), as the tables stage takes them
     if not metas:
         raise SystemExit("%s: the source has no held-out genome" % STAGE)
+    strange = sorted({m["group"] for m in metas} - set(groups))
+    if strange:
+        raise SystemExit("%s: held-out genomes of groups outside configs/kingdom_map.yml: %s" % (STAGE, strange))
     # the sealed check on every genome that will be opened, before any is
     st.extra["sealed_check"] = common.sealed_check(cfg, [dict(id=m["id"], taxid=int(m["taxid"])) for m in metas], splits={m["id"]: m["split"] for m in metas})
     genomes, lengths = [], {}

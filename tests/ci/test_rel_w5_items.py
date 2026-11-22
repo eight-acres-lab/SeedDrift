@@ -11,6 +11,7 @@ import pytest
 import rel_fixtures as RF
 import test_rel_w2_stage as W2S
 from ci.gates import GateFailure
+from ci.hashing import sha256_file
 from ci.stages.common import Stage
 from ci.stages.rel import w5_items
 from seeddrift.train.rel import api
@@ -79,10 +80,20 @@ GENOMES = ([("%s_%s%d" % (g.replace(".", "_"), s[:2], k), g, s) for g in sorted(
 
 @pytest.fixture
 def source(tmp_path, monkeypatch):
+    """The synthetic source run, its training-data index also holding a genome of split "eval" and group "eval" (as the
+    index of a real run holds the genome of the evaluation inputs), the stage record updated to the new index."""
     src = str(tmp_path / "ci-root" / "runs" / "20261120T000000-src")
     os.makedirs(src)
     monkeypatch.setattr(W2S, "GENOMES", GENOMES)
     metas = W2S.make_source(src)
+    ip = os.path.join(src, "data", "train_data", "index.json")
+    index = json.load(open(ip))
+    index["genomes"].append(dict(id="eval_inputs_genome", source="eval", group="eval", taxid=562, ranks=[1, 2, 3, 4, 5, 6], genes=1, hits=0, split="eval"))
+    json.dump(index, open(ip, "w"))
+    rp = os.path.join(src, "stages", "train_data.json")
+    rec = json.load(open(rp))
+    rec["outputs"][0]["sha256"] = sha256_file(ip, use_sidecar=False)
+    json.dump(rec, open(rp, "w"))
     W2S.patch(monkeypatch, tmp_path)
     return src, metas
 
@@ -93,7 +104,7 @@ def test_stage_writes_items_of_the_held_out_split(source, tmp_path):
     with Stage(run_dir, w5_items.STAGE) as st:
         doc = w5_items.build(st, cfg, run_dir)
     split = {m["id"]: m["split"] for m in metas}
-    assert doc["problems"] == [] and len(doc["items"]) == 24 and doc["short"] == {} and len(doc["groups"]) == 12
+    assert doc["problems"] == [] and len(doc["items"]) == 24 and doc["short"] == {} and len(doc["groups"]) == 12 and "eval" not in doc["groups"]
     assert {split[it["genome"]] for it in doc["items"]} == {"heldout"} and W2S.SEALED[0] not in json.dumps(doc)
     assert all(c == dict(screen=1, confirm=1) for c in doc["counts"].values())                # two genera per group, items in turns
     with Stage(run_dir, "gates_rel_w5_items", requires=("pre",)) as st:

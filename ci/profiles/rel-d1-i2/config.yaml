@@ -29,7 +29,9 @@ rel_w6_fit:
     heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
   arms:
     - {variant: configs/rel/variants/w6-ref100m.yaml, seed: 1}
-  wall_s: 16200
+  wall_s: 16200                  # one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
 train:
   gpu_lease: false
   device: auto

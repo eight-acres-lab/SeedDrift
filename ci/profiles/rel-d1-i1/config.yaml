@@ -31,7 +31,11 @@ rel_w6_fit:
     - {variant: configs/rel/variants/w6-ref30m.yaml, seed: 1}
     - {variant: configs/rel/variants/w6-ref30m-norel.yaml, seed: 1}
     - {variant: configs/rel/variants/w6-ref10m.yaml, seed: 1}
-  wall_s: 16200
+  wall_s: 16200                  # one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
+rel_w6_report:
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
 train:
   gpu_lease: false
   device: auto

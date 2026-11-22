@@ -1,21 +1,27 @@
 """Evaluation conditions of the held-out tables: which cells are hidden and scored, and which rows are given.
 
 One rule for every arm and every classical baseline, so that all of them score the same cells. numpy only: it runs
-in the CI environment and in the model interpreter. No generator of numpy's is used, because their streams are not
-promised to stay the same between numpy versions: every random choice is a 64-bit hash of (seed, stream, table id,
-index), so two interpreters get bit-identical plans.
+in the CI environment and in the model interpreter. The plan is, cell for cell, the one the trainer's held-out
+evaluation uses (seeddrift/train/rel/data/heldout_plan.py; a test compares the two), written here for whole batches.
+Its random choices come from numpy's default generator seeded by (seed, table id); numpy does not promise that
+stream across versions, so the plan of a fixed batch is pinned (SELFCHECK) and nothing is planned in an interpreter
+where it differs.
 
-Development slice (API 1, table version 0, stored layout only):
+Development slice (API 1, table version 0, stored layout only). Table i is the i-th table of the held-out table set
+in storage order:
 
 - only cells of row 0 (the examined genome) are hidden, and only in its target block; every other cell is visible;
-- ``scattered``: every residue cell of that block is hidden independently with probability MASK_RATE;
-- ``whole_gene``: every residue cell of that block is hidden;
+- ``scattered``: the residue cells of that block at the positions p with u[p] < MASK_RATE,
+  u = default_rng([seed, i]).random(LEN_TARGET);
+- ``whole_gene``: every residue cell of that block;
 - every hidden cell is scored, the target is the residue (tokens 1..65);
 - ``+no_relatives``: all other rows are removed (the arrays come back with one row);
-- ``+repaired``: the rows 1.. that exist are permuted by one random cycle, the same permutation in every non-target
-  block; the target block and row 0 stay. What a row is elsewhere no longer says what it is at the target.
+- ``+repaired``: with k other rows that exist (a block of some kind), in stored order, row r takes its non-target
+  blocks from row ((r - 1 + s) mod k) + 1, s = default_rng([seed + 1, i]).integers(1, k); the target block and
+  row 0 stay. What a row is elsewhere no longer says what it is at the target. A table with fewer than two other
+  rows has no such condition: nothing of it is scored.
 
-What is hidden depends on the lengths only, never on the content.
+What is hidden depends on the lengths and kinds only, never on the content.
 """
 from __future__ import annotations
 
@@ -25,8 +31,8 @@ import numpy as np
 
 from seeddrift.train.rel import api
 
-VERSION = 1
-SEED = 20261122
+VERSION = 2
+SEED = 20261122                         # scattered cells: (SEED, table); re-pairing: (SEED + 1, table)
 MASK_RATE = 0.15
 
 NO_RELATIVES = api.COND_NO_RELATIVES
@@ -40,8 +46,6 @@ CONDITIONS = (
     WHOLE_GENE + "+" + NO_RELATIVES,
     WHOLE_GENE + "+" + REPAIRED,
 )
-
-STREAM_SCATTERED, STREAM_REPAIR = 1, 2
 
 _BLOCKS = api.block_slices()
 TARGET_BLOCK = len(_BLOCKS) - 1
@@ -105,26 +109,35 @@ def hidden_target_cells(n, table_ids, mask, seed=SEED, rate=MASK_RATE):
         return residue
     if mask != SCATTERED:
         raise ValueError("unknown mask %r" % mask)
-    u = hash_u01(seed, STREAM_SCATTERED, np.asarray(table_ids).reshape(-1, 1), offs[None, :])
-    return residue & (u < rate)
+    width = TARGET_STOP - TARGET_START
+    u = [np.random.default_rng([int(seed), int(i)]).random(width) for i in np.asarray(table_ids).reshape(-1).tolist()]
+    return residue & (np.stack(u) < rate if u else np.zeros((0, width), dtype=bool))
 
 
-def repair_rows(n, table_ids, seed=SEED):
-    """(N, R) int: for every row, the row its non-target blocks are taken from. Row 0 and rows without any segment keep
-    their own; the other rows form one random cycle (so with two or more of them no row keeps its own)."""
-    n = np.asarray(n)
-    N, R = n.shape[0], n.shape[1]
-    exists = (n > 0).any(axis=2)
-    exists[:, 0] = False
-    key = hash_u01(seed, STREAM_REPAIR, np.asarray(table_ids).reshape(-1, 1), np.arange(R)[None, :])
-    key = np.where(exists, key, 2.0)                                  # rows outside the cycle sort last
-    order = np.argsort(key, axis=1, kind="stable")                    # the m existing rows first, in random order
-    m = exists.sum(axis=1)
-    pos = np.arange(R)[None, :]
-    nxt = np.where(pos < m[:, None], (pos + 1) % np.maximum(m, 1)[:, None], pos)
-    src = np.empty((N, R), dtype=np.int64)
-    np.put_along_axis(src, order, np.take_along_axis(order, nxt, axis=1), axis=1)
-    return src
+def present_rows(kind):
+    """(N, R) bool: the rows that exist: row 0, and every other row with a block of some kind."""
+    out = (np.asarray(kind) != 0).any(axis=2)
+    out[:, 0] = True
+    return out
+
+
+def repair_rows(kind, table_ids, seed=SEED):
+    """src (N, R): for every row, the row its non-target blocks are taken from; has (N,) bool: the table has the
+    condition (two or more other rows exist). Row 0 and rows that do not exist keep their own; the k other rows, in
+    stored order, take from the row `shift` further on, cyclically, so none keeps its own."""
+    present = present_rows(kind)
+    N, R = present.shape
+    src = np.tile(np.arange(R, dtype=np.int64), (N, 1))
+    has = np.zeros(N, dtype=bool)
+    for t, i in enumerate(np.asarray(table_ids).reshape(-1).tolist()):
+        rows = np.flatnonzero(present[t, 1:]) + 1
+        k = rows.shape[0]
+        if k < 2:
+            continue
+        shift = int(np.random.default_rng([int(seed) + 1, int(i)]).integers(1, k))
+        src[t, rows] = rows[(np.arange(k) + shift) % k]
+        has[t] = True
+    return src, has
 
 
 def materialise(tables, table_ids, condition, seed=SEED, rate=MASK_RATE):
@@ -136,6 +149,7 @@ def materialise(tables, table_ids, condition, seed=SEED, rate=MASK_RATE):
     Returns the same mapping with rows removed or re-paired, plus
       visible, target  (N, R', ROW_LEN) bool, in the rows' own coordinates: target cells are hidden and scored;
       rows             (N, R') the stored row every row's non-target blocks come from;
+      has              (N,) bool: the table has the condition (false only for a table that cannot be re-paired);
       table_ids, condition.
     """
     mask, rows_mode = parse(condition)
@@ -153,12 +167,13 @@ def materialise(tables, table_ids, condition, seed=SEED, rate=MASK_RATE):
             per_row[k] = v
         else:
             out[k] = v
+    has = np.ones(N, dtype=bool)
     if rows_mode == NO_RELATIVES:
         src = np.zeros((N, 1), dtype=np.int64)
         for k, v in per_row.items():
             out[k] = v[:, :1].copy()
     elif rows_mode == REPAIRED:
-        src = repair_rows(n, table_ids, seed)
+        src, has = repair_rows(tables["kind"], table_ids, seed)
         for k, v in per_row.items():
             moved = np.take_along_axis(v, src[:, :, None], axis=1)
             keep = (np.arange(B) == TARGET_BLOCK) if v.shape[2] == B else (BLOCK_OF_SLOT == TARGET_BLOCK)
@@ -168,10 +183,11 @@ def materialise(tables, table_ids, condition, seed=SEED, rate=MASK_RATE):
         for k, v in per_row.items():
             out[k] = v
     hidden = np.zeros(out["tok"].shape, dtype=bool)
-    hidden[:, 0, TARGET_START:TARGET_STOP] = hidden_target_cells(n, table_ids, mask, seed, rate)
+    hidden[:, 0, TARGET_START:TARGET_STOP] = hidden_target_cells(n, table_ids, mask, seed, rate) & has[:, None]
     out["visible"] = residue_cells(out["n"]) & ~hidden
     out["target"] = hidden
     out["rows"] = src
+    out["has"] = has
     out["table_ids"] = table_ids
     out["condition"] = condition
     return out
@@ -188,6 +204,8 @@ class ItemsDigest:
     def add(self, batch):
         tok, target, rows = np.asarray(batch["tok"]), np.asarray(batch["target"]), np.asarray(batch["rows"])
         for k, t in enumerate(np.asarray(batch["table_ids"]).tolist()):
+            if not batch["has"][k]:                                    # the table has no such condition
+                continue
             h = hashlib.sha256()
             r, s = np.nonzero(target[k])
             h.update(r.astype("<i4").tobytes())
@@ -205,7 +223,7 @@ class ItemsDigest:
         return h.hexdigest()
 
 
-SELFCHECK = "b18b72830b1b95ede37f262535566c5a6208aeaea256e6bb3ae2c8b8a49e2535"
+SELFCHECK = "b0da9955aa199eed4a5a75b8616ca642680a33b48d96af7208e83f222040b39e"
 _PORTABLE = []
 
 
@@ -234,7 +252,9 @@ def selfcheck():
     tok = (1 + np.floor(v * api.TARGET_MAX)).astype(np.uint8)
     tok[~residue_cells(n)] = api.PAD
     col = np.where(residue_cells(n), OFFSET_OF_SLOT[None, None, :], -1).astype(np.int16)
-    tables = dict(tok=tok, n=n, col=col, kind=np.where(n > 0, api.KIND_PRESENT, api.KIND_NOT_SEARCHED).astype(np.uint8))
+    kind = np.where(n > 0, api.KIND_PRESENT, api.KIND_NOT_SEARCHED).astype(np.uint8)
+    kind[~(n > 0).any(axis=2)] = 0                                 # a row without any segment does not exist
+    tables = dict(tok=tok, n=n, col=col, kind=kind)
     out = []
     for c in CONDITIONS:
         d = ItemsDigest(c)

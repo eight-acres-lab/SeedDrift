@@ -70,7 +70,9 @@ def _joint(view, cells, truth, params, chain, base):
     """Bits of every scored cell given the true residues to its left; every cell of the stretch must be scored."""
     X, Y, valid, q, kernel = _parts(view, params, chain, base)
     t, c = cells[0], _in_target(cells)
-    if ((X >= 1) & (X <= cl.sizes(base)[1])).any():
+    scored = np.zeros(X.shape[0], dtype=bool)
+    scored[t] = True                                           # a table without the condition has no scored cell
+    if ((X >= 1) & (X <= cl.sizes(base)[1]))[scored].any():
         raise ValueError("the joint reading is for a stretch that is hidden as a whole")
     X = X.copy()
     X[t, c] = truth

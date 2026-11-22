@@ -108,6 +108,15 @@ def group_names(src, doc):
     return [str(g) for g in (doc.get("coverage") or {}).get("groups") or []]
 
 
+def row_group_names(doc):
+    """{group index: the name the group column of the result rows carries}: the manifest's group_names where it has
+    them (the rule of the trainer's rows, so both sides write the same key), else nothing (the index is written)."""
+    names = doc.get("group_names")
+    if isinstance(names, dict):
+        return {int(k): str(v) for k, v in names.items()}
+    return {k: str(v) for k, v in enumerate(names or [])}
+
+
 def headline(rows):
     main, strata = brun.summary(rows)
     return dict(bits=main, by_nearest_identity=strata)
@@ -145,9 +154,9 @@ def main():
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
         results = brun.evaluate(tables, np.arange(n_held), params, seed=seed, with_chain=with_chain, log=log)
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
-                    table_set=held.manifest["name"], table_kind=held.manifest["kind"],
+                    table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
-        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups)
+        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, row_group_names(held.manifest), brun.other_rows(tables))
 
         rows_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in ("rows.tsv", "params.json", "report.md", "results.json"))
         score.write_rows(rows_path, rows)

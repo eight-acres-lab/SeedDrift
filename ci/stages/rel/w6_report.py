@@ -261,6 +261,29 @@ def diff(a, b):
     return None if a is None or b is None else a - b
 
 
+def scale_readings(rel, params, nodes, N):
+    """(scale, pairs): the arms with relatives (ordered by parameters) at the last node all of them reached, with the verdict
+    'bigger is better' only when the bits fall with every step in size under both conditions, else 'cannot be read'
+    (None without two arms or such a node); and every two of them at the last node both reached, under the same rule.
+    nodes: {arm: [tables seen at its nodes]}; N(arm, tables, condition): the bits of the node, or None."""
+    both = (cond.SCATTERED, cond.WHOLE_GENE)
+    order = sorted(rel, key=lambda a: params.get(a) or 0)
+
+    def last(xs):
+        common = sorted(set.intersection(*[set(nodes.get(a, [])) for a in xs]) - {0})
+        return common[-1] if common else None
+
+    def bigger_lower(big, small, t):
+        return all(N(big, t, c) is not None and N(small, t, c) is not None and N(big, t, c) < N(small, t, c) for c in both)
+
+    def reading(xs, t):
+        falls = all(bigger_lower(xs[j + 1], xs[j], t) for j in range(len(xs) - 1))
+        return dict(node=t, arms=list(xs), bits={a: {c: N(a, t, c) for c in both} for a in xs}, verdict="bigger is better" if falls else "cannot be read")
+    pairs = [reading([small, big], last([small, big])) for i, small in enumerate(order) for big in order[i + 1:] if last([small, big]) is not None]
+    t = last(order) if len(order) >= 2 else None
+    return (reading(order, t) if t is not None else None), pairs
+
+
 def build(st, cfg, run_dir):
     s = settings(cfg)
     rows, arms, base, digests, sources, groups, sub = collect(st, run_dir, s)
@@ -347,17 +370,8 @@ def build(st, cfg, run_dir):
                                                 for t in common_nodes],
                                       by_bin=[[x.replace(SC.FINE_PREFIX, ""), without(x), F(a, c, SC.ALL, x), diff(without(x), F(a, c, SC.ALL, x))]
                                               for x in SC.FINE if x != NONE_BIN and (without(x) is not None or F(a, c, SC.ALL, x) is not None)]))
-    # scale: the arms with relatives at the last node all of them reached
-    scale = None
-    if len(rel) >= 2:
-        common_nodes = sorted(set.intersection(*[set(nodes.get(a, [])) for a in rel]) - {0})
-        if common_nodes:
-            t = common_nodes[-1]
-            order = sorted(rel, key=lambda a: arms[a]["info"].get("params") or 0)
-            falls = all(all(N(order[j + 1], t, c) is not None and N(order[j], t, c) is not None and N(order[j + 1], t, c) < N(order[j], t, c)
-                            for j in range(len(order) - 1)) for c in (cond.SCATTERED, cond.WHOLE_GENE))
-            scale = dict(node=t, arms=order, bits={a: {c: N(a, t, c) for c in (cond.SCATTERED, cond.WHOLE_GENE)} for a in order},
-                         verdict="bigger is better" if falls else "cannot be read")
+    # scale: the arms with relatives at the last node all of them reached; every two of them at the last node both reached
+    scale, scale_pairs = scale_readings(rel, {a: arms[a]["info"].get("params") for a in rel}, nodes, N)
     # re-pairing, on the tables that can be re-paired
     two = SC.OTHER_ROWS[2]
     repair = [[v, F(v, cond.WHOLE_GENE, SC.ALL, two), F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two),
@@ -427,6 +441,11 @@ def build(st, cfg, run_dir):
         md += ["", "The rule: bigger is better only when the bits fall with every step in size under both conditions; otherwise the scale cannot be read."]
     else:
         md += ["Fewer than two arms with relatives, or no node all of them reached."]
+    if scale_pairs:
+        md += ["", "Every two arms with relatives at the last node both reached (the same rule):", ""]
+        md += md_table(["smaller", "bigger", "tables seen", "scattered, smaller", "scattered, bigger", "whole_gene, smaller", "whole_gene, bigger", "verdict"],
+                       [[p["arms"][0], p["arms"][1], p["node"]] + [p["bits"][a][c] for c in (cond.SCATTERED, cond.WHOLE_GENE) for a in p["arms"]] + [p["verdict"]]
+                        for p in scale_pairs])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]
@@ -460,7 +479,7 @@ def build(st, cfg, run_dir):
                   baselines={b: {c: F(b, c) for c in conds} for b in bnames},
                   lead=dict(columns=["condition", "block"] + cols, rows=lead), headline=dict(columns=["condition", "stratum"] + cols, rows=headline),
                   blocks=dict(columns=["condition", "block"] + cols, rows=blocks),
-                  relatives=relatives, scale=scale, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
+                  relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
                   lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, consistency=consistency, readings_exclude=s["exclude"])
@@ -556,7 +575,8 @@ def summary(run_dir):
         rep = json.load(f)
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
-    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), lead=rep.get("lead"), headline=rep["headline"],
+    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), scale_pairs=rep.get("scale_pairs"), lead=rep.get("lead"),
+                 headline=rep["headline"],
                  relatives=[{k: r[k] for k in r if k not in ("per_node", "by_bin")} for r in rep["relatives"]],
                  arms={a: dict(status=x["status"], final=x["final"], tables_seen=x["info"].get("tables_seen"), cells_seen=x["info"].get("cells_seen"),
                                cells_per_s=x["info"].get("cells_per_s"), reserved_mb=x["info"].get("reserved_mb"), params=x["info"].get("params"),

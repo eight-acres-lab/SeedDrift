@@ -238,6 +238,7 @@ def test_report_readings_beside_baselines(tmp_path):
     assert abs(rep["heldout_alone"] - 1 / 12) < 1e-9 and any("drew tables without other rows" in c for c in rep["caveats"])
     assert abs(worth["scattered"]["worth_at_node"] - 0.25) < 1e-9 and [p[0] for p in worth["scattered"]["per_node"]] == [1000, 2000]
     assert rep["scale"]["verdict"] == "bigger is better" and rep["scale"]["node"] == 2000 and rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1"]
+    assert [(p["arms"], p["node"], p["verdict"]) for p in rep["scale_pairs"]] == [(["w6-ref10m-s1", "w6-ref30m-s1"], 2000, "bigger is better")]
     repair = {r[0]: r[1:] for r in rep["repair"]["rows"]}
     assert repair["w6-ref30m-s1"] == [6.0, 9.0, 3.0] and "copy_nearest" in repair
     assert all(abs(r[4]) < 1e-9 for r in rep["check"]["rows"])
@@ -252,6 +253,7 @@ def test_report_readings_beside_baselines(tmp_path):
     assert svg.startswith("<svg") and svg.count("<polyline") == 3 and "own_freq, scattered" in svg
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "upper bound" not in text and "optimistic" in text and "bigger is better" in text and "passes over the training tables" in text
+    assert "Every two arms with relatives at the last node both reached" in text
     assert "copy_nearest" in text and " NO" not in text
     curves = open(os.path.join(run_dir, w6_report.OUT, "curves.tsv")).read().splitlines()
     assert curves[0].split("\t")[:3] == ["arm", "point", "tables_seen"] and any(line.split("\t")[1:3] == ["final", "4000"] for line in curves)
@@ -259,6 +261,22 @@ def test_report_readings_beside_baselines(tmp_path):
     assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
     part = w6_report.summary(run_dir)
     assert len(json.dumps(part["json"])) < 20000 and part["json"]["baselines"]["copy_nearest"]["scattered"] == 5.65
+
+
+def test_scale_at_the_last_node_of_all_arms_and_of_every_two():
+    nodes = {"s": [0, 1000, 2000, 4000], "m": [0, 1000, 2000], "b": [0, 1000, 2000, 4000]}
+    at = {("s", 2000): 5.0, ("m", 2000): 4.9, ("b", 2000): 4.95, ("s", 4000): 4.8, ("b", 4000): 4.7}
+
+    def N(v, t, c):
+        x = at.get((v, t))
+        return None if x is None else x + (0.5 if c == cond.WHOLE_GENE else 0.0)
+    scale, pairs = w6_report.scale_readings(["b", "s", "m"], {"s": 10, "m": 30, "b": 100}, nodes, N)
+    assert scale["node"] == 2000 and scale["arms"] == ["s", "m", "b"] and scale["verdict"] == "cannot be read"     # the biggest above the middle
+    assert {tuple(p["arms"]): (p["node"], p["verdict"]) for p in pairs} == {("s", "m"): (2000, "bigger is better"), ("s", "b"): (4000, "bigger is better"),
+                                                                            ("m", "b"): (2000, "cannot be read")}
+    assert pairs[1]["bits"]["b"] == {cond.SCATTERED: 4.7, cond.WHOLE_GENE: 5.2}
+    assert w6_report.scale_readings(["s"], {"s": 10}, nodes, N) == (None, [])
+    assert w6_report.scale_readings(["s", "x"], {"s": 10, "x": 20}, dict(nodes, x=[0]), N) == (None, [])        # no node besides step 0 in common
 
 
 def _passed(run_dir, rel):

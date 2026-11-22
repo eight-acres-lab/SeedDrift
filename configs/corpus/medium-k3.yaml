@@ -1,5 +1,5 @@
-# Corpus medium-k3: corpus medium (configs/corpus/medium.yaml; its header follows) and 516 close relatives of its train and held-out genomes, picked by stage
-# rel_w13_pick of run 20261122T161536-exp-rel-124b16a7-rel-dev-w13-pick-i1 (k = 3 per genome, the same species first; the user's decision of 2026-11-22). Edit the stage, not this file.
+# Corpus medium-k3: corpus medium (configs/corpus/medium.yaml; its header follows) and 526 close relatives of its train and held-out genomes, picked by stage
+# rel_w13_pick of run 20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1 (k = 3 per genome, the same species first; the user's decision of 2026-11-22). Edit the stage, not this file.
 # Corpus medium, emitted by `python -m ci emit-corpus` from the selection of run 20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium (CI 0.2, commit 0c93f2c9d44d53a425476386b89792ae31729d26, profile select-medium;
 # selected.tsv sha256 e2302442c991c424a21cf76b2a4cd088d9c77595ddeab242eb884c0cd4db174b). Edit the selection, not this file.
 name: medium-k3
@@ -10267,16 +10267,6 @@ sources:
   cluster: virus_phage_GCF_000873245.1
   relation: same genus
   max_genes: 1500
-- id: archaea_GCA_002201895.1
-  source_kind: raw_prokaryote
-  taxid: 1937005
-  table: 11
-  accession: GCA_002201895.1
-  paired_accession: ''
-  ena_assembly: GCA_002201895.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: archaea_GCA_002201915.1
   source_kind: raw_prokaryote
   taxid: 1937004
@@ -10284,6 +10274,16 @@ sources:
   accession: GCA_002201915.1
   paired_accession: ''
   ena_assembly: GCA_002201915.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_002201895.1
+  source_kind: raw_prokaryote
+  taxid: 1937005
+  table: 11
+  accession: GCA_002201895.1
+  paired_accession: ''
+  ena_assembly: GCA_002201895.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10297,16 +10297,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: archaea_GCA_003268005.1
-  source_kind: raw_prokaryote
-  taxid: 1789762
-  table: 11
-  accession: GCA_003268005.1
-  paired_accession: ''
-  ena_assembly: GCA_003268005.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: archaea_GCA_034480035.2
   source_kind: raw_prokaryote
   taxid: 1452353
@@ -10314,6 +10304,16 @@ sources:
   accession: GCA_034480035.2
   paired_accession: ''
   ena_assembly: GCA_034480035.2
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_003268005.1
+  source_kind: raw_prokaryote
+  taxid: 1789762
+  table: 11
+  accession: GCA_003268005.1
+  paired_accession: ''
+  ena_assembly: GCA_003268005.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10357,16 +10357,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000011585.1
-  source_kind: raw_prokaryote
-  taxid: 267377
-  table: 11
-  accession: GCA_000011585.1
-  paired_accession: ''
-  ena_assembly: GCA_000011585.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: archaea_GCA_000016125.1
   source_kind: raw_prokaryote
   taxid: 402880
@@ -10377,13 +10367,23 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000017185.1
+- id: archaea_GCA_025449255.1
   source_kind: raw_prokaryote
-  taxid: 419665
+  taxid: 42879
   table: 11
-  accession: GCA_000017185.1
+  accession: GCA_025449255.1
   paired_accession: ''
-  ena_assembly: GCA_000017185.1
+  ena_assembly: GCA_025449255.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_000828535.1
+  source_kind: raw_prokaryote
+  taxid: 637914
+  table: 11
+  accession: GCA_000828535.1
+  paired_accession: ''
+  ena_assembly: GCA_000828535.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10397,16 +10397,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000194625.1
-  source_kind: raw_prokaryote
-  taxid: 693661
-  table: 11
-  accession: GCA_000194625.1
-  paired_accession: ''
-  ena_assembly: GCA_000194625.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: archaea_GCA_000385565.1
   source_kind: raw_prokaryote
   taxid: 387631
@@ -10417,13 +10407,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000011005.1
+- id: archaea_GCA_000194625.1
   source_kind: raw_prokaryote
-  taxid: 304371
+  taxid: 693661
   table: 11
-  accession: GCA_000011005.1
+  accession: GCA_000194625.1
   paired_accession: ''
-  ena_assembly: GCA_000011005.1
+  ena_assembly: GCA_000194625.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10437,33 +10427,43 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000014945.1
+- id: archaea_GCA_000011005.1
   source_kind: raw_prokaryote
-  taxid: 349307
+  taxid: 304371
   table: 11
-  accession: GCA_000014945.1
+  accession: GCA_000011005.1
   paired_accession: ''
-  ena_assembly: GCA_000014945.1
+  ena_assembly: GCA_000011005.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000235565.1
-  source_kind: raw_prokaryote
-  taxid: 1110509
-  table: 11
-  accession: GCA_000235565.1
-  paired_accession: ''
-  ena_assembly: GCA_000235565.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: archaea_GCA_020736935.1
+- id: archaea_GCA_963678495.1
   source_kind: raw_prokaryote
   taxid: 90426
   table: 11
-  accession: GCA_020736935.1
+  accession: GCA_963678495.1
   paired_accession: ''
-  ena_assembly: GCA_020736935.1
+  ena_assembly: GCA_963678495.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_963682135.1
+  source_kind: raw_prokaryote
+  taxid: 90426
+  table: 11
+  accession: GCA_963682135.1
+  paired_accession: ''
+  ena_assembly: GCA_963682135.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_963666555.1
+  source_kind: raw_prokaryote
+  taxid: 90426
+  table: 11
+  accession: GCA_963666555.1
+  paired_accession: ''
+  ena_assembly: GCA_963666555.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10477,33 +10477,33 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000017625.1
+- id: archaea_GCA_963662735.1
   source_kind: raw_prokaryote
-  taxid: 456442
+  taxid: 1005933
   table: 11
-  accession: GCA_000017625.1
+  accession: GCA_963662735.1
   paired_accession: ''
-  ena_assembly: GCA_000017625.1
+  ena_assembly: GCA_963662735.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_026625165.1
+- id: archaea_GCA_988139805.1
   source_kind: raw_prokaryote
-  taxid: 2052170
+  taxid: 1005933
   table: 11
-  accession: GCA_026625165.1
+  accession: GCA_988139805.1
   paired_accession: ''
-  ena_assembly: GCA_026625165.1
+  ena_assembly: GCA_988139805.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_030919125.1
+- id: archaea_GCA_963677065.1
   source_kind: raw_prokaryote
-  taxid: 3029836
+  taxid: 1005933
   table: 11
-  accession: GCA_030919125.1
+  accession: GCA_963677065.1
   paired_accession: ''
-  ena_assembly: GCA_030919125.1
+  ena_assembly: GCA_963677065.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10517,26 +10517,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000303155.1
-  source_kind: raw_prokaryote
-  taxid: 1237085
-  table: 11
-  accession: GCA_000303155.1
-  paired_accession: ''
-  ena_assembly: GCA_000303155.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: archaea_GCA_000698785.1
-  source_kind: raw_prokaryote
-  taxid: 926571
-  table: 11
-  accession: GCA_000698785.1
-  paired_accession: ''
-  ena_assembly: GCA_000698785.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: archaea_GCA_024760425.1
   source_kind: raw_prokaryote
   taxid: 1034015
@@ -10544,6 +10524,26 @@ sources:
   accession: GCA_024760425.1
   paired_accession: ''
   ena_assembly: GCA_024760425.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_025244945.1
+  source_kind: raw_prokaryote
+  taxid: 1034015
+  table: 11
+  accession: GCA_025244945.1
+  paired_accession: ''
+  ena_assembly: GCA_025244945.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_000303155.1
+  source_kind: raw_prokaryote
+  taxid: 1237085
+  table: 11
+  accession: GCA_000303155.1
+  paired_accession: ''
+  ena_assembly: GCA_000303155.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10557,23 +10557,33 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: archaea_GCA_000007305.1
+- id: archaea_GCA_000195935.2
   source_kind: raw_prokaryote
-  taxid: 186497
+  taxid: 272844
   table: 11
-  accession: GCA_000007305.1
+  accession: GCA_000195935.2
   paired_accession: ''
-  ena_assembly: GCA_000007305.1
+  ena_assembly: GCA_000195935.2
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000011105.1
+- id: archaea_GCA_000263735.1
   source_kind: raw_prokaryote
-  taxid: 70601
+  taxid: 1183377
   table: 11
-  accession: GCA_000011105.1
+  accession: GCA_000263735.1
   paired_accession: ''
-  ena_assembly: GCA_000011105.1
+  ena_assembly: GCA_000263735.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_030518575.1
+  source_kind: raw_prokaryote
+  taxid: 1353246
+  table: 11
+  accession: GCA_030518575.1
+  paired_accession: ''
+  ena_assembly: GCA_030518575.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10594,16 +10604,6 @@ sources:
   accession: GCA_013407275.1
   paired_accession: ''
   ena_assembly: GCA_013407275.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: archaea_GCA_030518575.1
-  source_kind: raw_prokaryote
-  taxid: 1353246
-  table: 11
-  accession: GCA_030518575.1
-  paired_accession: ''
-  ena_assembly: GCA_030518575.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10657,13 +10657,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000993805.1
+- id: archaea_GCA_054696565.1
   source_kind: raw_prokaryote
-  taxid: 1550241
+  taxid: 3391032
   table: 11
-  accession: GCA_000993805.1
+  accession: GCA_054696565.1
   paired_accession: ''
-  ena_assembly: GCA_000993805.1
+  ena_assembly: GCA_054696565.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10677,13 +10677,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_054696565.1
+- id: archaea_GCA_000993805.1
   source_kind: raw_prokaryote
-  taxid: 3391032
+  taxid: 1550241
   table: 11
-  accession: GCA_054696565.1
+  accession: GCA_000993805.1
   paired_accession: ''
-  ena_assembly: GCA_054696565.1
+  ena_assembly: GCA_000993805.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10707,13 +10707,23 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: archaea_GCA_000013445.1
+- id: archaea_GCA_963668475.1
   source_kind: raw_prokaryote
-  taxid: 323259
+  taxid: 262503
   table: 11
-  accession: GCA_000013445.1
+  accession: GCA_963668475.1
   paired_accession: ''
-  ena_assembly: GCA_000013445.1
+  ena_assembly: GCA_963668475.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: archaea_GCA_963668415.1
+  source_kind: raw_prokaryote
+  taxid: 262503
+  table: 11
+  accession: GCA_963668415.1
+  paired_accession: ''
+  ena_assembly: GCA_963668415.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10724,16 +10734,6 @@ sources:
   accession: GCA_018502485.1
   paired_accession: ''
   ena_assembly: GCA_018502485.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: archaea_GCA_019263745.1
-  source_kind: raw_prokaryote
-  taxid: 2834276
-  table: 11
-  accession: GCA_019263745.1
-  paired_accession: ''
-  ena_assembly: GCA_019263745.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10757,43 +10757,43 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000024185.1
+- id: archaea_GCA_002813085.1
   source_kind: raw_prokaryote
-  taxid: 634498
+  taxid: 2173
   table: 11
-  accession: GCA_000024185.1
+  accession: GCA_002813085.1
   paired_accession: ''
-  ena_assembly: GCA_000024185.1
+  ena_assembly: GCA_002813085.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000191585.1
+- id: archaea_GCA_030296715.1
   source_kind: raw_prokaryote
-  taxid: 877455
+  taxid: 710191
   table: 11
-  accession: GCA_000191585.1
+  accession: GCA_030296715.1
   paired_accession: ''
-  ena_assembly: GCA_000191585.1
+  ena_assembly: GCA_030296715.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000214725.1
+- id: archaea_GCA_003491305.1
   source_kind: raw_prokaryote
-  taxid: 868131
+  taxid: 2025351
   table: 11
-  accession: GCA_000214725.1
+  accession: GCA_003491305.1
   paired_accession: ''
-  ena_assembly: GCA_000214725.1
+  ena_assembly: GCA_003491305.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_000499765.1
+- id: archaea_GCA_001458655.1
   source_kind: raw_prokaryote
-  taxid: 1379702
+  taxid: 2162
   table: 11
-  accession: GCA_000499765.1
+  accession: GCA_001458655.1
   paired_accession: ''
-  ena_assembly: GCA_000499765.1
+  ena_assembly: GCA_001458655.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10817,16 +10817,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: archaea_GCA_061194105.1
-  source_kind: raw_prokaryote
-  taxid: 3480004
-  table: 11
-  accession: GCA_061194105.1
-  paired_accession: ''
-  ena_assembly: GCA_061194105.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: archaea_GCA_000404225.1
   source_kind: raw_prokaryote
   taxid: 1295009
@@ -10837,43 +10827,33 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_000195085.1
+- id: bacteria_GCA_047722515.1
   source_kind: raw_prokaryote
-  taxid: 1002672
+  taxid: 3230988
   table: 11
-  accession: GCA_000195085.1
+  accession: GCA_047722515.1
   paired_accession: ''
-  ena_assembly: GCA_000195085.1
+  ena_assembly: GCA_047722515.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_002101295.1
+- id: bacteria_GCA_051200915.1
   source_kind: raw_prokaryote
-  taxid: 1977865
+  taxid: 3374189
   table: 11
-  accession: GCA_002101295.1
+  accession: GCA_051200915.1
   paired_accession: ''
-  ena_assembly: GCA_002101295.1
+  ena_assembly: GCA_051200915.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_002101315.1
+- id: bacteria_GCA_051201225.1
   source_kind: raw_prokaryote
-  taxid: 1977864
+  taxid: 3374193
   table: 11
-  accession: GCA_002101315.1
+  accession: GCA_051201225.1
   paired_accession: ''
-  ena_assembly: GCA_002101315.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: bacteria_GCA_963663685.1
-  source_kind: raw_prokaryote
-  taxid: 281272
-  table: 11
-  accession: GCA_963663685.1
-  paired_accession: ''
-  ena_assembly: GCA_963663685.1
+  ena_assembly: GCA_051201225.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10897,33 +10877,43 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_003390435.1
+- id: bacteria_GCA_963663685.1
+  source_kind: raw_prokaryote
+  taxid: 281272
+  table: 11
+  accession: GCA_963663685.1
+  paired_accession: ''
+  ena_assembly: GCA_963663685.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_058443235.1
   source_kind: raw_prokaryote
   taxid: 870
   table: 11
-  accession: GCA_003390435.1
+  accession: GCA_058443235.1
   paired_accession: ''
-  ena_assembly: GCA_003390435.1
+  ena_assembly: GCA_058443235.1
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_057126605.1
+- id: bacteria_GCA_058441995.1
   source_kind: raw_prokaryote
   taxid: 870
   table: 11
-  accession: GCA_057126605.1
+  accession: GCA_058441995.1
   paired_accession: ''
-  ena_assembly: GCA_057126605.1
+  ena_assembly: GCA_058441995.1
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_057126615.1
+- id: bacteria_GCA_058443225.1
   source_kind: raw_prokaryote
   taxid: 870
   table: 11
-  accession: GCA_057126615.1
+  accession: GCA_058443225.1
   paired_accession: ''
-  ena_assembly: GCA_057126615.1
+  ena_assembly: GCA_058443225.1
   replicon_types:
   - Chromosome
   relation: same species
@@ -10957,16 +10947,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_036021035.1
-  source_kind: raw_prokaryote
-  taxid: 2903564
-  table: 11
-  accession: GCA_036021035.1
-  paired_accession: ''
-  ena_assembly: GCA_036021035.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: bacteria_GCA_042473625.1
   source_kind: raw_prokaryote
   taxid: 3349638
@@ -10977,13 +10957,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_013347225.1
+- id: bacteria_GCA_036021035.1
   source_kind: raw_prokaryote
-  taxid: 2954388
+  taxid: 2903564
   table: 11
-  accession: GCA_013347225.1
+  accession: GCA_036021035.1
   paired_accession: ''
-  ena_assembly: GCA_013347225.1
+  ena_assembly: GCA_036021035.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -10994,6 +10974,16 @@ sources:
   accession: GCA_013414765.1
   paired_accession: ''
   ena_assembly: GCA_013414765.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_013347225.1
+  source_kind: raw_prokaryote
+  taxid: 2954388
+  table: 11
+  accession: GCA_013347225.1
+  paired_accession: ''
+  ena_assembly: GCA_013347225.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11057,43 +11047,43 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000008565.1
+- id: bacteria_GCA_004758605.1
   source_kind: raw_prokaryote
-  taxid: 243230
+  taxid: 1211322
   table: 11
-  accession: GCA_000008565.1
+  accession: GCA_004758605.1
   paired_accession: ''
-  ena_assembly: GCA_000008565.1
+  ena_assembly: GCA_004758605.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000020685.1
+- id: bacteria_GCA_965261005.1
   source_kind: raw_prokaryote
-  taxid: 546414
+  taxid: 47478
   table: 11
-  accession: GCA_000020685.1
+  accession: GCA_965261005.1
   paired_accession: ''
-  ena_assembly: GCA_000020685.1
+  ena_assembly: GCA_965261005.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000190555.1
+- id: bacteria_GCA_919654025.1
   source_kind: raw_prokaryote
-  taxid: 693977
+  taxid: 1299
   table: 11
-  accession: GCA_000190555.1
+  accession: GCA_919654025.1
   paired_accession: ''
-  ena_assembly: GCA_000190555.1
+  ena_assembly: GCA_919654025.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000015865.1
+- id: bacteria_GCA_001692755.1
   source_kind: raw_prokaryote
-  taxid: 203119
+  taxid: 572545
   table: 11
-  accession: GCA_000015865.1
+  accession: GCA_001692755.1
   paired_accession: ''
-  ena_assembly: GCA_000015865.1
+  ena_assembly: GCA_001692755.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11107,13 +11097,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000255615.3
+- id: bacteria_GCA_004803955.2
   source_kind: raw_prokaryote
-  taxid: 1138384
+  taxid: 1515
   table: 11
-  accession: GCA_000255615.3
+  accession: GCA_004803955.2
   paired_accession: ''
-  ena_assembly: GCA_000255615.3
+  ena_assembly: GCA_004803955.2
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11127,23 +11117,23 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_002288005.1
+- id: bacteria_GCA_988221175.1
   source_kind: raw_prokaryote
-  taxid: 1884915
+  taxid: 2518620
   table: 11
-  accession: GCA_002288005.1
+  accession: GCA_988221175.1
   paired_accession: ''
-  ena_assembly: GCA_002288005.1
+  ena_assembly: GCA_988221175.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_002288305.1
+- id: bacteria_GCA_985237485.1
   source_kind: raw_prokaryote
-  taxid: 1884916
+  taxid: 2518620
   table: 11
-  accession: GCA_002288305.1
+  accession: GCA_985237485.1
   paired_accession: ''
-  ena_assembly: GCA_002288305.1
+  ena_assembly: GCA_985237485.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11157,33 +11147,33 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000023405.1
+- id: bacteria_GCA_049266655.1
   source_kind: raw_prokaryote
-  taxid: 446465
+  taxid: 3408576
   table: 11
-  accession: GCA_000023405.1
+  accession: GCA_049266655.1
   paired_accession: ''
-  ena_assembly: GCA_000023405.1
+  ena_assembly: GCA_049266655.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_001969445.1
+- id: bacteria_GCA_055385755.1
   source_kind: raw_prokaryote
-  taxid: 1903186
+  taxid: 416230
   table: 11
-  accession: GCA_001969445.1
+  accession: GCA_055385755.1
   paired_accession: ''
-  ena_assembly: GCA_001969445.1
+  ena_assembly: GCA_055385755.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_002216795.1
+- id: bacteria_GCA_030866705.2
   source_kind: raw_prokaryote
-  taxid: 2017485
+  taxid: 3069708
   table: 11
-  accession: GCA_002216795.1
+  accession: GCA_030866705.2
   paired_accession: ''
-  ena_assembly: GCA_002216795.1
+  ena_assembly: GCA_030866705.2
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11197,6 +11187,16 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
+- id: bacteria_GCA_034479125.1
+  source_kind: raw_prokaryote
+  taxid: 261965
+  table: 11
+  accession: GCA_034479125.1
+  paired_accession: ''
+  ena_assembly: GCA_034479125.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
 - id: bacteria_GCA_000024085.1
   source_kind: raw_prokaryote
   taxid: 523791
@@ -11207,33 +11207,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000981765.1
+- id: bacteria_GCA_054926195.1
   source_kind: raw_prokaryote
-  taxid: 914150
+  taxid: 3680434
   table: 11
-  accession: GCA_000981765.1
+  accession: GCA_054926195.1
   paired_accession: ''
-  ena_assembly: GCA_000981765.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: bacteria_GCA_001708405.1
-  source_kind: raw_prokaryote
-  taxid: 1144748
-  table: 11
-  accession: GCA_001708405.1
-  paired_accession: ''
-  ena_assembly: GCA_001708405.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: bacteria_GCA_000319225.1
-  source_kind: raw_prokaryote
-  taxid: 1267577
-  table: 11
-  accession: GCA_000319225.1
-  paired_accession: ''
-  ena_assembly: GCA_000319225.1
+  ena_assembly: GCA_054926195.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11244,6 +11224,16 @@ sources:
   accession: GCA_000319245.1
   paired_accession: ''
   ena_assembly: GCA_000319245.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_000340925.1
+  source_kind: raw_prokaryote
+  taxid: 1208922
+  table: 11
+  accession: GCA_000340925.1
+  paired_accession: ''
+  ena_assembly: GCA_000340925.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11277,23 +11267,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_014489955.1
+- id: bacteria_GCA_988303405.1
   source_kind: raw_prokaryote
   taxid: 33025
   table: 11
-  accession: GCA_014489955.1
+  accession: GCA_988303405.1
   paired_accession: ''
-  ena_assembly: GCA_014489955.1
-  replicon_types:
-  - Chromosome
-  relation: same species
-- id: bacteria_GCA_022845635.1
-  source_kind: raw_prokaryote
-  taxid: 33025
-  table: 11
-  accession: GCA_022845635.1
-  paired_accession: ''
-  ena_assembly: GCA_022845635.1
+  ena_assembly: GCA_988303405.1
   replicon_types:
   - Chromosome
   relation: same species
@@ -11304,6 +11284,16 @@ sources:
   accession: GCA_022845695.1
   paired_accession: ''
   ena_assembly: GCA_022845695.1
+  replicon_types:
+  - Chromosome
+  relation: same species
+- id: bacteria_GCA_051903865.1
+  source_kind: raw_prokaryote
+  taxid: 33025
+  table: 11
+  accession: GCA_051903865.1
+  paired_accession: ''
+  ena_assembly: GCA_051903865.1
   replicon_types:
   - Chromosome
   relation: same species
@@ -11357,26 +11347,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_013315815.1
-  source_kind: raw_prokaryote
-  taxid: 2666138
-  table: 11
-  accession: GCA_013315815.1
-  paired_accession: ''
-  ena_assembly: GCA_013315815.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: bacteria_GCA_013340725.1
-  source_kind: raw_prokaryote
-  taxid: 2666138
-  table: 11
-  accession: GCA_013340725.1
-  paired_accession: ''
-  ena_assembly: GCA_013340725.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: bacteria_GCA_026314295.1
   source_kind: raw_prokaryote
   taxid: 2994078
@@ -11384,6 +11354,26 @@ sources:
   accession: GCA_026314295.1
   paired_accession: ''
   ena_assembly: GCA_026314295.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_029211325.2
+  source_kind: raw_prokaryote
+  taxid: 3030016
+  table: 11
+  accession: GCA_029211325.2
+  paired_accession: ''
+  ena_assembly: GCA_029211325.2
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_053613275.1
+  source_kind: raw_prokaryote
+  taxid: 3457503
+  table: 11
+  accession: GCA_053613275.1
+  paired_accession: ''
+  ena_assembly: GCA_053613275.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11417,13 +11407,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_007475525.1
+- id: bacteria_GCA_949774925.1
   source_kind: raw_prokaryote
-  taxid: 1202785
+  taxid: 591154
   table: 11
-  accession: GCA_007475525.1
+  accession: GCA_949774925.1
   paired_accession: ''
-  ena_assembly: GCA_007475525.1
+  ena_assembly: GCA_949774925.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11437,16 +11427,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_038500265.1
-  source_kind: raw_prokaryote
-  taxid: 1111732
-  table: 11
-  accession: GCA_038500265.1
-  paired_accession: ''
-  ena_assembly: GCA_038500265.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: bacteria_GCA_058188435.1
   source_kind: raw_prokaryote
   taxid: 2969671
@@ -11454,6 +11434,16 @@ sources:
   accession: GCA_058188435.1
   paired_accession: ''
   ena_assembly: GCA_058188435.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_038500265.1
+  source_kind: raw_prokaryote
+  taxid: 1111732
+  table: 11
+  accession: GCA_038500265.1
+  paired_accession: ''
+  ena_assembly: GCA_038500265.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11467,16 +11457,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_059089525.1
-  source_kind: raw_prokaryote
-  taxid: 2681877
-  table: 11
-  accession: GCA_059089525.1
-  paired_accession: ''
-  ena_assembly: GCA_059089525.1
-  replicon_types:
-  - Chromosome
-  relation: same species
 - id: bacteria_GCA_965230295.1
   source_kind: raw_prokaryote
   taxid: 1955066
@@ -11497,6 +11477,16 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
+- id: bacteria_GCA_965228385.1
+  source_kind: raw_prokaryote
+  taxid: 2038636
+  table: 11
+  accession: GCA_965228385.1
+  paired_accession: ''
+  ena_assembly: GCA_965228385.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
 - id: bacteria_GCA_046736345.1
   source_kind: raw_prokaryote
   taxid: 3143534
@@ -11504,16 +11494,6 @@ sources:
   accession: GCA_046736345.1
   paired_accession: ''
   ena_assembly: GCA_046736345.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
-- id: bacteria_GCA_055809375.1
-  source_kind: raw_prokaryote
-  taxid: 2989717
-  table: 11
-  accession: GCA_055809375.1
-  paired_accession: ''
-  ena_assembly: GCA_055809375.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11577,16 +11557,6 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_050916285.1
-  source_kind: raw_prokaryote
-  taxid: 865
-  table: 11
-  accession: GCA_050916285.1
-  paired_accession: ''
-  ena_assembly: GCA_050916285.1
-  replicon_types:
-  - Chromosome
-  relation: same genus
 - id: bacteria_GCA_050916295.1
   source_kind: raw_prokaryote
   taxid: 865
@@ -11594,6 +11564,16 @@ sources:
   accession: GCA_050916295.1
   paired_accession: ''
   ena_assembly: GCA_050916295.1
+  replicon_types:
+  - Chromosome
+  relation: same genus
+- id: bacteria_GCA_050916285.1
+  source_kind: raw_prokaryote
+  taxid: 865
+  table: 11
+  accession: GCA_050916285.1
+  paired_accession: ''
+  ena_assembly: GCA_050916285.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11617,13 +11597,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_009931335.1
+- id: bacteria_GCA_019405345.1
   source_kind: raw_prokaryote
   taxid: 83559
   table: 11
-  accession: GCA_009931335.1
+  accession: GCA_019405345.1
   paired_accession: ''
-  ena_assembly: GCA_009931335.1
+  ena_assembly: GCA_019405345.1
   replicon_types:
   - Chromosome
   relation: same species
@@ -11637,13 +11617,13 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_019405065.1
+- id: bacteria_GCA_019405405.1
   source_kind: raw_prokaryote
   taxid: 83559
   table: 11
-  accession: GCA_019405065.1
+  accession: GCA_019405405.1
   paired_accession: ''
-  ena_assembly: GCA_019405065.1
+  ena_assembly: GCA_019405405.1
   replicon_types:
   - Chromosome
   relation: same species
@@ -11657,23 +11637,23 @@ sources:
   replicon_types:
   - Chromosome
   relation: same species
-- id: bacteria_GCA_000023285.1
+- id: bacteria_GCA_002302415.1
   source_kind: raw_prokaryote
-  taxid: 521097
+  taxid: 1017
   table: 11
-  accession: GCA_000023285.1
+  accession: GCA_002302415.1
   paired_accession: ''
-  ena_assembly: GCA_000023285.1
+  ena_assembly: GCA_002302415.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000220625.1
+- id: bacteria_GCA_019930725.1
   source_kind: raw_prokaryote
-  taxid: 860228
+  taxid: 1018
   table: 11
-  accession: GCA_000220625.1
+  accession: GCA_019930725.1
   paired_accession: ''
-  ena_assembly: GCA_000220625.1
+  ena_assembly: GCA_019930725.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11697,33 +11677,33 @@ sources:
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000007905.1
+- id: bacteria_GCA_000498315.1
   source_kind: raw_prokaryote
-  taxid: 235279
+  taxid: 1407462
   table: 11
-  accession: GCA_000007905.1
+  accession: GCA_000498315.1
   paired_accession: ''
-  ena_assembly: GCA_000007905.1
+  ena_assembly: GCA_000498315.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000008525.1
+- id: bacteria_GCA_000307795.1
   source_kind: raw_prokaryote
   taxid: 85962
   table: 11
-  accession: GCA_000008525.1
+  accession: GCA_000307795.1
   paired_accession: ''
-  ena_assembly: GCA_000008525.1
+  ena_assembly: GCA_000307795.1
   replicon_types:
   - Chromosome
   relation: same genus
-- id: bacteria_GCA_000008785.1
+- id: bacteria_GCA_035181685.1
   source_kind: raw_prokaryote
-  taxid: 85963
+  taxid: 210
   table: 11
-  accession: GCA_000008785.1
+  accession: GCA_035181685.1
   paired_accession: ''
-  ena_assembly: GCA_000008785.1
+  ena_assembly: GCA_035181685.1
   replicon_types:
   - Chromosome
   relation: same genus
@@ -11738,6 +11718,17 @@ sources:
     collection: fungi_chytridiomycota1_collection
   max_genes: 1500
   relation: same species
+- id: fungi_coniochaeta_pulveracea_gca_003635345
+  source_kind: annotated_cds
+  taxid: 177199
+  ensembl:
+    site: ensemblgenomes
+    division: fungi
+    species: coniochaeta_pulveracea_gca_003635345
+    release: 63
+    collection: fungi_ascomycota4_collection
+  max_genes: 1500
+  relation: same genus
 - id: fungi_coniochaeta_ligniaria_nrrl_30616_gca_001879275
   source_kind: annotated_cds
   taxid: 1408157
@@ -11749,15 +11740,15 @@ sources:
     collection: fungi_ascomycota3_collection
   max_genes: 1500
   relation: same genus
-- id: fungi_coniochaeta_pulveracea_gca_003635345
+- id: fungi_lachnellula_occidentalis_gca_007821535
   source_kind: annotated_cds
-  taxid: 177199
+  taxid: 215460
   ensembl:
     site: ensemblgenomes
     division: fungi
-    species: coniochaeta_pulveracea_gca_003635345
+    species: lachnellula_occidentalis_gca_007821535
     release: 63
-    collection: fungi_ascomycota4_collection
+    collection: fungi_ascomycota5_collection
   max_genes: 1500
   relation: same genus
 - id: fungi_lachnellula_cervina_gca_007825325
@@ -11771,24 +11762,13 @@ sources:
     collection: fungi_ascomycota5_collection
   max_genes: 1500
   relation: same genus
-- id: fungi_lachnellula_hyalina_gca_007821495
+- id: fungi_lachnellula_suecica_gca_007825345
   source_kind: annotated_cds
-  taxid: 1316788
+  taxid: 602035
   ensembl:
     site: ensemblgenomes
     division: fungi
-    species: lachnellula_hyalina_gca_007821495
-    release: 63
-    collection: fungi_ascomycota5_collection
-  max_genes: 1500
-  relation: same genus
-- id: fungi_lachnellula_occidentalis_gca_007821535
-  source_kind: annotated_cds
-  taxid: 215460
-  ensembl:
-    site: ensemblgenomes
-    division: fungi
-    species: lachnellula_occidentalis_gca_007821535
+    species: lachnellula_suecica_gca_007825345
     release: 63
     collection: fungi_ascomycota5_collection
   max_genes: 1500
@@ -11815,17 +11795,6 @@ sources:
     collection: fungi_ascomycota1_collection
   max_genes: 1500
   relation: same genus
-- id: fungi_rhizopus_delemar_ra_99_880_gca_000149305
-  source_kind: annotated_cds
-  taxid: 246409
-  ensembl:
-    site: ensemblgenomes
-    division: fungi
-    species: rhizopus_delemar_ra_99_880_gca_000149305
-    release: 63
-    collection: fungi_mucoromycota1_collection
-  max_genes: 1500
-  relation: same genus
 - id: fungi_rhizopus_microsporus_atcc_52813_gca_002708625
   source_kind: annotated_cds
   taxid: 1340429
@@ -11837,13 +11806,24 @@ sources:
     collection: fungi_mucoromycota1_collection
   max_genes: 1500
   relation: same genus
-- id: fungi_rhizopus_microsporus_gca_000825725
+- id: fungi_rhizopus_stolonifer_gca_003325415
   source_kind: annotated_cds
-  taxid: 58291
+  taxid: 4846
   ensembl:
     site: ensemblgenomes
     division: fungi
-    species: rhizopus_microsporus_gca_000825725
+    species: rhizopus_stolonifer_gca_003325415
+    release: 63
+    collection: fungi_mucoromycota1_collection
+  max_genes: 1500
+  relation: same genus
+- id: fungi_rhizopus_delemar_ra_99_880_gca_000149305
+  source_kind: annotated_cds
+  taxid: 246409
+  ensembl:
+    site: ensemblgenomes
+    division: fungi
+    species: rhizopus_delemar_ra_99_880_gca_000149305
     release: 63
     collection: fungi_mucoromycota1_collection
   max_genes: 1500
@@ -11870,6 +11850,16 @@ sources:
     collection: fungi_ascomycota1_collection
   max_genes: 1500
   relation: same genus
+- id: fungi_tuber_melanosporum
+  source_kind: annotated_cds
+  taxid: 656061
+  ensembl:
+    site: ensemblgenomes
+    division: fungi
+    species: tuber_melanosporum
+    release: 63
+  max_genes: 1500
+  relation: same genus
 - id: fungi_tuber_magnatum_gca_003182015
   source_kind: annotated_cds
   taxid: 42249
@@ -11879,16 +11869,6 @@ sources:
     species: tuber_magnatum_gca_003182015
     release: 63
     collection: fungi_ascomycota4_collection
-  max_genes: 1500
-  relation: same genus
-- id: fungi_tuber_melanosporum
-  source_kind: annotated_cds
-  taxid: 656061
-  ensembl:
-    site: ensemblgenomes
-    division: fungi
-    species: tuber_melanosporum
-    release: 63
   max_genes: 1500
   relation: same genus
 - id: fungi_wickerhamomyces_ciferrii_gca_000313485
@@ -11913,17 +11893,6 @@ sources:
     collection: fungi_ascomycota4_collection
   max_genes: 1500
   relation: same genus
-- id: fungi_zygosaccharomyces_bailii_isa1307_gca_000530735
-  source_kind: annotated_cds
-  taxid: 1355161
-  ensembl:
-    site: ensemblgenomes
-    division: fungi
-    species: zygosaccharomyces_bailii_isa1307_gca_000530735
-    release: 63
-    collection: fungi_ascomycota1_collection
-  max_genes: 1500
-  relation: same genus
 - id: fungi_zygosaccharomyces_mellis_gca_005406105
   source_kind: annotated_cds
   taxid: 42258
@@ -11933,6 +11902,27 @@ sources:
     species: zygosaccharomyces_mellis_gca_005406105
     release: 63
     collection: fungi_ascomycota5_collection
+  max_genes: 1500
+  relation: same genus
+- id: fungi_zygosaccharomyces_rouxii_gca_001972345
+  source_kind: annotated_cds
+  taxid: 4956
+  ensembl:
+    site: ensemblgenomes
+    division: fungi
+    species: zygosaccharomyces_rouxii_gca_001972345
+    release: 63
+    collection: fungi_ascomycota3_collection
+  max_genes: 1500
+  relation: same genus
+- id: invertebrates_daphnia_pulicaria_gca021234035v2rs
+  source_kind: annotated_cds
+  taxid: 35523
+  ensembl:
+    site: ensemblgenomes
+    division: metazoa
+    species: daphnia_pulicaria_gca021234035v2rs
+    release: 63
   max_genes: 1500
   relation: same genus
 - id: invertebrates_daphnia_carinata_gca022539665v3rs
@@ -11952,16 +11942,6 @@ sources:
     site: ensemblgenomes
     division: metazoa
     species: daphnia_pulex_gca021134715v1rs
-    release: 63
-  max_genes: 1500
-  relation: same genus
-- id: invertebrates_daphnia_pulicaria_gca021234035v2rs
-  source_kind: annotated_cds
-  taxid: 35523
-  ensembl:
-    site: ensemblgenomes
-    division: metazoa
-    species: daphnia_pulicaria_gca021234035v2rs
     release: 63
   max_genes: 1500
   relation: same genus
@@ -12015,6 +11995,16 @@ sources:
     release: 63
   max_genes: 1500
   relation: same genus
+- id: mammals_bos_taurus_tuli
+  source_kind: annotated_cds
+  taxid: 9913
+  ensembl:
+    site: ensembl
+    division: vertebrates
+    species: bos_taurus_tuli
+    release: 116
+  max_genes: 1500
+  relation: same genus
 - id: mammals_bos_grunniens
   source_kind: annotated_cds
   taxid: 30521
@@ -12025,23 +12015,13 @@ sources:
     release: 116
   max_genes: 1500
   relation: same genus
-- id: mammals_bos_indicus_hybrid
+- id: mammals_bos_taurus_hybrid
   source_kind: annotated_cds
   taxid: 30522
   ensembl:
     site: ensembl
     division: vertebrates
-    species: bos_indicus_hybrid
-    release: 116
-  max_genes: 1500
-  relation: same genus
-- id: mammals_bos_taurus
-  source_kind: annotated_cds
-  taxid: 9913
-  ensembl:
-    site: ensembl
-    division: vertebrates
-    species: bos_taurus
+    species: bos_taurus_hybrid
     release: 116
   max_genes: 1500
   relation: same genus
@@ -12055,16 +12035,6 @@ sources:
     release: 116
   max_genes: 1500
   relation: same species
-- id: mammals_capra_hircus_gca015443085v1
-  source_kind: annotated_cds
-  taxid: 9925
-  ensembl:
-    site: ensembl
-    division: vertebrates
-    species: capra_hircus_gca015443085v1
-    release: 116
-  max_genes: 1500
-  relation: same species
 - id: mammals_capra_hircus_gca026652205v1
   source_kind: annotated_cds
   taxid: 9925
@@ -12072,6 +12042,16 @@ sources:
     site: ensembl
     division: vertebrates
     species: capra_hircus_gca026652205v1
+    release: 116
+  max_genes: 1500
+  relation: same species
+- id: mammals_capra_hircus_gca015443085v1
+  source_kind: annotated_cds
+  taxid: 9925
+  ensembl:
+    site: ensembl
+    division: vertebrates
+    species: capra_hircus_gca015443085v1
     release: 116
   max_genes: 1500
   relation: same species
@@ -12135,13 +12115,23 @@ sources:
     release: 116
   max_genes: 1500
   relation: same species
-- id: mammals_ovis_aries_gca011170295v1
+- id: mammals_ovis_aries_gca022416775v1
   source_kind: annotated_cds
   taxid: 9940
   ensembl:
     site: ensembl
     division: vertebrates
-    species: ovis_aries_gca011170295v1
+    species: ovis_aries_gca022416775v1
+    release: 116
+  max_genes: 1500
+  relation: same species
+- id: mammals_ovis_aries_gca022432835v1
+  source_kind: annotated_cds
+  taxid: 9940
+  ensembl:
+    site: ensembl
+    division: vertebrates
+    species: ovis_aries_gca022432835v1
     release: 116
   max_genes: 1500
   relation: same species
@@ -12155,26 +12145,6 @@ sources:
     release: 116
   max_genes: 1500
   relation: same species
-- id: mammals_ovis_aries_gca022416685v1
-  source_kind: annotated_cds
-  taxid: 9940
-  ensembl:
-    site: ensembl
-    division: vertebrates
-    species: ovis_aries_gca022416685v1
-    release: 116
-  max_genes: 1500
-  relation: same species
-- id: mammals_panthera_leo
-  source_kind: annotated_cds
-  taxid: 9689
-  ensembl:
-    site: ensembl
-    division: vertebrates
-    species: panthera_leo
-    release: 116
-  max_genes: 1500
-  relation: same genus
 - id: mammals_panthera_pardus
   source_kind: annotated_cds
   taxid: 9691
@@ -12185,33 +12155,43 @@ sources:
     release: 116
   max_genes: 1500
   relation: same genus
-- id: mammals_sus_scrofa_bamei
+- id: mammals_panthera_leo
+  source_kind: annotated_cds
+  taxid: 9689
+  ensembl:
+    site: ensembl
+    division: vertebrates
+    species: panthera_leo
+    release: 116
+  max_genes: 1500
+  relation: same genus
+- id: mammals_sus_scrofa_gca019290145v1
   source_kind: annotated_cds
   taxid: 9823
   ensembl:
     site: ensembl
     division: vertebrates
-    species: sus_scrofa_bamei
+    species: sus_scrofa_gca019290145v1
     release: 116
   max_genes: 1500
   relation: same species
-- id: mammals_sus_scrofa_berkshire
+- id: mammals_sus_scrofa_landrace
   source_kind: annotated_cds
   taxid: 9823
   ensembl:
     site: ensembl
     division: vertebrates
-    species: sus_scrofa_berkshire
+    species: sus_scrofa_landrace
     release: 116
   max_genes: 1500
   relation: same species
-- id: mammals_sus_scrofa_gca007644095v1
+- id: mammals_sus_scrofa_gca041937265v1
   source_kind: annotated_cds
   taxid: 9823
   ensembl:
     site: ensembl
     division: vertebrates
-    species: sus_scrofa_gca007644095v1
+    species: sus_scrofa_gca041937265v1
     release: 116
   max_genes: 1500
   relation: same species
@@ -12285,13 +12265,23 @@ sources:
     release: 116
   max_genes: 1500
   relation: same genus
-- id: plants_algae_brassica_napus
+- id: plants_algae_brassica_rapa_ro18
   source_kind: annotated_cds
-  taxid: 3708
+  taxid: 1813537
   ensembl:
     site: ensemblgenomes
     division: plants
-    species: brassica_napus
+    species: brassica_rapa_ro18
+    release: 63
+  max_genes: 1500
+  relation: same genus
+- id: plants_algae_brassica_rapa_z1
+  source_kind: annotated_cds
+  taxid: 3711
+  ensembl:
+    site: ensemblgenomes
+    division: plants
+    species: brassica_rapa_z1
     release: 63
   max_genes: 1500
   relation: same genus
@@ -12302,16 +12292,6 @@ sources:
     site: ensemblgenomes
     division: plants
     species: brassica_oleracea
-    release: 63
-  max_genes: 1500
-  relation: same genus
-- id: plants_algae_brassica_rapa
-  source_kind: annotated_cds
-  taxid: 3711
-  ensembl:
-    site: ensemblgenomes
-    division: plants
-    species: brassica_rapa
     release: 63
   max_genes: 1500
   relation: same genus
@@ -12475,16 +12455,6 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_043187485.1
-  source_kind: plasmid
-  taxid: 3115615
-  table: 11
-  accession: GCA_043187485.1
-  paired_accession: ''
-  ena_assembly: GCA_043187485.1
-  replicon_types:
-  - Plasmid
-  relation: same genus
 - id: plasmid_GCA_047936775.1
   source_kind: plasmid
   taxid: 3385202
@@ -12492,6 +12462,16 @@ sources:
   accession: GCA_047936775.1
   paired_accession: ''
   ena_assembly: GCA_047936775.1
+  replicon_types:
+  - Plasmid
+  relation: same genus
+- id: plasmid_GCA_043187485.1
+  source_kind: plasmid
+  taxid: 3115615
+  table: 11
+  accession: GCA_043187485.1
+  paired_accession: ''
+  ena_assembly: GCA_043187485.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12505,16 +12485,6 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_000175575.2
-  source_kind: plasmid
-  taxid: 637389
-  table: 11
-  accession: GCA_000175575.2
-  paired_accession: ''
-  ena_assembly: GCA_000175575.2
-  replicon_types:
-  - Plasmid
-  relation: same species
 - id: plasmid_GCA_001650235.3
   source_kind: plasmid
   taxid: 33059
@@ -12525,13 +12495,23 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_010378095.2
+- id: plasmid_GCA_000175575.2
   source_kind: plasmid
-  taxid: 2678518
+  taxid: 637389
   table: 11
-  accession: GCA_010378095.2
+  accession: GCA_000175575.2
   paired_accession: ''
-  ena_assembly: GCA_010378095.2
+  ena_assembly: GCA_000175575.2
+  replicon_types:
+  - Plasmid
+  relation: same species
+- id: plasmid_GCA_018854495.2
+  source_kind: plasmid
+  taxid: 3063951
+  table: 11
+  accession: GCA_018854495.2
+  paired_accession: ''
+  ena_assembly: GCA_018854495.2
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12555,33 +12535,33 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000439435.1
+- id: plasmid_GCA_027923845.1
   source_kind: plasmid
-  taxid: 1276220
+  taxid: 2141
   table: 11
-  accession: GCA_000439435.1
+  accession: GCA_027923845.1
   paired_accession: ''
-  ena_assembly: GCA_000439435.1
+  ena_assembly: GCA_027923845.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_001886855.1
+- id: plasmid_GCA_030316605.1
   source_kind: plasmid
-  taxid: 2133
+  taxid: 1276219
   table: 11
-  accession: GCA_001886855.1
+  accession: GCA_030316605.1
   paired_accession: ''
-  ena_assembly: GCA_001886855.1
+  ena_assembly: GCA_030316605.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_002237575.1
+- id: plasmid_GCA_059729515.1
   source_kind: plasmid
-  taxid: 216934
+  taxid: 2141
   table: 11
-  accession: GCA_002237575.1
+  accession: GCA_059729515.1
   paired_accession: ''
-  ena_assembly: GCA_002237575.1
+  ena_assembly: GCA_059729515.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12595,23 +12575,13 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000022105.1
-  source_kind: plasmid
-  taxid: 565034
-  table: 11
-  accession: GCA_000022105.1
-  paired_accession: ''
-  ena_assembly: GCA_000022105.1
-  replicon_types:
-  - Plasmid
-  relation: same species
-- id: plasmid_GCA_002850235.1
+- id: plasmid_GCA_033555435.1
   source_kind: plasmid
   taxid: 159
   table: 11
-  accession: GCA_002850235.1
+  accession: GCA_033555435.1
   paired_accession: ''
-  ena_assembly: GCA_002850235.1
+  ena_assembly: GCA_033555435.1
   replicon_types:
   - Plasmid
   relation: same species
@@ -12625,13 +12595,23 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_002142495.1
+- id: plasmid_GCA_002850235.1
   source_kind: plasmid
-  taxid: 1260963
+  taxid: 159
   table: 11
-  accession: GCA_002142495.1
+  accession: GCA_002850235.1
   paired_accession: ''
-  ena_assembly: GCA_002142495.1
+  ena_assembly: GCA_002850235.1
+  replicon_types:
+  - Plasmid
+  relation: same species
+- id: plasmid_GCA_022372495.1
+  source_kind: plasmid
+  taxid: 462680
+  table: 11
+  accession: GCA_022372495.1
+  paired_accession: ''
+  ena_assembly: GCA_022372495.1
   replicon_types:
   - Plasmid
   relation: same species
@@ -12645,13 +12625,13 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_022372495.1
+- id: plasmid_GCA_002142495.1
   source_kind: plasmid
-  taxid: 462680
+  taxid: 1260963
   table: 11
-  accession: GCA_022372495.1
+  accession: GCA_002142495.1
   paired_accession: ''
-  ena_assembly: GCA_022372495.1
+  ena_assembly: GCA_002142495.1
   replicon_types:
   - Plasmid
   relation: same species
@@ -12695,33 +12675,33 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_003660105.1
+- id: plasmid_GCA_033574615.1
   source_kind: plasmid
-  taxid: 1032070
+  taxid: 2933791
   table: 11
-  accession: GCA_003660105.1
+  accession: GCA_033574615.1
   paired_accession: ''
-  ena_assembly: GCA_003660105.1
+  ena_assembly: GCA_033574615.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_006165035.1
+- id: plasmid_GCA_977971455.1
   source_kind: plasmid
-  taxid: 1032070
+  taxid: 28198
   table: 11
-  accession: GCA_006165035.1
+  accession: GCA_977971455.1
   paired_accession: ''
-  ena_assembly: GCA_006165035.1
+  ena_assembly: GCA_977971455.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_008808035.1
+- id: plasmid_GCA_977971675.1
   source_kind: plasmid
-  taxid: 255507
+  taxid: 28197
   table: 11
-  accession: GCA_008808035.1
+  accession: GCA_977971675.1
   paired_accession: ''
-  ena_assembly: GCA_008808035.1
+  ena_assembly: GCA_977971675.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12735,23 +12715,23 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_000020105.1
+- id: plasmid_GCA_978047365.1
   source_kind: plasmid
-  taxid: 521006
+  taxid: 485
   table: 11
-  accession: GCA_000020105.1
+  accession: GCA_978047365.1
   paired_accession: ''
-  ena_assembly: GCA_000020105.1
+  ena_assembly: GCA_978047365.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000156855.2
+- id: plasmid_GCA_978047355.1
   source_kind: plasmid
-  taxid: 528354
+  taxid: 485
   table: 11
-  accession: GCA_000156855.2
+  accession: GCA_978047355.1
   paired_accession: ''
-  ena_assembly: GCA_000156855.2
+  ena_assembly: GCA_978047355.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12815,6 +12795,16 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
+- id: plasmid_GCA_058308325.1
+  source_kind: plasmid
+  taxid: 84112
+  table: 11
+  accession: GCA_058308325.1
+  paired_accession: ''
+  ena_assembly: GCA_058308325.1
+  replicon_types:
+  - Plasmid
+  relation: same species
 - id: plasmid_GCA_021378725.1
   source_kind: plasmid
   taxid: 84112
@@ -12822,16 +12812,6 @@ sources:
   accession: GCA_021378725.1
   paired_accession: ''
   ena_assembly: GCA_021378725.1
-  replicon_types:
-  - Plasmid
-  relation: same species
-- id: plasmid_GCA_058308295.1
-  source_kind: plasmid
-  taxid: 84112
-  table: 11
-  accession: GCA_058308295.1
-  paired_accession: ''
-  ena_assembly: GCA_058308295.1
   replicon_types:
   - Plasmid
   relation: same species
@@ -12845,33 +12825,33 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_013364295.1
+- id: plasmid_GCA_056173325.1
   source_kind: plasmid
-  taxid: 758803
+  taxid: 3569829
   table: 11
-  accession: GCA_013364295.1
+  accession: GCA_056173325.1
   paired_accession: ''
-  ena_assembly: GCA_013364295.1
+  ena_assembly: GCA_056173325.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_018316655.1
+- id: plasmid_GCA_964273245.1
   source_kind: plasmid
-  taxid: 2831969
+  taxid: 2014
   table: 11
-  accession: GCA_018316655.1
+  accession: GCA_964273245.1
   paired_accession: ''
-  ena_assembly: GCA_018316655.1
+  ena_assembly: GCA_964273245.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_018388625.1
+- id: plasmid_GCA_019598965.1
   source_kind: plasmid
-  taxid: 2831970
+  taxid: 2865672
   table: 11
-  accession: GCA_018388625.1
+  accession: GCA_019598965.1
   paired_accession: ''
-  ena_assembly: GCA_018388625.1
+  ena_assembly: GCA_019598965.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12885,13 +12865,13 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000253075.1
+- id: plasmid_GCA_018389825.1
   source_kind: plasmid
-  taxid: 862259
+  taxid: 40477
   table: 11
-  accession: GCA_000253075.1
+  accession: GCA_018389825.1
   paired_accession: ''
-  ena_assembly: GCA_000253075.1
+  ena_assembly: GCA_018389825.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12905,23 +12885,23 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_000008685.2
+- id: plasmid_GCA_051054355.1
   source_kind: plasmid
-  taxid: 224326
+  taxid: 139
   table: 11
-  accession: GCA_000008685.2
+  accession: GCA_051054355.1
   paired_accession: ''
-  ena_assembly: GCA_000008685.2
+  ena_assembly: GCA_051054355.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000021405.1
+- id: plasmid_GCA_032595955.2
   source_kind: plasmid
-  taxid: 445985
+  taxid: 100177
   table: 11
-  accession: GCA_000021405.1
+  accession: GCA_032595955.2
   paired_accession: ''
-  ena_assembly: GCA_000021405.1
+  ena_assembly: GCA_032595955.2
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12935,13 +12915,23 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_051861785.1
+- id: plasmid_GCA_988237295.1
   source_kind: plasmid
-  taxid: 1737424
+  taxid: 40520
   table: 11
-  accession: GCA_051861785.1
+  accession: GCA_988237295.1
   paired_accession: ''
-  ena_assembly: GCA_051861785.1
+  ena_assembly: GCA_988237295.1
+  replicon_types:
+  - Plasmid
+  relation: same genus
+- id: plasmid_GCA_988238575.1
+  source_kind: plasmid
+  taxid: 40520
+  table: 11
+  accession: GCA_988238575.1
+  paired_accession: ''
+  ena_assembly: GCA_988238575.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -12955,16 +12945,6 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_050847355.1
-  source_kind: plasmid
-  taxid: 3425945
-  table: 11
-  accession: GCA_050847355.1
-  paired_accession: ''
-  ena_assembly: GCA_050847355.1
-  replicon_types:
-  - Plasmid
-  relation: same genus
 - id: plasmid_GCA_053891795.1
   source_kind: plasmid
   taxid: 2955316
@@ -12975,53 +12955,53 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_036326945.1
+- id: plasmid_GCA_050847355.1
   source_kind: plasmid
-  taxid: 3074111
+  taxid: 3425945
   table: 11
-  accession: GCA_036326945.1
+  accession: GCA_050847355.1
   paired_accession: ''
-  ena_assembly: GCA_036326945.1
+  ena_assembly: GCA_050847355.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000023985.1
+- id: plasmid_GCA_061429335.1
   source_kind: plasmid
-  taxid: 573064
+  taxid: 3696775
   table: 11
-  accession: GCA_000023985.1
+  accession: GCA_061429335.1
   paired_accession: ''
-  ena_assembly: GCA_000023985.1
+  ena_assembly: GCA_061429335.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000024625.1
+- id: plasmid_GCA_049852185.2
   source_kind: plasmid
-  taxid: 579137
+  taxid: 3414486
   table: 11
-  accession: GCA_000024625.1
+  accession: GCA_049852185.2
   paired_accession: ''
-  ena_assembly: GCA_000024625.1
+  ena_assembly: GCA_049852185.2
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000025525.1
+- id: plasmid_GCA_000091665.1
   source_kind: plasmid
-  taxid: 644281
+  taxid: 243232
   table: 11
-  accession: GCA_000025525.1
+  accession: GCA_000091665.1
   paired_accession: ''
-  ena_assembly: GCA_000025525.1
+  ena_assembly: GCA_000091665.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000024865.1
+- id: plasmid_GCA_050943795.1
   source_kind: plasmid
-  taxid: 479432
+  taxid: 3240071
   table: 11
-  accession: GCA_000024865.1
+  accession: GCA_050943795.1
   paired_accession: ''
-  ena_assembly: GCA_000024865.1
+  ena_assembly: GCA_050943795.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -13035,26 +13015,16 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_036250735.1
+- id: plasmid_GCA_050949235.1
   source_kind: plasmid
-  taxid: 2903899
+  taxid: 3240072
   table: 11
-  accession: GCA_036250735.1
+  accession: GCA_050949235.1
   paired_accession: ''
-  ena_assembly: GCA_036250735.1
+  ena_assembly: GCA_050949235.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_050946295.1
-  source_kind: plasmid
-  taxid: 161358
-  table: 11
-  accession: GCA_050946295.1
-  paired_accession: ''
-  ena_assembly: GCA_050946295.1
-  replicon_types:
-  - Plasmid
-  relation: same species
 - id: plasmid_GCA_050948435.1
   source_kind: plasmid
   taxid: 161358
@@ -13062,6 +13032,16 @@ sources:
   accession: GCA_050948435.1
   paired_accession: ''
   ena_assembly: GCA_050948435.1
+  replicon_types:
+  - Plasmid
+  relation: same species
+- id: plasmid_GCA_050946295.1
+  source_kind: plasmid
+  taxid: 161358
+  table: 11
+  accession: GCA_050946295.1
+  paired_accession: ''
+  ena_assembly: GCA_050946295.1
   replicon_types:
   - Plasmid
   relation: same species
@@ -13085,23 +13065,13 @@ sources:
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000264455.2
-  source_kind: plasmid
-  taxid: 1110502
-  table: 11
-  accession: GCA_000264455.2
-  paired_accession: ''
-  ena_assembly: GCA_000264455.2
-  replicon_types:
-  - Plasmid
-  relation: same species
-- id: plasmid_GCA_041468075.1
+- id: plasmid_GCA_041530385.1
   source_kind: plasmid
   taxid: 171437
   table: 11
-  accession: GCA_041468075.1
+  accession: GCA_041530385.1
   paired_accession: ''
-  ena_assembly: GCA_041468075.1
+  ena_assembly: GCA_041530385.1
   replicon_types:
   - Plasmid
   relation: same species
@@ -13115,33 +13085,43 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_000007525.1
+- id: plasmid_GCA_041468145.1
   source_kind: plasmid
-  taxid: 206672
+  taxid: 171437
   table: 11
-  accession: GCA_000007525.1
+  accession: GCA_041468145.1
   paired_accession: ''
-  ena_assembly: GCA_000007525.1
+  ena_assembly: GCA_041468145.1
+  replicon_types:
+  - Plasmid
+  relation: same species
+- id: plasmid_GCA_988231715.1
+  source_kind: plasmid
+  taxid: 216816
+  table: 11
+  accession: GCA_988231715.1
+  paired_accession: ''
+  ena_assembly: GCA_988231715.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000008945.1
+- id: plasmid_GCA_060709645.1
   source_kind: plasmid
-  taxid: 205913
+  taxid: 216816
   table: 11
-  accession: GCA_000008945.1
+  accession: GCA_060709645.1
   paired_accession: ''
-  ena_assembly: GCA_000008945.1
+  ena_assembly: GCA_060709645.1
   replicon_types:
   - Plasmid
   relation: same genus
-- id: plasmid_GCA_000196575.1
+- id: plasmid_GCA_059237665.1
   source_kind: plasmid
-  taxid: 565040
+  taxid: 1679
   table: 11
-  accession: GCA_000196575.1
+  accession: GCA_059237665.1
   paired_accession: ''
-  ena_assembly: GCA_000196575.1
+  ena_assembly: GCA_059237665.1
   replicon_types:
   - Plasmid
   relation: same genus
@@ -13185,35 +13165,77 @@ sources:
   replicon_types:
   - Plasmid
   relation: same species
-- id: plasmid_GCA_000710505.1
+- id: plasmid_GCA_062019108.1
   source_kind: plasmid
-  taxid: 388467
+  taxid: 3895912
   table: 11
-  accession: GCA_000710505.1
+  accession: GCA_062019108.1
   paired_accession: ''
-  ena_assembly: GCA_000710505.1
+  ena_assembly: GCA_062019108.1
   replicon_types:
   - Plasmid
-  relation: same species
-- id: plasmid_GCA_003609755.1
+  relation: same genus
+- id: plasmid_GCA_000025525.1
   source_kind: plasmid
-  taxid: 282423
+  taxid: 644281
   table: 11
-  accession: GCA_003609755.1
+  accession: GCA_000025525.1
   paired_accession: ''
-  ena_assembly: GCA_003609755.1
+  ena_assembly: GCA_000025525.1
   replicon_types:
   - Plasmid
-  relation: same species
-- id: plasmid_GCA_904830765.1
+  relation: same genus
+- id: plasmid_GCA_904830775.1
   source_kind: plasmid
   taxid: 1160
   table: 11
-  accession: GCA_904830765.1
+  accession: GCA_904830775.1
   paired_accession: ''
-  ena_assembly: GCA_904830765.1
+  ena_assembly: GCA_904830775.1
   replicon_types:
   - Plasmid
+  relation: same species
+- id: plasmid_GCA_904830855.1
+  source_kind: plasmid
+  taxid: 1160
+  table: 11
+  accession: GCA_904830855.1
+  paired_accession: ''
+  ena_assembly: GCA_904830855.1
+  replicon_types:
+  - Plasmid
+  relation: same species
+- id: plasmid_GCA_904830845.1
+  source_kind: plasmid
+  taxid: 1160
+  table: 11
+  accession: GCA_904830845.1
+  paired_accession: ''
+  ena_assembly: GCA_904830845.1
+  replicon_types:
+  - Plasmid
+  relation: same species
+- id: protists_aphanomyces_astaci_gca_003546825
+  source_kind: annotated_cds
+  taxid: 112090
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: aphanomyces_astaci_gca_003546825
+    release: 63
+    collection: protists_stramenopiles1_collection
+  max_genes: 1500
+  relation: same species
+- id: protists_aphanomyces_astaci_gca_003546605
+  source_kind: annotated_cds
+  taxid: 112090
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: aphanomyces_astaci_gca_003546605
+    release: 63
+    collection: protists_stramenopiles1_collection
+  max_genes: 1500
   relation: same species
 - id: protists_aphanomyces_astaci_gca_002197585
   source_kind: annotated_cds
@@ -13222,28 +13244,6 @@ sources:
     site: ensemblgenomes
     division: protists
     species: aphanomyces_astaci_gca_002197585
-    release: 63
-    collection: protists_stramenopiles1_collection
-  max_genes: 1500
-  relation: same species
-- id: protists_aphanomyces_astaci_gca_003546545
-  source_kind: annotated_cds
-  taxid: 112090
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: aphanomyces_astaci_gca_003546545
-    release: 63
-    collection: protists_stramenopiles1_collection
-  max_genes: 1500
-  relation: same species
-- id: protists_aphanomyces_astaci_gca_003546565
-  source_kind: annotated_cds
-  taxid: 112090
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: aphanomyces_astaci_gca_003546565
     release: 63
     collection: protists_stramenopiles1_collection
   max_genes: 1500
@@ -13259,16 +13259,6 @@ sources:
     collection: protists_alveolata1_collection
   max_genes: 1500
   relation: same genus
-- id: protists_babesia_bovis
-  source_kind: annotated_cds
-  taxid: 484906
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: babesia_bovis
-    release: 63
-  max_genes: 1500
-  relation: same genus
 - id: protists_babesia_sp_xinjiang_gca_002095265
   source_kind: annotated_cds
   taxid: 462227
@@ -13280,6 +13270,37 @@ sources:
     collection: protists_alveolata1_collection
   max_genes: 1500
   relation: same genus
+- id: protists_babesia_bovis
+  source_kind: annotated_cds
+  taxid: 484906
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: babesia_bovis
+    release: 63
+  max_genes: 1500
+  relation: same genus
+- id: protists_eimeria_mitis
+  source_kind: annotated_cds
+  taxid: 44415
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: eimeria_mitis
+    release: 63
+  max_genes: 1500
+  relation: same genus
+- id: protists_eimeria_praecox_gca_000499445
+  source_kind: annotated_cds
+  taxid: 51316
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: eimeria_praecox_gca_000499445
+    release: 63
+    collection: protists_alveolata1_collection
+  max_genes: 1500
+  relation: same genus
 - id: protists_eimeria_acervulina_gca_000499425
   source_kind: annotated_cds
   taxid: 5801
@@ -13287,28 +13308,6 @@ sources:
     site: ensemblgenomes
     division: protists
     species: eimeria_acervulina_gca_000499425
-    release: 63
-    collection: protists_alveolata1_collection
-  max_genes: 1500
-  relation: same genus
-- id: protists_eimeria_brunetti_gca_000499725
-  source_kind: annotated_cds
-  taxid: 51314
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: eimeria_brunetti_gca_000499725
-    release: 63
-    collection: protists_alveolata1_collection
-  max_genes: 1500
-  relation: same genus
-- id: protists_eimeria_maxima_gca_000499605
-  source_kind: annotated_cds
-  taxid: 5804
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: eimeria_maxima_gca_000499605
     release: 63
     collection: protists_alveolata1_collection
   max_genes: 1500
@@ -13367,6 +13366,16 @@ sources:
     release: 63
   max_genes: 1500
   relation: same genus
+- id: protists_pythium_iwayamai
+  source_kind: annotated_cds
+  taxid: 1223558
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: pythium_iwayamai
+    release: 63
+  max_genes: 1500
+  relation: same genus
 - id: protists_globisporangium_ultimum
   source_kind: annotated_cds
   taxid: 431595
@@ -13387,16 +13396,6 @@ sources:
     release: 63
   max_genes: 1500
   relation: same genus
-- id: protists_pythium_iwayamai
-  source_kind: annotated_cds
-  taxid: 1223558
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: pythium_iwayamai
-    release: 63
-  max_genes: 1500
-  relation: same genus
 - id: protists_saprolegnia_diclina_vs20_gca_000281045
   source_kind: annotated_cds
   taxid: 1156394
@@ -13406,26 +13405,6 @@ sources:
     species: saprolegnia_diclina_vs20_gca_000281045
     release: 63
     collection: protists_stramenopiles1_collection
-  max_genes: 1500
-  relation: same genus
-- id: protists_theileria_orientalis_gca003072535
-  source_kind: annotated_cds
-  taxid: 68886
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: theileria_orientalis_gca003072535
-    release: 63
-  max_genes: 1500
-  relation: same genus
-- id: protists_theileria_orientalis_gca003072545
-  source_kind: annotated_cds
-  taxid: 68886
-  ensembl:
-    site: ensemblgenomes
-    division: protists
-    species: theileria_orientalis_gca003072545
-    release: 63
   max_genes: 1500
   relation: same genus
 - id: protists_theileria_orientalis_gca_003072525
@@ -13439,13 +13418,26 @@ sources:
     collection: protists_alveolata1_collection
   max_genes: 1500
   relation: same genus
-- id: virus_eukaryotic_GCA_000850685.1
-  source_kind: raw_virus
-  taxid: 37128
-  table: 11
-  accession: GCA_000850685.1
-  paired_accession: ''
-  ena_assembly: GCA_000850685.1
+- id: protists_theileria_orientalis_strain_shintoku_gca_000740895
+  source_kind: annotated_cds
+  taxid: 869250
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: theileria_orientalis_strain_shintoku_gca_000740895
+    release: 63
+    collection: protists_alveolata1_collection
+  max_genes: 1500
+  relation: same genus
+- id: protists_theileria_orientalis_gca003072535
+  source_kind: annotated_cds
+  taxid: 68886
+  ensembl:
+    site: ensemblgenomes
+    division: protists
+    species: theileria_orientalis_gca003072535
+    release: 63
+  max_genes: 1500
   relation: same genus
 - id: virus_eukaryotic_GCA_000855145.1
   source_kind: raw_virus
@@ -13463,29 +13455,37 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001502195.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000849545.1
+- id: virus_eukaryotic_GCA_000850685.1
   source_kind: raw_virus
-  taxid: 12319
+  taxid: 37128
   table: 11
-  accession: GCA_000849545.1
+  accession: GCA_000850685.1
   paired_accession: ''
-  ena_assembly: GCA_000849545.1
+  ena_assembly: GCA_000850685.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000850545.1
+- id: virus_eukaryotic_GCA_000869765.1
   source_kind: raw_virus
-  taxid: 56486
+  taxid: 33760
   table: 11
-  accession: GCA_000850545.1
+  accession: GCA_000869765.1
   paired_accession: ''
-  ena_assembly: GCA_000850545.1
+  ena_assembly: GCA_000869765.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000850785.1
+- id: virus_eukaryotic_GCA_000881795.1
   source_kind: raw_virus
-  taxid: 42680
+  taxid: 339420
   table: 11
-  accession: GCA_000850785.1
+  accession: GCA_000881795.1
   paired_accession: ''
-  ena_assembly: GCA_000850785.1
+  ena_assembly: GCA_000881795.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_003033825.1
+  source_kind: raw_virus
+  taxid: 1637492
+  table: 11
+  accession: GCA_003033825.1
+  paired_accession: ''
+  ena_assembly: GCA_003033825.1
   relation: same genus
 - id: virus_eukaryotic_GCA_002824945.1
   source_kind: raw_virus
@@ -13503,21 +13503,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000849385.1
   relation: same genus
-- id: virus_eukaryotic_GCA_002954985.1
+- id: virus_eukaryotic_GCA_951030665.1
   source_kind: raw_virus
   taxid: 1932923
   table: 11
-  accession: GCA_002954985.1
+  accession: GCA_951030665.1
   paired_accession: ''
-  ena_assembly: GCA_002954985.1
-  relation: same species
-- id: virus_eukaryotic_GCA_951025825.1
-  source_kind: raw_virus
-  taxid: 1932923
-  table: 11
-  accession: GCA_951025825.1
-  paired_accession: ''
-  ena_assembly: GCA_951025825.1
+  ena_assembly: GCA_951030665.1
   relation: same species
 - id: virus_eukaryotic_GCA_951027835.1
   source_kind: raw_virus
@@ -13527,6 +13519,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_951027835.1
   relation: same species
+- id: virus_eukaryotic_GCA_951030715.1
+  source_kind: raw_virus
+  taxid: 1932923
+  table: 11
+  accession: GCA_951030715.1
+  paired_accession: ''
+  ena_assembly: GCA_951030715.1
+  relation: same species
 - id: virus_eukaryotic_GCA_029885115.1
   source_kind: raw_virus
   taxid: 2735926
@@ -13535,6 +13535,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_029885115.1
   relation: same species
+- id: virus_eukaryotic_GCA_023131585.1
+  source_kind: raw_virus
+  taxid: 2664558
+  table: 11
+  accession: GCA_023131585.1
+  paired_accession: ''
+  ena_assembly: GCA_023131585.1
+  relation: same genus
 - id: virus_eukaryotic_GCA_000894535.1
   source_kind: raw_virus
   taxid: 1129873
@@ -13542,14 +13550,6 @@ sources:
   accession: GCA_000894535.1
   paired_accession: ''
   ena_assembly: GCA_000894535.1
-  relation: same genus
-- id: virus_eukaryotic_GCA_000922295.1
-  source_kind: raw_virus
-  taxid: 1523858
-  table: 11
-  accession: GCA_000922295.1
-  paired_accession: ''
-  ena_assembly: GCA_000922295.1
   relation: same genus
 - id: virus_eukaryotic_GCA_003971625.1
   source_kind: raw_virus
@@ -13559,29 +13559,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_003971625.1
   relation: same species
-- id: virus_eukaryotic_GCA_031087025.1
+- id: virus_eukaryotic_GCA_031087095.1
   source_kind: raw_virus
-  taxid: 1149872
+  taxid: 1149881
   table: 11
-  accession: GCA_031087025.1
+  accession: GCA_031087095.1
   paired_accession: ''
-  ena_assembly: GCA_031087025.1
+  ena_assembly: GCA_031087095.1
   relation: same species
-- id: virus_eukaryotic_GCA_031087035.1
+- id: virus_eukaryotic_GCA_031087225.1
   source_kind: raw_virus
-  taxid: 1149873
+  taxid: 1149895
   table: 11
-  accession: GCA_031087035.1
+  accession: GCA_031087225.1
   paired_accession: ''
-  ena_assembly: GCA_031087035.1
+  ena_assembly: GCA_031087225.1
   relation: same species
-- id: virus_eukaryotic_GCA_031087045.1
+- id: virus_eukaryotic_GCA_031087115.1
   source_kind: raw_virus
-  taxid: 1149874
+  taxid: 1149884
   table: 11
-  accession: GCA_031087045.1
+  accession: GCA_031087115.1
   paired_accession: ''
-  ena_assembly: GCA_031087045.1
+  ena_assembly: GCA_031087115.1
   relation: same species
 - id: virus_eukaryotic_GCA_002116135.1
   source_kind: raw_virus
@@ -13599,21 +13599,21 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_031136695.1
   relation: same species
-- id: virus_eukaryotic_GCA_000862665.1
+- id: virus_eukaryotic_GCA_000906715.1
   source_kind: raw_virus
-  taxid: 71030
+  taxid: 73819
   table: 11
-  accession: GCA_000862665.1
+  accession: GCA_000906715.1
   paired_accession: ''
-  ena_assembly: GCA_000862665.1
+  ena_assembly: GCA_000906715.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000874725.1
+- id: virus_eukaryotic_GCA_029883955.1
   source_kind: raw_virus
-  taxid: 547467
+  taxid: 2073044
   table: 11
-  accession: GCA_000874725.1
+  accession: GCA_029883955.1
   paired_accession: ''
-  ena_assembly: GCA_000874725.1
+  ena_assembly: GCA_029883955.1
   relation: same genus
 - id: virus_eukaryotic_GCA_000881735.1
   source_kind: raw_virus
@@ -13623,6 +13623,22 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000881735.1
   relation: same genus
+- id: virus_eukaryotic_GCA_000955255.1
+  source_kind: raw_virus
+  taxid: 64317
+  table: 11
+  accession: GCA_000955255.1
+  paired_accession: ''
+  ena_assembly: GCA_000955255.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_031136825.1
+  source_kind: raw_virus
+  taxid: 1231621
+  table: 11
+  accession: GCA_031136825.1
+  paired_accession: ''
+  ena_assembly: GCA_031136825.1
+  relation: same genus
 - id: virus_eukaryotic_GCA_000858665.1
   source_kind: raw_virus
   taxid: 64294
@@ -13631,53 +13647,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000858665.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000870345.1
+- id: virus_eukaryotic_GCA_050925295.1
   source_kind: raw_virus
-  taxid: 64283
+  taxid: 2818055
   table: 11
-  accession: GCA_000870345.1
+  accession: GCA_050925295.1
   paired_accession: ''
-  ena_assembly: GCA_000870345.1
+  ena_assembly: GCA_050925295.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000894755.1
+- id: virus_eukaryotic_GCA_031203035.1
   source_kind: raw_virus
-  taxid: 64293
+  taxid: 2741441
   table: 11
-  accession: GCA_000894755.1
+  accession: GCA_031203035.1
   paired_accession: ''
-  ena_assembly: GCA_000894755.1
+  ena_assembly: GCA_031203035.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000851525.1
+- id: virus_eukaryotic_GCA_000916155.1
   source_kind: raw_virus
-  taxid: 152217
+  taxid: 1460374
   table: 11
-  accession: GCA_000851525.1
+  accession: GCA_000916155.1
   paired_accession: ''
-  ena_assembly: GCA_000851525.1
-  relation: same genus
-- id: virus_eukaryotic_GCA_000858705.1
-  source_kind: raw_virus
-  taxid: 267285
-  table: 11
-  accession: GCA_000858705.1
-  paired_accession: ''
-  ena_assembly: GCA_000858705.1
-  relation: same genus
-- id: virus_eukaryotic_GCA_000874825.1
-  source_kind: raw_virus
-  taxid: 441999
-  table: 11
-  accession: GCA_000874825.1
-  paired_accession: ''
-  ena_assembly: GCA_000874825.1
-  relation: same genus
-- id: virus_eukaryotic_GCA_000892155.1
-  source_kind: raw_virus
-  taxid: 912320
-  table: 11
-  accession: GCA_000892155.1
-  paired_accession: ''
-  ena_assembly: GCA_000892155.1
+  ena_assembly: GCA_000916155.1
   relation: same genus
 - id: virus_eukaryotic_GCA_031259155.1
   source_kind: raw_virus
@@ -13686,6 +13678,14 @@ sources:
   accession: GCA_031259155.1
   paired_accession: ''
   ena_assembly: GCA_031259155.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_000892155.1
+  source_kind: raw_virus
+  taxid: 912320
+  table: 11
+  accession: GCA_000892155.1
+  paired_accession: ''
+  ena_assembly: GCA_000892155.1
   relation: same genus
 - id: virus_eukaryotic_GCA_003849245.1
   source_kind: raw_virus
@@ -13703,13 +13703,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_003850265.1
   relation: same species
-- id: virus_eukaryotic_GCA_000930475.1
+- id: virus_eukaryotic_GCA_002825985.1
   source_kind: raw_virus
-  taxid: 1985429
+  taxid: 1985427
   table: 11
-  accession: GCA_000930475.1
+  accession: GCA_002825985.1
   paired_accession: ''
-  ena_assembly: GCA_000930475.1
+  ena_assembly: GCA_002825985.1
   relation: same genus
 - id: virus_eukaryotic_GCA_001934205.1
   source_kind: raw_virus
@@ -13727,14 +13727,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000866305.1
   relation: same genus
-- id: virus_eukaryotic_GCA_001925795.1
-  source_kind: raw_virus
-  taxid: 1922456
-  table: 11
-  accession: GCA_001925795.1
-  paired_accession: ''
-  ena_assembly: GCA_001925795.1
-  relation: same genus
 - id: virus_eukaryotic_GCA_001958935.1
   source_kind: raw_virus
   taxid: 1923577
@@ -13743,21 +13735,21 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001958935.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000885415.1
+- id: virus_eukaryotic_GCA_001925795.1
   source_kind: raw_virus
-  taxid: 687917
+  taxid: 1922456
   table: 11
-  accession: GCA_000885415.1
+  accession: GCA_001925795.1
   paired_accession: ''
-  ena_assembly: GCA_000885415.1
+  ena_assembly: GCA_001925795.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000929135.1
+- id: virus_eukaryotic_GCA_031235765.1
   source_kind: raw_virus
-  taxid: 1568973
+  taxid: 2778518
   table: 11
-  accession: GCA_000929135.1
+  accession: GCA_031235765.1
   paired_accession: ''
-  ena_assembly: GCA_000929135.1
+  ena_assembly: GCA_031235765.1
   relation: same genus
 - id: virus_eukaryotic_GCA_004133305.1
   source_kind: raw_virus
@@ -13767,21 +13759,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_004133305.1
   relation: same genus
-- id: virus_eukaryotic_GCA_003727495.1
+- id: virus_eukaryotic_GCA_000885415.1
+  source_kind: raw_virus
+  taxid: 687917
+  table: 11
+  accession: GCA_000885415.1
+  paired_accession: ''
+  ena_assembly: GCA_000885415.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_003728095.1
   source_kind: raw_virus
   taxid: 1930510
   table: 11
-  accession: GCA_003727495.1
+  accession: GCA_003728095.1
   paired_accession: ''
-  ena_assembly: GCA_003727495.1
+  ena_assembly: GCA_003728095.1
   relation: same species
-- id: virus_eukaryotic_GCA_003727515.1
+- id: virus_eukaryotic_GCA_003728375.1
   source_kind: raw_virus
   taxid: 1930510
   table: 11
-  accession: GCA_003727515.1
+  accession: GCA_003728375.1
   paired_accession: ''
-  ena_assembly: GCA_003727515.1
+  ena_assembly: GCA_003728375.1
   relation: same species
 - id: virus_eukaryotic_GCA_003727535.1
   source_kind: raw_virus
@@ -13790,14 +13790,6 @@ sources:
   accession: GCA_003727535.1
   paired_accession: ''
   ena_assembly: GCA_003727535.1
-  relation: same species
-- id: virus_eukaryotic_GCA_031088375.1
-  source_kind: raw_virus
-  taxid: 1288500
-  table: 11
-  accession: GCA_031088375.1
-  paired_accession: ''
-  ena_assembly: GCA_031088375.1
   relation: same species
 - id: virus_eukaryotic_GCA_031852035.1
   source_kind: raw_virus
@@ -13815,6 +13807,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_031852045.1
   relation: same species
+- id: virus_eukaryotic_GCA_031088375.1
+  source_kind: raw_virus
+  taxid: 1288500
+  table: 11
+  accession: GCA_031088375.1
+  paired_accession: ''
+  ena_assembly: GCA_031088375.1
+  relation: same species
 - id: virus_eukaryotic_GCA_009651415.1
   source_kind: raw_virus
   taxid: 2056385
@@ -13823,45 +13823,53 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_009651415.1
   relation: same species
-- id: virus_eukaryotic_GCA_000886735.1
+- id: virus_eukaryotic_GCA_003848685.1
   source_kind: raw_virus
-  taxid: 1985406
+  taxid: 2025477
   table: 11
-  accession: GCA_000886735.1
+  accession: GCA_003848685.1
   paired_accession: ''
-  ena_assembly: GCA_000886735.1
+  ena_assembly: GCA_003848685.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000919515.1
+- id: virus_eukaryotic_GCA_001292915.1
   source_kind: raw_virus
-  taxid: 1985374
+  taxid: 1985392
   table: 11
-  accession: GCA_000919515.1
+  accession: GCA_001292915.1
   paired_accession: ''
-  ena_assembly: GCA_000919515.1
+  ena_assembly: GCA_001292915.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000927855.1
+- id: virus_eukaryotic_GCA_002825865.1
   source_kind: raw_virus
-  taxid: 1985386
+  taxid: 1985400
   table: 11
-  accession: GCA_000927855.1
+  accession: GCA_002825865.1
   paired_accession: ''
-  ena_assembly: GCA_000927855.1
+  ena_assembly: GCA_002825865.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000869405.1
+- id: virus_eukaryotic_GCA_003850305.1
   source_kind: raw_virus
-  taxid: 399314
+  taxid: 664785
   table: 11
-  accession: GCA_000869405.1
+  accession: GCA_003850305.1
   paired_accession: ''
-  ena_assembly: GCA_000869405.1
+  ena_assembly: GCA_003850305.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000884075.1
+- id: virus_eukaryotic_GCA_018587205.1
   source_kind: raw_virus
-  taxid: 656190
+  taxid: 2604906
   table: 11
-  accession: GCA_000884075.1
+  accession: GCA_018587205.1
   paired_accession: ''
-  ena_assembly: GCA_000884075.1
+  ena_assembly: GCA_018587205.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_003849385.1
+  source_kind: raw_virus
+  taxid: 1985392
+  table: 11
+  accession: GCA_003849385.1
+  paired_accession: ''
+  ena_assembly: GCA_003849385.1
   relation: same genus
 - id: virus_eukaryotic_GCA_000924295.1
   source_kind: raw_virus
@@ -13871,13 +13879,21 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000924295.1
   relation: same genus
-- id: virus_eukaryotic_GCA_004788895.2
+- id: virus_eukaryotic_GCA_004134225.1
   source_kind: raw_virus
-  taxid: 2116434
+  taxid: 2292426
   table: 11
-  accession: GCA_004788895.2
+  accession: GCA_004134225.1
   paired_accession: ''
-  ena_assembly: GCA_004788895.2
+  ena_assembly: GCA_004134225.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_001271275.1
+  source_kind: raw_virus
+  taxid: 1692045
+  table: 11
+  accession: GCA_001271275.1
+  paired_accession: ''
+  ena_assembly: GCA_001271275.1
   relation: same genus
 - id: virus_eukaryotic_GCA_018595115.1
   source_kind: raw_virus
@@ -13887,21 +13903,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_018595115.1
   relation: same genus
-- id: virus_eukaryotic_GCA_001184825.1
+- id: virus_eukaryotic_GCA_004788895.2
   source_kind: raw_virus
-  taxid: 1679238
+  taxid: 2116434
   table: 11
-  accession: GCA_001184825.1
+  accession: GCA_004788895.2
   paired_accession: ''
-  ena_assembly: GCA_001184825.1
+  ena_assembly: GCA_004788895.2
   relation: same genus
-- id: virus_eukaryotic_GCA_001461245.1
+- id: virus_eukaryotic_GCA_004117195.1
   source_kind: raw_virus
-  taxid: 1755792
+  taxid: 2066695
   table: 11
-  accession: GCA_001461245.1
+  accession: GCA_004117195.1
   paired_accession: ''
-  ena_assembly: GCA_001461245.1
+  ena_assembly: GCA_004117195.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_018594875.1
+  source_kind: raw_virus
+  taxid: 2587541
+  table: 11
+  accession: GCA_018594875.1
+  paired_accession: ''
+  ena_assembly: GCA_018594875.1
   relation: same genus
 - id: virus_eukaryotic_GCA_002116115.1
   source_kind: raw_virus
@@ -13911,29 +13935,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_002116115.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000884235.1
+- id: virus_eukaryotic_GCA_001695425.1
   source_kind: raw_virus
-  taxid: 1980426
+  taxid: 1980430
   table: 11
-  accession: GCA_000884235.1
+  accession: GCA_001695425.1
   paired_accession: ''
-  ena_assembly: GCA_000884235.1
+  ena_assembly: GCA_001695425.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000891875.2
+- id: virus_eukaryotic_GCA_018595425.1
   source_kind: raw_virus
-  taxid: 1980433
+  taxid: 2843908
   table: 11
-  accession: GCA_000891875.2
+  accession: GCA_018595425.1
   paired_accession: ''
-  ena_assembly: GCA_000891875.2
+  ena_assembly: GCA_018595425.1
   relation: same genus
-- id: virus_eukaryotic_GCA_001580315.1
+- id: virus_eukaryotic_GCA_018595355.1
   source_kind: raw_virus
-  taxid: 1980431
+  taxid: 2603627
   table: 11
-  accession: GCA_001580315.1
+  accession: GCA_018595355.1
   paired_accession: ''
-  ena_assembly: GCA_001580315.1
+  ena_assembly: GCA_018595355.1
   relation: same genus
 - id: virus_eukaryotic_GCA_001974015.1
   source_kind: raw_virus
@@ -13943,14 +13967,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001974015.1
   relation: same genus
-- id: virus_eukaryotic_GCA_021461955.1
-  source_kind: raw_virus
-  taxid: 2849745
-  table: 11
-  accession: GCA_021461955.1
-  paired_accession: ''
-  ena_assembly: GCA_021461955.1
-  relation: same genus
 - id: virus_eukaryotic_GCA_031322255.1
   source_kind: raw_virus
   taxid: 2734565
@@ -13958,6 +13974,14 @@ sources:
   accession: GCA_031322255.1
   paired_accession: ''
   ena_assembly: GCA_031322255.1
+  relation: same genus
+- id: virus_eukaryotic_GCA_021461955.1
+  source_kind: raw_virus
+  taxid: 2849745
+  table: 11
+  accession: GCA_021461955.1
+  paired_accession: ''
+  ena_assembly: GCA_021461955.1
   relation: same genus
 - id: virus_eukaryotic_GCA_000922375.1
   source_kind: raw_virus
@@ -13975,53 +13999,53 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_023156345.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000850925.1
+- id: virus_eukaryotic_GCA_023119415.1
   source_kind: raw_virus
-  taxid: 198597
+  taxid: 217362
   table: 11
-  accession: GCA_000850925.1
+  accession: GCA_023119415.1
   paired_accession: ''
-  ena_assembly: GCA_000850925.1
+  ena_assembly: GCA_023119415.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000883195.1
+- id: virus_eukaryotic_GCA_023122865.1
   source_kind: raw_virus
-  taxid: 444193
+  taxid: 2080450
   table: 11
-  accession: GCA_000883195.1
+  accession: GCA_023122865.1
   paired_accession: ''
-  ena_assembly: GCA_000883195.1
+  ena_assembly: GCA_023122865.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000893695.1
+- id: virus_eukaryotic_GCA_000915595.1
   source_kind: raw_virus
-  taxid: 1037523
+  taxid: 1435446
   table: 11
-  accession: GCA_000893695.1
+  accession: GCA_000915595.1
   paired_accession: ''
-  ena_assembly: GCA_000893695.1
+  ena_assembly: GCA_000915595.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000857105.1
+- id: virus_eukaryotic_GCA_001461545.1
   source_kind: raw_virus
-  taxid: 194397
+  taxid: 1755785
   table: 11
-  accession: GCA_000857105.1
+  accession: GCA_001461545.1
   paired_accession: ''
-  ena_assembly: GCA_000857105.1
+  ena_assembly: GCA_001461545.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000922215.1
+- id: virus_eukaryotic_GCA_004129515.1
   source_kind: raw_virus
-  taxid: 1476202
+  taxid: 1917080
   table: 11
-  accession: GCA_000922215.1
+  accession: GCA_004129515.1
   paired_accession: ''
-  ena_assembly: GCA_000922215.1
+  ena_assembly: GCA_004129515.1
   relation: same genus
-- id: virus_eukaryotic_GCA_000924035.1
+- id: virus_eukaryotic_GCA_001722745.1
   source_kind: raw_virus
-  taxid: 1532180
+  taxid: 1849537
   table: 11
-  accession: GCA_000924035.1
+  accession: GCA_001722745.1
   paired_accession: ''
-  ena_assembly: GCA_000924035.1
+  ena_assembly: GCA_001722745.1
   relation: same genus
 - id: virus_eukaryotic_GCA_013088365.1
   source_kind: raw_virus
@@ -14031,6 +14055,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_013088365.1
   relation: same genus
+- id: virus_eukaryotic_GCA_050925215.1
+  source_kind: raw_virus
+  taxid: 2056546
+  table: 11
+  accession: GCA_050925215.1
+  paired_accession: ''
+  ena_assembly: GCA_050925215.1
+  relation: same genus
 - id: virus_eukaryotic_GCA_031168215.1
   source_kind: raw_virus
   taxid: 2056546
@@ -14039,13 +14071,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_031168215.1
   relation: same genus
-- id: virus_eukaryotic_GCA_050925215.1
+- id: virus_eukaryotic_GCA_050925095.1
   source_kind: raw_virus
-  taxid: 2056546
+  taxid: 515670
   table: 11
-  accession: GCA_050925215.1
+  accession: GCA_050925095.1
   paired_accession: ''
-  ena_assembly: GCA_050925215.1
+  ena_assembly: GCA_050925095.1
   relation: same genus
 - id: virus_eukaryotic_GCA_000888155.1
   source_kind: raw_virus
@@ -14063,85 +14095,77 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001500735.1
   relation: same genus
-- id: virus_eukaryotic_GCA_050925095.1
-  source_kind: raw_virus
-  taxid: 515670
-  table: 11
-  accession: GCA_050925095.1
-  paired_accession: ''
-  ena_assembly: GCA_050925095.1
-  relation: same genus
-- id: virus_giant_GCA_006449535.1
+- id: virus_giant_GCA_024824955.1
   source_kind: raw_virus
   taxid: 10266
   table: 11
-  accession: GCA_006449535.1
+  accession: GCA_024824955.1
   paired_accession: ''
-  ena_assembly: GCA_006449535.1
+  ena_assembly: GCA_024824955.1
   relation: same species
-- id: virus_giant_GCA_006449555.1
+- id: virus_giant_GCA_037126375.1
   source_kind: raw_virus
   taxid: 10266
   table: 11
-  accession: GCA_006449555.1
+  accession: GCA_037126375.1
   paired_accession: ''
-  ena_assembly: GCA_006449555.1
+  ena_assembly: GCA_037126375.1
   relation: same species
-- id: virus_giant_GCA_006458165.1
+- id: virus_giant_GCA_006458225.1
   source_kind: raw_virus
-  taxid: 376853
+  taxid: 376854
   table: 11
-  accession: GCA_006458165.1
+  accession: GCA_006458225.1
   paired_accession: ''
-  ena_assembly: GCA_006458165.1
+  ena_assembly: GCA_006458225.1
   relation: same species
-- id: virus_giant_GCA_001678255.1
+- id: virus_giant_GCA_006458125.1
   source_kind: raw_virus
-  taxid: 2848076
+  taxid: 365144
   table: 11
-  accession: GCA_001678255.1
+  accession: GCA_006458125.1
   paired_accession: ''
-  ena_assembly: GCA_001678255.1
+  ena_assembly: GCA_006458125.1
   relation: same species
-- id: virus_giant_GCA_001717415.1
+- id: virus_giant_GCA_007998675.1
   source_kind: raw_virus
-  taxid: 1887314
+  taxid: 10493
   table: 11
-  accession: GCA_001717415.1
+  accession: GCA_007998675.1
   paired_accession: ''
-  ena_assembly: GCA_001717415.1
+  ena_assembly: GCA_007998675.1
   relation: same species
-- id: virus_giant_GCA_002826565.1
+- id: virus_giant_GCA_013306635.1
   source_kind: raw_virus
-  taxid: 100220
+  taxid: 160691
   table: 11
-  accession: GCA_002826565.1
+  accession: GCA_013306635.1
   paired_accession: ''
-  ena_assembly: GCA_002826565.1
+  ena_assembly: GCA_013306635.1
   relation: same species
-- id: virus_giant_GCA_003032865.1
-  source_kind: raw_virus
-  taxid: 10497
-  table: 11
-  accession: GCA_003032865.1
-  paired_accession: ''
-  ena_assembly: GCA_003032865.1
-  relation: same species
-- id: virus_giant_GCA_003032885.1
+- id: virus_giant_GCA_023159395.1
   source_kind: raw_virus
   taxid: 10497
   table: 11
-  accession: GCA_003032885.1
+  accession: GCA_023159395.1
   paired_accession: ''
-  ena_assembly: GCA_003032885.1
+  ena_assembly: GCA_023159395.1
   relation: same species
-- id: virus_giant_GCA_003032895.1
+- id: virus_giant_GCA_024824995.1
   source_kind: raw_virus
   taxid: 10497
   table: 11
-  accession: GCA_003032895.1
+  accession: GCA_024824995.1
   paired_accession: ''
-  ena_assembly: GCA_003032895.1
+  ena_assembly: GCA_024824995.1
+  relation: same species
+- id: virus_giant_GCA_947366665.1
+  source_kind: raw_virus
+  taxid: 10497
+  table: 11
+  accession: GCA_947366665.1
+  paired_accession: ''
+  ena_assembly: GCA_947366665.1
   relation: same species
 - id: virus_giant_GCA_006465565.1
   source_kind: raw_virus
@@ -14151,29 +14175,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_006465565.1
   relation: same species
-- id: virus_giant_GCA_000872425.2
+- id: virus_giant_GCA_001399285.1
   source_kind: raw_virus
-  taxid: 1785753
+  taxid: 1663208
   table: 11
-  accession: GCA_000872425.2
+  accession: GCA_001399285.1
   paired_accession: ''
-  ena_assembly: GCA_000872425.2
+  ena_assembly: GCA_001399285.1
   relation: same genus
-- id: virus_giant_GCA_000887855.1
+- id: virus_giant_GCA_001399265.1
   source_kind: raw_virus
-  taxid: 696472
+  taxid: 1663210
   table: 11
-  accession: GCA_000887855.1
+  accession: GCA_001399265.1
   paired_accession: ''
-  ena_assembly: GCA_000887855.1
+  ena_assembly: GCA_001399265.1
   relation: same genus
-- id: virus_giant_GCA_000890375.1
+- id: virus_giant_GCA_000905435.1
   source_kind: raw_virus
-  taxid: 880161
+  taxid: 754064
   table: 11
-  accession: GCA_000890375.1
+  accession: GCA_000905435.1
   paired_accession: ''
-  ena_assembly: GCA_000890375.1
+  ena_assembly: GCA_000905435.1
   relation: same genus
 - id: virus_giant_GCA_006472045.1
   source_kind: raw_virus
@@ -14183,6 +14207,22 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_006472045.1
   relation: same species
+- id: virus_giant_GCA_000872425.2
+  source_kind: raw_virus
+  taxid: 1785753
+  table: 11
+  accession: GCA_000872425.2
+  paired_accession: ''
+  ena_assembly: GCA_000872425.2
+  relation: same genus
+- id: virus_giant_GCA_000890375.1
+  source_kind: raw_virus
+  taxid: 880161
+  table: 11
+  accession: GCA_000890375.1
+  paired_accession: ''
+  ena_assembly: GCA_000890375.1
+  relation: same genus
 - id: virus_giant_GCA_028569855.1
   source_kind: raw_virus
   taxid: 10264
@@ -14215,14 +14255,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_022832225.1
   relation: same species
-- id: virus_giant_GCA_000887095.1
-  source_kind: raw_virus
-  taxid: 694581
-  table: 11
-  accession: GCA_000887095.1
-  paired_accession: ''
-  ena_assembly: GCA_000887095.1
-  relation: same genus
 - id: virus_giant_GCA_001602085.1
   source_kind: raw_virus
   taxid: 1813599
@@ -14239,14 +14271,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001806195.1
   relation: same genus
-- id: virus_giant_GCA_031678235.1
+- id: virus_giant_GCA_000887095.1
   source_kind: raw_virus
-  taxid: 1680908
+  taxid: 694581
   table: 11
-  accession: GCA_031678235.1
+  accession: GCA_000887095.1
   paired_accession: ''
-  ena_assembly: GCA_031678235.1
-  relation: same species
+  ena_assembly: GCA_000887095.1
+  relation: same genus
 - id: virus_giant_GCA_963424265.1
   source_kind: raw_virus
   taxid: 1680908
@@ -14254,6 +14286,14 @@ sources:
   accession: GCA_963424265.1
   paired_accession: ''
   ena_assembly: GCA_963424265.1
+  relation: same species
+- id: virus_giant_GCA_031678235.1
+  source_kind: raw_virus
+  taxid: 1680908
+  table: 11
+  accession: GCA_031678235.1
+  paired_accession: ''
+  ena_assembly: GCA_031678235.1
   relation: same species
 - id: virus_giant_GCA_026804855.1
   source_kind: raw_virus
@@ -14263,37 +14303,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_026804855.1
   relation: same species
-- id: virus_giant_GCA_006449475.1
+- id: virus_giant_GCA_007832815.1
   source_kind: raw_virus
-  taxid: 575979
+  taxid: 540070
   table: 11
-  accession: GCA_006449475.1
+  accession: GCA_007832815.1
   paired_accession: ''
-  ena_assembly: GCA_006449475.1
+  ena_assembly: GCA_007832815.1
   relation: same species
-- id: virus_giant_GCA_006450685.1
+- id: virus_giant_GCA_007832795.1
   source_kind: raw_virus
-  taxid: 2023775
+  taxid: 540070
   table: 11
-  accession: GCA_006450685.1
+  accession: GCA_007832795.1
   paired_accession: ''
-  ena_assembly: GCA_006450685.1
+  ena_assembly: GCA_007832795.1
   relation: same species
-- id: virus_giant_GCA_006450755.1
+- id: virus_giant_GCA_007832955.1
   source_kind: raw_virus
-  taxid: 575980
+  taxid: 540070
   table: 11
-  accession: GCA_006450755.1
+  accession: GCA_007832955.1
   paired_accession: ''
-  ena_assembly: GCA_006450755.1
-  relation: same species
-- id: virus_giant_GCA_004788555.1
-  source_kind: raw_virus
-  taxid: 2039780
-  table: 11
-  accession: GCA_004788555.1
-  paired_accession: ''
-  ena_assembly: GCA_004788555.1
+  ena_assembly: GCA_007832955.1
   relation: same species
 - id: virus_giant_GCA_030013425.1
   source_kind: raw_virus
@@ -14302,6 +14334,14 @@ sources:
   accession: GCA_030013425.1
   paired_accession: ''
   ena_assembly: GCA_030013425.1
+  relation: same species
+- id: virus_giant_GCA_004788555.1
+  source_kind: raw_virus
+  taxid: 2039780
+  table: 11
+  accession: GCA_004788555.1
+  paired_accession: ''
+  ena_assembly: GCA_004788555.1
   relation: same species
 - id: virus_giant_GCA_006452015.1
   source_kind: raw_virus
@@ -14335,21 +14375,21 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_004150025.1
   relation: same species
-- id: virus_phage_GCA_000901715.1
+- id: virus_phage_GCA_000924895.1
   source_kind: raw_virus
-  taxid: 2892341
+  taxid: 1500734
   table: 11
-  accession: GCA_000901715.1
+  accession: GCA_000924895.1
   paired_accession: ''
-  ena_assembly: GCA_000901715.1
+  ena_assembly: GCA_000924895.1
   relation: same genus
-- id: virus_phage_GCA_000912975.1
+- id: virus_phage_GCA_000927375.1
   source_kind: raw_virus
-  taxid: 1399942
+  taxid: 1500735
   table: 11
-  accession: GCA_000912975.1
+  accession: GCA_000927375.1
   paired_accession: ''
-  ena_assembly: GCA_000912975.1
+  ena_assembly: GCA_000927375.1
   relation: same genus
 - id: virus_phage_GCA_000913995.1
   source_kind: raw_virus
@@ -14359,29 +14399,37 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000913995.1
   relation: same genus
-- id: virus_phage_GCA_002997555.1
+- id: virus_phage_GCA_014488755.1
   source_kind: raw_virus
-  taxid: 2099624
+  taxid: 2743403
   table: 11
-  accession: GCA_002997555.1
+  accession: GCA_014488755.1
   paired_accession: ''
-  ena_assembly: GCA_002997555.1
+  ena_assembly: GCA_014488755.1
   relation: same genus
-- id: virus_phage_GCA_002997575.1
+- id: virus_phage_GCA_006965085.1
   source_kind: raw_virus
-  taxid: 2099625
+  taxid: 2591219
   table: 11
-  accession: GCA_002997575.1
+  accession: GCA_006965085.1
   paired_accession: ''
-  ena_assembly: GCA_002997575.1
+  ena_assembly: GCA_006965085.1
   relation: same genus
-- id: virus_phage_GCA_002997595.1
+- id: virus_phage_GCA_005145585.1
   source_kind: raw_virus
-  taxid: 2099626
+  taxid: 2572530
   table: 11
-  accession: GCA_002997595.1
+  accession: GCA_005145585.1
   paired_accession: ''
-  ena_assembly: GCA_002997595.1
+  ena_assembly: GCA_005145585.1
+  relation: same genus
+- id: virus_phage_GCA_013348165.1
+  source_kind: raw_virus
+  taxid: 2736269
+  table: 11
+  accession: GCA_013348165.1
+  paired_accession: ''
+  ena_assembly: GCA_013348165.1
   relation: same genus
 - id: virus_phage_GCA_003442115.1
   source_kind: raw_virus
@@ -14399,13 +14447,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_011067445.1
   relation: same genus
-- id: virus_phage_GCA_011756645.1
+- id: virus_phage_GCA_025465375.1
   source_kind: raw_virus
-  taxid: 2713265
+  taxid: 2978491
   table: 11
-  accession: GCA_011756645.1
+  accession: GCA_025465375.1
   paired_accession: ''
-  ena_assembly: GCA_011756645.1
+  ena_assembly: GCA_025465375.1
   relation: same genus
 - id: virus_phage_GCA_009744715.1
   source_kind: raw_virus
@@ -14415,14 +14463,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_009744715.1
   relation: same genus
-- id: virus_phage_GCA_025465375.1
-  source_kind: raw_virus
-  taxid: 2978491
-  table: 11
-  accession: GCA_025465375.1
-  paired_accession: ''
-  ena_assembly: GCA_025465375.1
-  relation: same genus
 - id: virus_phage_GCA_027617905.1
   source_kind: raw_virus
   taxid: 2998992
@@ -14431,37 +14471,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_027617905.1
   relation: same genus
-- id: virus_phage_GCA_009860375.1
+- id: virus_phage_GCA_009860695.1
   source_kind: raw_virus
-  taxid: 2686245
+  taxid: 2686261
   table: 11
-  accession: GCA_009860375.1
+  accession: GCA_009860695.1
   paired_accession: ''
-  ena_assembly: GCA_009860375.1
+  ena_assembly: GCA_009860695.1
   relation: same genus
-- id: virus_phage_GCA_009860655.1
+- id: virus_phage_GCA_009860755.1
   source_kind: raw_virus
-  taxid: 2686259
+  taxid: 2686264
   table: 11
-  accession: GCA_009860655.1
+  accession: GCA_009860755.1
   paired_accession: ''
-  ena_assembly: GCA_009860655.1
+  ena_assembly: GCA_009860755.1
   relation: same genus
-- id: virus_phage_GCA_009860675.1
+- id: virus_phage_GCA_009860735.1
   source_kind: raw_virus
-  taxid: 2686260
+  taxid: 2686263
   table: 11
-  accession: GCA_009860675.1
+  accession: GCA_009860735.1
   paired_accession: ''
-  ena_assembly: GCA_009860675.1
-  relation: same genus
-- id: virus_phage_GCA_013387665.1
-  source_kind: raw_virus
-  taxid: 2710493
-  table: 11
-  accession: GCA_013387665.1
-  paired_accession: ''
-  ena_assembly: GCA_013387665.1
+  ena_assembly: GCA_009860735.1
   relation: same genus
 - id: virus_phage_GCA_013387755.1
   source_kind: raw_virus
@@ -14471,45 +14503,45 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_013387755.1
   relation: same genus
-- id: virus_phage_GCA_013387805.1
+- id: virus_phage_GCA_027572685.1
   source_kind: raw_virus
-  taxid: 2710507
+  taxid: 2968596
   table: 11
-  accession: GCA_013387805.1
+  accession: GCA_027572685.1
   paired_accession: ''
-  ena_assembly: GCA_013387805.1
+  ena_assembly: GCA_027572685.1
   relation: same genus
-- id: virus_phage_GCA_003307635.1
+- id: virus_phage_GCA_027572645.1
   source_kind: raw_virus
-  taxid: 2201432
+  taxid: 2968592
   table: 11
-  accession: GCA_003307635.1
+  accession: GCA_027572645.1
   paired_accession: ''
-  ena_assembly: GCA_003307635.1
+  ena_assembly: GCA_027572645.1
   relation: same genus
-- id: virus_phage_GCA_003307815.1
+- id: virus_phage_GCA_009673205.1
   source_kind: raw_virus
-  taxid: 2201435
+  taxid: 2660690
   table: 11
-  accession: GCA_003307815.1
+  accession: GCA_009673205.1
   paired_accession: ''
-  ena_assembly: GCA_003307815.1
+  ena_assembly: GCA_009673205.1
   relation: same genus
-- id: virus_phage_GCA_005566495.1
+- id: virus_phage_GCA_014338165.1
   source_kind: raw_virus
-  taxid: 2565526
+  taxid: 2762416
   table: 11
-  accession: GCA_005566495.1
+  accession: GCA_014338165.1
   paired_accession: ''
-  ena_assembly: GCA_005566495.1
+  ena_assembly: GCA_014338165.1
   relation: same genus
-- id: virus_phage_GCA_002608745.1
+- id: virus_phage_GCA_014517915.1
   source_kind: raw_virus
-  taxid: 1772323
+  taxid: 2767555
   table: 11
-  accession: GCA_002608745.1
+  accession: GCA_014517915.1
   paired_accession: ''
-  ena_assembly: GCA_002608745.1
+  ena_assembly: GCA_014517915.1
   relation: same genus
 - id: virus_phage_GCA_002623305.1
   source_kind: raw_virus
@@ -14519,6 +14551,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_002623305.1
   relation: same genus
+- id: virus_phage_GCA_002608745.1
+  source_kind: raw_virus
+  taxid: 1772323
+  table: 11
+  accession: GCA_002608745.1
+  paired_accession: ''
+  ena_assembly: GCA_002608745.1
+  relation: same genus
 - id: virus_phage_GCA_001745935.1
   source_kind: raw_virus
   taxid: 1821560
@@ -14526,6 +14566,14 @@ sources:
   accession: GCA_001745935.1
   paired_accession: ''
   ena_assembly: GCA_001745935.1
+  relation: same genus
+- id: virus_phage_GCA_024371835.1
+  source_kind: raw_virus
+  taxid: 2951392
+  table: 11
+  accession: GCA_024371835.1
+  paired_accession: ''
+  ena_assembly: GCA_024371835.1
   relation: same genus
 - id: virus_phage_GCA_003442195.1
   source_kind: raw_virus
@@ -14535,21 +14583,37 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_003442195.1
   relation: same genus
-- id: virus_phage_GCA_009688665.1
+- id: virus_phage_GCA_023700075.1
   source_kind: raw_virus
-  taxid: 2656539
+  taxid: 2936923
   table: 11
-  accession: GCA_009688665.1
+  accession: GCA_023700075.1
   paired_accession: ''
-  ena_assembly: GCA_009688665.1
+  ena_assembly: GCA_023700075.1
   relation: same genus
-- id: virus_phage_GCA_003691935.1
+- id: virus_phage_GCA_032450215.1
   source_kind: raw_virus
-  taxid: 2419971
+  taxid: 3077808
   table: 11
-  accession: GCA_003691935.1
+  accession: GCA_032450215.1
   paired_accession: ''
-  ena_assembly: GCA_003691935.1
+  ena_assembly: GCA_032450215.1
+  relation: same genus
+- id: virus_phage_GCA_015045345.1
+  source_kind: raw_virus
+  taxid: 2776869
+  table: 11
+  accession: GCA_015045345.1
+  paired_accession: ''
+  ena_assembly: GCA_015045345.1
+  relation: same genus
+- id: virus_phage_GCA_021216135.1
+  source_kind: raw_virus
+  taxid: 2810528
+  table: 11
+  accession: GCA_021216135.1
+  paired_accession: ''
+  ena_assembly: GCA_021216135.1
   relation: same genus
 - id: virus_phage_GCA_003691975.1
   source_kind: raw_virus
@@ -14559,13 +14623,21 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_003691975.1
   relation: same genus
-- id: virus_phage_GCA_003692055.1
+- id: virus_phage_GCA_008001305.1
   source_kind: raw_virus
-  taxid: 2419974
+  taxid: 2603259
   table: 11
-  accession: GCA_003692055.1
+  accession: GCA_008001305.1
   paired_accession: ''
-  ena_assembly: GCA_003692055.1
+  ena_assembly: GCA_008001305.1
+  relation: same genus
+- id: virus_phage_GCA_017347945.1
+  source_kind: raw_virus
+  taxid: 2812932
+  table: 11
+  accession: GCA_017347945.1
+  paired_accession: ''
+  ena_assembly: GCA_017347945.1
   relation: same genus
 - id: virus_phage_GCA_000894035.1
   source_kind: raw_virus
@@ -14583,61 +14655,53 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001470395.1
   relation: same genus
-- id: virus_phage_GCA_017347945.1
+- id: virus_phage_GCA_024752745.1
   source_kind: raw_virus
-  taxid: 2812932
+  taxid: 2970352
   table: 11
-  accession: GCA_017347945.1
+  accession: GCA_024752745.1
   paired_accession: ''
-  ena_assembly: GCA_017347945.1
+  ena_assembly: GCA_024752745.1
   relation: same genus
-- id: virus_phage_GCA_001737015.1
+- id: virus_phage_GCA_009689485.1
   source_kind: raw_virus
-  taxid: 1838062
+  taxid: 2656536
   table: 11
-  accession: GCA_001737015.1
+  accession: GCA_009689485.1
   paired_accession: ''
-  ena_assembly: GCA_001737015.1
+  ena_assembly: GCA_009689485.1
   relation: same genus
-- id: virus_phage_GCA_001743615.1
+- id: virus_phage_GCA_004325235.1
   source_kind: raw_virus
-  taxid: 1887644
+  taxid: 2517926
   table: 11
-  accession: GCA_001743615.1
+  accession: GCA_004325235.1
   paired_accession: ''
-  ena_assembly: GCA_001743615.1
+  ena_assembly: GCA_004325235.1
   relation: same genus
-- id: virus_phage_GCA_001744295.1
+- id: virus_phage_GCA_027572385.1
   source_kind: raw_virus
-  taxid: 1887643
+  taxid: 2968566
   table: 11
-  accession: GCA_001744295.1
+  accession: GCA_027572385.1
   paired_accession: ''
-  ena_assembly: GCA_001744295.1
+  ena_assembly: GCA_027572385.1
   relation: same genus
-- id: virus_phage_GCA_027572085.1
+- id: virus_phage_GCA_027572415.1
   source_kind: raw_virus
-  taxid: 2968535
+  taxid: 2968569
   table: 11
-  accession: GCA_027572085.1
+  accession: GCA_027572415.1
   paired_accession: ''
-  ena_assembly: GCA_027572085.1
+  ena_assembly: GCA_027572415.1
   relation: same genus
-- id: virus_phage_GCA_027572365.1
+- id: virus_phage_GCA_027572505.1
   source_kind: raw_virus
-  taxid: 2968564
+  taxid: 2968578
   table: 11
-  accession: GCA_027572365.1
+  accession: GCA_027572505.1
   paired_accession: ''
-  ena_assembly: GCA_027572365.1
-  relation: same genus
-- id: virus_phage_GCA_027572375.1
-  source_kind: raw_virus
-  taxid: 2968565
-  table: 11
-  accession: GCA_027572375.1
-  paired_accession: ''
-  ena_assembly: GCA_027572375.1
+  ena_assembly: GCA_027572505.1
   relation: same genus
 - id: virus_phage_GCA_000842285.1
   source_kind: raw_virus
@@ -14647,14 +14711,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000842285.1
   relation: same genus
-- id: virus_phage_GCA_000866925.1
-  source_kind: raw_virus
-  taxid: 2994040
-  table: 11
-  accession: GCA_000866925.1
-  paired_accession: ''
-  ena_assembly: GCA_000866925.1
-  relation: same genus
 - id: virus_phage_GCA_035134925.1
   source_kind: raw_virus
   taxid: 3110517
@@ -14663,13 +14719,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_035134925.1
   relation: same genus
-- id: virus_phage_GCA_000904115.1
+- id: virus_phage_GCA_000866925.1
   source_kind: raw_virus
-  taxid: 1188795
+  taxid: 2994040
   table: 11
-  accession: GCA_000904115.1
+  accession: GCA_000866925.1
   paired_accession: ''
-  ena_assembly: GCA_000904115.1
+  ena_assembly: GCA_000866925.1
   relation: same genus
 - id: virus_phage_GCA_018215345.1
   source_kind: raw_virus
@@ -14678,6 +14734,14 @@ sources:
   accession: GCA_018215345.1
   paired_accession: ''
   ena_assembly: GCA_018215345.1
+  relation: same genus
+- id: virus_phage_GCA_021355085.1
+  source_kind: raw_virus
+  taxid: 2894301
+  table: 11
+  accession: GCA_021355085.1
+  paired_accession: ''
+  ena_assembly: GCA_021355085.1
   relation: same genus
 - id: virus_phage_GCA_021355075.1
   source_kind: raw_virus
@@ -14703,14 +14767,22 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_033038135.1
   relation: same species
-- id: virus_phage_GCA_033038145.1
+- id: virus_phage_GCA_033038155.1
   source_kind: raw_virus
   taxid: 3045168
   table: 11
-  accession: GCA_033038145.1
+  accession: GCA_033038155.1
   paired_accession: ''
-  ena_assembly: GCA_033038145.1
+  ena_assembly: GCA_033038155.1
   relation: same species
+- id: virus_phage_GCA_009187925.1
+  source_kind: raw_virus
+  taxid: 2652424
+  table: 11
+  accession: GCA_009187925.1
+  paired_accession: ''
+  ena_assembly: GCA_009187925.1
+  relation: same genus
 - id: virus_phage_GCA_003183245.1
   source_kind: raw_virus
   taxid: 2182408
@@ -14727,13 +14799,21 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_007998495.1
   relation: same genus
-- id: virus_phage_GCA_009187925.1
+- id: virus_phage_GCA_008801055.2
   source_kind: raw_virus
-  taxid: 2652424
+  taxid: 3452123
   table: 11
-  accession: GCA_009187925.1
+  accession: GCA_008801055.2
   paired_accession: ''
-  ena_assembly: GCA_009187925.1
+  ena_assembly: GCA_008801055.2
+  relation: same genus
+- id: virus_phage_GCA_032439475.1
+  source_kind: raw_virus
+  taxid: 3043586
+  table: 11
+  accession: GCA_032439475.1
+  paired_accession: ''
+  ena_assembly: GCA_032439475.1
   relation: same genus
 - id: virus_phage_GCA_006964345.1
   source_kind: raw_virus
@@ -14743,21 +14823,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_006964345.1
   relation: same genus
-- id: virus_phage_GCA_006964465.1
+- id: virus_phage_GCA_002604085.1
   source_kind: raw_virus
-  taxid: 2591050
+  taxid: 1406341
   table: 11
-  accession: GCA_006964465.1
+  accession: GCA_002604085.1
   paired_accession: ''
-  ena_assembly: GCA_006964465.1
-  relation: same genus
-- id: virus_phage_GCA_008801055.2
-  source_kind: raw_virus
-  taxid: 3452123
-  table: 11
-  accession: GCA_008801055.2
-  paired_accession: ''
-  ena_assembly: GCA_008801055.2
+  ena_assembly: GCA_002604085.1
   relation: same genus
 - id: virus_phage_GCA_000871085.1
   source_kind: raw_virus
@@ -14767,21 +14839,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000871085.1
   relation: same genus
-- id: virus_phage_GCA_002604085.1
+- id: virus_phage_GCA_029875575.1
   source_kind: raw_virus
-  taxid: 1406341
+  taxid: 2914006
   table: 11
-  accession: GCA_002604085.1
+  accession: GCA_029875575.1
   paired_accession: ''
-  ena_assembly: GCA_002604085.1
-  relation: same genus
-- id: virus_phage_GCA_004146425.1
-  source_kind: raw_virus
-  taxid: 1298530
-  table: 11
-  accession: GCA_004146425.1
-  paired_accession: ''
-  ena_assembly: GCA_004146425.1
+  ena_assembly: GCA_029875575.1
   relation: same genus
 - id: virus_phage_GCA_002630665.1
   source_kind: raw_virus
@@ -14791,14 +14855,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_002630665.1
   relation: same species
-- id: virus_phage_GCA_000884575.1
-  source_kind: raw_virus
-  taxid: 673835
-  table: 11
-  accession: GCA_000884575.1
-  paired_accession: ''
-  ena_assembly: GCA_000884575.1
-  relation: same genus
 - id: virus_phage_GCA_000886175.1
   source_kind: raw_virus
   taxid: 673832
@@ -14806,6 +14862,14 @@ sources:
   accession: GCA_000886175.1
   paired_accession: ''
   ena_assembly: GCA_000886175.1
+  relation: same genus
+- id: virus_phage_GCA_002630645.1
+  source_kind: raw_virus
+  taxid: 673836
+  table: 11
+  accession: GCA_002630645.1
+  paired_accession: ''
+  ena_assembly: GCA_002630645.1
   relation: same genus
 - id: virus_phage_GCA_018215575.1
   source_kind: raw_virus
@@ -14815,21 +14879,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_018215575.1
   relation: same genus
-- id: virus_phage_GCA_000897415.1
+- id: virus_phage_GCA_009685725.1
   source_kind: raw_virus
-  taxid: 1161930
+  taxid: 2662299
   table: 11
-  accession: GCA_000897415.1
+  accession: GCA_009685725.1
   paired_accession: ''
-  ena_assembly: GCA_000897415.1
-  relation: same genus
-- id: virus_phage_GCA_000905595.1
-  source_kind: raw_virus
-  taxid: 1262522
-  table: 11
-  accession: GCA_000905595.1
-  paired_accession: ''
-  ena_assembly: GCA_000905595.1
+  ena_assembly: GCA_009685725.1
   relation: same genus
 - id: virus_phage_GCA_000921195.1
   source_kind: raw_virus
@@ -14839,13 +14895,13 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000921195.1
   relation: same genus
-- id: virus_phage_GCA_000916195.1
+- id: virus_phage_GCA_000897415.1
   source_kind: raw_virus
-  taxid: 1432847
+  taxid: 1161930
   table: 11
-  accession: GCA_000916195.1
+  accession: GCA_000897415.1
   paired_accession: ''
-  ena_assembly: GCA_000916195.1
+  ena_assembly: GCA_000897415.1
   relation: same genus
 - id: virus_phage_GCA_000916215.1
   source_kind: raw_virus
@@ -14855,6 +14911,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_000916215.1
   relation: same genus
+- id: virus_phage_GCA_000916195.1
+  source_kind: raw_virus
+  taxid: 1432847
+  table: 11
+  accession: GCA_000916195.1
+  paired_accession: ''
+  ena_assembly: GCA_000916195.1
+  relation: same genus
 - id: virus_phage_GCA_001736635.1
   source_kind: raw_virus
   taxid: 1647472
@@ -14863,29 +14927,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_001736635.1
   relation: same genus
-- id: virus_phage_GCA_000908495.1
+- id: virus_phage_GCA_020494185.1
   source_kind: raw_virus
-  taxid: 1327758
+  taxid: 2871548
   table: 11
-  accession: GCA_000908495.1
+  accession: GCA_020494185.1
   paired_accession: ''
-  ena_assembly: GCA_000908495.1
+  ena_assembly: GCA_020494185.1
   relation: same genus
-- id: virus_phage_GCA_000909095.1
+- id: virus_phage_GCA_020493615.1
   source_kind: raw_virus
-  taxid: 1327759
+  taxid: 2863856
   table: 11
-  accession: GCA_000909095.1
+  accession: GCA_020493615.1
   paired_accession: ''
-  ena_assembly: GCA_000909095.1
+  ena_assembly: GCA_020493615.1
   relation: same genus
-- id: virus_phage_GCA_000910055.1
+- id: virus_phage_GCA_004149545.1
   source_kind: raw_virus
-  taxid: 1327760
+  taxid: 2510519
   table: 11
-  accession: GCA_000910055.1
+  accession: GCA_004149545.1
   paired_accession: ''
-  ena_assembly: GCA_000910055.1
+  ena_assembly: GCA_004149545.1
   relation: same genus
 - id: virus_phage_GCA_002613245.1
   source_kind: raw_virus
@@ -14919,29 +14983,29 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_014337825.1
   relation: same genus
-- id: virus_phage_GCA_006965185.1
+- id: virus_phage_GCA_023590915.1
   source_kind: raw_virus
-  taxid: 2591212
+  taxid: 2939734
   table: 11
-  accession: GCA_006965185.1
+  accession: GCA_023590915.1
   paired_accession: ''
-  ena_assembly: GCA_006965185.1
+  ena_assembly: GCA_023590915.1
   relation: same genus
-- id: virus_phage_GCA_013388005.1
+- id: virus_phage_GCA_024752595.1
   source_kind: raw_virus
-  taxid: 2743909
+  taxid: 2926082
   table: 11
-  accession: GCA_013388005.1
+  accession: GCA_024752595.1
   paired_accession: ''
-  ena_assembly: GCA_013388005.1
+  ena_assembly: GCA_024752595.1
   relation: same genus
-- id: virus_phage_GCA_016103575.1
+- id: virus_phage_GCA_020492935.1
   source_kind: raw_virus
-  taxid: 2794945
+  taxid: 2851096
   table: 11
-  accession: GCA_016103575.1
+  accession: GCA_020492935.1
   paired_accession: ''
-  ena_assembly: GCA_016103575.1
+  ena_assembly: GCA_020492935.1
   relation: same genus
 - id: virus_phage_GCA_003442895.1
   source_kind: raw_virus
@@ -14967,6 +15031,14 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_007647785.1
   relation: same genus
+- id: virus_phage_GCA_025462555.1
+  source_kind: raw_virus
+  taxid: 2978483
+  table: 11
+  accession: GCA_025462555.1
+  paired_accession: ''
+  ena_assembly: GCA_025462555.1
+  relation: same genus
 - id: virus_phage_GCA_009186895.1
   source_kind: raw_virus
   taxid: 2652411
@@ -14974,30 +15046,6 @@ sources:
   accession: GCA_009186895.1
   paired_accession: ''
   ena_assembly: GCA_009186895.1
-  relation: same genus
-- id: virus_phage_GCA_014337655.1
-  source_kind: raw_virus
-  taxid: 2762389
-  table: 11
-  accession: GCA_014337655.1
-  paired_accession: ''
-  ena_assembly: GCA_014337655.1
-  relation: same genus
-- id: virus_phage_GCA_008939665.1
-  source_kind: raw_virus
-  taxid: 2599891
-  table: 11
-  accession: GCA_008939665.1
-  paired_accession: ''
-  ena_assembly: GCA_008939665.1
-  relation: same genus
-- id: virus_phage_GCA_012934045.1
-  source_kind: raw_virus
-  taxid: 2725627
-  table: 11
-  accession: GCA_012934045.1
-  paired_accession: ''
-  ena_assembly: GCA_012934045.1
   relation: same genus
 - id: virus_phage_GCA_023897935.1
   source_kind: raw_virus
@@ -15007,6 +15055,38 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_023897935.1
   relation: same genus
+- id: virus_phage_GCA_012934045.1
+  source_kind: raw_virus
+  taxid: 2725627
+  table: 11
+  accession: GCA_012934045.1
+  paired_accession: ''
+  ena_assembly: GCA_012934045.1
+  relation: same genus
+- id: virus_phage_GCA_008939665.1
+  source_kind: raw_virus
+  taxid: 2599891
+  table: 11
+  accession: GCA_008939665.1
+  paired_accession: ''
+  ena_assembly: GCA_008939665.1
+  relation: same genus
+- id: virus_phage_GCA_014337655.1
+  source_kind: raw_virus
+  taxid: 2762389
+  table: 11
+  accession: GCA_014337655.1
+  paired_accession: ''
+  ena_assembly: GCA_014337655.1
+  relation: same genus
+- id: virus_phage_GCA_032449965.1
+  source_kind: raw_virus
+  taxid: 3077793
+  table: 11
+  accession: GCA_032449965.1
+  paired_accession: ''
+  ena_assembly: GCA_032449965.1
+  relation: same genus
 - id: virus_phage_GCA_011064365.1
   source_kind: raw_virus
   taxid: 2713244
@@ -15015,14 +15095,6 @@ sources:
   paired_accession: ''
   ena_assembly: GCA_011064365.1
   relation: same species
-- id: virus_phage_GCA_011064345.1
-  source_kind: raw_virus
-  taxid: 2713242
-  table: 11
-  accession: GCA_011064345.1
-  paired_accession: ''
-  ena_assembly: GCA_011064345.1
-  relation: same genus
 - id: virus_phage_GCA_011064375.1
   source_kind: raw_virus
   taxid: 2713245
@@ -15030,6 +15102,14 @@ sources:
   accession: GCA_011064375.1
   paired_accession: ''
   ena_assembly: GCA_011064375.1
+  relation: same genus
+- id: virus_phage_GCA_011064345.1
+  source_kind: raw_virus
+  taxid: 2713242
+  table: 11
+  accession: GCA_011064345.1
+  paired_accession: ''
+  ena_assembly: GCA_011064345.1
   relation: same genus
 - id: virus_phage_GCA_023661445.1
   source_kind: raw_virus

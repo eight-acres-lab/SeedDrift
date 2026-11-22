@@ -1,5 +1,5 @@
 # Machine i-1: W13 step 2, part F of the build of corpus medium-k3 (configs/corpus/medium-k3.yaml: corpus medium and the
-# first batch of close relatives that run 20261122T161536-exp-rel-124b16a7-rel-dev-w13-pick-i1 named, k = 3 per genome): stage fetch only (rel_w13_build.upto: fetch),
+# first batch of close relatives that run 20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1 named, k = 3 per genome): stage fetch only (rel_w13_build.upto: fetch),
 # the new genomes from ENA and Ensembl into the CI's content store, every file with its URL, size and sha256; the later
 # parts take them from the store. Network, 2 cores (beside a training), about an hour. Development diagnosis only.
 pipeline: rel_corpus
@@ -44,7 +44,7 @@ rel:
   machine: i1
   stages: [w13_build]
 rel_w13_build:
-  pick_from: /hy-tmp/seeddrift-ci/runs/20261122T161536-exp-rel-124b16a7-rel-dev-w13-pick-i1
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1
   upto: fetch
 train:
   gpu_lease: false

@@ -1,0 +1,20 @@
+{
+ "about": "The machines of the relational-model line. Every rel profile names one (rel.machine); every rel stage starts by checking that the machine it runs on is that one (ci/stages/rel/common.py check_machine): the GPU's name and total memory as nvidia-smi reports them, and the CI root of the run. rel.parallel (trainings at once) may not exceed parallel_max. Owned by the coordinator (C0).",
+ "version": 1,
+ "machines": {
+  "i1": {
+   "gpu_name": "NVIDIA A800 80GB PCIe",
+   "gpu_mem_mb": 81920,
+   "ci_root": "/hy-tmp/seeddrift-ci",
+   "parallel_max": 3,
+   "note": "A800 80 GB, 16-CPU quota; the GPU is shared with other users' processes"
+  },
+  "i2": {
+   "gpu_name": "NVIDIA A100-PCIE-40GB",
+   "gpu_mem_mb": 40960,
+   "ci_root": "/hy-tmp/seeddrift-ci",
+   "parallel_max": 1,
+   "note": "A100 40 GB, 8-CPU quota; the GPU is shared with a vLLM service that must never be stopped: one training at a time, no GPU lease"
+  }
+ }
+}

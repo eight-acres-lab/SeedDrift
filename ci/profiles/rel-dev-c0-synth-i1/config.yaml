@@ -1,0 +1,22 @@
+# Machine i-1: the development stage of the coordinator (C0) that writes synthetic tables (ci/stages/rel/synth.py) as an
+# ordinary table set (ci/stages/rel/c0_synth.py), then the gates of the kind: the sealed check of this machine and the
+# hand-off check. CPU only (the select lock); no real genome is read. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/ci-tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+rel:
+  machine: i1
+  stages: [c0_synth]
+rel_c0_synth:
+  tables: 2048
+  seed: 1
+train:
+  gpu_lease: false
+  device: cpu

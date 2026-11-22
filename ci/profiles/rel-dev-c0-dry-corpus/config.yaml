@@ -1,0 +1,18 @@
+# Dry-run profile of kind rel_corpus (configs/rel/kinds.yaml): every stage of the kind, for the static check only
+# (`python -m ci check` plans it with Snakemake; the stub stages fail if it is ever run). Owned by the coordinator (C0).
+pipeline: rel_corpus
+needs_gpu: false
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/ci-tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+rel:
+  machine: i1
+  stages: [w13_census]
+train:
+  gpu_lease: false
+  device: cpu

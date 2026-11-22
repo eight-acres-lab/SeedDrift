@@ -5,6 +5,42 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.4 (branch exp/rel, in progress)
+
+The relational-model line: a general model of how genomes inherit from each other (pretraining, then post-training),
+built by several packages in parallel on the integration branch exp/rel. This version is its foundation; nothing of the
+existing pipelines, gates or stages changes what it decides.
+- Pipeline kinds rel_tables, rel_traineval, rel_readout, rel_corpus and rel_events, registered in configs/rel/kinds.yaml
+  (lock, gates, every stage with its package, rule, output, module, gates and side; ci/stages/rel/kinds.py). A profile
+  names its kind and the stages it runs (`rel.stages`); its target, required gates and resume phases follow from them
+  (ci/__main__.py `pipeline`). The run record schema takes pipeline names rel_<name>.
+- ci/Snakefile includes every ci/rules/rel_*.smk (one file per package) and adds the target rule rel_all, the gate
+  rule of every stage (gate phase rel_<stage>, decided by the stage module's `gate` function) and of the kind (phase
+  <kind>: G3_rel, the sealed check on every genome of every table set the run wrote, and G4_rel_handoff, every
+  hand-off file complete and matching its files). ci/stages/gates.py hands these phases to ci/stages/rel/gates.py.
+  Stub rules for the stages of packages W2, W3, W4, W5, W11, W12, W13 and W15 (ci/stages/rel/stub.py fails).
+- Hand-off files between packages (seeddrift/train/rel/handoff.py, standard library): the table-set manifest (kind
+  real, synthetic or ruler; coverage; files with their roles; every genome of a row) and the model index.
+- The sealed check (seeddrift/train/rel/sealed.py, both interpreters; configs/rel/sealed.json): the 257 genomes of the
+  medium corpus's sealed test split (the pinned training-data index, sha256 and count checked, cross-checked against
+  the machine's sealed registry where it exists), their assemblies, the sealed chromosome accessions; and the lineage
+  half in the CI environment (ci/stages/rel/common.py: gate G2's rules plus the provisional recipients list).
+- "This configuration belongs to this machine" (ci/stages/rel/common.py check_machine, configs/rel/machines.json): every
+  rel stage starts by checking the GPU's name and memory, the CI root and the trainings at once (RelStage).
+- The run-summary hook (ci/stages/rel/summary.py) adds each stage's own summary part; `ci compare --expect
+  within_tolerance --protocol FILE` judges the outputs of stages marked `tolerance` with the function at the fixed path
+  seeddrift/train/rel/trainer/tolerance.py (a stub that answers "undecided" until package W4 writes it).
+- seeddrift/train/rel/: the package folders, registry.py (models, objectives, masks, baselines and readouts by module
+  name), the stub arm models/uniform.py (uniform over the 65 target symbols), api.py as a placeholder for the contract.
+- The generator of synthetic tables (ci/stages/rel/synth.py, numpy): random symbols, 16 to 32 rows copied from each
+  other at 0.1% to 30% substitution, the two capability tasks (whole locus masked; source switch inside the locus) and
+  the correct sources for tests only; fixtures in tests/ci/rel_fixtures.py. Train-side code never imports it.
+- Profiles: one dry-run profile per kind (rel-dev-c0-dry-*, static check only).
+- Tests (tests/ci/test_rel_c0_*.py): the registry and its rules, every rel-dev-* profile with `needs_gpu: false` and
+  the CPU, every rel profile without the GPU lease and on a known machine, no rel module importing ci/gpu_lease, the
+  train side free of generator imports, the guards, the gate dispatch, the summary hook and the tolerance comparison.
+- configs/rel/ (variants, protocols, requests, coordinator state) and ci/changelog.d/ for the packages' change notes.
+
 ## 0.3 (branch exp/truth-labels, in progress)
 
 The truth-labels line: a self-supervised model whose training targets are observed facts of real genomes, run as its

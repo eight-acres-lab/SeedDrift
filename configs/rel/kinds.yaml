@@ -1,0 +1,203 @@
+# Pipeline kinds of the relational-model line (pipelines rel_*), format version 1 (CI 0.4). Read by
+# ci/stages/rel/kinds.py (for ci/__main__.py and ci/stages/gates.py) and by ci/Snakefile. Owned by the coordinator
+# (package C0); a package asks for a change with a request file in configs/rel/requests/.
+#
+# A profile names its kind and the stages it runs:
+#     pipeline: rel_tables
+#     rel: {machine: i1, stages: [c0_synth]}
+# Every run of a kind decides the gates of phase pre (ci/stages/gates.py), the gates of each stage it runs (gate phase
+# rel_<stage>), then the gates of the kind (gate phase <kind>); it passes only with all of them present and passed.
+#
+# Kind fields
+#   lock      gpu or select. The server launcher takes the select lock only for a profile with the exact line
+#             `needs_gpu: false` (ci/server_launch.sh). tests/ci/test_rel_c0_profiles.py: profiles of a select kind
+#             carry that line; rel-dev-* profiles always carry it and set train.device: cpu.
+#   target    the Snakemake target: rule rel_all of ci/Snakefile, which asks for gates/<kind>.ok
+#   gates     decided by the kind phase after every stage: G3_rel (the sealed check on every genome of every table set
+#             the run wrote) and G4_rel_handoff (every hand-off file of the run is complete and matches its files)
+# Stage fields (stage names: <package>_<what>, lower case; package C0 or Wn)
+#   package   the work package that owns the stage's rule (ci/rules/rel_<package>.smk) and its module
+#   rule      the Snakemake rule that writes `output` (rel_<stage>)
+#   output    the file the stage writes last; gate phase rel_<stage> reads it (data/rel_<package>/...)
+#   module    the stage module (python -m <module> RUN_DIR); its function gate(st, cfg, run_dir) decides `gates`
+#   gates     the gates of phase rel_<stage>
+#   side      data, train or eval. Train-side modules never import the generators of synthetic tables or rulers
+#             (tests/ci/test_rel_c0_imports.py)
+#   produces  tableset (`output` is a table-set manifest) or models (`output` is the model index); see
+#             seeddrift/train/rel/handoff.py. Omitted: a report.
+#   resumable true when the stage continues from its own checkpoint after an interruption (Snakemake reruns
+#             incomplete rules in any case)
+#   tolerance true when `ci compare --expect within_tolerance` judges the stage's outputs with the tolerance function
+#             (seeddrift/train/rel/trainer/tolerance.py) instead of byte for byte
+#   stub      true while the rule is a placeholder that fails when run (ci/stages/rel/stub.py); the package replaces
+#             the rule and asks the coordinator to drop the flag
+version: 1
+kind_gates: [G3_rel, G4_rel_handoff]
+kinds:
+  rel_tables:
+    purpose: table sets (W2 distances, tables v0, evaluation items with context, census; W3 offline rendering of the
+      evaluation items; W5 item sampling; W12 re-search and tables v1) and C0's synthetic table sets
+    lock: select
+    target: rel_all
+    stages:
+      c0_synth:
+        package: C0
+        rule: rel_c0_synth
+        output: data/rel_c0/synth/tableset.json
+        module: ci.stages.rel.c0_synth
+        gates: [G4_rel_c0_synth]
+        side: data
+        produces: tableset
+      w2_dist:
+        package: W2
+        rule: rel_w2_dist
+        output: data/rel_w2/dist/report.json
+        module: ci.stages.rel.w2_dist
+        gates: [G4_rel_w2_dist]
+        side: data
+        stub: true
+      w2_v0:
+        package: W2
+        rule: rel_w2_v0
+        output: data/rel_w2/v0/tableset.json
+        module: ci.stages.rel.w2_v0
+        gates: [G4_rel_w2_v0]
+        side: data
+        produces: tableset
+        stub: true
+      w5_items:
+        package: W5
+        rule: rel_w5_items
+        output: data/rel_w5/items/items.json
+        module: ci.stages.rel.w5_items
+        gates: [G4_rel_w5_items]
+        side: eval
+        stub: true
+      w2_items:
+        package: W2
+        rule: rel_w2_items
+        output: data/rel_w2/items/tableset.json
+        module: ci.stages.rel.w2_items
+        gates: [G4_rel_w2_items]
+        side: data
+        produces: tableset
+        stub: true
+      w3_offline:
+        package: W3
+        rule: rel_w3_offline
+        output: data/rel_w3/offline/tableset.json
+        module: ci.stages.rel.w3_offline
+        gates: [G4_rel_w3_offline]
+        side: data
+        produces: tableset
+        stub: true
+      w2_census:
+        package: W2
+        rule: rel_w2_census
+        output: data/rel_w2/census/report.json
+        module: ci.stages.rel.w2_census
+        gates: [G4_rel_w2_census]
+        side: data
+        stub: true
+      w12_search:
+        package: W12
+        rule: rel_w12_search
+        output: data/rel_w12/search/manifest.json
+        module: ci.stages.rel.w12_search
+        gates: [G4_rel_w12_search]
+        side: data
+        resumable: true
+        stub: true
+      w12_v1:
+        package: W12
+        rule: rel_w12_v1
+        output: data/rel_w12/v1/tableset.json
+        module: ci.stages.rel.w12_v1
+        gates: [G4_rel_w12_v1]
+        side: data
+        produces: tableset
+        stub: true
+  rel_traineval:
+    purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
+      (W5) of the arms of a round
+    lock: gpu
+    target: rel_all
+    stages:
+      w4_train:
+        package: W4
+        rule: rel_w4_train
+        output: data/rel_w4/train/models.json
+        module: ci.stages.rel.w4_train
+        gates: [G4_rel_w4_train]
+        side: train
+        produces: models
+        resumable: true
+        tolerance: true
+        stub: true
+      w5_eval:
+        package: W5
+        rule: rel_w5_eval
+        output: data/rel_w5/eval/results.json
+        module: ci.stages.rel.w5_eval
+        gates: [G4_rel_w5_eval]
+        side: eval
+        resumable: true
+        tolerance: true
+        stub: true
+      w5_report:
+        package: W5
+        rule: rel_w5_report
+        output: data/rel_w5/report/report.json
+        module: ci.stages.rel.w5_report
+        gates: [G4_rel_w5_report]
+        side: eval
+        stub: true
+  rel_readout:
+    purpose: readouts on the models of a passed training run, and the ruler sets they are read against (W11)
+    lock: gpu
+    target: rel_all
+    stages:
+      w11_rulers:
+        package: W11
+        rule: rel_w11_rulers
+        output: data/rel_w11/rulers/tableset.json
+        module: ci.stages.rel.w11_rulers
+        gates: [G4_rel_w11_rulers]
+        side: eval
+        produces: tableset
+        stub: true
+      w11_readout:
+        package: W11
+        rule: rel_w11_readout
+        output: data/rel_w11/readout/report.json
+        module: ci.stages.rel.w11_readout
+        gates: [G4_rel_w11_readout]
+        side: eval
+        stub: true
+  rel_corpus:
+    purpose: corpus changes for close relatives (W13); step 1 is the census of what each group can get
+    lock: select
+    target: rel_all
+    stages:
+      w13_census:
+        package: W13
+        rule: rel_w13_census
+        output: data/rel_w13/census/report.json
+        module: ci.stages.rel.w13_census
+        gates: [G4_rel_w13_census]
+        side: data
+        stub: true
+  rel_events:
+    purpose: the event registry, first version, without any score (W15); drafts live in bench/rel/registry/, never in
+      bench/catalogue/events.tsv
+    lock: select
+    target: rel_all
+    stages:
+      w15_registry:
+        package: W15
+        rule: rel_w15_registry
+        output: data/rel_w15/registry/report.json
+        module: ci.stages.rel.w15_registry
+        gates: [G4_rel_w15_registry]
+        side: data
+        stub: true

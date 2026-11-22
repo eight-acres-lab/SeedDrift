@@ -200,6 +200,17 @@ def frame_layout(tab, block=None):
     return col, frame_row, frame_len
 
 
+def _stored_columns(index, columns, qg, tg, qi, ti):
+    """The aligned (query, target) positions of every stored alignment of gene qi of genome qg (the query) with gene ti
+    of genome tg (the target), one pair of arrays per alignment; None when the index holds no such pair."""
+    got, found = [], False
+    for p in index.pairs(qg, tg, qi):
+        if index.tgene(p) == ti:
+            found = True
+            got += [columns(cig, qs, ss) for qs, qe, ss, se, cig in index.alignments(p)]
+    return got if found else None
+
+
 def frame_layout_online(tab, meta, index, block=None, columns=None):
     """frame_layout for training (online): the other rows placed on the frame relative by the alignments the uncapped
     search stored (package W2's index, seeddrift/train/rel/tables/v1_hits.py), not by aligning here.
@@ -207,8 +218,11 @@ def frame_layout_online(tab, meta, index, block=None, columns=None):
     every row's stretch and its first codon in that gene). index: pairs(query genome, target genome, query gene) ->
     pair ids, tgene(p), alignments(p) -> [(qs, qe, ss, se, cigar)]; columns(cigar, qs, ss) -> (query, target) 0-based
     positions of the aligned columns (v1_hits.columns by default). A row's pair is the one whose target gene is the
-    row's own gene (a genome may hold several rows). The aligned columns of all its alignments, moved into the two
-    stretches' coordinates, are kept where both increase; a row with no stored pair is not shown in the block.
+    row's own gene (a genome may hold several rows). The search's targets are the training genomes only, so when the
+    frame relative's genome has no pair with the row's (the row is a self-copy of a held-out or development row 0, say),
+    the other direction is read: the row's gene as the query, the frame relative's gene as the target, the two sides of
+    its columns swapped. The aligned columns of all its alignments, moved into the two stretches' coordinates, are kept
+    where both increase; a row with no stored pair in either direction is not shown in the block.
     Returns (col, frame_row, frame_len) as frame_layout does, and {row: codons placed}."""
     if columns is None:
         from seeddrift.train.rel.tables import v1_hits         # package W2's reader of the search's alignments
@@ -234,23 +248,25 @@ def frame_layout_online(tab, meta, index, block=None, columns=None):
             continue
         c = np.full(m, -1, np.int64)
         tg, ti, tf = int(genome[r]), int(gene[r, b]), int(first[r, b])
+        got = None
         if min(qg, qi, qf, tg, ti, tf) >= 0:
-            for p in index.pairs(qg, tg, qi):
-                if index.tgene(p) != ti:
-                    continue
-                got = [columns(cig, qs, ss) for qs, qe, ss, se, cig in index.alignments(p)]
-                q = np.concatenate([x[0] for x in got]).astype(np.int64) - qf if got else np.zeros(0, np.int64)
-                t = np.concatenate([x[1] for x in got]).astype(np.int64) - tf if got else np.zeros(0, np.int64)
-                ok = (q >= 0) & (q < nf) & (t >= 0) & (t < m)
-                q, t = q[ok], t[ok]
-                order = np.lexsort((t, q))
-                if len(got) == 1:
-                    c[t[order]] = q[order]
-                else:                                           # several alignments: keep the columns where both increase
-                    lq = lt = -1
-                    for qq, tt in zip(q[order].tolist(), t[order].tolist()):
-                        if qq > lq and tt > lt:
-                            c[tt], lq, lt = qq, qq, tt
+            got = _stored_columns(index, columns, qg, tg, qi, ti)
+            if got is None:                                     # the other direction, its two sides swapped
+                got = _stored_columns(index, columns, tg, qg, ti, qi)
+                got = None if got is None else [(y, x) for x, y in got]
+        if got:
+            q = np.concatenate([x[0] for x in got]).astype(np.int64) - qf
+            t = np.concatenate([x[1] for x in got]).astype(np.int64) - tf
+            ok = (q >= 0) & (q < nf) & (t >= 0) & (t < m)
+            q, t = q[ok], t[ok]
+            order = np.lexsort((t, q))
+            if len(got) == 1:
+                c[t[order]] = q[order]
+            else:                                               # several alignments: keep the columns where both increase
+                lq = lt = -1
+                for qq, tt in zip(q[order].tolist(), t[order].tolist()):
+                    if qq > lq and tt > lt:
+                        c[tt], lq, lt = qq, qq, tt
         col[r, s:s + m] = c.astype(np.int16)
         placed[r] = int((c >= 0).sum())
     frame_row[b], frame_len[b] = fr, max(nf, n0)

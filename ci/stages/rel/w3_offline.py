@@ -115,7 +115,7 @@ def build(st, cfg, run_dir):
     docs, held = heldout(s)
     genomes = {g["id"]: g for d in docs for g in d.get("genomes") or []}
     record = common.sealed_record(cfg, list(genomes.values()), splits={k: g.get("split") for k, g in genomes.items()}) if genomes else None
-    arrays = held.load(0, held.tables, FIELDS)
+    arrays = held.load(0, held.tables, [f for f in held.fields if f in FIELDS or f in shards.ADDED])   # every field the set holds
     if (arrays["split"] != shards.SPLIT_HELDOUT).any():
         raise SystemExit("%s: a table to render is not a held-out table" % STAGE)
     base = os.path.join(run_dir, OUT)
@@ -157,10 +157,10 @@ def build(st, cfg, run_dir):
         folder = os.path.join(base, c)
         written = IO.write(folder, out, s["shard_tables"])
         for name, _ in written:
-            for f in FIELDS:
+            for f in arrays:
                 p = IO.shard_path(folder, name, f)
                 files.append(dict(path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p),
-                                  role="shard" if f in api.SHARD_FIELDS else "meta"))
+                                  role="shard" if f in shards.SHARD_KNOWN else "meta"))
         parts[c] = dict(folder=os.path.relpath(folder, run_dir), split=shards.SPLIT_HELDOUT, tables=int(held.tables),
                         shards=[dict(name=n, tables=m) for n, m in written], condition=c, seed=s["seed"], plan_version=cond.VERSION,
                         items_sha256=digest.hexdigest(), layout=api.LAYOUT_LEAKFREE)

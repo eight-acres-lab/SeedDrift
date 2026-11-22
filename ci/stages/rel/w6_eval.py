@@ -6,7 +6,9 @@ Profile block rel_w6_eval:
   from       the directory of the training run (stage rel_w6_fit) on this machine; it need not have passed (an arm
              stopped at its wall limit makes the run fail) but its stage rel_w6_fit must have written its model index
   arms       the arms to evaluate again (default: every arm of that run with a final.pt)
-  tables     heldout: {run, path, sha256, split: 1} as in rel_w6_fit: the held-out table set, a hand-off file of a
+  tables     heldout: {run, path, sha256, split}: a real held-out set (split 1) or a ruler set of package W18 (the
+             split its builder sets; this stage reads the kinds configs/rel/kinds.yaml gives it, read_tableset), as in
+             rel_w6_fit otherwise: the held-out table set, a hand-off file of a
              passed run, every file it lists with its recorded hash; the arm's own training configuration names the
              training tables, which are opened (not read) only to build the arm
   best       true (default): an arm trained without relatives is read at its best node too (best.pt, rows ema@best)
@@ -35,6 +37,7 @@ from ci.stages.rel import common, w6_fit, w6_tools
 from seeddrift.train.rel import handoff
 from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
+from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "eval")
 FIT = w6_fit.OUT
@@ -47,9 +50,10 @@ def settings(cfg) -> dict:
     if unknown or not sc.get("from") or not (sc.get("tables") or {}).get("heldout"):
         raise SystemExit("rel_w6_eval: from and tables.heldout are needed; unknown keys %s" % sorted(unknown))
     h = sc["tables"]["heldout"]
-    if set(h) - {"run", "path", "sha256", "split"} or not h.get("run") or not h.get("path") or h.get("split", 1) != 1:
-        raise SystemExit("rel_w6_eval.tables.heldout: run, path, optionally sha256, and split 1: %r" % (h,))
-    return dict(source=str(sc["from"]), arms=[str(a) for a in sc.get("arms") or []], heldout=dict(run=str(h["run"]), path=str(h["path"]), sha256=h.get("sha256"), split=1),
+    if set(h) - {"run", "path", "sha256", "split"} or not h.get("run") or not h.get("path") or not isinstance(h.get("split", 1), int):
+        raise SystemExit("rel_w6_eval.tables.heldout: run, path, optionally sha256 and split (1 for a real set): %r" % (h,))
+    return dict(source=str(sc["from"]), arms=[str(a) for a in sc.get("arms") or []],
+                heldout=dict(run=str(h["run"]), path=str(h["path"]), sha256=h.get("sha256"), split=int(h.get("split", 1))),
                 best=bool(sc.get("best", True)), final_per_group=int(sc.get("final_per_group", 0)), eval_max_rows=int(sc.get("eval_max_rows", 32)),
                 threads=int(sc.get("threads", 4)), wall_s=int(sc.get("wall_s", 7200)), verify_files=bool(sc.get("verify_files", True)))
 
@@ -69,6 +73,20 @@ def source_index(source):
     return doc, rec
 
 
+def heldout_set(spec, verify) -> dict:
+    """The table set the weights are read on: a hand-off file of a passed run of a kind this stage reads (configs/rel/
+    kinds.yaml: real, or a ruler set of package W18), every file it lists with its recorded hash. A real set is read as
+    split 1; a ruler set as the split its profile names (its builder sets it)."""
+    doc = common.read_tableset("w6_eval", spec["run"], spec["path"], spec["sha256"])
+    if doc.get("kind") == "real" and spec["split"] != 1:
+        raise SystemExit("rel_w6_eval: a real held-out table set is read as split 1, not %d" % spec["split"])
+    bad = handoff.tableset_problems(doc, spec["run"] if verify else "")
+    if bad:
+        raise SystemExit("rel_w6_eval: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))
+    groups = shards.group_names(spec["run"], doc)
+    return dict(doc=doc, groups=groups, row_groups=dict(enumerate(groups)), kind=doc.get("kind"))
+
+
 def link(src, dst):
     if os.path.exists(dst):
         os.remove(dst)
@@ -84,7 +102,7 @@ def build(st, cfg, run_dir):
     s = settings(cfg)
     py, lock, have = w6_tools.interpreter(st, cfg)
     doc, rec = source_index(s["source"])
-    held = w6_fit.table_set(cfg, s["heldout"], s["verify_files"])
+    held = heldout_set(s["heldout"], s["verify_files"])
     variants = {v["name"]: v for v in doc["variants"]}
     wanted = s["arms"] or sorted(n for n in variants if os.path.exists(os.path.join(s["source"], variants[n]["info"]["folder"], "final.pt")))
     missing = [a for a in wanted if a not in variants]
@@ -117,7 +135,7 @@ def build(st, cfg, run_dir):
                       final_tables=summ["tables_seen"], final_cells=summ.get("cells_seen", 0),
                       final_wall_s=float(summ.get("train_s", 0)) + float(summ.get("eval_s", 0)),
                       best_tables=best.get("tables_seen", 0), best_cells=best.get("cells_seen", 0), best_wall_s=best.get("wall_s", 0),
-                      heldout_tables=os.path.join(s["heldout"]["run"], s["heldout"]["path"]), heldout_root=s["heldout"]["run"], heldout_split=1,
+                      heldout_tables=os.path.join(s["heldout"]["run"], s["heldout"]["path"]), heldout_root=s["heldout"]["run"], heldout_split=s["heldout"]["split"],
                       final_per_group=s["final_per_group"], eval_max_rows=s["eval_max_rows"], threads=s["threads"], run=os.path.basename(run_dir),
                       commit=cfg["git"]["sha"])
             cp = os.path.join(folder, "conf.json")

@@ -198,3 +198,60 @@ def frame_layout(tab, block=None):
             col[r, s:s + n[r, b]] = c.astype(np.int16)
     frame_row[b], frame_len[b] = fr, max(nf, n0)
     return col, frame_row, frame_len
+
+
+def frame_layout_online(tab, meta, index, block=None, columns=None):
+    """frame_layout for training (online): the other rows placed on the frame relative by the alignments the uncapped
+    search stored (package W2's index, seeddrift/train/rel/tables/v1_hits.py), not by aligning here.
+    meta: the table's genome [R] (the search run's genome numbers), row_gene [R, B] and row_first [R, B] (the gene of
+    every row's stretch and its first codon in that gene). index: pairs(query genome, target genome, query gene) ->
+    pair ids, tgene(p), alignments(p) -> [(qs, qe, ss, se, cigar)]; columns(cigar, qs, ss) -> (query, target) 0-based
+    positions of the aligned columns (v1_hits.columns by default). A row's pair is the one whose target gene is the
+    row's own gene (a genome may hold several rows). The aligned columns of all its alignments, moved into the two
+    stretches' coordinates, are kept where both increase; a row with no stored pair is not shown in the block.
+    Returns (col, frame_row, frame_len) as frame_layout does, and {row: codons placed}."""
+    if columns is None:
+        from seeddrift.train.rel.tables import v1_hits         # package W2's reader of the search's alignments
+        columns = v1_hits.columns
+    b = A.N_BLOCKS - 1 if block is None else int(block)
+    s = A.block_slices()[b][1]
+    n = np.asarray(tab["n"]).astype(np.int64)
+    col = np.array(tab["col"], dtype=np.int16, copy=True)
+    frame_row = np.array(tab.get("frame_row", np.zeros(A.N_BLOCKS)), dtype=np.int8, copy=True).reshape(-1)
+    frame_len = np.array(tab["frame_len"], dtype=np.int16, copy=True)
+    fr = frame_relative(tab, b)
+    if fr is None:
+        return col, frame_row, frame_len, {}
+    nf, n0 = int(n[fr, b]), int(n[0, b])
+    col[fr, s:s + nf] = np.arange(nf)
+    col[0, s:s + n0] = np.arange(n0)
+    genome, gene, first = (np.asarray(meta[k]).astype(np.int64) for k in ("genome", "row_gene", "row_first"))
+    qg, qi, qf = int(genome[fr]), int(gene[fr, b]), int(first[fr, b])
+    placed = {}
+    for r in range(1, n.shape[0]):
+        m = int(n[r, b])
+        if r == fr or m == 0:
+            continue
+        c = np.full(m, -1, np.int64)
+        tg, ti, tf = int(genome[r]), int(gene[r, b]), int(first[r, b])
+        if min(qg, qi, qf, tg, ti, tf) >= 0:
+            for p in index.pairs(qg, tg, qi):
+                if index.tgene(p) != ti:
+                    continue
+                got = [columns(cig, qs, ss) for qs, qe, ss, se, cig in index.alignments(p)]
+                q = np.concatenate([x[0] for x in got]).astype(np.int64) - qf if got else np.zeros(0, np.int64)
+                t = np.concatenate([x[1] for x in got]).astype(np.int64) - tf if got else np.zeros(0, np.int64)
+                ok = (q >= 0) & (q < nf) & (t >= 0) & (t < m)
+                q, t = q[ok], t[ok]
+                order = np.lexsort((t, q))
+                if len(got) == 1:
+                    c[t[order]] = q[order]
+                else:                                           # several alignments: keep the columns where both increase
+                    lq = lt = -1
+                    for qq, tt in zip(q[order].tolist(), t[order].tolist()):
+                        if qq > lq and tt > lt:
+                            c[tt], lq, lt = qq, qq, tt
+        col[r, s:s + m] = c.astype(np.int16)
+        placed[r] = int((c >= 0).sum())
+    frame_row[b], frame_len[b] = fr, max(nf, n0)
+    return col, frame_row, frame_len, placed

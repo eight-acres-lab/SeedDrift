@@ -29,6 +29,8 @@ Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the 
   tables_of(ts, meta, first, last)                     (table id, fields, row tiers) of a ruler set's tables, in order:
                                                        the `source` of run (ts: evalh/shards.TableSet of the set)
   save_cells(path, cells, **info), load_cells(path)    the per-cell file of one arm (CELL_INFO names what it records)
+  adapt_rows, adapt_table, adapt_arrays                the adaptation of implant tables of version 1 for arms trained on
+                                                       tables of version 0 (adapt_v0): see adapt_rows
   plan_digest(source, relatives, presence)             the digest run gives, without a model (the readout stage checks
                                                        that an evaluation scored this module's plan)
 
@@ -56,7 +58,8 @@ from seeddrift.train.rel.evalh import conditions as cond
 VERSION = 1
 SEED = cond.SEED
 RATE = 0.15
-STREAM_TARGET, STREAM_CONTEXT = 21, 22
+STREAM_TARGET, STREAM_CONTEXT, STREAM_ADAPT = 21, 22, 23
+V0_ROWS = 16                                        # the rows an arm trained on tables of version 0 has seen at most
 MAX_TIERS = 8                                       # tiers 0..7 may be named; the protocol's edges give 0..5
 SLICES = api.block_slices()
 B, L = api.N_BLOCKS, api.ROW_LEN
@@ -282,12 +285,13 @@ def load_meta(run_dir, manifest):
     raise ValueError("the manifest lists no %s (not a ruler set of package W18)" % META_FILE)
 
 
-def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=None, presence_scenarios=None):
+def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=None, presence_scenarios=None, adapt=None):
     """(table id, {tok, n, col, kind, frame_len} of one table, its row tiers, its mask id) for the tables first..last-1
     of a ruler set (ts: an evalh/shards.TableSet; meta: load_meta), in storage order; the table id is the position in
     the set, the mask id the triple it belongs to (meta parent). scenarios: only the tables of these scenarios (meta
     scenario; None: all). presence (not None): a fifth element, whether the table has the presence passes (presence, and
-    its scenario among presence_scenarios unless that is None)."""
+    its scenario among presence_scenarios unless that is None). adapt (rows): every table adapted for an arm trained on
+    tables of version 0 (adapt_table)."""
     last = ts.tables if last is None else int(last)
     want = None if scenarios is None else {int(x) for x in scenarios}
     pwant = None if presence_scenarios is None else {int(x) for x in presence_scenarios}
@@ -300,13 +304,16 @@ def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=N
             sc = int(meta["scenario"][a + k])
             if want is not None and sc not in want:
                 continue
-            item = (a + k, {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k], int(meta["parent"][a + k]))
+            tab, tier = {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k]
+            if adapt:
+                tab, tier, _ = adapt_table(tab, tier, int(meta["parent"][a + k]), int(adapt))
+            item = (a + k, tab, tier, int(meta["parent"][a + k]))
             yield item if presence is None else item + (bool(presence) and (pwant is None or sc in pwant),)
 
 
 CELL_FORMAT = "rel-w18-cells-1"
 CELL_INFO = ("arm", "weights", "relatives", "presence", "layout", "render_version", "tableset_sha256", "run", "commit")
-CELL_OPTIONAL = ("scenarios", "presence_scenarios")              # None: every table
+CELL_OPTIONAL = ("scenarios", "presence_scenarios", "adapt_v0")  # None: every table; adapt_v0 None: not adapted, else its rows
 
 
 def save_cells(path, cells, **info):
@@ -376,7 +383,8 @@ def flat_scorer(scorer):
     return score
 
 
-def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None, scenarios=None, presence_scenarios=None):
+def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None, scenarios=None, presence_scenarios=None,
+              adapt_v0=None):
     """One arm on a ruler set, for the evaluation stage: every table of `tables` (data/tables.Tables of the set, kind
     ruler; its TableSet and manifest) through the passes of the arm (info["relatives"] False: pass N only; presence: the
     presence passes too), rendered by `render` (default: the stored layout of data/tables.render, for info["layout"] ==
@@ -384,7 +392,9 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
     layout, render_version, run, commit, and root (the run directory the ruler set's files are under). scenarios: only the
     tables of these scenarios; presence_scenarios: the presence passes on these scenarios' tables only (protocol w18-v0:
     when a reading would take over 5 GPU hours, the untrained arm takes scenarios [0] and the presence arm
-    presence_scenarios [0]); None: every table. Writes <out_dir>/ruler_cells.npz; returns its head (save_cells)."""
+    presence_scenarios [0]); None: every table. adapt_v0 (True, or the rows): an arm trained on tables of version 0 reads
+    implant tables of version 1 adapted (adapt_table; V0_ROWS rows for True). Writes <out_dir>/ruler_cells.npz; returns
+    its head (save_cells)."""
     missing = [k for k in INFO_KEYS + ("root",) if k not in info]
     if missing:
         raise ValueError("run_ruler needs info %s" % ", ".join(missing))
@@ -400,11 +410,86 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
     scen = None if scenarios is None else sorted({int(x) for x in scenarios})
     pres = bool(presence and info["relatives"])
     psc = None if presence_scenarios is None or not pres else sorted({int(x) for x in presence_scenarios})
-    cells = run(tables_of(tables.ts, meta, scenarios=scen, presence=pres, presence_scenarios=psc), render, flat_scorer(scorer),
+    adapt = None if not adapt_v0 else (V0_ROWS if adapt_v0 is True else int(adapt_v0))
+    cells = run(tables_of(tables.ts, meta, scenarios=scen, presence=pres, presence_scenarios=psc, adapt=adapt), render, flat_scorer(scorer),
                 relatives=bool(info["relatives"]), presence=pres, max_rows=max_rows, progress=progress)
     os.makedirs(out_dir, exist_ok=True)
     return save_cells(os.path.join(out_dir, RULER_CELLS), cells, presence=pres, tableset_sha256=str(man.get("sha256", "")), scenarios=scen,
-                      presence_scenarios=psc, **{k: info[k] for k in INFO_KEYS})
+                      presence_scenarios=psc, adapt_v0=adapt, **{k: info[k] for k in INFO_KEYS})
+
+
+def adapt_rows(row_tier, mask_id, max_rows=V0_ROWS, seed=SEED):
+    """The rows an adapted table keeps (an arm trained on tables of version 0 reading implant tables of version 1, the
+    programme lead's adaptation of 2026-11-23, a diagnosis only): row 0, then up to max_rows - 1 other rows taken tier by
+    tier (the distance tier to A), the tiers taking turns, inside a tier in the order of a hash of (mask id, row); kept in
+    their stored order. The three tables of a triple share their rows and mask id, so they keep the same rows."""
+    tier = np.asarray(row_tier).astype(np.int64)
+    others = [r for r in range(1, len(tier)) if tier[r] >= 0]
+    if len(others) <= int(max_rows) - 1:
+        return np.array([0] + others, dtype=np.int64)
+    u = cond.hash_u01(seed, STREAM_ADAPT, np.array([int(mask_id)]), np.arange(len(tier))[None, :])[0]
+    by = {}
+    for r in sorted(others, key=lambda r: (u[r], r)):
+        by.setdefault(int(tier[r]), []).append(r)
+    queues = [by[t] for t in sorted(by)]
+    chosen = []
+    while len(chosen) < int(max_rows) - 1 and any(queues):
+        for q in queues:
+            if q and len(chosen) < int(max_rows) - 1:
+                chosen.append(q.pop(0))
+    return np.array([0] + sorted(chosen), dtype=np.int64)
+
+
+def _adapt_kind(kind):
+    kind = np.array(kind, copy=True)
+    kind[kind == api.KIND_ABSENT] = api.KIND_NOT_SEARCHED            # an old arm never saw ABSENT; NOT_SEARCHED is the nearest
+    return kind
+
+
+def adapt_table(tab, row_tier, mask_id, max_rows=V0_ROWS):
+    """(the table with the rows adapt_rows keeps and KIND_ABSENT read as KIND_NOT_SEARCHED, their row tiers, the rows)."""
+    keep = adapt_rows(row_tier, mask_id, max_rows)
+    R = len(np.asarray(row_tier))
+    out = {k: (np.asarray(v)[keep] if np.ndim(v) >= 1 and np.shape(v)[0] == R and k != "frame_len" else v) for k, v in tab.items()}
+    out["kind"] = _adapt_kind(out["kind"])
+    return out, np.asarray(row_tier)[keep], keep
+
+
+ROW_META = ("row_tier", "row_dist", "row_dist_d", "row_gene")
+
+
+def adapt_arrays(fields, meta, max_rows=V0_ROWS):
+    """The fields of every table ([N, R, ...]) and W18's meta adapted as adapt_table adapts one table, with max_rows rows
+    (the rows not kept do not exist); on_target and covered recounted on the rows kept."""
+    N, R = np.asarray(fields["kind"]).shape[:2]
+    rows = int(max_rows)
+    blank = dict(tok=api.PAD, n=0, col=-1, kind=api.KIND_NONE, genome=-1, identity=np.nan, row_tier=-1, row_dist=np.nan, row_dist_d=np.nan, row_gene=-1)
+    nf, nm = {}, {k: np.array(v, copy=True) for k, v in meta.items()}
+    for k, v in fields.items():
+        v = np.asarray(v)
+        if v.ndim >= 2 and v.shape[:2] == (N, R):
+            nf[k] = np.full((N, rows) + v.shape[2:], blank.get(k, 0), dtype=v.dtype)
+        else:
+            nf[k] = v
+    for k in ROW_META:
+        if k in meta:
+            nm[k] = np.full((N, rows) + np.asarray(meta[k]).shape[2:], blank[k], dtype=np.asarray(meta[k]).dtype)
+    for t in range(N):
+        keep = adapt_rows(meta["row_tier"][t], int(meta["parent"][t]), rows)
+        for k, v in fields.items():
+            v = np.asarray(v)
+            if v.ndim >= 2 and v.shape[:2] == (N, R):
+                nf[k][t, :len(keep)] = v[t, keep]
+        for k in ROW_META:
+            if k in meta:
+                nm[k][t, :len(keep)] = np.asarray(meta[k])[t, keep]
+    nf["kind"] = _adapt_kind(nf["kind"])
+    col, n = nf["col"], nf["n"]
+    inside = OFFSET_OF[None, None, :] < n[:, :, BLOCK_OF]
+    placed = (col >= 0) & inside
+    nm["covered"] = placed[:, 1:, T0_:T1_].sum(axis=(1, 2)).astype(np.asarray(meta["covered"]).dtype)
+    nm["on_target"] = (nf["kind"][:, 1:, TARGET_BLOCK] == api.KIND_PRESENT).sum(axis=1).astype(np.asarray(meta["on_target"]).dtype)
+    return nf, nm
 
 
 def count_passes(tab, row_tier, relatives=True, presence=False):

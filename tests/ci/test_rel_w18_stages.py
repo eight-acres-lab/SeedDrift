@@ -326,9 +326,9 @@ def test_readout_stage_reads_cells_from_several_evaluation_runs(built, evaluated
         shutil.copytree(dst, src)
 
 
-def test_rulers_stage_builds_tables_of_version_1(tmp_path_factory, monkeypatch):
-    """Version 1: the homolog rows of a passed full run of stage w12_search on the same source (W12's stand-in DIAMOND),
-    the fields of version 1, every rows file checked against the search's manifest."""
+@pytest.fixture(scope="module")
+def v1stage(tmp_path_factory):
+    """A ruler set of version 1 built by the stage from a passed full search run (W12's stand-in DIAMOND)."""
     import stat
     import sys
     import test_rel_w12_search as T12
@@ -357,10 +357,19 @@ def test_rulers_stage_builds_tables_of_version_1(tmp_path_factory, monkeypatch):
     cfg = dict(cfg, rel=dict(machine="i1", stages=["w18_rulers"]),
                rel_w18_rulers=dict(version=1, search_from=search_dir, expect=W2S.SIZES, rows=8, per_tier=2, group_tier_cap=4, k=4,
                                    min_codons=20, length_tol=0.6, shard_tables=9, processes=1))     # the source and the distances from the search
+    with pytest.MonkeyPatch.context() as mp:
+        patch(mp, tmp)
+        mp.setattr(w18_rulers, "declared_tables", lambda path: {m["id"]: 11 for m in metas})
+        with Stage(run_dir, "rel_w18_rulers") as st:
+            doc = w18_rulers.build(st, cfg, run_dir)
+    return dict(tmp=tmp, run_dir=run_dir, cfg=cfg, doc=doc, dist_run=dist_run, metas=metas)
+
+
+def test_rulers_stage_builds_tables_of_version_1(v1stage, monkeypatch):
+    """Version 1: the homolog rows of a passed full run of stage w12_search on the same source, the fields of version
+    1, every rows file checked against the search's manifest."""
+    tmp, run_dir, cfg, doc, dist_run = v1stage["tmp"], v1stage["run_dir"], v1stage["cfg"], v1stage["doc"], v1stage["dist_run"]
     patch(monkeypatch, tmp)
-    monkeypatch.setattr(w18_rulers, "declared_tables", lambda path: {m["id"]: 11 for m in metas})
-    with Stage(run_dir, "rel_w18_rulers") as st:
-        doc = w18_rulers.build(st, cfg, run_dir)
     assert handoff.tableset_problems(doc, run_dir) == [] and doc["tables_of_version"] == 1 and doc["name"].startswith("w18-implant-v1")
     with open(os.path.join(run_dir, w18_rulers.OUT, "index.json")) as f:
         assert json.load(f)["distance_run"]["computed"]
@@ -375,3 +384,51 @@ def test_rulers_stage_builds_tables_of_version_1(tmp_path_factory, monkeypatch):
     assert (got["kind"] == api.KIND_ABSENT).any() and not (got["kind"] == api.KIND_NOT_SEARCHED).any()
     meta = P.load_meta(run_dir, doc)
     assert (got["tier"] == meta["row_tier"]).all() and (got["genome_of_row"][:, 0] == 0).all()
+
+
+def test_arms_of_version_0_read_adapted_tables_of_version_1(v1stage, tmp_path_factory, monkeypatch):
+    """The programme lead's adaptation (adapt_v0): the arms of tables of version 0 read the implant tables of version 1
+    with fewer rows taken tier by tier and KIND_ABSENT read as KIND_NOT_SEARCHED; the readout stage adapts the same way
+    and refuses a reading that mixes adapted and plain arms."""
+    from ci.stages.rel import w18_readout
+    from seeddrift.train.rel.data import tables as T
+    tmp, run_dir, doc = v1stage["tmp"], v1stage["run_dir"], v1stage["doc"]
+    patch(monkeypatch, tmp)
+    with open(os.path.join(run_dir, "stages", "rel_w18_rulers.json")) as f:
+        stage = json.load(f)
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(dict(run_id=os.path.basename(run_dir), status="passed", stages=[stage]), f)
+    ev, cfg = RF.rel_run(tmp_path_factory.mktemp("w18adapt"), kind="rel_traineval", stages=("w6_eval",), run_id="20261126T000002-exp-rel-00000000-eval")
+    tabs = T.open_split(run_dir, doc, 1)
+    base = dict(weights="final", relatives=True, layout="stored", render_version=T.RENDER_VERSION, run=os.path.basename(ev), commit="0" * 40, root=run_dir)
+    seen = []
+
+    def watch(examples):
+        seen.extend(int(e["grid"].shape[0]) for e in examples)
+        assert not any((e["grid"] == api.ABSENT).any() for e in examples)        # the adapted input never shows ABSENT
+        return w6_form(examples)
+    with Stage(ev, "rel_w6_eval") as st:
+        for folder, info in (("toy", dict(base, arm="toy")), ("toy-norel", dict(base, arm="toy-norel", relatives=False))):
+            out = os.path.join(ev, "data", "rel_w6", "eval", folder)
+            head = P.run_ruler(watch, tabs, info, out, adapt_v0=5)
+            assert head["adapt_v0"] == 5
+            st.output("ruler_cells_" + folder, os.path.join(out, P.RULER_CELLS))
+    assert max(seen) <= 5
+    cfg = dict(cfg, rel=dict(machine="i1", stages=["w6_eval", "w18_readout"]),
+               rel_w18_readout=dict(tables=dict(run=run_dir, path=os.path.join("data", "rel_w18", "rulers", "tableset.json")), reps=20))
+    with Stage(ev, "rel_w18_readout") as st:
+        rep = w18_readout.build(st, cfg, ev)
+    assert rep["adapt_v0"] == 5 and rep["status"].startswith("ADAPTED")
+    assert open(os.path.join(ev, w18_readout.OUT, "report.md")).read().count("ADAPTED") >= 1
+    plain = os.path.join(ev, "data", "rel_w6", "eval", "toy-plain")
+    P.run_ruler(w6_form, tabs, dict(base, arm="toy-plain"), plain)
+    rec = os.path.join(ev, "stages", "rel_w6_eval.json")
+    with open(rec) as f:
+        st_rec = json.load(f)
+    st_rec["outputs"].append(dict(name="ruler_cells_toy-plain", path=os.path.relpath(os.path.join(plain, P.RULER_CELLS), ev),
+                                  sha256=sha256_file(os.path.join(plain, P.RULER_CELLS), use_sidecar=False)))
+    with open(rec, "w") as f:
+        json.dump(st_rec, f)
+    with pytest.raises(SystemExit, match="adapted in different ways"):
+        with Stage(ev, "rel_w18_readout") as st:
+            w18_readout.build(st, cfg, ev)

@@ -23,6 +23,11 @@ paired win rate of implant against own (primary) and against original (the posit
 pooled AUC in all, by donor tier and by quartile of the host codon model; paired differences against the best-similarity
 rule, the coverage shift, the untrained model, the presence passes and the host codon model.
 
+Adapted readings: when the per-cell files say their arms read the implant tables adapted (adapt_v0, the rows kept: arms
+trained on tables of version 0 reading implant tables of version 1), the stage adapts the tables the same way
+(w18_passes.adapt_arrays) before every readout, control and plan digest, and the page says so first; every arm of one
+reading must have read the tables the same way.
+
 Profile block rel_w18_readout: tables, eval_run (optional; a run directory or a list), arms (optional: the arms to read, default every file
 found), reps (2,000), seed (20261124).
 Outputs under data/rel_w18/readout/: scores.tsv (every score of every table), stats.tsv (the win rates and AUCs),
@@ -115,6 +120,9 @@ def cell_files(s, run_dir):
     return out
 
 
+ADAPTED = ("ADAPTED: the arms were trained on tables of version 0 and read implant tables of version 1 adapted for them "
+           "(%d rows taken tier by tier, KIND_ABSENT read as KIND_NOT_SEARCHED; the programme lead's diagnosis of 2026-11-23), "
+           "never the counting reading.")
 LINEAGE = ("source_shift_aa", "gain_aa", "gain_rel_aa")          # the lineage readings (amino-acid bits alone): primary
 POOLED_STRATA = ("all", "donor_tier", "host_codon_quartile")
 
@@ -125,18 +133,25 @@ def build(st, cfg, run_dir):
     doc, ts, meta, fields, groups, index = ruler(s)
     genomes = index["genomes"]
     n = ts.tables
+    loaded = [(arm, path, sha) + P.load_cells(path) for arm, path, sha in cell_files(s, run_dir)]
+    adapts = {head.get("adapt_v0") for _, _, _, _, head in loaded}
+    if len(adapts) != 1:
+        raise SystemExit("rel_w18_readout: the arms read the tables adapted in different ways (%s); one reading reads one way" % sorted(map(str, adapts)))
+    adapt = adapts.pop()
+    meta_stored = meta                                              # the plan digest adapts the stored tables itself (tables_of)
+    if adapt:                                                       # arms of tables of version 0 on implant tables of version 1
+        fields, meta = P.adapt_arrays(fields, meta, int(adapt))
     n0 = fields["n"][:, 0, :]
     tr = R.Triples(meta, fields["group"], fields["identity"], [genomes[int(d)]["group"] for d in meta["donor"]], groups)
     boot = R.Bootstrap(tr, reps=s["reps"], seed=s["seed"])
     arms, scores, plans = [], {}, {}
-    for arm, path, sha in cell_files(s, run_dir):
-        cells, head = P.load_cells(path)
+    for arm, path, sha, cells, head in loaded:
         if head["tableset_sha256"] != doc["sha256"]:
             raise SystemExit("rel_w18_readout: %s scored another table set (%s)" % (path, head["tableset_sha256"]))
         scen, psc = head.get("scenarios"), head.get("presence_scenarios")
         key = (bool(head["relatives"]), bool(head["presence"]), None if scen is None else tuple(scen), None if psc is None else tuple(psc))
         if key not in plans:
-            plans[key] = P.plan_digest(P.tables_of(ts, meta, scenarios=key[2], presence=key[1], presence_scenarios=key[3]), key[0], key[1])
+            plans[key] = P.plan_digest(P.tables_of(ts, meta_stored, scenarios=key[2], presence=key[1], presence_scenarios=key[3], adapt=adapt), key[0], key[1])
         if cells["digest"] != plans[key][0]:
             raise SystemExit("rel_w18_readout: %s scored another plan than the passes of this commit" % path)
         tag = ("untrained:" if head["weights"] == "untrained" else "") + head["arm"]
@@ -219,7 +234,8 @@ def build(st, cfg, run_dir):
     write_rows(ap, rows)
     write_rows(dp, defined)
     write_rows(cp, cover)
-    rep = dict(format="rel-w18-readout", version=2, protocol="w18-v0", status=STATUS, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
+    status = STATUS if not adapt else (ADAPTED % int(adapt)) + " " + STATUS
+    rep = dict(format="rel-w18-readout", version=2, protocol="w18-v0", status=status, adapt_v0=adapt, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
                tables=dict(run=os.path.basename(os.path.normpath(s["tables"]["run"])), name=doc["name"], sha256=doc["sha256"], tables=n,
                            triples=int(len(tr.ids)), in_place=int((tr.scenario == 0).sum()), donor_unsampled=int((tr.scenario == 1).sum()), layout=doc.get("layout")),
                arms=arms, groups=groups, tiers=index.get("tiers"), tier_expectation=index.get("tier_expectation"), reps=s["reps"], seed=s["seed"],

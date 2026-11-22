@@ -240,7 +240,8 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
                     cells_per_s=summ.get("cells_per_s"), tables_per_s=summ.get("tables_per_s"), train_s=summ.get("train_s"), eval_s=summ.get("eval_s"),
                     eval_overhead=summ.get("eval_overhead"), peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"),
                     weights_read=summ.get("weights_read"), eval_subset=summ.get("eval_subset"), eval_final=summ.get("eval_final"),
-                    row_key_mask=summ.get("row_key_mask") or pre.get("row_key_mask"),
+                    row_key_mask=summ.get("row_key_mask") or pre.get("row_key_mask"), alone_share=summ.get("alone_share"),
+                    alone_share_seen=summ.get("alone_share_seen"),
                     final=summ.get("final"), final_items=summ.get("final_items"), best=summ.get("best"),
                     versions=summ.get("versions"), wall_s=x.get("wall_s"), folder=os.path.relpath(x["folder"], run_dir))
         cks = []

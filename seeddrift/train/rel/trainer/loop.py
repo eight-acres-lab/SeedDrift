@@ -337,7 +337,8 @@ def fit(cfg):
     state = dict(name=cfg["name"], status="running", params=run.params, device=run.device.type, micro=run.micro, conditions=run.conditions,
                  main_condition=run.main, versions=versions(), lr_peak=float(cfg["lr"]), warmup_steps=int(cfg["warmup_steps"]), weights_read=reads,
                  eval_subset=len(sub), eval_final=len(final_ids), evals=[], best=None)
-    k = dict(step=0, tables=0, cells=0, targets=0, train_s=0.0, eval_s=0.0, lr=0.0)
+    k = dict(step=0, tables=0, cells=0, targets=0, train_s=0.0, eval_s=0.0, lr=0.0, alone=0)
+    state["alone_share"] = cfg["alone_share"]                         # the cap on tables without other rows (None: as they come)
 
     def save(name, ema_only):
         if cfg["probe"]:
@@ -358,7 +359,8 @@ def fit(cfg):
         took = time.time() - t
         k["eval_s"] += took
         rec = dict(tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"], wall_s=round(time.time() - began, 1),
-                   eval_s=round(took, 1), tables_scored=len(sub), bits=main, items=digests)
+                   eval_s=round(took, 1), tables_scored=len(sub), bits=main, items=digests,
+                   alone_share_seen=round(k["alone"] / k["tables"], 4) if k["tables"] else None)
         append_json(evals_path, rec)
         state["evals"].append({x: rec[x] for x in rec if x != "items"})
         m = main.get(run.main)
@@ -382,7 +384,7 @@ def fit(cfg):
     next_node = int(cfg["eval_first"])
     names = run.sampler.masks
     log = open(os.path.join(out_dir, "steps.csv"), "w")
-    log.write("step,tables_seen,cells_seen,target_cells,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s," + ",".join("bits_" + m for m in names) + "\n")
+    log.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s," + ",".join("bits_" + m for m in names) + "\n")
     ended_by, last_flush = None, time.time()
     try:
         while True:
@@ -403,10 +405,11 @@ def fit(cfg):
             took = time.time() - now
             cells = sum(e["grid"].size for e in examples)
             k["tables"] += len(examples)
+            k["alone"] += sum(1 for e in examples if e.get("alone"))
             k["cells"] += cells
             k["targets"] += int(sum(sc))
             k["train_s"] += took
-            log.write("%d,%d,%d,%d,%.5f,%.4g,%.0f,%.0f,%.4g,%.1f,%s\n" % (k["step"], k["tables"], k["cells"], k["targets"], bits, lr, cells / took,
+            log.write("%d,%d,%d,%d,%d,%.5f,%.4g,%.0f,%.0f,%.4g,%.1f,%s\n" % (k["step"], k["tables"], k["cells"], k["targets"], k["alone"], bits, lr, cells / took,
                                                                        run.peak_mb()[0], norm, time.time() - began,
                                                                        ",".join("%.5f" % (b / c) if c else "" for b, c in zip(sb, sc))))
             if time.time() - last_flush > 30:
@@ -427,7 +430,8 @@ def fit(cfg):
     state.update(status="evaluating", ended_by=ended_by, steps=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], target_cells=k["targets"],
                  cells_per_s=round(rate, 1), tables_per_s=round(k["tables"] / k["train_s"], 3) if k["train_s"] > 0 else None, train_s=round(k["train_s"], 1),
                  eval_s=round(k["eval_s"], 1), eval_overhead=round(k["eval_s"] / k["train_s"], 4) if k["train_s"] > 0 else None,
-                 peak_mb=round(alloc), reserved_mb=round(reserved), lr_last=k["lr"])
+                 peak_mb=round(alloc), reserved_mb=round(reserved), lr_last=k["lr"],
+                 alone_share_seen=round(k["alone"] / k["tables"], 4) if k["tables"] else None)
     save("final.pt", ema_only=False)
     write_json(summary, state)
     t = time.time()

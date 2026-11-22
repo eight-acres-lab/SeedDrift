@@ -12,4 +12,5 @@ size: 30m
 relatives: true
 optimizer: {lr: 3.0e-4}                   # today's rule: 3e-4 at width 384, scaled by the inverse square root of the width
 gpu_mb: 26000                             # memory allowance; four tables of 16 rows at once were estimated at 22 GB
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws (today's ruling)
 tables: real

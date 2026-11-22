@@ -73,7 +73,7 @@ class Sampler:
             visible, target = self.plans[s](dict(n=tab["n"], kind=tab["kind"]), rng)
             grid, truth = T.render(tab, visible, target)
             if truth.any():
-                return dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]))
+                return dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others))
         raise RuntimeError("sixteen tables in a row gave no target cell: the table set or the mask schemes are wrong")
 
     def draw(self, step):

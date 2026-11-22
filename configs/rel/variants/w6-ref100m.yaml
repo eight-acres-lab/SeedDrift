@@ -14,4 +14,5 @@ relatives: true
 optimizer: {lr: 2.0e-4}                   # today's rule: 3e-4 at width 384, scaled by the inverse square root of the width
 gpu_mb: 18000
 micro: 1                                  # one table per micro-batch from the start: on i-2 the preflight must not try 4 and 2
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws (today's ruling)
 tables: real

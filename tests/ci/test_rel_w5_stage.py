@@ -35,6 +35,9 @@ def tables_run(tmp_path, status="passed", kind=api.TABLE_SYNTHETIC, heldout_spli
     train, tmeta = toy_tables(n_tables=36, rows=5, seed=41)
     held, hmeta = toy_tables(n_tables=12, rows=5, seed=42)
     files = write_set(run_dir, "data/rel_w2/v0/train", train, tmeta, 0, per_shard=20) + write_set(run_dir, "data/rel_w2/v0/heldout", held, hmeta, heldout_split, per_shard=20)
+    index = run_dir / "data" / "rel_w2" / "v0" / "index.json"                       # the group names the meta field indexes
+    index.write_text(json.dumps(dict(groups=["arch", "bact", "phage"])))
+    files.append(dict(path="data/rel_w2/v0/index.json", sha256=sha256_file(str(index), use_sidecar=False), bytes=os.path.getsize(index), role="index"))
     doc = manifest(files, name="toy-v0", kind=kind, tables=48)
     doc["producer"] = dict(stage="w2_v0", package="W2", run_id=run_id, commit="0" * 40)
     if kind != api.TABLE_SYNTHETIC:
@@ -80,6 +83,9 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     assert abs(bits[cond.SCATTERED]["uniform"] - np.log2(65)) < 1e-6
     assert bits[cond.SCATTERED]["copy_nearest"] < bits[cond.SCATTERED]["own_freq"] - 1 and "copy_nearest" not in bits[cond.SCATTERED + "+" + cond.NO_RELATIVES]
     assert res["items"][cond.SCATTERED]["cells"] == res["items"][cond.SCATTERED + "+" + cond.NO_RELATIVES]["cells"] > 0
+    assert res["groups"] == ["arch", "bact", "phage"] and res["n_groups"] == 3
+    groups = {line.split("\t")[api.RESULT_ROW.index("group")] for line in open(os.path.join(out, "rows.tsv")).read().splitlines()[1:]}
+    assert groups == {"all", "arch", "bact", "phage"}
     rep = json.load(open(os.path.join(run_dir, "stages", "rel_w5_baselines.json")))
     assert rep["status"] == "passed" and {o["name"] for o in rep["outputs"]} == {"rows", "params", "report", "results"}
     with Stage(run_dir, "gates_rel_w5_baselines", requires=("pre",)) as st:

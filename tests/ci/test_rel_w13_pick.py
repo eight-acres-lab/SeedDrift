@@ -167,20 +167,22 @@ def test_a_census_that_differs_is_refused(picked, monkeypatch, tmp_path):
             WP.build(st, picked["cfg"], picked["run"])
 
 
-def test_part1_halves_the_search_and_keeps_the_old_sources(picked, tmp_path):
+def test_parts_split_the_search_and_keep_the_old_sources(picked, tmp_path):
     rel = json.load(open(os.path.join(picked["run"], WP.OUT, "relatives.json")))["relatives"]
     toy = [dict(id="a", group="bacteria", proteins=3000), dict(id="b", group="bacteria", proteins=2000), dict(id="c", group="eukaryota.fungi", proteins=9000),
            dict(id="d", group="mobile.plasmid", proteins=5000), dict(id="e", group="viruses.phage", proteins=100)]
-    assert WB.part1(toy) == {"a", "d", "e"} and [WB.estimate(x) for x in toy] == [3000, 2000, 1500, 200, 100]    # 3,300 against 3,500
+    assert WB.parts(toy, 2) == [{"a", "d", "e"}, {"b", "c"}] and [WB.estimate(x) for x in toy] == [3000, 2000, 1500, 200, 100]    # 3,300 against 3,500
+    assert WB.parts(toy, 3) == [{"a"}, {"b"}, {"c", "d", "e"}]
     text = open(os.path.join(picked["run"], WP.OUT, "corpus.yaml")).read()
-    out = WB.part1_spec(text, rel)
+    out = WB.part_spec(text, rel, 1, 2)
     spec, full = yaml.safe_load(out), yaml.safe_load(text)
-    keep = WB.part1(rel)
+    keep = WB.parts(rel, 2)[0]
+    assert yaml.safe_load(WB.part_spec(text, rel, 2, 2))["sources"] == full["sources"]
     ids = {x["id"] for x in rel}
     assert [x["id"] for x in spec["sources"]] == [x["id"] for x in full["sources"] if x["id"] not in ids or x["id"] in keep]
     p = tmp_path / "part1.yaml"
     p.write_text(out)
-    assert spec["name"] == full["name"] + "-part1" and WC.corpus_header_sha(str(p)) == WC.corpus_header_sha(picked["spec"])
+    assert spec["name"] == full["name"] + "-part1of2" and WC.corpus_header_sha(str(p)) == WC.corpus_header_sha(picked["spec"])
     scope = WB.spec_scope(str(p), os.path.join(picked["run"], WP.OUT, "corpus.yaml"), rel, "search")
     assert {x["id"] for x in scope} == keep
     with pytest.raises(SystemExit, match="byte for byte|not the pick"):

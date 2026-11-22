@@ -20,10 +20,10 @@ rel_w13_build.upto chooses how far the run goes (its rule asks for that stage's 
 parts of a few hours; files fetched before are taken from the content store, hit files of a passed part per genome:
   fetch   stage fetch only: the downloads (sources, bytes, unavailable) of the relatives
   search  up to the search: the relatives' hit files (the search stage searches only genomes no run of
-          search.reuse_from has); with the corpus spec of part 1 (`python -m ci.stages.rel.w13_build part1 ...`) the
-          search of the new genomes takes two runs
+          search.reuse_from has); with the corpus specs of parts 1..i of n (`python -m ci.stages.rel.w13_build part
+          I N ...`) the search of the new genomes takes n runs, each reusing the earlier ones per genome
   all     up to train_data, with the checks above (the default)
-Outside `all` the corpus spec may be the pick's restricted to some of its relatives (part 1); in `all` it is the
+Outside `all` the corpus spec may be the pick's restricted to some of its relatives (parts 1..i); in `all` it is the
 pick's corpus.yaml byte for byte.
 """
 from __future__ import annotations
@@ -62,28 +62,29 @@ def estimate(x):
     return min(p, 1500) if x["group"].startswith("eukaryota.") else (min(p, 200) if x["group"] == "mobile.plasmid" else p)
 
 
-def part1(rel):
-    """The ids of part 1: the relatives in two parts of about equal proteins (greedy, the largest first; fixed order)."""
-    bins, out = [0, 0], set()
+def parts(rel, n):
+    """The relatives in n parts of about equal proteins (greedy, the largest first, into the lightest part; fixed order):
+    a list of n sets of ids."""
+    bins, out = [0] * n, [set() for _ in range(n)]
     for x in sorted(rel, key=lambda x: (-estimate(x), x["id"])):
-        b = 0 if bins[0] <= bins[1] else 1
+        b = min(range(n), key=lambda k: (bins[k], k))
         bins[b] += estimate(x)
-        if b == 0:
-            out.add(x["id"])
+        out[b].add(x["id"])
     return out
 
 
-def part1_spec(text, rel):
-    """The corpus spec of part 1: the pick's corpus.yaml (text) without the relatives of part 2."""
+def part_spec(text, rel, i, n):
+    """The corpus spec of parts 1..i of n: the pick's corpus.yaml (text) without the relatives of the later parts, so
+    run i searches part i and takes the earlier parts' hit files per genome."""
     import yaml
     spec = yaml.safe_load(text)
     ids = {x["id"] for x in rel}
-    keep = part1(rel)
+    keep = set().union(*parts(rel, n)[:i])
     head = [x for x in text[:6000].splitlines() if x.startswith("#")]
-    spec = dict(spec, name=spec["name"] + "-part1", sources=[x for x in spec["sources"] if x["id"] not in ids or x["id"] in keep])
-    return ("# Part 1 of the corpus below for the search in two runs (stage rel_w13_build, upto search): the relatives of part 2 are left\n"
-            "# out (part1(): two parts of about equal proteins). Made by `python -m ci.stages.rel.w13_build part1`.\n" + "\n".join(head) + "\n"
-            + yaml.safe_dump(spec, sort_keys=False, width=160))
+    spec = dict(spec, name="%s-part%dof%d" % (spec["name"], i, n), sources=[x for x in spec["sources"] if x["id"] not in ids or x["id"] in keep])
+    return ("# Parts 1-%d of %d of the corpus below, for the search of its new genomes in %d runs (stage rel_w13_build, upto search): the\n"
+            "# relatives of the later parts are left out (parts(): about equal proteins). Made by `python -m ci.stages.rel.w13_build part`.\n"
+            % (i, n, n) + "\n".join(head) + "\n" + yaml.safe_dump(spec, sort_keys=False, width=160))
 
 
 def _json(p):
@@ -315,10 +316,10 @@ def summary(run_dir):
 
 
 def main():
-    if len(sys.argv) == 4 and sys.argv[1] == "part1":                # python -m ci.stages.rel.w13_build part1 CORPUS_YAML RELATIVES_JSON
-        with open(sys.argv[2]) as f:
+    if len(sys.argv) == 6 and sys.argv[1] == "part":                 # python -m ci.stages.rel.w13_build part I N CORPUS_YAML RELATIVES_JSON
+        with open(sys.argv[4]) as f:
             text = f.read()
-        sys.stdout.write(part1_spec(text, _json(sys.argv[3])["relatives"]))
+        sys.stdout.write(part_spec(text, _json(sys.argv[5])["relatives"], int(sys.argv[2]), int(sys.argv[3])))
         return
     run_dir = main_args()
     with common.RelStage(run_dir, "rel_w13_build") as st:

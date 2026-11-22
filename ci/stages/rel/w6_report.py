@@ -356,13 +356,18 @@ def build(st, cfg, run_dir):
         x0 = WITH_RELATIVES or SC.ALL                                  # the tables with a relative on the target block
         for a in partners:
             for c in (cond.SCATTERED, cond.WHOLE_GENE):
-                def without(x, c=c):
-                    got = bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, x)) if has_best else None
-                    return got if got is not None else F(b, c + NO_REL, SC.ALL, x)
+                # the arm without relatives at its best on all tables: its best node, or its end where the end is lower
+                # (the best node is chosen on the nodes' tables, the end is evaluated on all tables too)
+                at_best = lambda x, c=c: bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, x)) if has_best else None     # noqa: E731
+                at_end = lambda x, c=c: F(b, c + NO_REL, SC.ALL, x)                                                                      # noqa: E731
+                use_best = at_best(x0) is not None and (at_end(x0) is None or at_best(x0) <= at_end(x0))
+                without = at_best if use_best else at_end
                 common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
                 last = common_nodes[-1] if common_nodes else None
                 relatives.append(dict(with_relatives=a, without=b, condition=c, tables=x0,
-                                      without_at="best node (tables %s)" % best.get("tables_seen") if has_best else "end",
+                                      without_at=("best node (tables %s)" % best.get("tables_seen")) if use_best else
+                                      ("end (below its best node at tables %s)" % best.get("tables_seen") if has_best else "end"),
+                                      bits_without_best_node=at_best(x0), bits_without_end=at_end(x0),
                                       bits_without=without(x0), bits_with_end=F(a, c, SC.ALL, x0), worth=diff(without(x0), F(a, c, SC.ALL, x0)),
                                       same_model_rows_removed=diff(F(a, c + NO_REL, SC.ALL, x0), F(a, c, SC.ALL, x0)), node=last,
                                       worth_at_node=diff(N(b, last, c + NO_REL, SC.ALL, x0), N(a, last, c, SC.ALL, x0)) if last else None,
@@ -422,8 +427,9 @@ def build(st, cfg, run_dir):
     md += ["", "### The two blocks over all their tables (mean of the groups, all strata)", ""] + md_table(["condition", "block"] + cols, blocks)
     md += ["", "## What relatives are worth", "",
            "Bits without relatives minus bits with them (positive: relatives help), on the held-out tables with a relative on the target block. "
-           "First at the end, on all such tables: the arm without relatives at its best node against the arm of the same size with relatives at "
-           "its end (conservative while the curve with relatives still falls); then at the same node, on the tables of the nodes. The column "
+           "First at the end, on all such tables: the arm without relatives at its best node (or at its end, where its end is lower: both are "
+           "evaluated on all tables) against the arm of the same size with relatives at its end (conservative while the curve with relatives "
+           "still falls); then at the same node, on the tables of the nodes. The column "
            "'same model' removes the rows from the arm with relatives at evaluation. Then by bin of the nearest identity, without the bin of no "
            "other rows.", ""]
     md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth", "same model, rows removed",

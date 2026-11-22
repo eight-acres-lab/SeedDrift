@@ -261,6 +261,12 @@ def test_report_readings_beside_baselines(tmp_path):
     assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
     part = w6_report.summary(run_dir)
     assert len(json.dumps(part["json"])) < 20000 and part["json"]["baselines"]["copy_nearest"]["scattered"] == 5.65
+    # the arm without relatives ends below its best node: its end is the conservative reading
+    p = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 1.0) if r["weights"] == "ema@best" else r for r in SC.read_rows(p)])
+    worth = {r["condition"]: r for r in w6_report.build(st, cfg, run_dir)["relatives"]}
+    assert worth["scattered"]["without_at"].startswith("end (below its best node") and worth["scattered"]["bits_without"] == 5.75
+    assert worth["scattered"]["bits_without_best_node"] == 6.65 and abs(worth["scattered"]["worth"] - 0.5) < 1e-9
 
 
 def test_scale_at_the_last_node_of_all_arms_and_of_every_two():

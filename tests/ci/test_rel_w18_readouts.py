@@ -276,6 +276,29 @@ def test_a_table_whose_row_0_has_no_context_codon_has_no_C_passes():
     assert P.plan_digest([(t, tab, meta["row_tier"][t], 0)], True, True)[0] == cells["digest"]
 
 
+def test_adaptation_for_arms_of_version_0_takes_tiers_in_turn_and_reads_absent_as_not_searched():
+    tier = np.array([-1, 3, 3, 3, 4, 4, 5, 3, -1, -1])
+    keep = P.adapt_rows(tier, 7, max_rows=4)
+    assert keep[0] == 0 and len(keep) == 4 and sorted(int(tier[k]) for k in keep[1:]) == [3, 4, 5]      # one of every tier first
+    assert (keep == P.adapt_rows(tier, 7, max_rows=4)).all() and (np.diff(keep) > 0).all()
+    assert (P.adapt_rows(tier, 7, max_rows=20) == np.array([0, 1, 2, 3, 4, 5, 6, 7])).all()          # all rows fit: all kept
+    out, meta = ruler()
+    t = 0
+    tab = {k: np.array(out[k][t]) for k in P.FIELDS}
+    tab["kind"][1, 0] = api.KIND_ABSENT
+    a, at, kept = P.adapt_table(tab, meta["row_tier"][t], int(meta["parent"][t]), max_rows=3)
+    assert len(kept) <= 3 and not (a["kind"] == api.KIND_ABSENT).any() and (a["tok"] == tab["tok"][kept]).all()
+    fields = {k: np.array(out[k]) for k in ("tok", "n", "col", "kind", "frame_len", "group", "identity", "genome")}
+    nf, nm = P.adapt_arrays(fields, meta, max_rows=3)
+    for x in range(len(fields["tok"])):
+        k = P.adapt_rows(meta["row_tier"][x], int(meta["parent"][x]), 3)
+        assert (nf["tok"][x, :len(k)] == fields["tok"][x, k]).all() and (nm["row_tier"][x, :len(k)] == meta["row_tier"][x, k]).all()
+        assert (nf["kind"][x, len(k):] == api.KIND_NONE).all() and nm["on_target"][x] == (nf["kind"][x, 1:, P.TARGET_BLOCK] == api.KIND_PRESENT).sum()
+    for s_ in np.unique(meta["triple"]):                               # the three tables of a triple keep the same rows
+        ts = np.flatnonzero(meta["triple"] == s_)
+        assert len({tuple(nf["genome"][x]) for x in ts}) == 1
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

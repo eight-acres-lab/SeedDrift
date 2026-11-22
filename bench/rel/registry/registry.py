@@ -1,6 +1,6 @@
 """Event registry drafts (package W15): read, check, group and count. Standard library only; no scores anywhere.
 
-usage: python bench/rel/registry/registry.py REGISTRY.tsv [--md OUT.md] [--json OUT.json] [--double DOUBLE.tsv]
+usage: python bench/rel/registry/registry.py REGISTRY.tsv [MORE.tsv ...] [--md OUT.md] [--json OUT.json] [--double DOUBLE.tsv]
 
 The rules are bench/rel/registry/RULES.md (rules version 0.2). This module checks a draft against them, computes the
 groups (records whose exclusion radii overlap, or that share a paper or an assembly; disputed, overturned and grade-D
@@ -417,13 +417,13 @@ def markdown_double(d, title="Double registration"):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    ap.add_argument("registry")
+    ap.add_argument("registry", nargs="+", help="one or more drafts, read as one registry")
     ap.add_argument("--md")
     ap.add_argument("--json")
     ap.add_argument("--double", help="a double-registration table (event_id, field, first, second, note)")
     ap.add_argument("--double-title", default="Double registration")
     a = ap.parse_args(argv)
-    rows = read(a.registry)
+    rows = [r for path in a.registry for r in read(path)]
     errors, warnings = check(rows)
     s = summarise(rows) if not any("missing columns" in e for e in errors) else {}
     s["errors"], s["warnings"] = errors, warnings

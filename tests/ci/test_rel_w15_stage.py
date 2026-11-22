@@ -124,4 +124,6 @@ def test_settings_refuse_the_catalogue_path():
     with pytest.raises(SystemExit):
         W.settings({W.STAGE: dict(registry="bench/rel/registry/events_v0.2-sample.tsv", scores="x")})
     s = W.settings({W.STAGE: dict(registry="bench/rel/registry/events_v0.2-sample.tsv", supplements=["10.1/A"])})
-    assert s["supplements"] == ["10.1/a"] and s["fetch"] is False
+    assert s["supplements"] == ["10.1/a"] and s["fetch"] is False and s["registry"] == ["bench/rel/registry/events_v0.2-sample.tsv"]
+    with pytest.raises(SystemExit):
+        W.settings({W.STAGE: dict(registry=["bench/rel/registry/a.tsv", "bench/catalogue/events.tsv"])})

@@ -13,7 +13,7 @@ Four things, all from the registry draft the profile names (bench/rel/registry/e
    it, and the supplementary files of the DOIs the profile lists, each file with its URL, size and sha256. Papers are
    stored under the run's data folder, never in the repository.
 
-Profile block rel_w15_registry: registry (repository path of the draft), source (the run directory of a passed selfsup
+Profile block rel_w15_registry: registry (repository path of the draft, or a list of drafts read as one registry), source (the run directory of a passed selfsup
 run, for its training-data index; optional), fetch (bool), supplements (DOIs whose supplements are fetched),
 max_supplement_mb (default 50), pause_s (default 0.5).
 Output data/rel_w15/registry/report.json and report.md; papers in data/rel_w15/registry/papers/.
@@ -52,10 +52,10 @@ def settings(cfg) -> dict:
     unknown = set(c) - KEYS
     if unknown or not c.get("registry"):
         raise SystemExit("%s: the profile names registry (and only %s): %s" % (STAGE, sorted(KEYS), sorted(unknown)))
-    path = str(c["registry"])
-    if os.path.normpath(path) == CATALOGUE:
+    paths = [str(x) for x in (c["registry"] if isinstance(c["registry"], list) else [c["registry"]])]
+    if any(os.path.normpath(x) == CATALOGUE for x in paths):
         raise SystemExit("%s: the draft never lives at %s (gate G2 reads that file)" % (STAGE, CATALOGUE))
-    return dict(registry=path, source=c.get("source"), fetch=bool(c.get("fetch", False)),
+    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)),
                 supplements=[d.lower() for d in c.get("supplements") or []],
                 max_supplement_mb=float(c.get("max_supplement_mb", 50)), pause_s=float(c.get("pause_s", 0.5)))
 
@@ -213,8 +213,8 @@ def _folder(doi):
 def build(st, cfg, run_dir):
     s = settings(cfg)
     t0 = time.time()
-    path = st.repo(s["registry"])
-    rows = reg.read(path)
+    paths = [st.repo(x) for x in s["registry"]]
+    rows = [r for x in paths for r in reg.read(x)]
     errors, warnings = reg.check(rows)
     summary_ = reg.summarise(rows) if not errors else {}
     from ci.taxonomy import Taxonomy
@@ -235,7 +235,7 @@ def build(st, cfg, run_dir):
                                 max_supplement_mb=s["max_supplement_mb"], pause_s=s["pause_s"]))
             time.sleep(s["pause_s"])
     doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"],
-               registry_sha256=sha256_file(path, use_sidecar=False), records=len(rows), errors=errors, warnings=warnings,
+               registry_sha256={x: sha256_file(st.repo(x), use_sidecar=False) for x in s["registry"]}, records=len(rows), errors=errors, warnings=warnings,
                summary=summary_, taxa=found, pretraining=pre, sealed_overlap=overlap, papers=papers,
                note="no model output and no score is read; the sealed test split of the medium corpus is not looked at",
                seconds=round(time.time() - t0, 1))
@@ -273,9 +273,10 @@ def gate(st, cfg, run_dir):
     with open(p) as f:
         doc = json.load(f)
     bad = [dict(error=e) for e in doc.get("errors") or []]
-    path = os.path.join(common.ROOT, doc["registry"]) if not os.path.isabs(doc["registry"]) else doc["registry"]
-    if sha256_file(path, use_sidecar=False) != doc.get("registry_sha256"):
-        bad.append(dict(error="the draft is not the file the report was made from"))
+    for rel, sha in (doc.get("registry_sha256") or {}).items():
+        path = rel if os.path.isabs(rel) else os.path.join(common.ROOT, rel)
+        if sha256_file(path, use_sidecar=False) != sha:
+            bad.append(dict(error="%s is not the file the report was made from" % rel))
     if os.path.exists(os.path.join(common.ROOT, CATALOGUE)):
         bad.append(dict(error="%s exists: the draft must not live there" % CATALOGUE))
     require(GateResult("G4_rel_w15_registry", "fail" if bad else "pass",

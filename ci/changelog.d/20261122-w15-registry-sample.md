@@ -28,3 +28,8 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
   supplements (size-capped) of every DOI in the draft, each stored with URL, size and sha256 in the run's data folder.
   Profile `rel-dev-w15-registry-i1`; request `configs/rel/requests/20261122-w15-registry-unstub.yaml`; tests
   `tests/ci/test_rel_w15_stage.py`.
+- Batch 2 (`bench/rel/registry/events_v0.2-batch2.tsv`, 10 records) for the cells the sample left empty: fungal
+  recipients, a fish, a giant virus, a plasmid, recombination between close bacterial relatives, and two more hard
+  negatives (host contamination; an overturned genome-wide claim). Reports for the batch and for both drafts
+  together (`report_v0.2-batch2.md`, `report_v0.2-all.md`). `registry.py` and the stage read several drafts as one
+  registry.

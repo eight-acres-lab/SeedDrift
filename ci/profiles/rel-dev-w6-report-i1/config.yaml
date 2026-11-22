@@ -6,6 +6,9 @@
 # 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, with its rows on the 600 tables of the curves' nodes) on the
 # same 3,000 held-out tables. It reads result rows,
 # model indexes and preflight records only; CPU only. Development diagnosis only.
+# The i-1 run is read even if it failed (an arm whose final evaluation the wall limit cut short fails it): its model
+# index must still be the file its stage record lists. If a run of stage w6_eval evaluated such an arm again, add it
+# after the i-1 run as {run: <its directory>, folder: data/rel_w6/eval}: its final rows replace the cut ones.
 pipeline: rel_traineval
 needs_gpu: false
 tier: medium
@@ -23,7 +26,7 @@ rel:
   parallel: 1
 rel_w6_report:
   fits:
-    - /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+    - {run: /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1, accept: [gate_failed, failed]}
     - /hy-tmp/seeddrift-ci/imports/runs/20261122T071650-exp-rel-3382ed5e-rel-d1-i2
   baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
 train:

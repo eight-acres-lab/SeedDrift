@@ -97,10 +97,12 @@ def gate_columns(slices=None):
 
 
 class Axial(nn.Module):
-    def __init__(self, layers, width, slices=None, gate=False, head="flat"):
+    def __init__(self, layers, width, slices=None, gate=False, head="flat", ext=False):
         """gate: the switch of the reference trunk (off by default): when on, the cells of the relation blocks attend
         along the row only to relation blocks, so what a row is elsewhere is not coloured by its focus locus; the cells
-        of the focus blocks attend to every block. head: flat (65 classes) or hierarchical (amino acid, then codon)."""
+        of the focus blocks attend to every block. head: flat (65 classes) or hierarchical (amino acid, then codon).
+        ext: a learned vector added to the cells the renderer laid by extension (a layout other than stored marks
+        them; off for the stored layout, which marks none, so such an arm has neither the parameter nor the sum)."""
         super().__init__()
         if head not in HEADS:
             raise ValueError("head is one of %s, not %r" % (HEADS, head))
@@ -120,54 +122,65 @@ class Axial(nn.Module):
         if head == "hierarchical":
             self.group_head = nn.Linear(width, N_GROUPS)
             self.register_buffer("groups", token_groups(), persistent=False)
+        self.ext = nn.Embedding(1, width) if ext else None             # registered last: the other weights draw as before
         C.init_weights(self, self.blocks)
 
-    def trunk(self, grid, sizes):
-        """grid long [N, C]: the rows of the tables of a micro-batch, table after table; sizes: rows per table."""
+    def trunk(self, grid, sizes, ext=None):
+        """grid long [N, C]: the rows of the tables of a micro-batch, table after table; sizes: rows per table; ext bool
+        [N, C] or None: the cells laid by extension."""
         if grid.shape[0] != sum(sizes) or grid.shape[1] != self.role_of_column.shape[0]:
             raise ValueError("grid %s does not fit %d rows of %d columns" % (tuple(grid.shape), sum(sizes), self.role_of_column.shape[0]))
         layout = C.table_layout(sizes, grid.device)
         keys = grid != A.PAD                                          # PAD cells take no part in attention
         keys = keys | ~keys.any(dim=1, keepdim=True)                  # (a row of PAD only would have no key at all)
         x = self.token(grid) + self.role(self.role_of_column)[None]
+        if ext is not None:
+            if ext.shape != grid.shape:
+                raise ValueError("ext %s does not fit the grid %s" % (tuple(ext.shape), tuple(grid.shape)))
+            if self.ext is not None:
+                x = x + ext.to(x.dtype)[..., None] * self.ext.weight[0]
+            elif bool(ext.any()):
+                raise ValueError("cells laid by extension, for a model built without ext (a stored-layout arm)")
         for block in self.blocks:
             x = block(x, self.cos, self.sin, layout, keys, self.gate)
         return x
 
-    def forward(self, grid, sizes, row, col):
+    def forward(self, grid, sizes, row, col, ext=None):
         """Logits float32 [M, 65] over the residues 1..65 for the cells (row[m], col[m]); with the hierarchical head
         they are already normalised log-probabilities (so cross-entropy and log_softmax read them unchanged)."""
         on_gpu = grid.device.type == "cuda"
         with torch.autocast(device_type=grid.device.type, dtype=torch.bfloat16, enabled=on_gpu):
-            x = self.trunk(grid, sizes)
+            x = self.trunk(grid, sizes, ext)
         with torch.autocast(device_type=grid.device.type, enabled=False):
             h = self.norm(x[row, col].float())
             if self.head_kind == "hierarchical":
                 return hierarchical_logp(self.head(h), self.group_head(h), self.groups)
             return self.head(h)
 
-    def logp(self, grid, sizes, row, col):
+    def logp(self, grid, sizes, row, col, ext=None):
         """For every target cell a normalised distribution over the tokens 1..65: log-probabilities float32 [M, 65]
         (column c is token c + 1)."""
-        return torch.log_softmax(self.forward(grid, sizes, row, col), dim=-1)
+        return torch.log_softmax(self.forward(grid, sizes, row, col, ext), dim=-1)
 
 
-def logp(model, grid, sizes, row, col):
+def logp(model, grid, sizes, row, col, ext=None):
     """The contract's reading of an arm: for every target cell a normalised distribution over the tokens 1..65."""
-    return model.logp(grid, sizes, row, col)
+    return model.logp(grid, sizes, row, col, ext)
 
 
 def build(size):
-    """size: a name of SIZES or a dict with layers and width."""
+    """size: a name of SIZES or a dict with layers and width (and optionally gate, head, ext)."""
     spec = SIZES[size] if isinstance(size, str) else size
-    return Axial(int(spec["layers"]), int(spec["width"]), gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")))
+    return Axial(int(spec["layers"]), int(spec["width"]), gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")),
+                 ext=bool(spec.get("ext", False)))
 
 
 def info(size, rows=16):
     spec = SIZES[size] if isinstance(size, str) else size
     layers, width = int(spec["layers"]), int(spec["width"])
-    params = count_parameters(layers, width, head=str(spec.get("head", "flat")))
+    params = count_parameters(layers, width, head=str(spec.get("head", "flat"))) + (width if spec.get("ext") else 0)
     return dict(module=MODULE, params=params, layers=layers, width=width, gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")),
+                ext=bool(spec.get("ext", False)),
                 flops_per_cell=A.flops_per_cell(params, layers, width, A.ROW_LEN + rows),
                 factorisation="independent", layout="any", common_version=C.COMMON_VERSION)
 
@@ -397,6 +410,34 @@ def test_hierarchical_head():
         pass
     else:
         raise AssertionError("an unknown head was accepted")
+
+
+def test_ext_cells():
+    """The ext vector: with no cell laid by extension a model built with ext computes what the same weights compute
+    without it; a cell laid by extension changes the output; a model built without ext refuses such cells."""
+    torch.manual_seed(0)
+    with_ext = Axial(2, 256, ext=True).eval()
+    plain = Axial(2, 256).eval()
+    plain.load_state_dict({k: v for k, v in with_ext.state_dict().items() if not k.startswith("ext.")})
+    assert sum(p.numel() for p in with_ext.parameters()) == count_parameters(2, 256) + 256
+    assert info(dict(layers=12, width=384, ext=True))["params"] == count_parameters(12, 384) + 384
+    grid = _random_grid(4, 13)
+    sizes = [3, 1]
+    row, col = _all_cells(4)
+    none = torch.zeros_like(grid, dtype=torch.bool)
+    some = none.clone()
+    some[1, 300:340] = True
+    with torch.no_grad():
+        a = plain(grid, sizes, row, col)
+        assert torch.allclose(with_ext(grid, sizes, row, col, none), a, atol=1e-6) and torch.allclose(plain(grid, sizes, row, col, none), a)
+        b = with_ext(grid, sizes, row, col, some).view(4, A.ROW_LEN, N_OUT)
+        assert not torch.allclose(b[1, 300:340], a.view(4, A.ROW_LEN, N_OUT)[1, 300:340], atol=1e-4)
+    try:
+        plain(grid, sizes, row, col, some)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a model built without ext read cells laid by extension")
 
 
 def test_backward():

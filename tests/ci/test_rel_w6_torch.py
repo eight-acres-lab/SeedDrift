@@ -131,6 +131,29 @@ def test_hierarchical_head_trains():
         assert abs(aa + rest - whole) < 1e-4, c
 
 
+def test_leakfree_layout_trains():
+    """Leak-free scattered and span samples, stored whole genes: the model is built with the ext vector (one more
+    width of parameters), trains, and its checkpoint records the size it was built with."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
+    axial = loop.registry.load("model", "axial")
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and out["steps"] == 3
+    ck = torch.load(os.path.join(cfg["out"], "final.pt"), map_location="cpu", weights_only=True)
+    assert ck["size"] == dict(layers=1, width=256, ext=True) and "ext.weight" in ck["ema"]
+    run = loop.Run(dict(cfg, out=os.path.join(root, "other")))
+    assert loop.layouts_of(run.cfg) == {"scattered": "leakfree", "span": "leakfree", "whole_gene": "stored"}
+    assert sorted({run.sampler.layouts[e["scheme"]] for s in range(8) for e in run.sampler.draw(s)}) == ["leakfree", "stored"]
+    try:
+        loop.Run(dict(cfg, layout="unaligned", out=os.path.join(root, "x")))
+    except SystemExit as err:
+        assert "layouts" in str(err)
+    else:
+        raise AssertionError("a training in the unaligned layout was accepted")
+
+
 def test_moving_average():
     root = tempfile.mkdtemp()
     run = loop.Run(_config(root))
@@ -184,6 +207,26 @@ def test_saved_weights_evaluated_again():
     rows = SC.read_rows(os.path.join(folder, "results.tsv"))
     assert {r["weights"] for r in rows} == {"ema@final", "ema@best"} and {r["item_half"] for r in rows} == {"all"}
     assert {r["budget"].split(";")[0] for r in rows if r["weights"] == "ema@final"} == {"tables=%d" % out["tables_seen"]}
+
+
+def test_saved_weights_read_on_a_ruler_set_and_never_trained_on():
+    """An evaluation of saved weights reads a ruler set (package W18) as its held-out set; a training never does."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, max_steps=3, eval_first=4)
+    out = loop.fit(cfg)
+    rroot = tempfile.mkdtemp()
+    ruler = D.write_tableset(rroot, [("heldout/s0000", D.random_tables(12, rows=4, seed=3, split=1))], kind="ruler", name="w6-ruler")
+    again = loop.evaluate_checkpoints(dict(cfg, heldout_tables=ruler, heldout_root=rroot, out=os.path.join(root, "again"),
+                                           final=os.path.join(root, "out", "final.pt"), best=None, final_tables=out["tables_seen"],
+                                           final_cells=out["cells_seen"], final_wall_s=out["wall_s"]))
+    rows = SC.read_rows(os.path.join(root, "again", "results.tsv"))
+    assert again["status"] == "ok" and {r["table_kind"] for r in rows} == {"ruler"} and {r["table_set"] for r in rows} == {"w6-ruler"}
+    try:
+        loop.fit(dict(cfg, heldout_tables=ruler, heldout_root=rroot, out=os.path.join(root, "out2")))
+    except SystemExit as err:
+        assert "kind" in str(err)
+    else:
+        raise AssertionError("a training took a ruler set")
 
 
 def test_split_and_gradient_checks():

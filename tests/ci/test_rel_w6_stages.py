@@ -474,9 +474,30 @@ def test_evaluation_again_settings_and_source():
     s = w6_eval.settings(good)
     assert s["source"] == "/x/runs/t" and s["best"] is True and s["final_per_group"] == 0 and s["heldout"]["split"] == 1
     for bad in ({}, {"from": "/x"}, dict(good["rel_w6_eval"], nonsense=1),
-                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split=0)}}):
+                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split="one")}}):
         with pytest.raises(SystemExit):
             w6_eval.settings(dict(rel_w6_eval=bad))
+
+
+def test_evaluation_again_reads_ruler_sets_and_training_never(tmp_path):
+    from ci.record import Record, stage_report
+    from ci.stages.rel import w6_eval
+    sets = {}
+    for kind in ("real", "ruler"):
+        run_dir, cfg = RF.rel_run(tmp_path / kind, kind="rel_tables", stages=["w2_v0"], run_id="20261122T000000-exp-rel-00000000-" + kind)
+        doc = RF.write_tableset(run_dir, stage="w2_v0", name="v0-" + kind, kind=kind, genomes=[dict(id="g1", taxid=562, split="heldout")], package="W2")
+        path = kinds.stage("w2_v0")["output"]
+        stage_report(run_dir, "rel_w2_v0", "", 0.0, [dict(name="tableset", path=path, sha256=handoff._file_sha(os.path.join(run_dir, path)), bytes=1)])
+        rec = Record.open(run_dir)
+        rec.merge_stages()
+        rec.update(status="passed")
+        sets[kind] = dict(run=run_dir, path=path, sha256=doc["sha256"])
+    assert w6_eval.heldout_set(dict(sets["real"], split=1), verify=True)["kind"] == "real"
+    assert w6_eval.heldout_set(dict(sets["ruler"], split=0), verify=True)["kind"] == "ruler"      # a ruler set: the split its builder set
+    with pytest.raises(SystemExit):                                     # a real held-out set is split 1
+        w6_eval.heldout_set(dict(sets["real"], split=0), verify=True)
+    with pytest.raises(SystemExit):                                     # the training stage never reads a ruler set
+        w6_fit.table_set(cfg, dict(sets["ruler"], split=1), verify=True)
 
 
 def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):

@@ -31,7 +31,15 @@ def to_device(batch, device):
         out[k] = torch.from_numpy(batch[k]).to(device, non_blocking=True).long()
     if "weight" in batch:
         out["weight"] = torch.from_numpy(batch["weight"]).to(device, non_blocking=True).float()
+    if "ext" in batch:
+        out["ext"] = torch.from_numpy(batch["ext"]).to(device, non_blocking=True).bool()
     return out
+
+
+def ext_of(batch):
+    """The keyword a model reads the cells laid by extension with: none for a batch without them (the stored layout),
+    so a model that does not know the keyword is called as before."""
+    return {"ext": batch["ext"]} if "ext" in batch else {}
 
 
 def subset(tables, per_group):
@@ -68,7 +76,7 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32):
         nonlocal pending, rows
         if pending:
             b = to_device(S.collate([dict(grid=g, truth=t) for _, g, t in pending]), device)
-            logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"])
+            logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b))
             per = -logp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0].double() / math.log(2.0)
             bits.append(per.cpu().numpy())
             p_class = logp.double().exp() @ onehot

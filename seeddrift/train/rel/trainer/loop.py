@@ -44,13 +44,15 @@ from seeddrift.train.rel.models.common import layers as C
 from seeddrift.train.rel.trainer import heldout as E
 
 TRAINER_VERSION = "2"
+RULER = getattr(A, "TABLE_RULER", "ruler")      # the kind of the ruler table sets (package W18): evaluation only
 MB = float(1 << 20)
 DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask_weights=None, rows=[4, 16], relatives=True, per_step=4, micro=4,
                 warmup_steps=1000, weight_decay=0.01, betas=[0.9, 0.98], clip=1.0, budget_cells=None, ema=True, eval_first=1000,
                 eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
                 preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
-                run="", commit="", layout=A.LAYOUT_STORED, columns=A.ROW_LEN)
+                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN)
+TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
 NEEDED = ("name", "model", "size", "lr", "seed", "wall_s", "train_tables", "train_root", "heldout_tables", "heldout_root", "out")
 
 
@@ -62,9 +64,24 @@ def settings(cfg):
         raise SystemExit("the trainer's configuration lacks %s" % ", ".join(missing))
     if int(out.get("api", T.API_VERSION)) != T.API_VERSION:
         raise SystemExit("variant %s is written for contract version %s; this trainer has version %s" % (out["name"], out.get("api"), T.API_VERSION))
-    if out["layout"] != A.LAYOUT_STORED or int(out["columns"]) != A.ROW_LEN:
-        raise SystemExit("variant %s: this trainer renders the stored placement on %d columns only" % (out["name"], A.ROW_LEN))
+    if out["layout"] not in TRAINED_LAYOUTS or (out["whole_gene_layout"] or out["layout"]) not in TRAINED_LAYOUTS or int(out["columns"]) != A.ROW_LEN:
+        raise SystemExit("variant %s: this trainer renders the layouts %s on %d columns (given %s, whole gene %s)"
+                         % (out["name"], TRAINED_LAYOUTS, A.ROW_LEN, out["layout"], out["whole_gene_layout"]))
     return out
+
+
+def layouts_of(cfg):
+    """{mask scheme: layout}: the variant's layout, the whole gene's own where whole_gene_layout names one."""
+    return {m: (cfg["whole_gene_layout"] or cfg["layout"]) if m == "whole_gene" else cfg["layout"] for m in cfg["masks"]}
+
+
+def size_of(module, cfg):
+    """The size the model is built with: the variant's, with ext on where a layout other than stored is rendered."""
+    size = cfg["size"]
+    if all(x == A.LAYOUT_STORED for x in layouts_of(cfg).values()):
+        return size
+    base = dict(getattr(module, "SIZES", {})[size]) if isinstance(size, str) else dict(size)
+    return dict(base, ext=True)
 
 
 def write_json(path, obj):
@@ -86,7 +103,9 @@ def versions():
 class Run:
     """What a preflight and a training share: the tables, the model and its moving average, the optimiser."""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, evaluate_only=False):
+        """evaluate_only (evaluate_checkpoints alone): the held-out set may be a ruler set (package W18) of the split it
+        carries; a training or preflight reads real held-out tables of split 1 only."""
         self.cfg = cfg = settings(cfg)
         torch.set_num_threads(int(cfg["threads"]))
         torch.manual_seed(int(cfg["seed"]))
@@ -95,24 +114,31 @@ class Run:
         self.device = torch.device("cuda" if cfg["device"] != "cpu" and torch.cuda.is_available() else "cpu")
         if cfg["device"] == "cuda" and self.device.type != "cuda":
             raise SystemExit("the configuration asks for a GPU and there is none")
-        if int(cfg["train_split"]) != 0 or int(cfg["heldout_split"]) != 1:
+        held_split = int(cfg["heldout_split"])
+        if int(cfg["train_split"]) != 0 or (held_split != 1 and not evaluate_only):
             raise SystemExit("the training tables are split 0 and the held-out tables split 1 (given %s and %s)" % (cfg["train_split"], cfg["heldout_split"]))
         self.train = T.open_split(cfg["train_root"], cfg["train_tables"], 0)
-        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], 1)
-        for ts, want in ((self.train, 0), (self.held, 1)):
+        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], held_split)
+        ruler = evaluate_only and self.held.kind == RULER and not cfg["probe"]
+        if self.held.kind == A.TABLE_REAL and held_split != 1:
+            raise SystemExit("real held-out tables are split 1, not %d" % held_split)
+        for ts, want in ((self.train, 0), (self.held, held_split)):
             got = np.unique(np.asarray(ts.load(("split",))["split"]))
             if got.tolist() != [want]:
                 raise SystemExit("table set %s: the tables read as split %d carry splits %s" % (ts.name, want, got.tolist()))
         for ts in (self.train, self.held):
+            if ts is self.held and ruler:
+                continue                                              # a ruler set, read by an evaluation only
             if bool(cfg["probe"]) == (ts.kind == A.TABLE_REAL):
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
                                  % (ts.name, ts.kind))
         self.sampler = S.Sampler(self.train, cfg["seed"], masks=cfg["masks"], weights=cfg["mask_weights"], rows=cfg["rows"],
-                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"])
+                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"], layouts=layouts_of(cfg))
         self.module = registry.load("model", cfg["model"])
         self.objective = registry.load("objective", cfg["objective"])
-        self.model = self.module.build(cfg["size"]).to(self.device)
-        self.info = self.module.info(cfg["size"], rows=int(cfg["rows"][1]) if cfg["relatives"] else 1)
+        self.size = size_of(self.module, cfg)
+        self.model = self.module.build(self.size).to(self.device)
+        self.info = self.module.info(self.size, rows=int(cfg["rows"][1]) if cfg["relatives"] else 1)
         self.params = sum(p.numel() for p in self.model.parameters())
         if self.params != self.info["params"]:
             raise SystemExit("the model has %d parameters, its module declares %d" % (self.params, self.info["params"]))
@@ -332,7 +358,7 @@ def evaluate_checkpoints(cfg):
     (final_tables, final_cells, final_wall_s) and at its best node (best_tables, best_cells, best_wall_s). Writes
     results.tsv, heldout_final.npz and summary.json in out."""
     began = time.time()
-    run = Run(dict(cfg, out=cfg["out"]))
+    run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
     out_dir = cfg["out"]
     os.makedirs(out_dir, exist_ok=True)
@@ -390,7 +416,7 @@ def fit(cfg):
     def save(name, ema_only):
         if cfg["probe"]:
             return
-        body = dict(name=cfg["name"], size=cfg["size"], module=cfg["model"], step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"],
+        body = dict(name=cfg["name"], size=run.size, module=cfg["model"], step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"],
                     commit=cfg["commit"], ema=run.reader().state_dict())
         if not ema_only:
             body["model"] = run.model.state_dict()

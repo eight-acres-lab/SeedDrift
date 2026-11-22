@@ -11,10 +11,15 @@ loci), the base arm every other arm is compared with.
     in either attention as keys, so nothing a model computes for any other cell depends on them.
   - The number of rows varies from table to table; a micro-batch stacks the rows of its tables.
   - Output: a plain linear layer over the residues 1..65, computed in float32 for the target cells only; the trunk
-    runs in bfloat16 on a GPU.
+    runs in bfloat16 on a GPU. The hierarchical head (a variant) gives instead the distribution of the amino acid first
+    and then that of the codon given the amino acid, in 22 groups: the 20 amino acids of the standard code, the three
+    stop codons, and OTHER alone (its probability inside its group is 1); their product is again a normalised
+    distribution over the residues 1..65, so the bits are still per codon and the objective and the evaluator read it
+    as they read the plain head. It writes the standard genetic code into the model.
 
 Sizes (SIZES): 10m is 8 layers of width 256, 30m 12 x 384, 100m 12 x 768, 200m 12 x 1024. A size given as a dict may add
-gate: true (the switch of the reference trunk: relation-block cells attend along the row to relation blocks only).
+gate: true (the switch of the reference trunk: relation-block cells attend along the row to relation blocks only) and
+head: hierarchical (the output head above; default flat).
 
 `python -m seeddrift.train.rel.trainer.run selftest` calls every test_ function of this module on the CPU.
 """
@@ -44,11 +49,38 @@ def column_plan(slices=None):
     return torch.tensor(role, dtype=torch.long), torch.tensor(pos, dtype=torch.long)
 
 
-def count_parameters(layers, width, vocab=A.VOCAB, roles=4, n_out=N_OUT, ratio=RATIO):
+HEADS = ("flat", "hierarchical")
+N_GROUPS = 22                                # 20 amino acids, stop, OTHER
+
+
+def token_groups():
+    """long [65]: the group 0..21 of every residue 1..65 (the amino acid 0..19 of a codon under the standard code, the
+    stop codons 20, OTHER 21), from the evaluator's classes (the same code the parts of the bits use)."""
+    from seeddrift.train.rel.evalh import score as SC
+    g = torch.as_tensor(SC.amino_acid_classes()[A.TARGET_MIN:A.TARGET_MAX + 1] - 1, dtype=torch.long)
+    if g.shape[0] != N_OUT or int(g.min()) != 0 or int(g.max()) != N_GROUPS - 1 or int((g == N_GROUPS - 1).sum()) != 1:
+        raise ValueError("the residues 1..65 do not fall into 20 amino acids, stop and OTHER")
+    return g
+
+
+def hierarchical_logp(codon, group, groups):
+    """log p of every residue [M, 65] float32: log p(group) + log p(codon | group). codon [M, 65] and group [M, 22] are
+    logits; groups [65] the group of every residue. A group of one residue (OTHER) gives it probability 1 inside."""
+    m = codon.shape[0]
+    index = groups.unsqueeze(0).expand(m, -1)
+    top = torch.full((m, N_GROUPS), float("-inf"), dtype=codon.dtype, device=codon.device)
+    top = top.scatter_reduce(1, index, codon.detach(), reduce="amax", include_self=True)           # a shift per group, for stability
+    total = torch.zeros((m, N_GROUPS), dtype=codon.dtype, device=codon.device).scatter_add(1, index, torch.exp(codon - top.gather(1, index)))
+    inside = codon - (top + torch.log(total)).gather(1, index)                                      # log p(codon | its group)
+    return torch.log_softmax(group, dim=-1).gather(1, index) + inside
+
+
+def count_parameters(layers, width, vocab=A.VOCAB, roles=4, n_out=N_OUT, ratio=RATIO, head="flat"):
     """The number of parameters, from the architecture."""
     attention = 3 * width * width + 3 * width + width * width + width
     block = 2 * attention + 2 * width + (ratio * width * width + ratio * width) + (ratio * width * width + width) + 3 * 2 * width
-    return layers * block + vocab * width + roles * width + 2 * width + n_out * width + n_out
+    extra = N_GROUPS * width + N_GROUPS if head == "hierarchical" else 0
+    return layers * block + vocab * width + roles * width + 2 * width + n_out * width + n_out + extra
 
 
 def gate_columns(slices=None):
@@ -65,11 +97,13 @@ def gate_columns(slices=None):
 
 
 class Axial(nn.Module):
-    def __init__(self, layers, width, slices=None, gate=False):
+    def __init__(self, layers, width, slices=None, gate=False, head="flat"):
         """gate: the switch of the reference trunk (off by default): when on, the cells of the relation blocks attend
         along the row only to relation blocks, so what a row is elsewhere is not coloured by its focus locus; the cells
-        of the focus blocks attend to every block."""
+        of the focus blocks attend to every block. head: flat (65 classes) or hierarchical (amino acid, then codon)."""
         super().__init__()
+        if head not in HEADS:
+            raise ValueError("head is one of %s, not %r" % (HEADS, head))
         self.layers, self.width = int(layers), int(width)
         self.gate = gate_columns(slices) if gate else None
         role, pos = column_plan(slices)
@@ -82,6 +116,10 @@ class Axial(nn.Module):
         self.blocks = nn.ModuleList([C.AxialBlock(width, ROW_HEAD, COLUMN_HEAD, RATIO) for _ in range(layers)])
         self.norm = nn.LayerNorm(width)
         self.head = nn.Linear(width, N_OUT)
+        self.head_kind = head
+        if head == "hierarchical":
+            self.group_head = nn.Linear(width, N_GROUPS)
+            self.register_buffer("groups", token_groups(), persistent=False)
         C.init_weights(self, self.blocks)
 
     def trunk(self, grid, sizes):
@@ -97,12 +135,16 @@ class Axial(nn.Module):
         return x
 
     def forward(self, grid, sizes, row, col):
-        """Logits float32 [M, 65] over the residues 1..65 for the cells (row[m], col[m])."""
+        """Logits float32 [M, 65] over the residues 1..65 for the cells (row[m], col[m]); with the hierarchical head
+        they are already normalised log-probabilities (so cross-entropy and log_softmax read them unchanged)."""
         on_gpu = grid.device.type == "cuda"
         with torch.autocast(device_type=grid.device.type, dtype=torch.bfloat16, enabled=on_gpu):
             x = self.trunk(grid, sizes)
         with torch.autocast(device_type=grid.device.type, enabled=False):
-            return self.head(self.norm(x[row, col].float()))
+            h = self.norm(x[row, col].float())
+            if self.head_kind == "hierarchical":
+                return hierarchical_logp(self.head(h), self.group_head(h), self.groups)
+            return self.head(h)
 
     def logp(self, grid, sizes, row, col):
         """For every target cell a normalised distribution over the tokens 1..65: log-probabilities float32 [M, 65]
@@ -118,14 +160,14 @@ def logp(model, grid, sizes, row, col):
 def build(size):
     """size: a name of SIZES or a dict with layers and width."""
     spec = SIZES[size] if isinstance(size, str) else size
-    return Axial(int(spec["layers"]), int(spec["width"]), gate=bool(spec.get("gate", False)))
+    return Axial(int(spec["layers"]), int(spec["width"]), gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")))
 
 
 def info(size, rows=16):
     spec = SIZES[size] if isinstance(size, str) else size
     layers, width = int(spec["layers"]), int(spec["width"])
-    params = count_parameters(layers, width)
-    return dict(module=MODULE, params=params, layers=layers, width=width, gate=bool(spec.get("gate", False)),
+    params = count_parameters(layers, width, head=str(spec.get("head", "flat")))
+    return dict(module=MODULE, params=params, layers=layers, width=width, gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")),
                 flops_per_cell=A.flops_per_cell(params, layers, width, A.ROW_LEN + rows),
                 factorisation="independent", layout="any", common_version=C.COMMON_VERSION)
 
@@ -317,6 +359,44 @@ def test_gate_keeps_relation_blocks_apart():
     assert torch.allclose(a[:, :g], b[:, :g], atol=1e-5) and not torch.allclose(c[:, :g], d[:, :g], atol=1e-4)
     assert not torch.allclose(a[:, g:], e[:, g:], atol=1e-4)
     assert sum(p.numel() for p in gated.parameters()) == count_parameters(2, 256)
+
+
+def test_hierarchical_head():
+    """The hierarchical head is a normalised distribution over the residues 1..65 whose group marginals are the
+    softmax of its group logits; OTHER alone in its group, the three stop codons in one; the trunk is the flat one's."""
+    groups = token_groups()
+    assert [int((groups == g).sum()) for g in (20, 21)] == [3, 1] and int(groups[A.OTHER - A.TARGET_MIN]) == 21
+    assert sorted(set(groups.tolist())) == list(range(N_GROUPS))
+    torch.manual_seed(0)
+    model = Axial(2, 256, head="hierarchical").eval()
+    flat = Axial(2, 256).eval()
+    flat.load_state_dict({k: v for k, v in model.state_dict().items() if not k.startswith("group_head.")})
+    assert sum(p.numel() for p in model.parameters()) == count_parameters(2, 256, head="hierarchical") == count_parameters(2, 256) + 22 * 257
+    assert info(dict(layers=12, width=384, head="hierarchical"))["params"] == count_parameters(12, 384) + 22 * 385
+    grid = _random_grid(5, 9)
+    sizes = [3, 2]
+    row, col = _all_cells(5)
+    with torch.no_grad():
+        lp = model.logp(grid, sizes, row, col)
+        out = model(grid, sizes, row, col)
+        h = model.norm(model.trunk(grid, sizes)[row, col].float())
+        marg = torch.zeros(lp.shape[0], N_GROUPS).scatter_add(1, groups.expand(lp.shape[0], -1), lp.exp())
+    assert torch.allclose(lp.exp().sum(dim=-1), torch.ones(lp.shape[0]), atol=1e-5) and torch.allclose(out, lp, atol=1e-5)
+    assert torch.allclose(marg, torch.softmax(model.group_head(h), dim=-1), atol=1e-5)
+    assert torch.allclose(lp[:, A.OTHER - A.TARGET_MIN], torch.log_softmax(model.group_head(h), dim=-1)[:, 21], atol=1e-5)
+    with torch.no_grad():
+        assert torch.allclose(model.trunk(grid, sizes), flat.trunk(grid, sizes))
+    model.train()
+    loss = torch.nn.functional.cross_entropy(model(grid, sizes, torch.tensor([0, 2, 4]), torch.tensor([5, 800, 1023])), torch.tensor([0, 10, 64]))
+    loss.backward()
+    missing = [k for k, p in model.named_parameters() if p.grad is None or not torch.isfinite(p.grad).all()]
+    assert not missing and abs(float(loss) - 4.17) < 0.6, (missing[:5], float(loss))
+    try:
+        Axial(1, 256, head="deep")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an unknown head was accepted")
 
 
 def test_backward():

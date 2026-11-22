@@ -25,6 +25,10 @@
 #             (tests/ci/test_rel_c0_imports.py)
 #   produces  tableset (`output` is a table-set manifest) or models (`output` is the model index); see
 #             seeddrift/train/rel/handoff.py. Omitted: a report.
+#   reads     the kinds of table sets the stage may read (default [real]; synthetic for the probe modes). ruler sets
+#             (W11, W18: built from real sequence for capability checks) are read by evaluation-only stages: a stage that
+#             reads ruler sets has side eval, or produces models without training (the stage w6_eval), never side
+#             train with a trainer; ci/stages/rel/common.py read_tableset enforces the list
 #   resumable true when the stage continues from its own checkpoint after an interruption (Snakemake reruns
 #             incomplete rules in any case)
 #   tolerance true when `ci compare --expect within_tolerance` judges the stage's outputs with the tolerance function
@@ -94,7 +98,6 @@ kinds:
         gates: [G4_rel_w3_offline]
         side: data
         produces: tableset
-        stub: true
       w2_census:
         package: W2
         rule: rel_w2_census
@@ -110,7 +113,6 @@ kinds:
         gates: [G4_rel_w12_search]
         side: data
         resumable: true
-        stub: true
       w12_v1:
         package: W12
         rule: rel_w12_v1
@@ -148,8 +150,9 @@ kinds:
         output: data/rel_w6/eval/models.json
         module: ci.stages.rel.w6_eval
         gates: [G4_rel_w6_eval]
-        side: train
+        side: eval
         produces: models
+        reads: [real, ruler]
       w6_report:
         package: W6
         rule: rel_w6_report

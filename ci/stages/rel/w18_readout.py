@@ -126,15 +126,16 @@ def build(st, cfg, run_dir):
         cells, head = P.load_cells(path)
         if head["tableset_sha256"] != doc["sha256"]:
             raise SystemExit("rel_w18_readout: %s scored another table set (%s)" % (path, head["tableset_sha256"]))
-        key = (bool(head["relatives"]), bool(head["presence"]))
+        scen, psc = head.get("scenarios"), head.get("presence_scenarios")
+        key = (bool(head["relatives"]), bool(head["presence"]), None if scen is None else tuple(scen), None if psc is None else tuple(psc))
         if key not in plans:
-            plans[key] = P.plan_digest(P.tables_of(ts, meta), *key)
+            plans[key] = P.plan_digest(P.tables_of(ts, meta, scenarios=key[2], presence=key[1], presence_scenarios=key[3]), key[0], key[1])
         if cells["digest"] != plans[key][0]:
             raise SystemExit("rel_w18_readout: %s scored another plan than the passes of this commit" % path)
         tag = ("untrained:" if head["weights"] == "untrained" else "") + head["arm"]
         info = dict(arm=head["arm"], folder=arm, file=os.path.relpath(path, run_dir) if path.startswith(run_dir) else path, sha256=sha, weights=head["weights"],
                     relatives=head["relatives"], presence=head["presence"], layout=head["layout"], render_version=head["render_version"],
-                    eval_run=head["run"], eval_commit=head["commit"], cells=int(len(cells["bits"])), passes=head["passes"])
+                    eval_run=head["run"], eval_commit=head["commit"], cells=int(len(cells["bits"])), passes=head["passes"], scenarios=scen, presence_scenarios=psc)
         if head["relatives"]:
             r = R.readouts(cells, meta, n0)
             info["calibration"] = R.calibration(cells, meta, n0)

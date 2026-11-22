@@ -176,6 +176,10 @@ def test_run_ruler_with_a_scorer_of_the_evaluation_stage(built, tmp_path):
     assert cells["digest"] == P.plan_digest(P.tables_of(tabs.ts, meta), True, True)[0]
     norel = P.run_ruler(w6_form, tabs, dict(info, relatives=False), str(tmp_path / "n"), presence=True)
     assert norel["presence"] is False and norel["pass_names"][P.PASS_ID["N"]] == "N" and norel["passes"] == doc["tables"]
+    inplace = P.run_ruler(w6_form, tabs, dict(info, relatives=False), str(tmp_path / "p"), scenarios=[0])
+    assert inplace["scenarios"] == [0] and inplace["passes"] == int((meta["scenario"] == 0).sum()) < doc["tables"]
+    c0, _ = P.load_cells(str(tmp_path / "p" / P.RULER_CELLS))
+    assert set(meta["scenario"][np.unique(c0["table"])].tolist()) == {0}
     with pytest.raises(ValueError):
         P.run_ruler(w6_form, tabs, dict(info, layout="leakfree"), str(tmp_path / "x"))
 
@@ -210,10 +214,11 @@ def evaluated(built, tmp_path_factory):
     tabs = T.open_split(run_dir, doc, 1)
     base = dict(weights="final", relatives=True, layout="stored", render_version=T.RENDER_VERSION, run=os.path.basename(ev), commit="0" * 40, root=run_dir)
     with Stage(ev, "rel_w6_eval") as st:
-        for folder, scorer, info, presence in (("toy", w6_form, dict(base, arm="toy"), True), ("toy-norel", w6_form, dict(base, arm="toy-norel", relatives=False), False),
-                                               ("toy-s1", uniform_form, dict(base, arm="toy", weights="untrained"), False)):
+        for folder, scorer, info, presence, scen, psc in (("toy", w6_form, dict(base, arm="toy"), True, None, [0]),
+                                                          ("toy-norel", w6_form, dict(base, arm="toy-norel", relatives=False), False, None, None),
+                                                          ("toy.untrained", uniform_form, dict(base, arm="toy", weights="untrained"), False, [0], None)):
             out = os.path.join(ev, "data", "rel_w6", "eval", folder)
-            P.run_ruler(scorer, tabs, info, out, presence=presence)
+            P.run_ruler(scorer, tabs, info, out, presence=presence, scenarios=scen, presence_scenarios=psc)
             st.output("ruler_cells_" + folder, os.path.join(out, P.RULER_CELLS))
     cfg = dict(cfg, rel=dict(machine="i1", stages=["w6_eval", "w18_readout"]),
                rel_w18_readout=dict(tables=dict(run=run_dir, path=os.path.join("data", "rel_w18", "rulers", "tableset.json")), reps=50))
@@ -229,6 +234,8 @@ def test_readout_stage_reads_every_arm_and_writes_the_aucs(built, evaluated, mon
     with Stage(ev, "rel_w18_readout") as st:
         rep = w18_readout.build(st, cfg, ev)
     assert sorted((a["arm"], a["weights"]) for a in rep["arms"]) == [("toy", "final"), ("toy", "untrained"), ("toy-norel", "final")]
+    assert [a["scenarios"] for a in rep["arms"] if a["weights"] == "untrained"] == [[0]]
+    assert [a["presence_scenarios"] for a in rep["arms"] if a["presence"]] == [[0]]
     assert rep["tables"]["sha256"] == built["doc"]["sha256"] and rep["tables"]["tables"] == built["doc"]["tables"]
     import csv
     with open(os.path.join(ev, w18_readout.OUT, "stats.tsv")) as f:

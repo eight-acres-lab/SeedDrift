@@ -107,8 +107,10 @@ def settings(st, cfg) -> dict:
 
 
 def table_set(cfg, spec, verify) -> dict:
-    """The manifest of a table set of another run of this machine: a hand-off file of a passed run (for a real table
-    set with the record of its passed sealed check; handoff.from_run), every file it lists with its recorded hash."""
+    """The manifest of a table set of another run (of this machine, or copied to it): a hand-off file of a passed run,
+    with the record of the sealed check made where the tables were built (handoff.from_run refuses a real set without
+    it; the check itself needs the sealed registry, which only the machine that builds tables has), every file it
+    lists with its recorded hash."""
     try:
         doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"])
     except (handoff.HandoffError, OSError, ValueError) as err:

@@ -488,6 +488,8 @@ def read_ruler(run, cfg, began):
     extra = {}
     if ro.get("in_place_only"):                                       # the protocol's switch of compute: in-place implants only
         extra = dict(scenarios=[0]) if untrained else (dict(presence_scenarios=[0]) if ro.get("presence") else {})
+    if ro.get("adapt_v0"):                                            # tables of version 1 read by an arm trained on version 0
+        extra["adapt_v0"] = True
     head = importlib.import_module(str(ro["module"])).run_ruler(lambda examples: E.score_cells(reader, examples, run.device, max_rows=max_rows),
                                                                 run.held, info, out_dir, render=render, presence=bool(ro.get("presence")),
                                                                 max_rows=max_rows, **extra)

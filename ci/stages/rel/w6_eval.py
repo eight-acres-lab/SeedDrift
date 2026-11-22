@@ -12,7 +12,9 @@ Profile block rel_w6_eval:
              of rows, the passes of the module (package W18: seeddrift.train.rel.readouts.w18_passes, run_ruler) scored
              by every arm, written to data/rel_w6/eval/<arm>/ruler_cells.npz (<arm>.untrained/ for an untrained arm);
              presence_arms (arm or variant names) also run the presence passes; layout stored or leakfree;
-             in_place_only (false): the untrained arms, and the presence passes, on the in-place implants only
+             in_place_only (false): the untrained arms, and the presence passes, on the in-place implants only;
+             adapt_v0_arms (false): every arm (the untrained too) read through the module's adaptation of tables of
+             version 1 to arms trained on version 0 (adapt_v0=True)
   tables     heldout: {run, path, sha256, split}: a real held-out set (split 1) or a ruler set of package W18 (the
              split its builder sets; this stage reads the kinds configs/rel/kinds.yaml gives it, read_tableset), as in
              rel_w6_fit otherwise: the held-out table set, a hand-off file of a
@@ -52,7 +54,7 @@ OUT = os.path.join("data", "rel_w6", "eval")
 FIT = w6_fit.OUT
 KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files", "readout", "extra_conditions",
         "only_conditions"}
-READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only"}
+READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only", "adapt_v0_arms"}
 UNTRAINED = "untrained"
 RULER_CELLS = "ruler_cells.npz"
 
@@ -75,7 +77,7 @@ def settings(cfg) -> dict:
         raise SystemExit("rel_w6_eval.arms: an arm is listed twice")
     ro = sc.get("readout")
     if ro is not None and (set(ro) - READOUT_KEYS or not ro.get("module")):
-        raise SystemExit("rel_w6_eval.readout: {module, presence_arms, max_rows, layout, in_place_only}: %r" % (ro,))
+        raise SystemExit("rel_w6_eval.readout: {module, presence_arms, max_rows, layout, in_place_only, adapt_v0_arms}: %r" % (ro,))
     if any(a["untrained"] for a in arms) and ro is None:
         raise SystemExit("rel_w6_eval: an untrained arm is read by a readout only (rel_w6_eval.readout)")
     sources = sc["from"] if isinstance(sc["from"], list) else [sc["from"]]
@@ -86,7 +88,7 @@ def settings(cfg) -> dict:
                 extra_conditions=[str(c) for c in sc.get("extra_conditions") or []], only_conditions=[str(c) for c in sc.get("only_conditions") or []] or None,
                 readout=None if ro is None else dict(module=str(ro["module"]), presence_arms=[str(x) for x in ro.get("presence_arms") or []],
                                                      max_rows=int(ro.get("max_rows", 32)), layout=str(ro.get("layout") or "stored"),
-                                                     in_place_only=bool(ro.get("in_place_only", False))))
+                                                     in_place_only=bool(ro.get("in_place_only", False)), adapt_v0_arms=bool(ro.get("adapt_v0_arms", False))))
 
 
 def source_index(source):
@@ -195,6 +197,7 @@ def build(st, cfg, run_dir):
                       only_conditions=s["only_conditions"])
             if ro is not None:                                         # the passes of the readout: no rows, a per-cell file
                 ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"], in_place_only=ro["in_place_only"], untrained=untrained,
+                                     adapt_v0=ro["adapt_v0_arms"],
                                      presence=not untrained and (a in ro["presence_arms"] or variant_of_arm(a) in ro["presence_arms"]))
             cp = os.path.join(folder, "conf.json")
             write_json(cp, ec)

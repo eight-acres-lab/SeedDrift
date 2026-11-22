@@ -24,6 +24,7 @@ parsed record (a wholesale failure fails the run instead of passing it with noth
 from __future__ import annotations
 
 import csv
+import http.client
 import json
 import os
 import re
@@ -45,6 +46,9 @@ EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
 USER_AGENT = "literature-registry-fetch/0.2 (python urllib)"
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;\[\]]+")
 RETRIES = (10, 30)           # seconds to wait before the second and third try of a lookup or a supplement
+# what a retry may cure: connection errors and resets, a body cut short (http.client.IncompleteRead, run
+# 20261122T175251), an error body; HTTPError is an URLError and is handled apart (5xx retried, 4xx not)
+TRANSIENT = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)
 CATALOGUE = os.path.join("bench", "catalogue", "events.tsv")
 PRETRAIN_SPLITS = ("train", "heldout")
 FETCH_MIN_SHARE = 0.5        # gate: with fetch on, at least half the lookups must return a parsed record
@@ -197,7 +201,7 @@ def _tries(fn, waits, sleep=time.sleep):
         except urllib.error.HTTPError as err:
             if err.code < 500 or i == len(waits):
                 raise
-        except (urllib.error.URLError, OSError, ValueError):
+        except TRANSIENT:
             if i == len(waits):
                 raise
 
@@ -228,8 +232,8 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
         hit = hits[0] if hits else {}
         rec.update(found=bool(hits), pmcid=hit.get("pmcid"), open_access=hit.get("isOpenAccess"), pmid=hit.get("pmid"),
                    title=hit.get("title"), year=hit.get("pubYear"))
-    except (urllib.error.URLError, OSError, ValueError) as err:
-        rec["meta"] = dict(url=url, error=str(err)[:200])
+    except TRANSIENT as err:
+        rec["meta"] = dict(url=url, error=("%s: %s" % (type(err).__name__, err))[:200])
         return rec
     for what, path, cap in (("fulltext", "fullTextXML", None), ("supplements", "supplementaryFiles", max_supplement_mb)):
         if not rec.get("pmcid") or (what == "supplements" and not supplements):
@@ -252,9 +256,24 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
                 rec[what]["note"] = ("HTTP 500 after retries: Europe PMC's back end failed (run 20261122T153204 had such failures "
                                      "for open-access articles too), or the article is outside its open subset; PMC's terms bar "
                                      "automated bulk download from its own site")
-        except (urllib.error.URLError, OSError, ValueError) as err:
-            rec[what] = dict(url=url, error=str(err)[:200])
+        except TRANSIENT as err:
+            rec[what] = dict(url=url, error=("%s: %s" % (type(err).__name__, err))[:200])
     return rec
+
+
+def fetch_all(doi_list, base, s, fetch_one=None, sleep=time.sleep) -> list:
+    """fetch() for every DOI; one paper's unexpected failure is recorded and never stops the stage (run 20261122T175251
+    stopped on an IncompleteRead in one supplement)."""
+    fetch_one = fetch_one or fetch
+    out = []
+    for d in doi_list:
+        try:
+            out.append(fetch_one(d, os.path.join(base, _folder(d)), supplements=d in s["supplements"],
+                                 max_supplement_mb=s["max_supplement_mb"], pause_s=s["pause_s"]))
+        except Exception as err:  # noqa: BLE001 - recorded as not fetched; the other papers go on
+            out.append(dict(doi=d, error=("%s: %s" % (type(err).__name__, err))[:200], fetched=False))
+        sleep(s["pause_s"])
+    return out
 
 
 def _folder(doi):
@@ -280,11 +299,8 @@ def build(st, cfg, run_dir):
     overlap = sealed_overlap(found, sealed_genera(tax, st.repo(os.path.join("bench", "hard", "EXCLUDE.tsv"))), tax)
     papers = []
     if s["fetch"]:
-        base = st.path("rel_w15", "registry", "papers", "x")
-        for d in dois(rows):
-            papers.append(fetch(d, os.path.join(os.path.dirname(base), _folder(d)), supplements=d in s["supplements"],
-                                max_supplement_mb=s["max_supplement_mb"], pause_s=s["pause_s"]))
-            time.sleep(s["pause_s"])
+        base = os.path.dirname(st.path("rel_w15", "registry", "papers", "x"))
+        papers = fetch_all(dois(rows), base, s)
     doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"],
                registry_sha256={x: sha256_file(st.repo(x), use_sidecar=False) for x in s["registry"]}, records=len(rows), errors=errors, warnings=warnings,
                summary=summary_, taxa=found, pretraining=pre, sealed_overlap=overlap, papers=papers,

@@ -360,3 +360,39 @@ rule gates_report:
     input: "data/eval/eval_report.json"
     output: "gates/report.ok"
     shell: STAGE.format(name="gates") + " report"
+
+
+# ---- the relational-model line: pipelines rel_* (configs/rel/kinds.yaml; ci/stages/rel/kinds.py) ----
+# A rel profile names its kind (`pipeline: rel_tables`) and the stages it runs (rel.stages). Each stage's rule is in
+# its package's file ci/rules/rel_<package>.smk (rule rel_<stage>, writing the output the registry names; every stage
+# takes gates/pre.ok). This part adds the target rule, the gate rule of every stage (gates/rel_<stage>.ok) and the gate
+# rule of the kind (gates/<kind>.ok). Nothing of the rules above changes.
+import glob as _rel_glob
+import yaml as _rel_yaml
+
+with open(os.path.join(workflow.basedir, os.pardir, "configs", "rel", "kinds.yaml")) as _rel_f:
+    REL = _rel_yaml.safe_load(_rel_f)
+REL_STAGES = {_s: dict(_d, kind=_k) for _k, _kd in REL["kinds"].items() for _s, _d in _kd["stages"].items()}
+REL_KIND = str(config.get("pipeline", "")) if str(config.get("pipeline", "")) in REL["kinds"] else ""
+REL_ON = list((config.get("rel") or {}).get("stages") or []) if REL_KIND else []
+
+for _rel_smk in sorted(_rel_glob.glob(os.path.join(workflow.basedir, "rules", "rel_*.smk"))):
+    include: _rel_smk
+
+
+rule rel_all:
+    input: ["gates/%s.ok" % REL_KIND] if REL_KIND else []
+
+
+rule gates_rel_kind:
+    input: lambda wc: ["gates/rel_%s.ok" % s for s in REL_ON if REL_STAGES[s]["kind"] == wc.kind]
+    output: "gates/{kind}.ok"
+    wildcard_constraints: kind="|".join(sorted(REL["kinds"]))
+    shell: STAGE.format(name="gates") + " {wildcards.kind}"
+
+
+rule gates_rel_stage:
+    input: lambda wc: REL_STAGES[wc.stage]["output"]
+    output: "gates/rel_{stage}.ok"
+    wildcard_constraints: stage="|".join(sorted(REL_STAGES))
+    shell: STAGE.format(name="gates") + " rel_{wildcards.stage}"

@@ -5,8 +5,11 @@
       [--resume]              continue an interrupted run in D (Snakemake reruns only incomplete rules; training
                               resumes from its last checkpoint)
       [--set key=value ...]   override profile values for this run (recorded in the config hash)
-  compare A B [--expect exact|within_tolerance]
-                              reproduction verdict of run B against run A (written into B's record)
+  compare A B [--expect exact|within_tolerance] [--protocol FILE]
+                              reproduction verdict of run B against run A (written into B's record); within_tolerance
+                              (pipelines rel_*): the outputs of the stages configs/rel/kinds.yaml marks `tolerance` are
+                              judged by seeddrift/train/rel/trainer/tolerance.py with the `tolerance` block of the
+                              round's protocol FILE, everything else byte for byte as with exact
   status D                    status of a run (a running record without heartbeat for 10 minutes is "interrupted")
   promote D                   print the catalogue lock of a passed refresh run of pipeline select (with its provenance),
                               to be committed as configs/select/<spec>.lock.yaml (ci/launch.sh promote RUN_ID)
@@ -15,7 +18,9 @@ Profiles choose a pipeline (`pipeline:`): `train` (default: corpus, search, trai
 snapshots, the multi-kingdom corpus selection and its cost), `search` (corpus and search only, with their gates: a long
 search runs once, and train runs take it whole through `search.reuse_from`) or `selfsup` (the self-supervised model of the
 truth-labels line with its own report and gates). Each pipeline has its Snakemake target, its required gates
-and the gate phases a resume decides again (PIPELINES).
+and the gate phases a resume decides again (PIPELINES). The kinds of the relational-model line (`pipeline: rel_*`) are
+registered in configs/rel/kinds.yaml; their target, gates and resume phases follow from the stages a profile runs
+(ci/stages/rel/kinds.py).
 """
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ import yaml
 from ci import ROOT, version
 from ci.hashing import pipeline_hash, sha256_file, sha256_json, taxdump_hash
 from ci.record import Record, atomic_write_json, status_of, validate
+from ci.stages.rel import kinds as rel_kinds
 
 LAUNCHER_VERSION = "0.1"
 # --set may change only these (prefixes): never a gate input such as the corpus spec, taxonomy, disk or GPU limits,
@@ -84,8 +90,10 @@ DATASETS = ("catalog", "select", "corpus", "reference", "eval_inputs", "hits")
 
 def pipeline(cfg):
     p = cfg.get("pipeline", "train")
+    if rel_kinds.is_kind(p):                         # the relational-model line: from the stages the profile runs
+        return rel_kinds.pipeline(cfg)
     if p not in PIPELINES:
-        raise SystemExit("unknown pipeline %r (known: %s)" % (p, ", ".join(sorted(PIPELINES))))
+        raise SystemExit("unknown pipeline %r (known: %s; rel kinds: %s)" % (p, ", ".join(sorted(PIPELINES)), ", ".join(sorted(rel_kinds.load()["kinds"]))))
     return PIPELINES[p]
 
 
@@ -185,6 +193,10 @@ def summary(run_dir, rec):
                pipeline_hash=d["pipeline_hash"], env_lock_sha256=d["env_lock_sha256"], seeds=d["seeds"], gates=d["gates"], waivers_used=d.get("waivers_used", []),
                stages=[dict(name=s["name"], status=s["status"], wall_s=s["wall_s"], outputs={o["name"]: o["sha256"] for o in s.get("outputs", [])}) for s in d["stages"]],
                dataset_ids=d.get("dataset_ids", []), model_ids=d.get("model_ids", []), metrics=d.get("metrics", {}))
+    rel_md = []
+    if rel_kinds.is_kind(d.get("pipeline")):        # the relational-model line: each stage's own summary (ci/stages/rel/summary.py)
+        from ci.stages.rel import summary as rel_summary
+        out["rel"], rel_md = rel_summary.hook(run_dir, d)
     atomic_write_json(os.path.join(run_dir, "summary.json"), out)
     rows = []
     mpath = os.path.join(run_dir, "data", "train", "logs", "metrics.jsonl")
@@ -228,6 +240,7 @@ def summary(run_dir, rec):
                 fmt = lambda x: "—" if x is None else "%.3f" % x
                 lines.append("| %s | %s | %s | %s |" % (row["method"], fmt(row["auroc"]), fmt(row["recall_at_lowest_fpr"]), row["status"]))
             lines.append("")
+    lines += rel_md
     with open(os.path.join(run_dir, "summary.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -429,10 +442,47 @@ def cmd_compare(a):
             ha, hb = _content_hash(os.path.join(a.a, oa[out])), _content_hash(os.path.join(a.b, ob[out]))
             if ha != hb:
                 diffs.append(dict(stage=name, output=out, a=ha, b=hb))
+    if a.expect == "within_tolerance":
+        return _compare_tolerance(a, ra, rb, diffs)
     verdict = "exact" if not diffs else "diverged"
     rb.update(reproduces=dict(of_run_id=ra.data["run_id"], verdict=verdict, diffs=diffs[:100]))
     print(json.dumps(dict(verdict=verdict, diffs=diffs[:20]), indent=1))
     return 0 if verdict == "exact" else 1
+
+
+def _compare_tolerance(a, ra, rb, diffs):
+    """--expect within_tolerance (pipelines rel_*): the output differences of the stages configs/rel/kinds.yaml marks
+    `tolerance` go to the tolerance function at its fixed path (seeddrift/train/rel/trainer/tolerance.py, package W4)
+    with the `tolerance` block of the protocol file; every other difference stays a divergence."""
+    from seeddrift.train.rel.trainer import tolerance
+    if not (rel_kinds.is_kind(ra.data.get("pipeline")) and ra.data.get("pipeline") == rb.data.get("pipeline")):
+        raise SystemExit("--expect within_tolerance compares two runs of the same rel kind")
+    tol = {}
+    if a.protocol:
+        with open(a.protocol) as f:
+            tol = (yaml.safe_load(f) or {}).get("tolerance") or {}
+    judged = {"rel_" + s for s, d in rel_kinds.all_stages().items() if d.get("tolerance")}
+    to_judge = lambda x: x.get("stage") in judged and "output" in x and "a" in x and "b" in x      # a content difference only
+    exact = [x for x in diffs if not to_judge(x)]
+    stages = sorted({x["stage"] for x in diffs if to_judge(x)})
+    results = {}
+    for name in stages:
+        outs = {ra.data["run_id"]: {}, rb.data["run_id"]: {}}
+        for r in (ra, rb):
+            for s in r.data["stages"]:
+                if s["name"] == name:
+                    outs[r.data["run_id"]] = {o["name"]: o["path"] for o in s.get("outputs", [])}
+        results[name] = tolerance.within_tolerance(a.a, a.b, name, outs[ra.data["run_id"]], outs[rb.data["run_id"]], tol)
+    verdicts = [r.get("verdict") for r in results.values()]
+    if exact or "outside" in verdicts:
+        verdict = "diverged"
+    elif any(v != "within" for v in verdicts):
+        verdict = "undecided"
+    else:
+        verdict = "within_tolerance" if stages else "exact"
+    rb.update(reproduces=dict(of_run_id=ra.data["run_id"], verdict=verdict, diffs=exact[:100], tolerance=results, protocol=a.protocol or None))
+    print(json.dumps(dict(verdict=verdict, diffs=exact[:20], tolerance=results), indent=1, default=str))
+    return 0 if verdict in ("exact", "within_tolerance") else 1
 
 
 def cmd_check(a):
@@ -557,7 +607,8 @@ def main(argv=None):
     c = sub.add_parser("compare")
     c.add_argument("a")
     c.add_argument("b")
-    c.add_argument("--expect", default="exact", choices=["exact"])
+    c.add_argument("--expect", default="exact", choices=["exact", "within_tolerance"])
+    c.add_argument("--protocol", default="", help="within_tolerance: the round's protocol file (its block `tolerance`)")
     s = sub.add_parser("status")
     s.add_argument("run_dir")
     pr = sub.add_parser("promote")

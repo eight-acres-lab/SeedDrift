@@ -1,0 +1,15 @@
+{
+ "about": "What the sealed check of the relational-model line refuses (seeddrift/train/rel/sealed.py; every stage that reads data calls it). (1) The sealed test part of the medium corpus: the 257 genomes with split 'test' in the training-data index named here (the corpus split three ways: held-out part by salt 'split', test part from the rest by salt 'test', every 4), found under <CI root>/runs or <CI root>/imports/runs and checked by its sha256; where <CI root>/host/sealed_registry.json exists its test split must be the same genomes, and its aliases are refused too. (2) The sealed island chromosomes and the benchmark-v2 sealing candidates, by accession (with or without version, any case, inside composite names). (3) By full lineage (CI environment only; ci/stages/rel/common.py check_lineage): bench/hard/EXCLUDE.tsv as gate G2 reads it, plus the exclusion lists named here. Owned by the coordinator (C0); changing it changes what every round may use.",
+ "version": 1,
+ "test_split": {
+  "run": "20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1",
+  "path": "data/train_data/index.json",
+  "sha256": "a6f098f8863f3624e9051e40f754f36b7ebaead8b56f88df8636f40b610f07e9",
+  "search": ["runs", "imports/runs"],
+  "split": "test",
+  "expect": 257
+ },
+ "registry": "host/sealed_registry.json",
+ "chromosome_lists": ["bench/hard/results/sealed.tsv", "bench/hard/results/v2_sealed_candidates.tsv"],
+ "extra_exclusions": ["configs/exclusions/pilot_recipients.tsv"]
+}

@@ -1,5 +1,5 @@
 """Stage gates: `python -m ci.stages.gates RUN_DIR pre|corpus|train|eval|report|select|islands|selfsup|codon|register|audit|famA_taxa|famA_labels
-|famA_eval [--check-only]`.
+|famA_eval|rel_<stage>|<rel kind> [--check-only]`.
 
 pre      before any data step: G6 clean committed code (against the commit the launcher asked for), G7 environment
          lock, prefix (not moved) and resources, G8 CI version, G1 on the spec (tier must equal the profile's), G2 static,
@@ -37,6 +37,8 @@ famA_labels (pipeline family_a) G4_famA_labels: every development chromosome lab
          accession of the register's other parts in the presence or label outputs
 select   (pipeline select) G1_select, G2_select, G3_select on the selected corpus table; the pre phase of that pipeline
          checks the select spec (G1_select_spec) instead of a corpus spec
+rel_<stage>, <rel kind> (pipelines rel_*, the relational-model line; configs/rel/kinds.yaml) are decided by
+         ci/stages/rel/gates.py: a stage's own gates by its module, a kind's G3_rel and G4_rel_handoff after its stages
 Each gate writes gates/<gate>.json. A failure exits non-zero, so no rule that takes the sentinel gates/<phase>.ok as
 input can run. The sentinel holds the hash of the phase's inputs and is not rewritten when its content would not
 change. --check-only decides the gates without touching the sentinel (used by a resume before Snakemake starts).
@@ -57,6 +59,7 @@ from ci.hashing import sha256_file, sha256_json
 from ci.kingdom import KingdomMap
 from ci.record import atomic_write_json
 from ci.stages.common import Stage, load_select_spec, read_fasta
+from ci.stages.rel import kinds as rel_kinds
 from ci.taxonomy import Taxonomy
 
 
@@ -104,7 +107,7 @@ def phase_pre(st, cfg, run_dir):
 
 def pipeline_of(cfg):
     p = cfg.get("pipeline", "train")
-    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit", "family_a", "family_a_eval"):
+    if p not in ("train", "select", "search", "selfsup", "codon", "register", "audit", "family_a", "family_a_eval") and not rel_kinds.is_kind(p):
         raise SystemExit("unknown pipeline %r" % p)
     return p
 
@@ -782,6 +785,9 @@ def main():
                 key = phase_famA_labels(st, cfg, run_dir)
             elif phase == "famA_eval":
                 key = phase_famA_eval(st, cfg, run_dir)
+            elif phase.startswith("rel_"):                # the relational-model line (ci/stages/rel/gates.py)
+                from ci.stages.rel import gates as rel_gates
+                key = rel_gates.phase(st, cfg, run_dir, phase)
             else:
                 raise SystemExit("unknown gate phase %s" % phase)
         except GateFailure as err:

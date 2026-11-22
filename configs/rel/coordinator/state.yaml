@@ -1,0 +1,13 @@
+# State of the coordinator (package C0) of the relational-model line. Written by C0 only.
+integration_branch: exp/rel
+base: {branch: exp/truth-labels, commit: cd967cbe7b6fd3a73ee37c51ad4792a9531372af, ci_version: "0.3"}
+ci_version: "0.4"
+# the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel; filled in by the commit
+# after the foundation commit, once its checks passed
+branch_from: null
+contract: {file: seeddrift/train/rel/api.py, version: 0, note: "placeholder; version 1 comes from branch exp/rel-p0"}
+merged: []
+runs: []
+queue: []
+# tables copied between machines: none until the user decides how (an open decision)
+copies: []

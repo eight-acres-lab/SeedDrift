@@ -1,0 +1,34 @@
+# Machine i-1: the classical baselines of the relational-model line on the held-out tables of the first tables run
+# (stage w5_baselines, ci/stages/rel/w5_baselines.py; package W5 with the copying chain of W10). What the first models
+# have to get under: bits per codon of the hidden residues of the examined row under the evaluation conditions of
+# seeddrift/train/rel/evalh/conditions.py (scattered cells; the whole target gene; both without relatives; the whole
+# gene with the rows re-paired), per group and per identity of the nearest row. numpy only: the select lock, no GPU.
+# Coverage: the 12 groups of the table set, held-out genomes examined, training genomes as the other rows; nothing of
+# the sealed test part. Limits (written into the results): the stored layout makes the whole-gene numbers an upper
+# bound; rows are drawn among genomes with a homolog row on the target gene, so the worth of relatives is
+# overestimated; one seed, no noise floor. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 2
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w5_baselines]
+rel_w5_baselines:
+  # the passed tables run and its table-set manifests (hand-off files); filled in when that run has passed
+  tables_from: /hy-tmp/seeddrift-ci/runs/TABLES_RUN_ID
+  tablesets:
+    - {path: data/rel_w2/v0/tableset.json, sha256: TABLESET_SHA256}
+  seed: 20261122
+  fit_tables: 6000
+  chain_tables: 1500
+train:
+  gpu_lease: false
+  device: cpu

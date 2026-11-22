@@ -1,0 +1,45 @@
+# Machine i-1, round 1a of the relational-model line (the programme lead's plan of 2026-11-22, task breakdown 8.6):
+# the short arms, three at once, about 4 h each, with relatives, seed 1: the 30 M arm at the two sides of its
+# learning rate (1.5e-4 and 6e-4 against the evening's 3e-4), and the 100 M arm at 8e-4 (the other side of the
+# evening's learning-rate check: rel-r1ashort8e4-i1 when 4e-4 was better than 2e-4, rel-r1ashort1e4-i1 otherwise),
+# which takes the hierarchical output head's place because i-1 trains at most three at once. Tables v0, stored
+# placement: read the scattered and the two no-relatives conditions only. A preflight that fails or a value that
+# is not finite stops the arm; nothing lowers the learning rate. The report sets them beside the classical
+# baselines of run 20261122T075150. The code of commit 3382ed5 (branch exp/rel-r1a), the evening's arms'. Development
+# diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 30000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_selftest, w6_fit, w6_report]
+  parallel: 3
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-lr1.5e-4.yaml, seed: 1}
+    - {variant: configs/rel/variants/w6-ref30m-lr6e-4.yaml, seed: 1}
+    - {variant: configs/rel/variants/w6-ref100m-lr8e-4.yaml, seed: 1}
+  wall_s: 14400                  # 4 h: one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
+rel_w6_report:
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

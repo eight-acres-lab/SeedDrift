@@ -94,12 +94,14 @@ def _strip(gen):
     return gen
 
 
-def load_arrays(man, genomes, cfg, s, st):
-    """{id: Genome} of every genome of the search's list, every file checked; the sealed checks first."""
+def load_arrays(man, genomes, cfg, s, st, with_islands=False):
+    """{id: Genome} of the genomes of the search's list (the development chromosomes only with_islands, for the island
+    set's tables), every file checked; the sealed checks first. The record of the id check covers every genome loaded,
+    the development chromosomes included (handoff.sealed_problems: at least the genomes a manifest lists)."""
     src = W.source(man["settings"]["source"])                       # the source run the search read (its own settings)
     sealed = common.sealed_set(cfg)
     corpus = [g for g in genomes if g["split"] != "island"]
-    islands = [g for g in genomes if g["split"] == "island"]
+    islands = [g for g in genomes if g["split"] == "island"] if with_islands else []
     metas, left, _ = W.open_genomes(src, dict(s, expect=s["expect"]), sealed)
     by = {m["id"]: m for m in metas}
     bad = [g["id"] for g in corpus if g["id"] not in by or by[g["id"]]["split"] != g["split"]]
@@ -120,10 +122,12 @@ def load_arrays(man, genomes, cfg, s, st):
         isl = man.get("islands") or {}
         run = man["settings"].get("islands_from") or man["settings"]["source"]
         common.development_chromosomes([g["id"] for g in islands])
-        try:
-            SL.check_ids([g["id"] for g in islands], sealed)
+        try:                                                        # one record for the corpus genomes and the development chromosomes
+            ids = SL.check_ids([g["id"] for g in corpus + islands], sealed, splits={g["id"]: g["split"] for g in corpus + islands},
+                               allowed=tuple(SL.ALLOWED) + ("island",))
         except SL.SealedError as err:
             raise SystemExit("w12 tables: %s" % err)
+        ev = dict(ev, ids=ids)
         ip = os.path.join(run, "data", "islands", "index.json")
         if sha256_file(ip, use_sidecar=False) != isl.get("index_sha256"):
             raise SystemExit("w12 tables: the island index of %s is not the one the search read" % run)
@@ -137,13 +141,17 @@ def load_arrays(man, genomes, cfg, s, st):
                 raise SystemExit("w12 tables: the island arrays %s differ from the island manifest" % p)
             arrays[g["id"]] = _strip(SM.Genome(dict(id=g["id"], ranks=idx[g["id"]]["ranks"], group=g["group"]), os.path.join(run, p)))
         island_prov = dict(isl, run=os.path.basename(os.path.normpath(run)))
-    return arrays, dict(ids=ev["ids"], lineage=ev["lineage"], left_out=len(left), islands=len(islands)), island_prov
+    return arrays, dict(ids=ev["ids"], lineage=ev["lineage"], left_out=len(left), islands=dict(checked=len(islands), development_chromosomes=True) if islands else 0), island_prov
 
 
 def distances(arrays, genomes, s):
-    sk = [D.sketch(arrays[g["id"]].codons, arrays[g["id"]].coff, s["dist_k"], s["dist_size"]) for g in genomes]
+    """The k-mer distances of the genomes whose arrays are loaded; inf for a genome not loaded (the development
+    chromosomes in the tables of version 1, which never show them)."""
+    have = [i for i, g in enumerate(genomes) if g["id"] in arrays]
+    sk = [D.sketch(arrays[genomes[i]["id"]].codons, arrays[genomes[i]["id"]].coff, s["dist_k"], s["dist_size"]) for i in have]
     jac, _ = D.matrix([x for x, _ in sk], [n for _, n in sk], s["dist_size"], s["processes"])
-    dist = D.mash(jac, s["dist_k"])
+    dist = np.full((len(genomes), len(genomes)), np.inf)
+    dist[np.ix_(have, have)] = D.mash(jac, s["dist_k"])
     np.fill_diagonal(dist, 0.0)
     return dist
 
@@ -152,7 +160,7 @@ def build(st, cfg, run_dir, which="v1"):
     w, s, t0 = WHICH[which], settings(cfg, which), time.time()
     say = lambda text: print("%s: %s (%.0f s)" % (w["block"], text, time.time() - t0), flush=True)
     man, genomes, files, prov = search_run(s["search_from"])
-    arrays, sealed_ev, island_prov = load_arrays(man, genomes, cfg, s, st)
+    arrays, sealed_ev, island_prov = load_arrays(man, genomes, cfg, s, st, with_islands=which == "islands")
     gix = {g["id"]: i for i, g in enumerate(genomes)}
     examined = [g for g in genomes if g["split"] in w["parts"]]
     if not examined:

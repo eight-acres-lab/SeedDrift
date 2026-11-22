@@ -257,6 +257,24 @@ def test_masked_blocks_stay_finite():
     assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
 
 
+def test_column_attention_in_chunks():
+    """The column attention in chunks of sequences (the GPU's grid limit) gives what it gives in one call."""
+    model = _small()
+    grid = torch.cat([_random_grid(1, 20 + k) for k in range(5)])
+    grid[:, :100] = A.PAD
+    sizes = [1, 1, 1, 1, 1]
+    row, col = _all_cells(5)
+    with torch.no_grad():
+        whole = model(grid, sizes, row, col)
+        keep = C.COLUMN_CHUNK
+        try:
+            C.COLUMN_CHUNK = 1000                                     # 5 x 1,024 sequences in six calls
+            parts = model(grid, sizes, row, col)
+        finally:
+            C.COLUMN_CHUNK = keep
+    assert torch.allclose(whole, parts, atol=1e-5), float((whole - parts).abs().max())
+
+
 def test_backward():
     torch.manual_seed(0)
     model = Axial(2, 256)

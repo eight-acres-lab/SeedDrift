@@ -220,8 +220,8 @@ def preflight(cfg):
     micro-batch run forward and backward, with fewer tables per micro-batch while it does not fit the GPU or the arm's
     memory allowance (gpu_mb); then, on a fresh model, preflight_steps steps (warm-up over preflight_warmup steps to
     the peak learning rate): when the loss is not finite or its mean over the last 20 steps is not below that of the
-    first 5, the arm trains at preflight_lr_scale times its peak, which is recorded; two held-out tables scored under
-    every condition. Writes preflight.json in every case."""
+    first 5, the arm trains at preflight_lr_scale times its peak, which is recorded; 72 held-out tables scored under
+    every condition (evaluation batches at their largest). Writes preflight.json in every case."""
     cfg = settings(cfg)
     os.makedirs(cfg["out"], exist_ok=True)
     out = dict(name=cfg["name"], ok=False, torch=torch.__version__, trainer=TRAINER_VERSION, lr_peak=float(cfg["lr"]))
@@ -285,7 +285,7 @@ def preflight(cfg):
                    steps_per_s=round(timed / took, 3) if took > 0 else None, peak_mb=max(round(alloc), max(t.get("peak_mb", 0) for t in tried)),
                    reserved_mb=max(round(reserved), max(t.get("reserved_mb", 0) for t in tried)))
         data, _, _ = run.held_data()
-        ids = E.subset(run.held, 1)[:2]
+        ids = E.subset(run.held, 6)[:72]                              # 72 tables: an evaluation batch at its largest (64 rows)
         t0 = time.time()
         part = {f: v[ids] for f, v in data.items()}
         scored = {c: E.score(run.reader(), part, ids, c, run.device, max_rows=int(cfg["eval_max_rows"])) for c in run.conditions}

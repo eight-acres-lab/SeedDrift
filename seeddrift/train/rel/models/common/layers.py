@@ -9,7 +9,10 @@ round has used is not changed afterwards (new behaviour is a switch or a new mod
 Attention is torch's scaled_dot_product_attention. A key mask (cells that hold PAD) takes those cells out of both
 attentions as keys, through a finite additive bias (NEG): with -inf, a block of keys that are all masked turns the
 running maximum of a blockwise softmax into -inf - -inf = NaN (seen on the CPU kernel with a one-row table whose first
-half was PAD); a finite bias gives those keys a weight that underflows to exactly zero instead. On a GPU the row attention runs on the memory-efficient kernel, named explicitly (a mask rules out
+half was PAD); a finite bias gives those keys a weight that underflows to exactly zero instead. The column attention
+is one short sequence per (table, column); the CUDA kernels take the number of sequences as a grid dimension, which
+may not exceed 65,535 (64 one-row tables of 1,024 columns are 65,536: "invalid configuration argument"), so it runs
+in chunks of COLUMN_CHUNK sequences. On a GPU the row attention runs on the memory-efficient kernel, named explicitly (a mask rules out
 the flash kernel; no silent fall-back to the quadratic one: it fails instead); the column attention, over at most 17
 keys, takes whatever kernel torch picks. Nothing here knows a row's index: rows are a set.
 """
@@ -24,6 +27,15 @@ from torch.nn.attention import SDPBackend, sdpa_kernel
 
 COMMON_VERSION = "3"
 NEG = -1.0e4                                       # the additive bias of a masked key
+COLUMN_CHUNK = 32768                               # sequences per call of the column attention
+
+
+def attention_chunked(q, k, v, bias, chunk):
+    """scaled_dot_product_attention over the leading (batch) axis in chunks of at most `chunk`."""
+    if q.shape[0] <= chunk:
+        return F.scaled_dot_product_attention(q, k, v, attn_mask=bias)
+    return torch.cat([F.scaled_dot_product_attention(q[i:i + chunk], k[i:i + chunk], v[i:i + chunk], attn_mask=bias[i:i + chunk])
+                      for i in range(0, q.shape[0], chunk)])
 
 
 def bias_of(mask, dtype):
@@ -113,7 +125,7 @@ class ColumnAttention(nn.Module):
             keys = (key_mask[index] & valid[:, :, None]).permute(0, 2, 1)                          # [T, C, R]: row j's cell at column c
             m = mask[:, None, :, :R] & keys[:, :, None, :]                                          # [T, C, R, R]
             m = torch.cat([m, torch.ones(T, C, R, 1, dtype=torch.bool, device=m.device)], dim=3).reshape(T * C, 1, R, R + 1)
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=bias_of(m, q.dtype))                  # [T * C, H, R, h]
+        y = attention_chunked(q, k, v, bias_of(m, q.dtype), COLUMN_CHUNK)                          # [T * C, H, R, h]
         y = y.view(T, C, H, R, h).permute(0, 3, 1, 2, 4).reshape(T, R, C, d)
         return self.out(y[valid])
 

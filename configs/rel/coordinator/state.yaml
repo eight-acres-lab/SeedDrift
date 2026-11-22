@@ -2,12 +2,15 @@
 integration_branch: exp/rel
 base: {branch: exp/truth-labels, commit: cd967cbe7b6fd3a73ee37c51ad4792a9531372af, ci_version: "0.3"}
 ci_version: "0.4"
-# the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel; filled in by the commit
-# after the foundation commit, once its checks passed
-branch_from: null
+# the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel
+branch_from: {commit: 9140dec4f0172e05d283341fb0c201e2e760746a, what: the foundation commit, checks: passed (T0 and T1, 2026-11-22)}
 contract: {file: seeddrift/train/rel/api.py, version: 0, note: "placeholder; version 1 comes from branch exp/rel-p0"}
-merged: []
-runs: []
-queue: []
+merged: []          # branches merged into exp/rel: {branch, commit, checks, date}
+runs: []            # runs started by the coordinator: {run_id, machine, profile, commit, status}
+queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines: none until the user decides how (an open decision)
 copies: []
+# open items of the foundation
+open:
+  - the shard writer of stage c0_synth waits for the shard format of contract version 1; until then the profiles
+    rel-dev-c0-synth-i1 and -i2 fail at that stage

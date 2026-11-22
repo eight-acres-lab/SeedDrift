@@ -419,7 +419,8 @@ def test_arms_of_version_0_read_adapted_tables_of_version_1(v1stage, tmp_path_fa
     with Stage(ev, "rel_w18_readout") as st:
         rep = w18_readout.build(st, cfg, ev)
     assert rep["adapt_v0"] == 5 and rep["status"].startswith("ADAPTED")
-    assert open(os.path.join(ev, w18_readout.OUT, "report.md")).read().count("ADAPTED") >= 1
+    page = open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
+    assert page.count("ADAPTED") >= 1 and "Near-tier donors without near reference rows (construct only)" in page   # tables of version 1
     plain = os.path.join(ev, "data", "rel_w6", "eval", "toy-plain")
     P.run_ruler(w6_form, tabs, dict(base, arm="toy-plain"), plain)
     rec = os.path.join(ev, "stages", "rel_w6_eval.json")

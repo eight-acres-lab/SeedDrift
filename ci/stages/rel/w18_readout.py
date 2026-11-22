@@ -237,6 +237,7 @@ def build(st, cfg, run_dir):
     status = STATUS if not adapt else (ADAPTED % int(adapt)) + " " + STATUS
     rep = dict(format="rel-w18-readout", version=2, protocol="w18-v0", status=status, adapt_v0=adapt, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
                tables=dict(run=os.path.basename(os.path.normpath(s["tables"]["run"])), name=doc["name"], sha256=doc["sha256"], tables=n,
+                           tables_of_version=int(doc.get("tables_of_version", 0)),
                            triples=int(len(tr.ids)), in_place=int((tr.scenario == 0).sum()), donor_unsampled=int((tr.scenario == 1).sum()), layout=doc.get("layout")),
                arms=arms, groups=groups, tiers=index.get("tiers"), tier_expectation=index.get("tier_expectation"), reps=s["reps"], seed=s["seed"],
                passes_version=P.VERSION, readouts_version=R.VERSION, lineage=list(LINEAGE),
@@ -331,6 +332,25 @@ def page_of(rep, rows):
         md += ["## %s: the donor's lineage unsampled, rule 9 on" % block, ""] + _table(rows, block, "donor_unsampled", "on", "win", "own", tiers, exp,
                                                                                          scores=("source_shift_aa", "gain_aa", "gain_rel_aa", "composition",
                                                                                                  "best_similarity")) + [""]
+    near = [r for r in rows if r.get("scenario") == "in_place" and r.get("rule9") == "on" and r["statistic"] == "win" and r["comparison"] == "own"
+            and r["stratum_kind"] == "donor_tier" and r["stratum"] in ("tier=0", "tier=1")]
+    if rep["tables"].get("tables_of_version") or any(r["triples"] for r in near):
+        md += ["## Near-tier donors without near reference rows (construct only)", "",
+               "Donor tiers 0 and 1: D close to A, often of A's own split unit (the search of version 1 read the corpus with the close "
+               "relatives, and a held-out genome's close relatives are held out with it). The other rows leave out the split units of A "
+               "and D, so no row is near either of them: seen from afar the two lineages are one, and only the gene's mismatch with A's "
+               "own context can tell them apart, with no relative as a reference. This section is not the close-transfer scenario (that "
+               "one needs near reference rows, which the context rule D5 does not give a held-out A). The protocol pre-declared these "
+               "tiers \"expected too few\"; they are read here as their counts allow.", "",
+               "| readout | block | tier 0 | tier 1 |", "|---|---|---|---|"]
+        by = {}
+        for r in near:
+            if r["score"] in HEAD_SCORES:
+                by.setdefault((r["label"], r["score"], r["block"]), {})[r["stratum"]] = r
+        order = {x: k for k, x in enumerate(HEAD_SCORES)}
+        for (label, score, block), cells in sorted(by.items(), key=lambda kv: (kv[0][2], kv[0][0] != "control", order.get(kv[0][1], 99), kv[0][0])):
+            md.append("| %s %s | %s | %s | %s |" % (label, score, block, _cell(cells.get("tier=0")) or "none", _cell(cells.get("tier=1")) or "none"))
+        md.append("")
     md += ["## Exploratory, outside the pre-registered protocol", "",
            "The programme lead's additions of 2026-11-23, never to change a conclusion or choose anything: the host amino-acid "
            "model (control host_aa) and the strata by the implant's own composition (x_implant_gc, x_gc_minus_own, x_aa_distance; "

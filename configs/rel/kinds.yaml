@@ -239,6 +239,13 @@ kinds:
     lock: select
     target: rel_all
     stages:
+      w13_catalog:
+        package: W13
+        rule: rel_w13_catalog
+        output: data/rel_w13/catalog/manifest.json
+        module: ci.stages.rel.w13_catalog
+        gates: [G4_rel_w13_catalog]
+        side: data
       w13_census:
         package: W13
         rule: rel_w13_census

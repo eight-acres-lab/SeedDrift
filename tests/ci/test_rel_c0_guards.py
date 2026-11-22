@@ -225,3 +225,18 @@ def test_ruler_sets_reach_evaluation_only_stages_and_training_fails(tmp_path):
             common.read_tableset(trainer, run_dir, out)
     with pytest.raises(handoff.HandoffError):
         handoff.from_run(run_dir, out, kinds=("real",))
+
+
+# --- the island set's chromosomes: the 24 development ones may be opened, the sealed ones never ----------------------
+
+def test_development_chromosomes_pass_and_sealed_ones_fail():
+    import csv
+    with open(common.DEV_CHROMOSOMES) as f:
+        dev = [r["accession"] for r in csv.DictReader(f, delimiter="\t")]
+    with open(common.SEALED_CHROMOSOMES) as f:
+        sealed = [r["accession"] for r in csv.DictReader(f, delimiter="\t")]
+    assert len(dev) == 24 and not {a.split(".")[0] for a in dev} & {a.split(".")[0] for a in sealed}
+    assert common.development_chromosomes([dev[0].split(".")[0].lower(), dev[1]]) == dev[:2]
+    for bad in ([sealed[0]], [sealed[1].split(".")[0]], [dev[0], "NC_000913.3"]):
+        with pytest.raises(SystemExit):
+            common.development_chromosomes(bad)

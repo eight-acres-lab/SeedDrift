@@ -114,7 +114,6 @@ kinds:
         gates: [G4_rel_w12_search]
         side: data
         resumable: true
-        stub: true
       w12_v1:
         package: W12
         rule: rel_w12_v1

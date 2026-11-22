@@ -50,3 +50,6 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
   `http.client.HTTPException` (IncompleteRead among them) and every `OSError` (connection resets); a paper still
   failing after the retries is recorded as not fetched, and any other failure of one paper is recorded too
   (`fetch_all`), so one paper never stops the stage.
+- Every part that could not be fetched records its error type and the last HTTP status (`error_type`, `status`);
+  the report counts them per part (`fetch_failures`). The gate's rule (with fetch on, at least half the lookups must
+  return a parsed record) still applies after the guard: papers the guard records count as failed lookups.

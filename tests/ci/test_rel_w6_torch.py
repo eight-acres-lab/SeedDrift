@@ -116,6 +116,42 @@ def test_tiny_fit_without_relatives():
     rows = SC.read_rows(os.path.join(root, "out", "results.tsv"))
     assert {r["condition"] for r in rows} == {"scattered+no_relatives", "whole_gene+no_relatives"} and {r["weights"] for r in rows} == {
         "raw@tables=0", "raw@tables=4", "raw@tables=8", "raw@final"}
+    assert {r["budget"] for r in rows if r["weights"] == "raw@tables=4"} <= {"tables=4;wall_s=%d" % s for s in range(0, 900)}
+    assert "final_best" not in out                                                              # probe mode keeps no best weights
+
+
+def test_the_best_node_of_an_arm_without_relatives_is_read_on_every_table():
+    root = tempfile.mkdtemp()
+    out = loop.fit(_config(root, kind=A.TABLE_REAL, probe=False, relatives=False, max_steps=4, per_step=4, micro=4, eval_first=4))
+    rows = SC.read_rows(os.path.join(root, "out", "results.tsv"))
+    if out["best"]["tables_seen"] < out["tables_seen"]:
+        best = [r for r in rows if r["weights"] == "ema@best"]
+        assert out["final_best"]["tables_seen"] == out["best"]["tables_seen"] and {r["item_half"] for r in best} == {"all"}
+        assert {r["budget"].split(";")[0] for r in best} == {"tables=%d" % out["best"]["tables_seen"]}
+        assert out["final_best"]["items"] == out["final_items"]                                  # the same cells as the end
+    else:
+        assert "final_best" not in out and not any(r["weights"] == "ema@best" for r in rows)
+
+
+def test_split_and_gradient_checks():
+    root = tempfile.mkdtemp()
+    try:
+        loop.Run(_config(root, train_split=1))
+    except SystemExit as err:
+        assert "split" in str(err)
+    else:
+        raise AssertionError("a training on split 1 was accepted")
+    run = loop.Run(_config(tempfile.mkdtemp()))
+    with torch.no_grad():
+        next(run.model.parameters()).fill_(float("inf"))
+    before = [p.detach().clone() for p in run.model.parameters()]
+    try:
+        run.step(run.sampler.draw(0), 1e-3)
+    except FloatingPointError:
+        pass
+    else:
+        raise AssertionError("a step with a gradient that is not finite was taken")
+    assert all(torch.equal(a, b) or not torch.isfinite(a).all() for a, b in zip(before, run.model.parameters()))
 
 
 def test_real_tables_only_outside_probe_mode():

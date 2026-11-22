@@ -47,7 +47,7 @@ TRAINER_VERSION = "2"
 MB = float(1 << 20)
 DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask_weights=None, rows=[4, 16], relatives=True, per_step=4, micro=4,
                 warmup_steps=1000, weight_decay=0.01, betas=[0.9, 0.98], clip=1.0, budget_cells=None, ema=True, eval_first=1000,
-                eval_per_group=50, final_per_group=0, eval_max_rows=64, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
+                eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
                 run="", commit="", layout=A.LAYOUT_STORED, columns=A.ROW_LEN)
 NEEDED = ("name", "model", "size", "lr", "seed", "wall_s", "train_tables", "train_root", "heldout_tables", "heldout_root", "out")
@@ -94,8 +94,14 @@ class Run:
         self.device = torch.device("cuda" if cfg["device"] != "cpu" and torch.cuda.is_available() else "cpu")
         if cfg["device"] == "cuda" and self.device.type != "cuda":
             raise SystemExit("the configuration asks for a GPU and there is none")
-        self.train = T.open_split(cfg["train_root"], cfg["train_tables"], cfg["train_split"])
-        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], cfg["heldout_split"])
+        if int(cfg["train_split"]) != 0 or int(cfg["heldout_split"]) != 1:
+            raise SystemExit("the training tables are split 0 and the held-out tables split 1 (given %s and %s)" % (cfg["train_split"], cfg["heldout_split"]))
+        self.train = T.open_split(cfg["train_root"], cfg["train_tables"], 0)
+        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], 1)
+        for ts, want in ((self.train, 0), (self.held, 1)):
+            got = np.unique(np.asarray(ts.load(("split",))["split"]))
+            if got.tolist() != [want]:
+                raise SystemExit("table set %s: the tables read as split %d carry splits %s" % (ts.name, want, got.tolist()))
         for ts in (self.train, self.held):
             if bool(cfg["probe"]) == (ts.kind == A.TABLE_REAL):
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
@@ -159,6 +165,9 @@ class Run:
         if not math.isfinite(total):
             raise FloatingPointError("the loss is %s" % total)
         norm = float(torch.nn.utils.clip_grad_norm_(self.model.parameters(), float(self.cfg["clip"])))
+        if not math.isfinite(norm):                                    # never an update from a gradient that is not finite
+            self.opt.zero_grad(set_to_none=True)
+            raise FloatingPointError("the gradient norm is %s" % norm)
         for g in self.opt.param_groups:
             g["lr"] = lr
         self.opt.step()
@@ -175,10 +184,11 @@ class Run:
     def reader(self):
         return self.ema if self.ema is not None else self.model
 
-    def fixed_columns(self, weights, item_half, cells_seen, cells_per_s, status):
-        """The columns of a result row that are the same for every row of one evaluation."""
+    def fixed_columns(self, weights, item_half, cells_seen, cells_per_s, status, tables_seen=0, wall_s=0.0):
+        """The columns of a result row that are the same for every row of one evaluation; budget: the point of the
+        weights evaluated, tables seen and wall seconds since the start of the training."""
         cfg = self.cfg
-        budget = ("cells=%d;" % int(cfg["budget_cells"]) if cfg["budget_cells"] else "") + "wall_s=%d" % int(cfg["wall_s"])
+        budget = "tables=%d;wall_s=%d" % (int(tables_seen), int(round(wall_s)))
         return dict(run=cfg["run"], commit=cfg["commit"], variant=cfg["name"], author=cfg["author"], module="models." + self.info["module"],
                     params=self.params, seed=int(cfg["seed"]), table_set=self.held.name, table_kind=self.held.kind, items_sha256=self.held.sha256,
                     item_half=item_half, layout=A.LAYOUT_STORED, budget=budget, weights=weights, cells_seen=int(cells_seen),
@@ -335,7 +345,7 @@ def fit(cfg):
     def node():
         t = time.time()
         rate = k["cells"] / k["train_s"] if k["train_s"] > 0 else 0.0
-        fixed = run.fixed_columns("%s@tables=%d" % (reads, k["tables"]), "subset", k["cells"], rate, "running")
+        fixed = run.fixed_columns("%s@tables=%d" % (reads, k["tables"]), "subset", k["cells"], rate, "running", k["tables"], time.time() - began)
         main, _, digests = run.evaluate(sub, fixed, results)
         took = time.time() - t
         k["eval_s"] += took
@@ -345,13 +355,16 @@ def fit(cfg):
         state["evals"].append({x: rec[x] for x in rec if x != "items"})
         m = main.get(run.main)
         if m is not None and k["step"] and (state["best"] is None or m < state["best"]["bits"]):
-            state["best"] = dict(step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], bits=m, condition=run.main)
+            state["best"] = dict(step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], bits=m, condition=run.main, wall_s=rec["wall_s"])
             save("best.pt", ema_only=True)
         write_json(summary, state)
         return took
 
     eval0 = node()                                                   # the untrained model: the start of every curve
-    reserve = eval0 * len(final_ids) / max(1, len(sub)) * 1.3 + 60.0
+    # final_best (default: the arms trained without relatives): the weights of the best node evaluated on the final
+    # tables too, so that an arm's best can be set against another arm's end on the same tables
+    best_too = (not cfg["relatives"]) if cfg["final_best"] is None else bool(cfg["final_best"])
+    reserve = eval0 * len(final_ids) / max(1, len(sub)) * 1.3 * (2 if best_too else 1) + 60.0
     deadline = began + float(cfg["wall_s"]) - reserve
     if deadline <= time.time():
         raise SystemExit("the wall limit of %s s leaves no time to train (the final evaluation needs about %.0f s)" % (cfg["wall_s"], reserve))
@@ -410,12 +423,24 @@ def fit(cfg):
     save("final.pt", ema_only=False)
     write_json(summary, state)
     t = time.time()
-    fixed = run.fixed_columns("%s@final" % reads, "all" if len(final_ids) == len(run.held) else "subset", k["cells"], rate, "ok")
+    fixed = run.fixed_columns("%s@final" % reads, "all" if len(final_ids) == len(run.held) else "subset", k["cells"], rate, "ok", k["tables"],
+                              time.time() - began)
     main, cells, digests = run.evaluate(final_ids, fixed, results)
     np.savez(os.path.join(out_dir, "heldout_final.npz"),
              **{"%s_%s" % (x, c.replace("+", "__")): v for c, (b, tb) in cells.items() for x, v in (("bits", b), ("table", final_ids[tb]))})
-    state.update(status="ok", final=main, final_items=digests, final_tables=len(final_ids), final_eval_s=round(time.time() - t, 1),
-                 wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
+    state.update(final=main, final_items=digests, final_tables=len(final_ids), final_eval_s=round(time.time() - t, 1))
+    best = state["best"]
+    if best_too and best is not None and best["tables_seen"] < k["tables"] and not cfg["probe"]:
+        t = time.time()
+        reader = run.reader()
+        keep = {n: v.detach().clone() for n, v in reader.state_dict().items()}
+        reader.load_state_dict(torch.load(os.path.join(out_dir, "best.pt"), map_location=run.device, weights_only=True)["ema"])
+        fixed = run.fixed_columns("%s@best" % reads, "all" if len(final_ids) == len(run.held) else "subset", best["cells_seen"], rate, "ok",
+                                  best["tables_seen"], best["wall_s"])
+        main_b, _, digests_b = run.evaluate(final_ids, fixed, results)
+        reader.load_state_dict(keep)
+        state["final_best"] = dict(tables_seen=best["tables_seen"], step=best["step"], bits=main_b, items=digests_b, eval_s=round(time.time() - t, 1))
+    state.update(status="ok", wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
     append_json(evals_path, dict(final=True, tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"],
                                  wall_s=state["wall_s"], eval_s=state["final_eval_s"], tables_scored=len(final_ids), bits=main, items=digests))
     write_json(summary, state)

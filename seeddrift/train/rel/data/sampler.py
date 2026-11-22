@@ -105,6 +105,8 @@ def collate(examples):
     first = np.cumsum([0] + sizes)
     example = (np.searchsorted(first, row, side="right") - 1).astype(np.int64)
     out = dict(grid=grid, sizes=sizes, row=row.astype(np.int64), col=col.astype(np.int64), token=truth[row, col].astype(np.int64), example=example)
+    if any("ext" in e for e in examples):                            # the cells a renderer laid by extension
+        out["ext"] = np.concatenate([np.asarray(e["ext"], dtype=bool) if "ext" in e else np.zeros(e["grid"].shape, dtype=bool) for e in examples], axis=0)
     if all("weight" in e for e in examples):
         out["weight"] = np.asarray([e["weight"] for e in examples], dtype=np.float32)[example]
     return out

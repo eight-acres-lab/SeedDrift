@@ -280,6 +280,11 @@ def test_collate():
     assert (c["token"] >= 1).all() and (c["token"] <= 65).all() and (c["grid"][c["row"], c["col"]] == A.MASK).all()
     first = np.cumsum([0] + c["sizes"])
     assert ((c["row"] >= first[c["example"]]) & (c["row"] < first[c["example"] + 1])).all()
+    assert "ext" not in c                                             # the stored layout marks no cell laid by extension
+    ex[1] = dict(ex[1], ext=np.ones(ex[1]["grid"].shape, dtype=bool))
+    c = S.collate(ex)
+    rows = np.repeat(np.arange(len(ex)), c["sizes"])
+    assert c["ext"].shape == c["grid"].shape and c["ext"][rows == 1].all() and not c["ext"][rows != 1].any()
 
 
 def test_evaluator_plan_renders():

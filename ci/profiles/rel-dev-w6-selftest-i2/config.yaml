@@ -1,0 +1,26 @@
+# Machine i-2: the self-tests of package W6's torch code (ci/stages/rel/w6_selftest.py) in the model interpreter with
+# the GPUs hidden: the axial trunk (rows permute, tables do not mix, hidden content does not leak, parameter counts),
+# the reader and the mask schemes, and the trainer end to end on a small random table set written by the test. CPU
+# only, two threads, minutes; no real genome is read. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/ci-tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+rel:
+  machine: i2
+  stages: [w6_selftest]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+train:
+  gpu_lease: false
+  device: cpu
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

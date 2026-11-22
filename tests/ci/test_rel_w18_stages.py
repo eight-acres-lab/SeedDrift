@@ -252,6 +252,10 @@ def test_readout_stage_reads_every_arm_and_writes_the_aucs(built, evaluated, mon
     assert g and json.loads(g[0]["vs_untrained"])["reference"] is not None and json.loads(g[0]["vs_best_similarity"])["value"] is not None
     c = [r for r in rows if r["label"] == "toy-norel" and r["score"] == "composition" and r["groups"] != "0"]
     assert c and json.loads(c[0]["vs_host_codon"])["diff"] is not None
+    with open(os.path.join(ev, w18_readout.OUT, "defined.tsv")) as f:
+        defined = list(csv.DictReader(f, delimiter="\t"))
+    keys = [(d["label"], d["of"], d["scenario"], d["rule9"], d["block"]) for d in defined]
+    assert len(keys) == len(set(keys)) and {d["of"] for d in defined} == {"source_shift", "source_shift_aa"}   # once per readout, no repeats
     with open(os.path.join(ev, w18_readout.OUT, "coverage.tsv")) as f:
         cover = list(csv.DictReader(f, delimiter="\t"))
     assert len(cover) == 7 * 12 and {c["mark"] for c in cover} <= {"construct only", "not evaluated"}

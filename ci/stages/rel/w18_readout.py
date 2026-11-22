@@ -189,7 +189,8 @@ def build(st, cfg, run_dir):
             pop = pop & (has_rows if not name.startswith(("composition", "host_codon")) else True)
             if name.startswith("source_shift") and label != "control":
                 d = np.isfinite(v)
-                defined += R.defined_share_rows(v, tr, pop, boot, label=label, tag=dict(scenario=scen, rule9=r9))
+                if name in ("source_shift", "source_shift_aa"):            # the _top versions share their defined share
+                    defined += R.defined_share_rows(v, tr, pop, boot, label=label, tag=dict(scenario=scen, rule9=r9, of=name))
                 pop = pop & d[tr.table].all(axis=1) & (tr.tiers_present >= 2)
             strata = full if (scen, r9) == ("in_place", "on") else short
             tag = dict(scenario=scen, rule9=r9)
@@ -319,11 +320,11 @@ def page_of(rep, rows):
             ab = a["abstain"]
             md.append("| %s (%s) | %s / %s / %s | %s%s |" % (a["arm"], a["weights"], _f(ab["implant"]), _f(ab["original"]), _f(ab["own"]),
                                                           _f(a["calibration"]["own"]["error"]), " (uncalibrated)" if a["calibration"]["uncalibrated"] else ""))
-    md += ["", "| label | scenario | rule 9 | block | defined: implant / own | implant minus own [95%] |", "|---|---|---|---|---|---|"]
+    md += ["", "| label | of | scenario | rule 9 | block | defined: implant / own | implant minus own [95%] |", "|---|---|---|---|---|---|---|"]
     for d in rep["defined"]:
-        if d["score"] == "source_shift_defined" and d["label"] and not d["label"].startswith(("presence:", "untrained:")):
-            md.append("| %s | %s | %s | %s | %s / %s | %s [%s, %s] |" % (d["label"], d["scenario"], d["rule9"], d["block"], _f(d["implant_defined"]),
-                                                                       _f(d["own_defined"]), _f(d["value"]), _f(d["lo"]), _f(d["hi"])))
+        if d["score"] == "source_shift_defined" and d["label"] and not d["label"].startswith(("presence:", "untrained:")) and d.get("rule9") == "on":
+            md.append("| %s | %s | %s | %s | %s | %s / %s | %s [%s, %s] |" % (d["label"], d.get("of", ""), d["scenario"], d["rule9"], d["block"],
+                                                                            _f(d["implant_defined"]), _f(d["own_defined"]), _f(d["value"]), _f(d["lo"]), _f(d["hi"])))
     groups = [g for g in rep["groups"]]
     md += ["", "## Coverage (charter rule 7): direction x recipient group", "",
            "A ruler marks a cell \"construct only\" (at least %d triples in place, rule 9 on) or \"not evaluated\"; no cell here is \"evaluated\", so "

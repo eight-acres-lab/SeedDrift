@@ -415,6 +415,8 @@ class Implanter:
         uses, drawn = {}, []
         misc = dict.fromkeys(C.MISC, 0)
         for s, (g, t, a) in enumerate(plan):
+            if progress and s and s % 100 == 0:
+                progress("%d of %d triples drawn" % (s, len(plan)))
             rng = np.random.default_rng([int(seed), SEED_STREAM, 2, s])
             donors = [d for d in donors_all if d != a and self.tier(a, d) == t and uses.get((g, d), 0) < self.donor_cap]
             if not donors:
@@ -444,8 +446,6 @@ class Implanter:
             self.counts["attempts"] += got["attempts"]
             self.counts["zero_rows"] += int(not rows)
             self.counts["context_homolog"] += int(flag > 0)
-            if progress and (s + 1) % 100 == 0:
-                progress("%d of %d triples drawn" % (s + 1, len(plan)))
         if scenarios:
             for tr in list(drawn):
                 keep = [ti for ti in tr["rows"] if not self.d(self.order[ti], tr["d"]) < self.d(self.order[ti], tr["a"])]

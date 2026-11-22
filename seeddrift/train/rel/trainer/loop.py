@@ -293,6 +293,7 @@ def preflight(cfg):
                    eval_bits={c: round(float(b.mean()), 4) if len(b) else None for c, (b, _, _) in scored.items()})
         if not all(v is None or math.isfinite(v) for v in out["eval_bits"].values()):
             raise SystemExit("the held-out scores are not finite: %s" % out["eval_bits"])
+        out["row_key_mask"] = dict(C.ROW_MASK)
         out["ok"] = True
     except (Exception, SystemExit) as err:
         out["error"] = "%s: %s" % (type(err).__name__, str(err)[:2000])
@@ -414,7 +415,7 @@ def fit(cfg):
     np.savez(os.path.join(out_dir, "heldout_final.npz"),
              **{"%s_%s" % (x, c.replace("+", "__")): v for c, (b, tb) in cells.items() for x, v in (("bits", b), ("table", final_ids[tb]))})
     state.update(status="ok", final=main, final_items=digests, final_tables=len(final_ids), final_eval_s=round(time.time() - t, 1),
-                 wall_s=round(time.time() - began, 1))
+                 wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
     append_json(evals_path, dict(final=True, tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"],
                                  wall_s=state["wall_s"], eval_s=state["final_eval_s"], tables_scored=len(final_ids), bits=main, items=digests))
     write_json(summary, state)

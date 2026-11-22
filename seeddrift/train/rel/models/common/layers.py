@@ -28,6 +28,10 @@ from torch.nn.attention import SDPBackend, sdpa_kernel
 COMMON_VERSION = "3"
 NEG = -1.0e4                                       # the additive bias of a masked key
 COLUMN_CHUNK = 32768                               # sequences per call of the column attention
+# The row attention with its key mask on a GPU: the memory-efficient kernel, decided at the first call of a process.
+# If that kernel refuses the call, the process falls back to the flash kernel without the mask (PAD cells are then keys
+# of the row attention) and says so here; the trainer writes this into preflight.json and summary.json.
+ROW_MASK = dict(state=None, error=None)
 
 
 def attention_chunked(q, k, v, bias, chunk):
@@ -91,11 +95,22 @@ class RowAttention(nn.Module):
         q, k, v = self.qkv(x).view(N, C, 3, self.heads, self.head).permute(2, 0, 3, 1, 4)          # each [N, heads, C, head]
         q, k = rotate(q, cos, sin), rotate(k, cos, sin)
         mask = None if key_mask is None else bias_of(key_mask, q.dtype)[:, None, None, :]
-        if x.is_cuda:
-            with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION] if mask is not None else [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
-                y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
-        else:
+        if not x.is_cuda:
             y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        elif mask is not None and ROW_MASK["state"] is not False:
+            try:
+                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
+                    y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+                ROW_MASK["state"] = True
+            except RuntimeError as err:
+                if ROW_MASK["state"] is True or isinstance(err, torch.cuda.OutOfMemoryError):     # not a refusal of the kernel
+                    raise
+                ROW_MASK.update(state=False, error=str(err)[:500])
+                with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
+                    y = F.scaled_dot_product_attention(q, k, v)
+        else:
+            with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
+                y = F.scaled_dot_product_attention(q, k, v)
         return self.out(y.transpose(1, 2).reshape(N, C, d))
 
 

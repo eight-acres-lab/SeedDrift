@@ -95,7 +95,7 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     lr = sc.get("lr_check")
@@ -112,7 +112,8 @@ def settings(cfg) -> dict:
             raise SystemExit("rel_w6_report.fits: a run directory or {run, folder (%s or %s), label, accept}: %r" % (FIT, EVAL, x))
         fits.append(dict(run=str(x["run"]), folder=str(x.get("folder", FIT)), label=str(x.get("label") or ""), accept=[str(a) for a in x.get("accept") or []]))
     return dict(fits=fits, baselines=base, main=str(sc.get("main", cond.SCATTERED)), exclude=[str(a) for a in sc.get("readings_exclude") or []],
-                seeds=seeds, lr_check={k: str(v) for k, v in lr.items()} if lr else None)
+                seeds=seeds, lr_check={k: str(v) for k, v in lr.items()} if lr else None,
+                leak_pairs=[[str(a), str(b)] for a, b in sc.get("leak_pairs") or []])
 
 
 LR_CONCLUSIONS = {
@@ -232,6 +233,9 @@ def collect(st, run_dir, s):
             old = arms.get(entry["name"])
             if old is not None:                                        # a later entry adds to and replaces an earlier one
                 entry["info"] = dict(old["info"], **{k: x for k, x in v["info"].items() if x is not None})
+                for k in ("final", "final_items"):                      # an evaluation again of some conditions adds to the others
+                    if isinstance(old["info"].get(k), dict) and isinstance(v["info"].get(k), dict):
+                        entry["info"][k] = dict(old["info"][k], **v["info"][k])
                 entry["train_tables"] = entry["train_tables"] or old.get("train_tables")
                 entry["node_items"] = entry["node_items"] or old.get("node_items")
                 entry["run"] = "%s + %s" % (old["run"], entry["run"]) if old["run"] != entry["run"] else entry["run"]
@@ -304,7 +308,7 @@ def same_items(arms, digests):
     """{condition: whether every trained arm scored, in its final evaluation, the cells the baselines scored}; only
     conditions for which both digests are known."""
     out = {}
-    for c in cond.CONDITIONS:
+    for c in list(cond.CONDITIONS) + list(getattr(cond, "EXTRA_CONDITIONS", ())):
         mine = {(a["info"].get("final_items") or {}).get(c) for a in arms.values() if a["status"] == "ok"} - {None}
         if mine and digests.get(c):
             out[c] = mine == {digests[c]}
@@ -377,7 +381,7 @@ def build(st, cfg, run_dir):
     F = lambda v, c, g=SC.ALL, x=SC.ALL: bits.get((v, "final", None, c, g, x))                     # noqa: E731
     N = lambda v, t, c, g=SC.ALL, x=SC.ALL: bits.get((v, "node", t, c, g, x))                       # noqa: E731
     extra = sorted({k[3] for k in bits if "@" in k[3]})                # a condition read in a second layout (condition_labels)
-    conds = [c for c in list(cond.CONDITIONS) + extra if any(F(v, c) is not None for v in cols)]
+    conds = [c for c in list(cond.CONDITIONS) + list(getattr(cond, "EXTRA_CONDITIONS", ())) + extra if any(F(v, c) is not None for v in cols)]
     reading = {a: (s["main"] if arms[a]["variant"]["relatives"] else s["main"] + NO_REL) for a in names}
     nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
     same = same_items(arms, digests)
@@ -548,6 +552,18 @@ def build(st, cfg, run_dir):
                         passed=bool(at_node.get("passed")), sign=SCALING_SIGN if at_node.get("passed") else None,
                         curves=[[t] + [N(a, t, c) for c in both for a in trio] for t in sorted(set().union(*[set(nodes.get(a, [])) for a in trio]) - {0})],
                         final=[["end"] + [F(a, c) for c in both for a in trio]])
+    # the leak of the stored layout: an arm trained and read leak-free against the same arm trained and read stored
+    leak = []
+    for lf, st_arm in s["leak_pairs"]:
+        if lf not in arms or st_arm not in arms:
+            raise SystemExit("rel_w6_report.leak_pairs: %s are no arms of the report" % [x for x in (lf, st_arm) if x not in arms])
+        for c in (cond.SCATTERED, getattr(cond, "SUFFIX", "suffix")):
+            for x in (SC.ALL, x0):
+                a, b = F(lf, c, SC.ALL, x), F(st_arm, c, SC.ALL, x)
+                d = diff(a, b)
+                n = noise(None, c, x) if spread else None
+                leak.append(dict(leakfree=lf, stored=st_arm, condition=c, tables=x, bits_leakfree=a, bits_stored=b, leak=d, noise=n,
+                                 reading=beyond(d, n) if n else None))
     # re-pairing, on the tables that can be re-paired
     two = SC.OTHER_ROWS[2]
     repair = [[v, F(v, cond.WHOLE_GENE, SC.ALL, two), F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two),
@@ -663,6 +679,14 @@ def build(st, cfg, run_dir):
         md += ["", "By condition at that node:", ""]
         md += md_table(["condition", "higher rate minus small arm", "lower rate minus higher rate", "seeds' difference", "reading"],
                        [[c, x.get("high_minus_small"), x.get("low_minus_high"), fmt_noise(x.get("noise")), x.get("kind")] for c, x in a["by_condition"].items()])
+    if leak:
+        md += ["", "## The leak of the stored layout", "",
+               "The same arm trained and read leak-free against it trained and read in the stored layout, at the end, on all held-out tables "
+               "and on those with a relative on the target block: the leak is the bits leak-free minus the bits stored (positive: the stored "
+               "layout read too low). Scattered for the scattered mask; suffix (the second half of the target hidden) for the span.", ""]
+        md += md_table(["leak-free arm", "stored arm", "condition", "tables", "bits leak-free", "bits stored", "leak", "seeds' difference", "reading"],
+                       [[r["leakfree"], r["stored"], r["condition"], r["tables"], r["bits_leakfree"], r["bits_stored"], r["leak"], fmt_noise(r["noise"]),
+                         r["reading"] or ""] for r in leak])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]
@@ -710,7 +734,7 @@ def build(st, cfg, run_dir):
                   relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
-                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out, lr_check=lr_check,
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out, lr_check=lr_check, leak=leak,
                   noise=[dict(node=t, condition=c, stratum=x, bits=v) for (t, c, x), v in sorted(spread.items())], readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))

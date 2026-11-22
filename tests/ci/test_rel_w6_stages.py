@@ -316,6 +316,26 @@ def test_report_reads_the_whole_gene_in_two_layouts(tmp_path):
     assert any("trained stored, evaluated leak-free" in c for c in rep["caveats"])
 
 
+def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
+    """leak_pairs: the leak-free arm's bits minus the stored arm's, under scattered and suffix, on all tables and on the
+    tables with a relative on the target block; suffix rows appear among the report's conditions."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    rows = SC.read_rows(p)
+    extra = []
+    for arm, bits in (("w6-ref30m-s1", 4.0), ("w6-ref10m-s1", 4.3)):
+        extra += [r for r in _rows(os.path.basename(run_dir), arm, [(2000, 20000, bits)], bits, [cond.SUFFIX]) if r["weights"] == "ema@final"]
+    SC.write_rows(p, rows + extra)
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["w6-ref10m-s1", "w6-ref30m-s1"]])), run_dir)
+    got = {(r["condition"], r["tables"]): r for r in rep["leak"]}
+    assert abs(got[(cond.SUFFIX, SC.ALL)]["leak"] - 0.3) < 1e-9 and abs(got[(cond.SCATTERED, SC.ALL)]["leak"] - 0.1) < 1e-9
+    assert got[(cond.SUFFIX, SC.RELATIVES[0])]["bits_stored"] == 4.25 and cond.SUFFIX in rep["conditions"]
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "## The leak of the stored layout" in text
+    with pytest.raises(SystemExit):
+        w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["nobody", "w6-ref30m-s1"]])), run_dir)
+
+
 def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)

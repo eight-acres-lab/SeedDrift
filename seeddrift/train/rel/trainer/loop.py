@@ -156,7 +156,9 @@ class Run:
         self.ema = copy.deepcopy(self.model).requires_grad_(False) if cfg["ema"] else None
         self.ema_weights = list(self.ema.parameters()) if self.ema is not None else []
         self.micro = max(1, min(int(cfg["micro"]), int(cfg["per_step"])))
-        self.conditions = E.conditions_of(cfg["relatives"])
+        self.conditions = E.conditions_of(cfg["relatives"], cfg.get("extra_conditions") or (), cfg.get("only_conditions"))
+        if not self.conditions:
+            raise SystemExit("arm %s has no condition to be scored under (only_conditions %s)" % (cfg["name"], cfg.get("only_conditions")))
         self.main = self.conditions[0]
         self.group_names = {int(k): str(v) for k, v in (cfg["group_names"] or {}).items()}
         self.n_groups = int(self.held.group.max()) + 1

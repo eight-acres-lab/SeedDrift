@@ -20,7 +20,9 @@ Profile block rel_w6_eval:
              training tables, which are opened (not read) only to build the arm
   best       true (default): an arm trained without relatives is read at its best node too (best.pt, rows ema@best)
   optional   final_per_group (0: every held-out table), eval_max_rows, threads, wall_s (of one arm's evaluation,
-             default 7200), verify_files (true)
+             default 7200), verify_files (true); extra_conditions (evaluator conditions besides today's five, e.g.
+             [suffix]) or only_conditions (these alone: an arm evaluated again on one more condition, its earlier rows
+             kept by the report)
 For every arm, in the model interpreter: the moving average of final.pt (and of best.pt) under the arm's conditions,
 rows "ema@final" ("ema@best") with the tables, cells and wall time the training had reached, as the training's own
 final evaluation writes them. The checkpoints are hard links into this run (data/rel_w6/eval/<arm>/), their hashes
@@ -48,7 +50,8 @@ from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "eval")
 FIT = w6_fit.OUT
-KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files", "readout"}
+KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files", "readout", "extra_conditions",
+        "only_conditions"}
 READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only"}
 UNTRAINED = "untrained"
 RULER_CELLS = "ruler_cells.npz"
@@ -80,6 +83,7 @@ def settings(cfg) -> dict:
                 heldout=dict(run=str(h["run"]), path=str(h["path"]), sha256=h.get("sha256"), split=int(h.get("split", 1))),
                 best=bool(sc.get("best", True)), final_per_group=int(sc.get("final_per_group", 0)), eval_max_rows=int(sc.get("eval_max_rows", 32)),
                 threads=int(sc.get("threads", 4)), wall_s=int(sc.get("wall_s", 7200)), verify_files=bool(sc.get("verify_files", True)),
+                extra_conditions=[str(c) for c in sc.get("extra_conditions") or []], only_conditions=[str(c) for c in sc.get("only_conditions") or []] or None,
                 readout=None if ro is None else dict(module=str(ro["module"]), presence_arms=[str(x) for x in ro.get("presence_arms") or []],
                                                      max_rows=int(ro.get("max_rows", 32)), layout=str(ro.get("layout") or "stored"),
                                                      in_place_only=bool(ro.get("in_place_only", False))))
@@ -187,7 +191,8 @@ def build(st, cfg, run_dir):
                       best_tables=best.get("tables_seen", 0), best_cells=best.get("cells_seen", 0), best_wall_s=best.get("wall_s", 0),
                       heldout_tables=os.path.join(s["heldout"]["run"], s["heldout"]["path"]), heldout_root=s["heldout"]["run"], heldout_split=s["heldout"]["split"],
                       final_per_group=s["final_per_group"], eval_max_rows=s["eval_max_rows"], threads=s["threads"], run=os.path.basename(run_dir),
-                      commit=cfg["git"]["sha"])
+                      commit=cfg["git"]["sha"], extra_conditions=s["extra_conditions"] or conf.get("extra_conditions") or [],
+                      only_conditions=s["only_conditions"])
             if ro is not None:                                         # the passes of the readout: no rows, a per-cell file
                 ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"], in_place_only=ro["in_place_only"], untrained=untrained,
                                      presence=not untrained and (a in ro["presence_arms"] or variant_of_arm(a) in ro["presence_arms"]))

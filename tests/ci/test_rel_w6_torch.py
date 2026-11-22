@@ -298,6 +298,24 @@ def test_a_readout_reads_a_ruler_set_with_final_or_untrained_weights():
     assert abs(zb["entropy"].mean() - math.log2(65)) < 0.3                                             # an untrained model is near uniform
 
 
+def test_extra_and_only_conditions():
+    E = loop.E
+    assert E.conditions_of(True) == list(cond.CONDITIONS) and E.conditions_of(True, [cond.SUFFIX])[-1] == cond.SUFFIX
+    assert E.conditions_of(True, only=[cond.SUFFIX]) == [cond.SUFFIX] and E.conditions_of(False, [cond.SUFFIX]) == E.conditions_of(False)
+    try:
+        E.conditions_of(True, ["sideways"])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a condition that is not the evaluator's was accepted")
+    root = tempfile.mkdtemp()                                     # suffix scored beside today's five, its cells the evaluator's
+    cfg = _config(root, extra_conditions=[cond.SUFFIX], max_steps=2)
+    out = loop.fit(cfg)
+    assert cond.SUFFIX in out["final"] and out["final_items"][cond.SUFFIX] == _digest(cfg, root, cond.SUFFIX)
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    assert {r["condition"] for r in rows if r["weights"] == "ema@final"} == set(cond.CONDITIONS) | {cond.SUFFIX}
+
+
 def test_split_and_gradient_checks():
     root = tempfile.mkdtemp()
     try:

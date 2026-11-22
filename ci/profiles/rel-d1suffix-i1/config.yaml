@@ -1,0 +1,35 @@
+# Machine i-1: the evening's 10 M and 30 M arms with relatives (run 20261122T071504-exp-rel-3382ed5e-rel-d1-i1, seed 1)
+# evaluated again under the evaluator's condition suffix alone (the second half of the target block of the examined row
+# hidden), in the stored layout they were trained and read in, on the same 3,000 held-out tables (stage w6_eval of
+# package W6, only_conditions). It pairs them with the leak-free arms of round 1b, which read suffix on the strict
+# offline rendering of package W3: the leak of the stored layout for a hidden span (the programme lead's ruling of
+# 2026-11-22). Nothing is trained; the moving average of final.pt is read. Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 12000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_eval]
+  parallel: 1
+rel_w6_eval:
+  from: /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+  arms: [w6-ref10m-s1, w6-ref30m-s1]
+  only_conditions: [suffix]
+  tables:
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  eval_max_rows: 32
+  threads: 4
+  wall_s: 3600                   # one arm's evaluation of one condition on 3,000 tables: some minutes
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

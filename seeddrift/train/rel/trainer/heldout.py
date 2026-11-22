@@ -91,9 +91,16 @@ def subset(tables, per_group):
     return np.asarray(cond.subset(tables.group, int(per_group)), dtype=np.int64)
 
 
-def conditions_of(relatives):
-    """The conditions an arm is scored under: an arm trained without relatives is read only without them."""
-    return [c for c in cond.CONDITIONS if relatives or cond.parse(c)[1] == cond.NO_RELATIVES]
+def conditions_of(relatives, extra=(), only=None):
+    """The conditions an arm is scored under: today's five (cond.CONDITIONS) and the evaluator's extra conditions named
+    in `extra` (cond.EXTRA_CONDITIONS, e.g. suffix), or only those named in `only`; an arm trained without relatives
+    is read only without them."""
+    allowed = list(cond.CONDITIONS) + list(getattr(cond, "EXTRA_CONDITIONS", ()))
+    named = list(only) if only else list(cond.CONDITIONS) + [c for c in extra if c not in cond.CONDITIONS]
+    bad = [c for c in named if c not in allowed]
+    if bad:
+        raise ValueError("conditions %s are not the evaluator's (%s)" % (bad, allowed))
+    return [c for c in named if relatives or cond.parse(c)[1] == cond.NO_RELATIVES]
 
 
 def other_rows(kind):

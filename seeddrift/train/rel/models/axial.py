@@ -13,7 +13,8 @@ loci), the base arm every other arm is compared with.
   - Output: a plain linear layer over the residues 1..65, computed in float32 for the target cells only; the trunk
     runs in bfloat16 on a GPU.
 
-Sizes (SIZES): 10m is 8 layers of width 256, 30m 12 x 384, 100m 12 x 768.
+Sizes (SIZES): 10m is 8 layers of width 256, 30m 12 x 384, 100m 12 x 768, 200m 12 x 1024. A size given as a dict may add
+gate: true (the switch of the reference trunk: relation-block cells attend along the row to relation blocks only).
 
 `python -m seeddrift.train.rel.trainer.run selftest` calls every test_ function of this module on the CPU.
 """
@@ -26,8 +27,8 @@ from seeddrift.train.rel import api as A
 from seeddrift.train.rel.models.common import layers as C
 
 MODULE = "axial"
-SIZES = {"10m": dict(layers=8, width=256), "30m": dict(layers=12, width=384), "100m": dict(layers=12, width=768)}
-NOMINAL = {"10m": 10e6, "30m": 30e6, "100m": 100e6}
+SIZES = {"10m": dict(layers=8, width=256), "30m": dict(layers=12, width=384), "100m": dict(layers=12, width=768), "200m": dict(layers=12, width=1024)}
+NOMINAL = {"10m": 10e6, "30m": 30e6, "100m": 100e6, "200m": 200e6}
 LANE = 512                                   # positions of a block's lane; larger than any block
 N_OUT = A.TARGET_MAX - A.TARGET_MIN + 1      # residues 1..65
 ROW_HEAD, COLUMN_HEAD, RATIO = 64, 128, 4
@@ -50,10 +51,27 @@ def count_parameters(layers, width, vocab=A.VOCAB, roles=4, n_out=N_OUT, ratio=R
     return layers * block + vocab * width + roles * width + 2 * width + n_out * width + n_out
 
 
+def gate_columns(slices=None):
+    """The number of leading columns that are relation blocks (they come first in the contract's column order)."""
+    slices = A.block_slices() if slices is None else slices
+    g = 0
+    for r, s, e in slices:
+        if r != A.ROLE_RELATION:
+            break
+        g = e
+    if any(r == A.ROLE_RELATION and s >= g for r, s, e in slices):
+        raise ValueError("the relation blocks are not the leading columns")
+    return g
+
+
 class Axial(nn.Module):
-    def __init__(self, layers, width, slices=None):
+    def __init__(self, layers, width, slices=None, gate=False):
+        """gate: the switch of the reference trunk (off by default): when on, the cells of the relation blocks attend
+        along the row only to relation blocks, so what a row is elsewhere is not coloured by its focus locus; the cells
+        of the focus blocks attend to every block."""
         super().__init__()
         self.layers, self.width = int(layers), int(width)
+        self.gate = gate_columns(slices) if gate else None
         role, pos = column_plan(slices)
         cos, sin = C.rotary_tables(pos, ROW_HEAD // 4)
         self.register_buffer("role_of_column", role, persistent=False)
@@ -75,7 +93,7 @@ class Axial(nn.Module):
         keys = keys | ~keys.any(dim=1, keepdim=True)                  # (a row of PAD only would have no key at all)
         x = self.token(grid) + self.role(self.role_of_column)[None]
         for block in self.blocks:
-            x = block(x, self.cos, self.sin, layout, keys)
+            x = block(x, self.cos, self.sin, layout, keys, self.gate)
         return x
 
     def forward(self, grid, sizes, row, col):
@@ -100,14 +118,15 @@ def logp(model, grid, sizes, row, col):
 def build(size):
     """size: a name of SIZES or a dict with layers and width."""
     spec = SIZES[size] if isinstance(size, str) else size
-    return Axial(int(spec["layers"]), int(spec["width"]))
+    return Axial(int(spec["layers"]), int(spec["width"]), gate=bool(spec.get("gate", False)))
 
 
 def info(size, rows=16):
     spec = SIZES[size] if isinstance(size, str) else size
     layers, width = int(spec["layers"]), int(spec["width"])
     params = count_parameters(layers, width)
-    return dict(module=MODULE, params=params, layers=layers, width=width, flops_per_cell=A.flops_per_cell(params, layers, width, A.ROW_LEN + rows),
+    return dict(module=MODULE, params=params, layers=layers, width=width, gate=bool(spec.get("gate", False)),
+                flops_per_cell=A.flops_per_cell(params, layers, width, A.ROW_LEN + rows),
                 factorisation="independent", layout="any", common_version=C.COMMON_VERSION)
 
 
@@ -273,6 +292,31 @@ def test_column_attention_in_chunks():
         finally:
             C.COLUMN_CHUNK = keep
     assert torch.allclose(whole, parts, atol=1e-5), float((whole - parts).abs().max())
+
+
+def test_gate_keeps_relation_blocks_apart():
+    """With the gate on, nothing a relation-block cell computes depends on a focus-block cell (of its row or, through
+    the column attention, of another row); with it off, it does. Focus cells still read relation cells."""
+    torch.manual_seed(0)
+    gated = Axial(2, 256, gate=True).eval()
+    plain = Axial(2, 256).eval()
+    plain.load_state_dict(gated.state_dict())
+    g = gate_columns()
+    assert g == A.N_RELATION * A.LEN_RELATION
+    grid = _random_grid(4, 11)
+    sizes = [3, 1]
+    row, col = _all_cells(4)
+    changed = grid.clone()
+    changed[:, g:] = (changed[:, g:] % 60) + 1
+    with torch.no_grad():
+        a, b = (gated(x, sizes, row, col).view(4, A.ROW_LEN, N_OUT) for x in (grid, changed))
+        c, d = (plain(x, sizes, row, col).view(4, A.ROW_LEN, N_OUT) for x in (grid, changed))
+        rel = grid.clone()
+        rel[:, :g] = (rel[:, :g] % 60) + 1
+        e = gated(rel, sizes, row, col).view(4, A.ROW_LEN, N_OUT)
+    assert torch.allclose(a[:, :g], b[:, :g], atol=1e-5) and not torch.allclose(c[:, :g], d[:, :g], atol=1e-4)
+    assert not torch.allclose(a[:, g:], e[:, g:], atol=1e-4)
+    assert sum(p.numel() for p in gated.parameters()) == count_parameters(2, 256)
 
 
 def test_backward():

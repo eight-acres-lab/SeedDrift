@@ -206,8 +206,10 @@ class Run:
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
         for c in self.conditions:
-            bits, cell_table, digest = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]))
+            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]))
             agg = SC.aggregate(bits, cell_table, groups, strata, self.n_groups, self.group_names)
+            for label, b in zip(SC.PARTS, (aa, bits - aa)):           # the two parts of the bits, per group and over the groups
+                agg += [dict(r, stratum=label) for r in SC.aggregate(b, cell_table, groups, [], self.n_groups, self.group_names) if r["stratum"] == SC.ALL]
             self.rows += [SC.result_row(condition=c, group=r["group"], stratum=r["stratum"], bits=r["bits"], target_cells=r["target_cells"],
                                         n_items=r["n_items"], **fixed) for r in agg]
             SC.write_rows(path + ".part", self.rows)
@@ -308,7 +310,7 @@ def preflight(cfg):
         part = {f: v[ids] for f, v in data.items()}
         scored = {c: E.score(run.reader(), part, ids, c, run.device, max_rows=int(cfg["eval_max_rows"])) for c in run.conditions}
         out.update(eval_s_per_table=round((time.time() - t0) / max(1, len(ids)), 3),
-                   eval_bits={c: round(float(b.mean()), 4) if len(b) else None for c, (b, _, _) in scored.items()})
+                   eval_bits={c: round(float(b.mean()), 4) if len(b) else None for c, (b, _, _, _) in scored.items()})
         if not all(v is None or math.isfinite(v) for v in out["eval_bits"].values()):
             raise SystemExit("the held-out scores are not finite: %s" % out["eval_bits"])
         out["row_key_mask"] = dict(C.ROW_MASK)

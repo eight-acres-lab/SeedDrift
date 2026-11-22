@@ -76,7 +76,11 @@ def test_tiny_fit():
     assert all(r["layout"] == A.LAYOUT_STORED and r["table_kind"] == A.TABLE_SYNTHETIC and r["variant"] == "tiny" and r["run"] == "run-x" for r in rows)
     top = [r for r in final if r["group"] == "all" and r["stratum"] == "all"]
     assert len(top) == 5 and all(0 < float(r["bits"]) < 8 and int(r["cells_seen"]) == out["cells_seen"] for r in top)
-    assert {r["group"] for r in final} >= {"all", "bacteria", "11"} and {r["stratum"] for r in final} >= {"all", "other_rows>=2"}
+    assert {r["group"] for r in final} >= {"all", "bacteria", "11"} and {r["stratum"] for r in final} >= {"all", "other_rows>=2"} | set(SC.PARTS)
+    for c in cond.CONDITIONS:                                     # the two parts add up to the bits of the codon
+        whole, aa, rest = (float(next(r["bits"] for r in final if r["condition"] == c and r["group"] == "all" and r["stratum"] == x))
+                           for x in ("all",) + tuple(SC.PARTS))
+        assert abs(aa + rest - whole) < 1e-4 and 0 < aa < whole, c
     for c in cond.CONDITIONS:                                     # the cells scored are the evaluator's, table for table
         assert out["final_items"][c] == _digest(cfg, root, c), c
     with open(os.path.join(cfg["out"], "steps.csv")) as f:

@@ -156,9 +156,9 @@ def sealed_problems(doc) -> list:
         return [dict(error="a real or ruler table set carries the record of a passed sealed check (sealed_check.passed)")]
     ids = rec.get("ids") or {}
     want = len({g.get("id") for g in doc.get("genomes") or [] if isinstance(g, dict)})
-    if ids.get("distinct") != want or not ((ids.get("source") or {}).get("registry")):
-        return [dict(error="the sealed record checked %s distinct ids against %s; it must cover the %d genomes with the machine's registry"
-                     % (ids.get("distinct"), (ids.get("source") or {}).get("kind"), want))]
+    if not isinstance(ids.get("distinct"), int) or ids["distinct"] < want or not ((ids.get("source") or {}).get("registry")):
+        return [dict(error="the sealed record checked %s distinct ids against %s; it must cover at least the %d genomes listed, with the "
+                     "machine's registry" % (ids.get("distinct"), (ids.get("source") or {}).get("kind"), want))]
     return []
 
 

@@ -8,7 +8,10 @@
                                (seeddrift/train/rel/handoff.py)
                G3_rel          the sealed check (seeddrift/train/rel/sealed.py, then the lineage check of
                                ci/stages/rel/common.py) on every genome of every table set the run wrote, each in an
-                               allowed split (train or heldout)
+                               allowed split (train only for a set of purpose train; train or heldout otherwise),
+                               and the set's own sealed record present. A run that wrote no table set has nothing to
+                               check here (its stages read table sets through handoff.from_run, which refuses any
+                               set without a passed record), so it passes on every machine.
 Both kind gates are decided and recorded before a failure stops the run.
 """
 from __future__ import annotations
@@ -20,7 +23,7 @@ import os
 from ci.gates import GateFailure, GateResult, run
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.rel import common, kinds
-from seeddrift.train.rel import handoff
+from seeddrift.train.rel import handoff, sealed as S
 
 
 def phase(st, cfg, run_dir, name):
@@ -71,17 +74,15 @@ def kind_phase(st, cfg, run_dir, on):
             hand.append(dict(stage=s, error="the manifest names producer stage %r" % (doc.get("producer") or {}).get("stage")))
         genomes = [g for g in doc.get("genomes") or [] if isinstance(g, dict)]
         counts["genomes"] += len(genomes)
+        allowed = ("train",) if doc.get("purpose") == "train" else S.ALLOWED
         try:
             sealed = sealed or common.sealed_set(cfg)
-            ev = common.sealed_check(cfg, genomes, splits={g["id"]: g.get("split") for g in genomes}, sealed=sealed)
+            ev = common.sealed_check(cfg, genomes, splits={g["id"]: g.get("split") for g in genomes}, allowed=allowed, sealed=sealed)
             seal.append(dict(stage=s, tableset=doc.get("name"), kind=doc.get("kind"), passed=True, evidence=ev))
         except SystemExit as err:
             seal.append(dict(stage=s, tableset=doc.get("name"), kind=doc.get("kind"), passed=False, error=str(err)[:1500]))
-    if counts["tablesets"] == 0 and sealed is None:
-        try:                                          # no table set: the sealed sources of this machine still load
-            sealed = common.sealed_set(cfg)
-        except SystemExit as err:
-            seal.append(dict(error=str(err)[:1500], passed=False))
+    if counts["tablesets"] == 0:
+        seal.append(dict(passed=True, note="no table set written by this run; its stages read table sets through handoff.from_run"))
     results = [run(GateResult("G4_rel_handoff", "fail" if hand else "pass", dict(problems=hand[:50], counts=counts)), run_dir),
                run(GateResult("G3_rel", "fail" if any(not x.get("passed") for x in seal) else "pass",
                               dict(checks=seal, source=sealed.source if sealed is not None else None)), run_dir)]

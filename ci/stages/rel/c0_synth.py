@@ -8,8 +8,8 @@ Configuration (profile block rel_c0_synth): tables (the count), seed, per_shard 
   meta.json    what models never read: per table its id, task, number of rows, block lengths, synthetic group
   truth.json   the correct sources of every table (synth.py `truth`), for tests and capability checks only
   tableset.json  the table-set manifest (seeddrift/train/rel/handoff.py), kind synthetic, written last
-The stage reads no genome; it still loads this machine's sealed sources (the sealed check of every data stage), so a
-machine without them fails here first. Gate G4_rel_c0_synth (gate()): the manifest is of kind synthetic, has the
+The stage reads no genome, so it has no sealed check of its own (the kind's G3_rel finds no genome in the set).
+Gate G4_rel_c0_synth (gate()): the manifest is of kind synthetic, has the
 configured number of tables, every file it lists is there, the truth covers every table, and no genome is listed.
 """
 from __future__ import annotations
@@ -46,7 +46,6 @@ def write_shards(tables, folder, per_shard):
 
 def build(st, cfg, run_dir):
     s = settings(cfg)
-    st.extra["sealed_check"] = common.sealed_check(cfg, [])
     tables = list(synth.tables(s["tables"], s["seed"], **s["params"]))
     folder = os.path.join(run_dir, OUT)
     os.makedirs(os.path.join(folder, "shards"), exist_ok=True)

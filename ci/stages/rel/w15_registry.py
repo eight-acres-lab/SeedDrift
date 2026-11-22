@@ -18,7 +18,8 @@ run, for its training-data index; optional), fetch (bool), supplements (DOIs who
 max_supplement_mb (default 50), pause_s (default 0.5).
 Output data/rel_w15/registry/report.json and report.md; papers in data/rel_w15/registry/papers/.
 Gate G4_rel_w15_registry: the draft breaks no rule, every role is unassigned, nothing sits at bench/catalogue/events.tsv,
-the report's sha256 of the draft matches the draft.
+the report's sha256 of the drafts matches the drafts, and with fetch on at least half the paper lookups returned a
+parsed record (a wholesale failure fails the run instead of passing it with nothing fetched).
 """
 from __future__ import annotations
 
@@ -45,6 +46,7 @@ USER_AGENT = "literature-registry-fetch/0.2 (python urllib)"
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;()\[\]]+")
 CATALOGUE = os.path.join("bench", "catalogue", "events.tsv")
 PRETRAIN_SPLITS = ("train", "heldout")
+FETCH_MIN_SHARE = 0.5        # gate: with fetch on, at least half the lookups must return a parsed record
 
 
 def settings(cfg) -> dict:
@@ -94,6 +96,10 @@ def taxa(rows, tax) -> dict:
             rec["status"] = "unresolved"
         elif not same:
             rec.update(status="rank_differs", ncbi_ranks=sorted({tax.rank.get(t, "?") for t in cands}))
+            byline = sorted(((len(wanted & {tax.name(x) for x in tax.lineage(t)}), t) for t in cands), reverse=True)
+            if len(byline) == 1 or byline[0][0] > byline[1][0]:     # one candidate fits the lineage: keep its taxid
+                t = byline[0][1]
+                rec.update(taxid=t, ncbi_rank=tax.rank.get(t), ncbi_lineage=[tax.name(x) for x in reversed(tax.lineage(t))])
         elif len(scored) > 1 and scored[0][0] == scored[1][0]:
             rec.update(status="ambiguous", taxids=[t for _, t in scored])
         else:
@@ -119,7 +125,7 @@ def pretraining(found, index, tax) -> dict:
             lineages.append((split, None))
     out = {}
     for eid, rec in found.items():
-        if rec.get("status") != "ok":
+        if not rec.get("taxid"):
             continue
         counts = {s: 0 for s in PRETRAIN_SPLITS}
         for split, lin in lineages:
@@ -150,7 +156,7 @@ def sealed_overlap(found, sealed, tax) -> dict:
     """event_id -> y when the radius contains a sealed genus or family, or lies inside one."""
     out = {}
     for eid, rec in found.items():
-        if rec.get("status") != "ok":
+        if not rec.get("taxid"):
             continue
         t = rec["taxid"]
         hits = [why for s, why in sealed.items() if s in set(tax.lineage(t)) or t in set(tax.lineage(s))]
@@ -159,9 +165,11 @@ def sealed_overlap(found, sealed, tax) -> dict:
 
 
 def _get(url, opener, max_bytes=None):
+    """(status, body). read() with no argument for the whole body: read(-1) on a chunked response returns the raw
+    chunk framing (run 20261122T151028 stored 79 metadata files that way)."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with opener(req, timeout=60) as resp:
-        data = resp.read(max_bytes + 1 if max_bytes else -1)
+        data = resp.read(max_bytes + 1) if max_bytes else resp.read()
         return resp.status, data
 
 
@@ -180,7 +188,7 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
     try:
         status, data = _get(url, opener)
         rec["meta"] = dict(_store(dest, "meta.json", data), url=url, status=status)
-        hits = (json.loads(data).get("resultList") or {}).get("result") or []
+        hits = (json.loads(data, strict=False).get("resultList") or {}).get("result") or []
         hit = hits[0] if hits else {}
         rec.update(found=bool(hits), pmcid=hit.get("pmcid"), open_access=hit.get("isOpenAccess"), pmid=hit.get("pmid"),
                    title=hit.get("title"), year=hit.get("pubYear"))
@@ -279,6 +287,10 @@ def gate(st, cfg, run_dir):
             bad.append(dict(error="%s is not the file the report was made from" % rel))
     if os.path.exists(os.path.join(common.ROOT, CATALOGUE)):
         bad.append(dict(error="%s exists: the draft must not live there" % CATALOGUE))
+    papers = doc.get("papers") or []
+    looked_up = sum(1 for x in papers if "found" in x)
+    if papers and looked_up < FETCH_MIN_SHARE * len(papers):
+        bad.append(dict(error="only %d of %d paper lookups returned a parsed record: a systematic fetch failure" % (looked_up, len(papers))))
     require(GateResult("G4_rel_w15_registry", "fail" if bad else "pass",
                        dict(problems=bad[:50], records=doc.get("records"), warnings=len(doc.get("warnings") or []),
                             taxa={k: sum(1 for v in doc["taxa"].values() if v["status"] == k) for k in ("ok", "rank_differs", "ambiguous", "unresolved")})),

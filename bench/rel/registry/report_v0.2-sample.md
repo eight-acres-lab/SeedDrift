@@ -10,7 +10,7 @@
 | G02 | EV002 (Acyrthosiphon); EV003 (Aphidomorpha) | A 1, C 1 | EV002-EV003: radius Acyrthosiphon / Aphidomorpha |
 | G03 | EV004 (Bemisia) | C 1 | - |
 | G04 | EV008 (Legionella) | C 1 | - |
-| G05 | EV012 (cruciviruses) | C 1 | - |
+| G05 | EV012 (environmental samples) | C 1 | - |
 | G06 | EV014 (Methanosarcina) | C 1 | - |
 
 Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV011 (Caudoviricetes; C; claim_set); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
@@ -72,7 +72,7 @@ Grades that would change if `donor_structure` were accepted as evidence of forei
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 3, partial 5, y 12. Genomes inside the radius in the medium corpus: ? 7, n 12, y 1. Overlap with sealed genera or the sealed test part: ? 7, n 13. Exposure: ? 19, L4 1.
+Provisional list covers the radius: n 3, partial 5, y 12. Genomes inside the radius in the medium corpus: ? 3, n 13, y 4. Overlap with sealed genera or the sealed test part: ? 3, n 17. Exposure: ? 19, L4 1.
 
 ## 5. Double registration (rules 0.1, before regrading)
 

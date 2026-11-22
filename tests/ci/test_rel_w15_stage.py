@@ -127,3 +127,43 @@ def test_settings_refuse_the_catalogue_path():
     assert s["supplements"] == ["10.1/a"] and s["fetch"] is False and s["registry"] == ["bench/rel/registry/events_v0.2-sample.tsv"]
     with pytest.raises(SystemExit):
         W.settings({W.STAGE: dict(registry=["bench/rel/registry/a.tsv", "bench/catalogue/events.tsv"])})
+
+
+class Chunked(Resp):
+    """A response whose read(-1) returns the chunk framing, as http.client does for a chunked body."""
+
+    def read(self, amt=None):
+        body = super().read() if amt is None else super().read(amt)
+        if amt is not None and amt < 0:
+            return b"1f\r\n" + body + b"\r\n0\r\n\r\n"
+        return body
+
+
+def test_fetch_reads_the_whole_body_and_parses_control_characters(tmp_path):
+    meta = '{"resultList":{"result":[{"pmcid":"PMC2","title":"a\tb\nc","isOpenAccess":"N"}]}}'
+
+    def opener(req, timeout):
+        return Chunked(meta.encode() if "search?" in req.full_url else b"<article/>")
+
+    rec = W.fetch("10.1/y", str(tmp_path / "q"), opener=opener, pause_s=0)
+    assert rec.get("found") is True and rec["pmcid"] == "PMC2" and rec["fulltext"]["bytes"] == 10
+
+
+def test_taxa_keep_the_taxid_when_only_the_rank_differs():
+    rows = [_row("E1", "Insecta (order)", "Eukaryota;Metazoa;Insecta")]
+    got = W.taxa(rows, Tax())["E1"]
+    assert got["status"] == "rank_differs" and got["taxid"] == 4 and got["ncbi_rank"] == "class"
+    assert W.pretraining({"E1": got}, dict(genomes=[dict(split="train", taxid=6)]), Tax())["E1"]["in_pretraining"] == "y"
+
+
+def test_gate_fails_on_a_wholesale_fetch_failure(tmp_path, monkeypatch):
+    import ci.stages.rel.w15_registry as mod
+    run = tmp_path / "run"
+    out = run / mod.OUT
+    out.mkdir(parents=True)
+    papers = [dict(doi="10.1/%d" % i, meta=dict(error="x")) for i in range(4)] + [dict(doi="10.1/9", found=True)]
+    (out / "report.json").write_text(json.dumps(dict(errors=[], registry_sha256={}, papers=papers, records=0, taxa={})))
+    seen = []
+    monkeypatch.setattr(mod, "require", lambda result, run_dir: seen.append(result))
+    mod.gate(None, {}, str(run))
+    assert seen[0].status == "fail" and "systematic fetch failure" in json.dumps(seen[0].evidence)

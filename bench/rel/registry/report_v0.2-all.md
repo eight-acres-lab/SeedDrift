@@ -10,7 +10,7 @@
 | G02 | EV002 (Acyrthosiphon); EV003 (Aphidomorpha) | A 1, C 1 | EV002-EV003: radius Acyrthosiphon / Aphidomorpha |
 | G03 | EV004 (Bemisia) | C 1 | - |
 | G04 | EV008 (Legionella) | C 1 | - |
-| G05 | EV012 (cruciviruses) | C 1 | - |
+| G05 | EV012 (environmental samples) | C 1 | - |
 | G06 | EV014 (Methanosarcina) | C 1 | - |
 | G07 | EV022 (Podospora) | C 1 | - |
 | G08 | EV023 (Penicillium) | A 1 | - |
@@ -77,4 +77,4 @@ Grades that would change if `donor_structure` were accepted as evidence of forei
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 7, partial 6, y 17. Genomes inside the radius in the medium corpus: ? 13, n 16, y 1. Overlap with sealed genera or the sealed test part: ? 12, n 18. Exposure: ? 28, L4 1, L5 1.
+Provisional list covers the radius: n 7, partial 6, y 17. Genomes inside the radius in the medium corpus: ? 9, n 17, y 4. Overlap with sealed genera or the sealed test part: ? 8, n 22. Exposure: ? 28, L4 1, L5 1.

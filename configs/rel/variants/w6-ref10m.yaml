@@ -10,6 +10,6 @@ rows: [4, 16]
 columns: 1024
 size: 10m
 relatives: true
-optimizer: {lr: 3.0e-4}
+optimizer: {lr: 4.0e-4}                   # today's rule: 3e-4 at width 384, scaled by the inverse square root of the width
 gpu_mb: 14000
 tables: real

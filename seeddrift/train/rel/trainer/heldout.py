@@ -1,11 +1,12 @@
 """Held-out evaluation of a model during and after its training.
 
 What is hidden and scored, the strata, the averaging and the result rows are the evaluator's
-(seeddrift/train/rel/evalh: conditions.materialise, score.aggregate, score.result_row), the one implementation every
-arm and every classical baseline shares: only cells of the examined row in its target block are scored, a table's id
-is its position in the held-out set, and the digest of what was scored (items_sha256) equals the baselines' when the
-same tables were scored. This module renders the planned tables in the stored placement, runs the model and returns
-the bits of every scored cell. The metadata (group, identity) is used for the report only and never reaches the model.
+(seeddrift/train/rel/evalh: conditions.materialise, score.strata_of, score.aggregate, score.result_row), the one
+implementation every arm and every classical baseline shares: only cells of the examined row in its target block are
+scored, a table's id is its position in the held-out set, and the digest of what was scored (conditions.ItemsDigest)
+equals the baselines' when the same tables were scored. This module renders the planned tables in the model's grid
+(data/tables.render), runs the model and returns the bits of every scored cell. The metadata (group, identity) is
+used for the report only and never reaches the model.
 """
 from __future__ import annotations
 
@@ -18,10 +19,9 @@ from seeddrift.train.rel import api as A
 from seeddrift.train.rel.data import sampler as S
 from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.evalh import conditions as cond
-from seeddrift.train.rel.evalh import score as SC
 
-EVAL_VERSION = "2"
-PLAN_FIELDS = ("tok", "n", "col", "kind")
+EVAL_VERSION = "3"
+PLAN_FIELDS = ("tok", "n", "col", "kind", "frame_len")
 
 
 def to_device(batch, device):
@@ -44,15 +44,16 @@ def conditions_of(relatives):
     return [c for c in cond.CONDITIONS if relatives or cond.parse(c)[1] == cond.NO_RELATIVES]
 
 
-def strata_of(tables, ids):
-    """(len(ids),) index into the evaluator's strata: the identity of the nearest row at the target locus."""
-    return SC.identity_stratum(np.stack([tables.meta(int(i))["identity"] for i in ids]))
+def other_rows(kind):
+    """(N,) the number of other rows every table has (kind (N, R, B))."""
+    return cond.present_rows(kind)[:, 1:].sum(axis=1)
 
 
 @torch.no_grad()
-def score(model, tables, ids, condition, device, max_rows=64, chunk=32):
-    """The tables ids (positions in the held-out set) under one condition. Returns bits (float64 [C], one per scored
-    cell), cell_table (int64 [C], the index into ids of the cell's table) and the digest of what was scored."""
+def score(model, data, ids, condition, device, max_rows=64, chunk=32):
+    """The tables ids (positions in the held-out set; data: their arrays PLAN_FIELDS, in the same order) under one
+    condition. Returns bits (float64 [C], one per scored cell), cell_table (int64 [C], the index into ids of the
+    cell's table) and the digest of what was scored."""
     digest = cond.ItemsDigest(condition)
     bits, cell_table = [], []
     pending, rows = [], 0
@@ -71,17 +72,18 @@ def score(model, tables, ids, condition, device, max_rows=64, chunk=32):
     model.eval()
     ids = np.asarray(ids, dtype=np.int64)
     for at in range(0, len(ids), chunk):
-        part = ids[at:at + chunk]
-        tabs = [tables.table(int(i)) for i in part]
-        plan = cond.materialise({f: np.stack([t[f] for t in tabs]) for f in PLAN_FIELDS}, part, condition)
+        part = slice(at, min(at + chunk, len(ids)))
+        plan = cond.materialise({f: data[f][part] for f in PLAN_FIELDS}, ids[part], condition)
         digest.add(plan)
-        for k, tab in enumerate(tabs):
-            planned = dict(tok=plan["tok"][k], n=plan["n"][k], col=plan["col"][k], kind=plan["kind"][k], frame_len=tab["frame_len"])
+        for k in range(len(ids[part])):
+            if not plan["has"][k]:
+                continue
+            planned = dict(tok=plan["tok"][k], n=plan["n"][k], col=plan["col"][k], kind=plan["kind"][k], frame_len=plan["frame_len"][k])
             keep = T.present_rows(planned)
             grid, truth = T.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep])
             if int((truth > 0).sum()) != int(plan["target"][k].sum()):
                 raise ValueError("table %d under %s: the grid scores %d cells, the evaluator planned %d"
-                                 % (int(part[k]), condition, int((truth > 0).sum()), int(plan["target"][k].sum())))
+                                 % (int(ids[at + k]), condition, int((truth > 0).sum()), int(plan["target"][k].sum())))
             if not truth.any():
                 continue
             if rows and rows + grid.shape[0] > max_rows:

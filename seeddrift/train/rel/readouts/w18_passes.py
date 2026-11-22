@@ -12,7 +12,8 @@ Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the 
   T      the target block of row 0 scattered (rate 0.15, at least one cell), every row
   T-t<t> as T, the rows of tier t removed (one pass per tier present among the other rows)
   T0     as T, every other row removed (only when the table has other rows)
-  C      the neighbour and relation blocks of row 0 scattered (rate 0.15, at least one cell), every row
+  C      the neighbour and relation blocks of row 0 scattered (rate 0.15, at least one cell), every row; not made for a
+         table whose row 0 has no codon there (a genome of very few genes): its source shift is undefined
   C-t<t> as C, the rows of tier t removed
   W      the whole target block of row 0 hidden, every row
   H1     the first half of the target block hidden (offsets below n // 2), the second half visible
@@ -142,7 +143,7 @@ def plan(tab, row_tier, table_id, relatives=True, presence=False, seed=SEED, mas
     tiers = tiers_present(tier, pres)
     first = target_cells & (offs < n0 // 2)
     second = target_cells & (offs >= n0 // 2)
-    families = [("T", hide_t), ("C", hide_c)]
+    families = [("T", hide_t)] + ([("C", hide_c)] if hide_c.any() else [])     # no C passes when row 0 has no context codon
     for name, hide in families:
         out.append(make(name, hide, pres))
         for t in tiers:

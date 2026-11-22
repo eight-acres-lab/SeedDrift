@@ -1,0 +1,35 @@
+# Machine i-2: the first reading of the HGT capability check (protocol w18-v0, package W18), its 100 M arm at the width
+# rule (peak rate 2e-4, run 20261122T071650-exp-rel-3382ed5e-rel-d1-i2): its final weights scored on the implant tables
+# (a ruler set, construct only) by the passes of the readouts (stage w6_eval in its ruler mode). The implant tables were
+# built on i-1 (run 20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1) and copied over R2, every file checked by
+# sha256 on arrival. Nothing is trained; the vLLM service is never stopped. This run is copied back to i-1, where a
+# readout-only run reads it beside the evaluation of the other arms.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 18000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_eval]
+  parallel: 1
+rel_w6_eval:
+  from: /hy-tmp/seeddrift-ci/runs/20261122T071650-exp-rel-3382ed5e-rel-d1-i2
+  arms: [w6-ref100m-s1]
+  tables:
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1, path: data/rel_w18/rulers/tableset.json, split: 1}
+  readout: {module: seeddrift.train.rel.readouts.w18_passes, max_rows: 32, layout: stored, in_place_only: false}
+  best: false                    # the final weights only (protocol w18-v0)
+  threads: 4
+  wall_s: 14400                  # one arm's scoring
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

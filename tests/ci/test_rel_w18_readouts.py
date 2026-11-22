@@ -240,6 +240,33 @@ def test_directions_follow_the_charter_table():
     assert R.direction("eukaryota.plants_algae", "eukaryota.invertebrates") == "eukaryote <-> eukaryote"
 
 
+def test_a_table_whose_row_0_has_no_context_codon_has_no_C_passes():
+    """A genome of very few genes (i and k only, on two replicons) gives row 0 nothing outside the target block: no pass
+    can score context cells, so the C passes are not made and the source shift is undefined (ruler run 20261122T141051,
+    table 2403, stopped here)."""
+    out, meta = ruler()
+    t = 0
+    tab = {k: np.array(out[k][t]) for k in P.FIELDS}
+    ctx = P.CONTEXT_SLOT
+    tab["tok"][0, ctx], tab["col"][0, ctx] = api.PAD, -1
+    tab["n"][0, :P.TARGET_BLOCK] = 0
+    tab["kind"][0, :P.TARGET_BLOCK] = api.KIND_NONE
+    tab["frame_len"][:P.TARGET_BLOCK] = 0
+    for k in ("tok", "col"):                                           # the other rows have no context frame either
+        tab[k][1:, ctx] = api.PAD if k == "tok" else -1
+    tab["n"][1:, :P.TARGET_BLOCK] = 0
+    tab["kind"][1:, :P.TARGET_BLOCK] = np.where(tab["kind"][1:, :P.TARGET_BLOCK] == api.KIND_NONE, api.KIND_NONE, api.KIND_NOT_SEARCHED)
+    names = [p.name for p in P.plan(tab, meta["row_tier"][t], t, relatives=True, presence=True, mask_id=0)]
+    assert "T" in names and "W" in names and not any(x == "C" or x.startswith(("C-t", "P:C")) for x in names)
+    cells = P.run([(t, tab, meta["row_tier"][t], 0)], T.render, toy_score, relatives=True, presence=True)
+    one = {k: v[t:t + 1] for k, v in meta.items()}
+    one["triple"] = np.zeros(1, np.int64)
+    cells["table"] = cells["table"] * 0
+    sc = R.readouts(cells, one, tab["n"][None, 0, :])
+    assert np.isnan(sc["source_shift"][0]) and np.isfinite(sc["gain"][0])
+    assert P.plan_digest([(t, tab, meta["row_tier"][t], 0)], True, True)[0] == cells["digest"]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

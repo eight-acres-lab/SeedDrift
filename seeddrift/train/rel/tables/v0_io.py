@@ -39,18 +39,25 @@ KIND_NONE = getattr(A, "KIND_NONE", 0)
 MODEL_FIELDS, META_FIELDS = tuple(A.SHARD_FIELDS), tuple(A.META_FIELDS)
 TABLESET = os.path.join("data", "rel_w2", "v0", "tableset.json")
 FILL = dict(tok=A.PAD, n=0, col=-1, frame_row=0, frame_len=0, kind=KIND_NONE, start=-1, strand=0, replicon=-1,
-            genome=-1, group=-1, split=-1, gene=-1, tier=-1, identity=np.nan)
+            genome=-1, group=-1, split=-1, gene=-1, tier=-1, identity=np.nan, genome_of_row=-1, row_gene=-1, row_first=-1)
+ADDED = dict(getattr(A, "SHARD_FIELDS_ADDED", {}), **getattr(A, "META_FIELDS_ADDED", {}))      # fields of table version 1
 
 
-def fields(rows):
-    """{field: (dtype, shape of one table)}: the shard and the meta fields of the contract."""
+def fields(rows, version=0):
+    """{field: (dtype, shape of one table)}: the shard and the meta fields of the contract; from table version 1 also
+    the fields the contract adds for it (SHARD_FIELDS_ADDED, META_FIELDS_ADDED)."""
     dims = dict(R=int(rows), ROW_LEN=A.ROW_LEN, B=A.N_BLOCKS)
-    return {name: (np.dtype(dtype), tuple(dims[s] for s in shape.split()[1:]))
-            for name, (dtype, shape, _) in list(A.SHARD_FIELDS.items()) + list(A.META_FIELDS.items())}
+    spec = list(A.SHARD_FIELDS.items()) + list(A.META_FIELDS.items()) + (list(ADDED.items()) if int(version) >= 1 else [])
+    return {name: (np.dtype(dtype), tuple(dims[s] for s in shape.split()[1:])) for name, (dtype, shape, _) in spec}
 
 
-def alloc(n, rows):
-    return {name: np.full((int(n),) + shape, FILL[name], dtype=dt) for name, (dt, shape) in fields(rows).items()}
+def model_fields(version=0):
+    """The fields a model may read: the contract's shard fields (and, from version 1, the added shard fields)."""
+    return tuple(A.SHARD_FIELDS) + (tuple(getattr(A, "SHARD_FIELDS_ADDED", {})) if int(version) >= 1 else ())
+
+
+def alloc(n, rows, version=0):
+    return {name: np.full((int(n),) + shape, FILL[name], dtype=dt) for name, (dt, shape) in fields(rows, version).items()}
 
 
 def shard_name(shard):
@@ -61,28 +68,28 @@ def shard_path(folder, shard, field):
     return os.path.join(folder, "%s.%s.npy" % (shard if isinstance(shard, str) else shard_name(shard), field))
 
 
-def create(folder, tables, rows, shard_tables):
+def create(folder, tables, rows, shard_tables, version=0):
     """New shard files for `tables` tables: ([(shard name, tables)], {(shard index, field): writable memmap})."""
     tables, shard_tables = int(tables), int(shard_tables)
     os.makedirs(folder, exist_ok=True)
     shards, mm = [], {}
     for s in range((tables + shard_tables - 1) // shard_tables):
         m = min(shard_tables, tables - s * shard_tables)
-        for name, (dt, shape) in fields(rows).items():
+        for name, (dt, shape) in fields(rows, version).items():
             mm[s, name] = np.lib.format.open_memmap(shard_path(folder, s, name), mode="w+", dtype=dt, shape=(m,) + shape)
         shards.append((shard_name(s), m))
     return shards, mm
 
 
-def write(folder, arrays, shard_tables):
+def write(folder, arrays, shard_tables, version=0):
     """Write a whole part from {field: array [N, ...]} (every field of the contract, the shapes of fields(rows))."""
     rows = int(arrays["tok"].shape[1])
-    want = fields(rows)
+    want = fields(rows, version)
     n = int(arrays["tok"].shape[0])
     bad = [k for k in want if k not in arrays or arrays[k].shape != (n,) + want[k][1]] + [k for k in arrays if k not in want]
     if bad:
         raise ValueError("fields missing, unknown or of another shape than the contract's: %s" % sorted(set(bad)))
-    shards, mm = create(folder, n, rows, shard_tables)
+    shards, mm = create(folder, n, rows, shard_tables, version)
     for (s, name), x in mm.items():
         x[:] = np.asarray(arrays[name][s * int(shard_tables):s * int(shard_tables) + len(x)], dtype=want[name][0])
         x.flush()

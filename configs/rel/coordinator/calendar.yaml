@@ -17,17 +17,17 @@
 # - Priority (the user, 2026-11-22: "优先验证 HGT 的场景，其他的场景暂时可以后置"; task breakdown 8.8): the runs of W18
 #   (the HGT capability check: building its ruler tables, its evaluation-only GPU runs) come right after W12's uncapped
 #   search and before the short arms of a round; where they clash, W18's run keeps its slot and the short arms move.
-version: 2
+version: 3
 days:
   "2026-11-23":
     i1:
       gpu:
-        - {from: "01:35", to: "06:00", what: "round 1a, the short arms (three at once, wall_s 14,400 each): w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4 and the 100 M arm at the other learning rate (w6-ref100m-lr8e-4 or -lr1e-4 by the evening's learning-rate check; profiles rel-r1ashort8e4-i1, rel-r1ashort1e4-i1), which takes the hierarchical head's place (i-1 trains at most three at once; the head moves to round 1b)", packages: [W6], status: planned}
-        - {from: "06:00", to: "24:00", what: "open: a re-check the programme lead asks for after round 1a", status: open}
+        - {from: "01:15", to: "05:30", what: "round 1a, the short arms (three at once, wall_s 14,400 each, final evaluation included): w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4 and the 100 M arm at the other learning rate (w6-ref100m-lr8e-4 or -lr1e-4 by the evening's learning-rate check), which takes the hierarchical head's place (i-1 trains at most three at once); on the code of 3382ed5, the evening's arms' (profiles rel-r1ashort8e4-i1, rel-r1ashort1e4-i1 on branch exp/rel-r1a)", packages: [W6], status: planned}
+        - {from: "06:30", to: "10:45", what: "round 1a, the hierarchical output head (w6-ref30m-hier, wall_s 14,400), alone, on exp/rel's code (package W6 checked that an ordinary arm trains there exactly as on 3382ed5)", packages: [W6], status: planned}
       select:
         - {from: "00:45", to: "01:15", what: "W6's ladder report (both 30 M seeds) and, after the 4e-4 run, the learning-rate report; minutes each", packages: [W6], status: planned}
-        - {from: "01:05", to: "01:30", what: "W12's 1 % trial of the uncapped search (profile rel-dev-w12-trial-i1; 12 threads, 10 to 20 minutes), in the gap between the 100 M arm at 4e-4 (ends about 01:00) and the short arms of round 1a: database the 711 training genomes, queries 1 % of the 989 training and held-out genomes, stratified over the 12 groups; wall time, rows, bytes per row, disk extrapolated", packages: [W2], status: planned}
-        - {from: "06:15", to: "09:15", what: "W12's uncapped search, part 1, if the trial asks for it (plus the 24 development chromosomes of the island set as extra queries; the 17 sealed never)", packages: [W2], status: tentative}
+        - {from: "05:35", to: "06:15", what: "W12's 1 % trial of the uncapped search (profile rel-dev-w12-trial-i1; 12 threads, 10 to 20 minutes), after the short arms of round 1a and before the hierarchical head: database the 711 training genomes, queries 1 % of the 989 training and held-out genomes, stratified over the 12 groups; wall time, rows, bytes per row, disk extrapolated", packages: [W2], status: planned}
+        - {from: "11:00", to: "14:00", what: "W12's uncapped search, part 1, if the trial asks for it (plus the 24 development chromosomes of the island set as extra queries; the 17 sealed never)", packages: [W2], status: tentative}
         - {from: "09:30", to: "10:30", what: "combined CPU profile of the day (rel-dev-c0-day1123-i1), whatever packages ask for", status: open}
     i2:
       gpu:

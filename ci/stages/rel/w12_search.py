@@ -10,16 +10,21 @@ alignment per pair, 500 targets, no own genome) do not apply. No score or rank i
 
 Inputs: the corpus proteins and gene tables of a passed selfsup run (rel_w12_search.source; each file checked against
 the run's corpus manifest), its training-data index (the splits) and gene order (genes.tsv, the order of the training
-arrays).
+arrays). With rel_w12_search.islands (task breakdown section 8.8), the development chromosomes of the island set that
+the island stage of a passed run prepared (islands_from, default the source) are extra queries, split "island": every
+accession must be a development chromosome and none a sealed one (ci/stages/rel/common.py development_chromosomes),
+every file is checked against the island manifest, and each is searched against the training database and against its
+own proteins. They are queries only, never rows of a training table (they are of the order the corpus excludes).
 
-Configuration (profile block rel_w12_search): source, expect ({split: genomes}), sample (share of the query proteins
-searched, drawn per group; 1.0 = all), seed, threads, block_size, sensitivity, evalue, chunk_proteins (query proteins
+Configuration (profile block rel_w12_search): source, expect ({split: genomes}), islands (true: the development
+chromosomes as extra queries), islands_from, sample (share of the query proteins searched, drawn per group, the island
+chromosomes as a group of their own; 1.0 = all), seed, threads, block_size, sensitivity, evalue, chunk_proteins (query proteins
 per DIAMOND call), self_batch_proteins (proteins of the held-out genomes whose own databases one call searches),
 probe_proteins (a first, discarded call of that many query proteins that measures DIAMOND's fixed cost; default 200 in
 a sample run, 0 otherwise), wall_s (stop before a call that would end after it; the run is resumed later, finished
 calls are kept), reserve_gb.
 Outputs under data/rel_w12/search/: <genome>.npz per query genome (v1_hits.py), genomes.json (the genome list the
-arrays index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
+arrays index), index/ (the lookup index of all of them, memory-mappable: v1_hits.Index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
 run, the linear extrapolation to the full search with the disk it needs).
 Gate G4_rel_w12_search (gate()): every query genome has its file, sound and as listed; the query genomes are the open
 splits of the source and the database genomes its training split; the files are the ones the manifest names.
@@ -44,7 +49,7 @@ from seeddrift.train.rel.tables import v0_build as V
 from seeddrift.train.rel.tables import v1_hits as H
 
 OUT = os.path.join("data", "rel_w12", "search")
-KEYS = {"source", "expect", "sample", "seed", "threads", "block_size", "sensitivity", "evalue", "chunk_proteins", "self_batch_proteins",
+KEYS = {"source", "expect", "islands", "islands_from", "sample", "seed", "threads", "block_size", "sensitivity", "evalue", "chunk_proteins", "self_batch_proteins",
         "probe_proteins", "wall_s", "reserve_gb"}
 
 
@@ -54,7 +59,8 @@ def settings(cfg) -> dict:
     if unknown or not c.get("source"):
         raise SystemExit("rel_w12_search: needs `source`; unknown keys %s" % sorted(unknown))
     sample = float(c.get("sample", 1.0))
-    out = dict(source=str(c["source"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()}, sample=sample, seed=int(c.get("seed", cfg.get("seed", 1))),
+    out = dict(source=str(c["source"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()}, islands=bool(c.get("islands", False)),
+               islands_from=str(c.get("islands_from") or c["source"]), sample=sample, seed=int(c.get("seed", cfg.get("seed", 1))),
                threads=int(c.get("threads", 12)), block_size=float(c.get("block_size", 4)), sensitivity=str(c.get("sensitivity", "sensitive")),
                evalue=float(c.get("evalue", 1e-5)), chunk_proteins=int(c.get("chunk_proteins", 60000)), self_batch_proteins=int(c.get("self_batch_proteins", 30000)),
                probe_proteins=int(c.get("probe_proteins", 200 if sample < 1 else 0)), wall_s=float(c["wall_s"]) if c.get("wall_s") else None,
@@ -107,14 +113,15 @@ def chunks(order, sizes, limit):
 
 
 def sample_genes(genomes, names, sample, seed):
-    """{genome: uint8 mask of the genes searched}: all of them, or per group a share `sample` of the group's proteins
-    drawn at random (at least one per group)."""
+    """{genome: uint8 mask of the genes searched}: all of them, or per group (the island chromosomes as a group of their
+    own) a share `sample` of the group's proteins drawn at random (at least one per group)."""
     if sample >= 1:
         return {g["id"]: np.ones(len(names[g["id"]]), dtype=np.uint8) for g in genomes}
     out = {g["id"]: np.zeros(len(names[g["id"]]), dtype=np.uint8) for g in genomes}
-    groups = sorted({g["group"] for g in genomes})
+    stratum = lambda g: "island" if g["split"] == "island" else g["group"]      # noqa: E731
+    groups = sorted({stratum(g) for g in genomes})
     for k, grp in enumerate(groups):
-        pool = [(g["id"], i) for g in genomes if g["group"] == grp for i in range(len(names[g["id"]]))]
+        pool = [(g["id"], i) for g in genomes if stratum(g) == grp for i in range(len(names[g["id"]]))]
         if not pool:
             continue
         take = max(1, int(round(sample * len(pool))))
@@ -122,6 +129,39 @@ def sample_genes(genomes, names, sample, seed):
             gid, i = pool[int(x)]
             out[gid][i] = 1
     return out
+
+
+def island_genomes(run, sealed):
+    """([dict(id, group, split "island", taxid, ranks, folder, genes)], provenance) of the development chromosomes the
+    island stage of the passed run `run` prepared, each accession checked (development, not sealed) and each file
+    against the island manifest."""
+    from ci import manifest as M
+    from seeddrift.train.rel import sealed as SL
+    ip = os.path.join(run, "data", "islands", "index.json")
+    sha = W._output(run, "islands_data", "islands_index", ip)
+    with open(ip) as f:
+        idx = json.load(f)
+    accs = [g["id"] for g in idx["genomes"]]
+    common.development_chromosomes(accs)
+    try:
+        SL.check_ids(accs, sealed)
+    except SL.SealedError as err:
+        raise SystemExit("rel_w12_search: %s" % err)
+    with open(os.path.join(run, "data", "islands", "manifest.json")) as f:
+        msha = json.load(f)["sha256"]
+    man = M.load(os.path.join(run, "manifests", msha + ".json"))
+    want = {f["path"]: f["sha256"] for e in man["entries"] for f in e.get("files", [])}
+    out, bad = [], []
+    for g in idx["genomes"]:
+        for n in ("genes.tsv", "proteins.faa"):
+            p = os.path.join(g["folder"], n)
+            if want.get(p) is None or sha256_file(os.path.join(run, p), use_sidecar=False) != want[p]:
+                bad.append(p)
+        out.append(dict(id=g["id"], group=g["group"], split="island", taxid=int(g["taxid"]), ranks=g.get("ranks"), folder=os.path.join(run, g["folder"]),
+                        genes=int(g["genes"])))
+    if bad:
+        raise SystemExit("rel_w12_search: island files of %s differ from its manifest: %s" % (run, bad[:5]))
+    return out, dict(run_id=os.path.basename(os.path.normpath(run)), index_sha256=sha, manifest=msha, chromosomes=len(out))
 
 
 def build(st, cfg, run_dir):
@@ -149,16 +189,17 @@ def build(st, cfg, run_dir):
         raise SystemExit("rel_w12_search: corpus files of %s differ from its manifest: %s" % (run, bad[:5]))
     from ci.stages.search import gene_ids
     names, prots = {}, {}
-    for m in metas:
-        folder = os.path.join(run, "data", "corpus", m["id"])
+    islands, island_prov = island_genomes(s["islands_from"], sealed) if s["islands"] else ([], None)
+    for m in metas + islands:
+        folder = m.get("folder") or os.path.join(run, "data", "corpus", m["id"])
         names[m["id"]] = gene_ids(folder)
         if len(names[m["id"]]) != int(m["genes"]):
             raise SystemExit("rel_w12_search: %s has %d genes in genes.tsv and %d in the training arrays" % (m["id"], len(names[m["id"]]), m["genes"]))
         fa = read_fasta(os.path.join(folder, "proteins.faa"))
         prots[m["id"]] = [fa["%s__%s" % (m["id"], n)] for n in names[m["id"]]]
-    say("%d genomes, %d proteins, corpus files checked" % (len(metas), sum(len(v) for v in prots.values())))
+    say("%d genomes and %d development chromosomes, %d proteins, files checked" % (len(metas), len(islands), sum(len(v) for v in prots.values())))
     genomes = [dict(id=m["id"], group=m["group"], split=m["split"], taxid=int(m["taxid"]), genes=len(names[m["id"]]),
-                    letters=int(sum(len(x) for x in prots[m["id"]]))) for m in metas]
+                    letters=int(sum(len(x) for x in prots[m["id"]]))) for m in metas + islands]
     gix = {g["id"]: i for i, g in enumerate(genomes)}
     gene_index = {g: {n: i for i, n in enumerate(v)} for g, v in names.items()}
     searched = sample_genes(genomes, names, s["sample"], s["seed"])
@@ -260,20 +301,20 @@ def build(st, cfg, run_dir):
 
     order = [g["id"] for g in genomes]
     run_calls("main", chunks(order, {g: int(searched[g].sum()) for g in order}, s["chunk_proteins"]), main_call)
-    held = [g["id"] for g in genomes if g["split"] == "heldout"]
+    held = [g["id"] for g in genomes if g["split"] in ("heldout", "island")]           # not in the database: their own proteins apart
     run_calls("self", chunks(held, {g: len(names[g]) if searched[g].any() else 0 for g in held}, s["self_batch_proteins"]), self_call)
     # every query genome: its rows of the main search, and of its own proteins for a held-out genome
     files, stats = [], dict(pairs=0, hsps=0, self_pairs=0, genes_searched=0, genes_with_pairs=0)
     for g in genomes:
         mp_ = os.path.join(parts, g["id"] + ".main.npz")
         a = H.load(mp_) if os.path.exists(mp_) else H.empty(g["genes"], searched[g["id"]])     # a genome with no gene searched
-        if g["split"] == "heldout" and os.path.exists(os.path.join(parts, g["id"] + ".self.npz")):
+        if g["split"] in ("heldout", "island") and os.path.exists(os.path.join(parts, g["id"] + ".self.npz")):
             a = H.merge(a, H.load(os.path.join(parts, g["id"] + ".self.npz")))
         bad = H.check(a, len(genomes))
         if bad:
             raise SystemExit("rel_w12_search: the rows of %s are not sound: %s" % (g["id"], bad))
         others = a["tgenome"] != gix[g["id"]]
-        if g["split"] == "heldout" and others.any() and set(np.unique(a["tgenome"][others]).tolist()) - {gix[t] for t in train}:
+        if g["split"] != "train" and others.any() and set(np.unique(a["tgenome"][others]).tolist()) - {gix[t] for t in train}:
             raise SystemExit("rel_w12_search: %s has rows to genomes outside the training split" % g["id"])
         p = os.path.join(out, g["id"] + ".npz")
         H.save(p, a)
@@ -287,7 +328,14 @@ def build(st, cfg, run_dir):
     write_json(gp, dict(genomes=genomes, note="the genome list the arrays index (tgenome)"))
     files.append(gp)
     shutil.rmtree(parts)
+    # the lookup index of every query genome's rows (memory-mapped lookups by query genome, target genome, query gene)
+    ix_dir = os.path.join(out, "index")
+    index_sizes = H.write_index(ix_dir, [(lambda gid=g["id"]: H.load(os.path.join(out, gid + ".npz"))) for g in genomes])
+    index_files = [os.path.join(ix_dir, k + ".npy") for k in H.INDEX_FIELDS]
+    files += index_files
+    say("lookup index: %d genes, %d pairs, %d alignments" % (index_sizes["genes"], index_sizes["pairs"], index_sizes["hsps"]))
     entries = [dict(path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p)) for p in files]
+    index_bytes = sum(e["bytes"] for e in entries if os.path.basename(os.path.dirname(e["path"])) == "index")
     nbytes = sum(e["bytes"] for e in entries)
     total_letters = sum(g["letters"] for g in genomes)
     searched_letters = sum(g["searched_letters"] for g in genomes)
@@ -296,8 +344,10 @@ def build(st, cfg, run_dir):
                settings={k: s[k] for k in sorted(s) if k not in ("max_left_out",)},
                database=dict(genomes=len(train), proteins=int(sum(len(prots[g]) for g in train)), letters=int(sum(len(x) for g in train for x in prots[g]))),
                queries=dict(genomes=len(genomes), proteins=int(sum(g["genes"] for g in genomes)), letters=total_letters, searched_proteins=stats["genes_searched"],
-                            searched_letters=searched_letters, per_split={sp: sum(1 for g in genomes if g["split"] == sp) for sp in V.OPEN_SPLITS}),
-               rows=dict(stats, bytes=nbytes, bytes_per_hsp=(nbytes / stats["hsps"]) if stats["hsps"] else None,
+                            searched_letters=searched_letters, per_split={sp: sum(1 for g in genomes if g["split"] == sp) for sp in V.OPEN_SPLITS + ("island",)}),
+               islands=island_prov,
+               index=dict(index_sizes, folder=os.path.relpath(ix_dir, run_dir), bytes=index_bytes),
+               rows=dict(stats, bytes=nbytes, index_bytes=index_bytes, bytes_per_hsp=(nbytes / stats["hsps"]) if stats["hsps"] else None,
                          hsps_per_searched_gene=(stats["hsps"] / stats["genes_searched"]) if stats["genes_searched"] else None),
                timing=timing, left_out=[dict(group=x["group"], split=x["split"], reasons=x["reasons"]) for x in left],
                sealed_check=dict(passed=True, **st.extra["sealed_check"]))
@@ -353,7 +403,7 @@ def page_of(rep):
          "| pairs (query gene, target gene) | %s, %s of them to the own genome |" % ("{:,}".format(r["pairs"]), "{:,}".format(r["self_pairs"])),
          "| alignments | %s, %.1f per searched gene |" % ("{:,}".format(r["hsps"]), r["hsps_per_searched_gene"] or 0.0),
          "| searched genes with at least one pair | %s of %s |" % ("{:,}".format(r["genes_with_pairs"]), "{:,}".format(r["genes_searched"])),
-         "| bytes on disk | %.2f GB, %.1f per alignment |" % (r["bytes"] / 1e9, r["bytes_per_hsp"] or 0.0),
+         "| bytes on disk | %.2f GB, %.1f per alignment (the lookup index %.2f GB of it) |" % (r["bytes"] / 1e9, r["bytes_per_hsp"] or 0.0, r.get("index_bytes", 0) / 1e9),
          "| free disk | %.0f GB (reserve %.0f GB) |" % (rep["disk"]["free_gb"], rep["disk"]["reserve_gb"])]
     e = rep.get("extrapolation")
     if e:
@@ -383,9 +433,17 @@ def gate(st, cfg, run_dir):
         genomes = json.load(f)["genomes"]
     src = W.source(s["source"])
     want = sorted(m["id"] for m in src["index"]["genomes"] if m.get("source", "corpus") == "corpus" and m["split"] in V.OPEN_SPLITS)
-    have = sorted(g["id"] for g in genomes)
-    if any(g["split"] not in V.OPEN_SPLITS for g in genomes) or not set(have) <= set(want) or len(want) - len(have) != len(rep.get("left_out") or []):
+    have = sorted(g["id"] for g in genomes if g["split"] != "island")
+    if any(g["split"] not in V.OPEN_SPLITS + ("island",) for g in genomes) or not set(have) <= set(want) or len(want) - len(have) != len(rep.get("left_out") or []):
         problems.append(dict(error="the query genomes are not the open splits of the source (less the ones left out)"))
+    isl = [g["id"] for g in genomes if g["split"] == "island"]
+    if isl and not s["islands"]:
+        problems.append(dict(error="island chromosomes among the queries of a run without islands"))
+    if isl:
+        try:
+            common.development_chromosomes(isl)
+        except SystemExit as err:
+            problems.append(dict(error=str(err)[:300]))
     if rep.get("database", {}).get("genomes") != sum(1 for g in genomes if g["split"] == "train"):
         problems.append(dict(error="the database is not the training genomes"))
     listed = {os.path.basename(e["path"]) for e in rep.get("files") or []}
@@ -397,6 +455,19 @@ def gate(st, cfg, run_dir):
         bad = H.check(a, len(genomes))
         if bad or len(a["off"]) - 1 != g["genes"] or int(a["searched"].sum()) != g["searched"] or len(a["qs"]) != g["hsps"]:
             problems.append(dict(genome=g["id"], error="rows not sound or not as listed", problems=bad[:3]))
+    ix = rep.get("index") or {}
+    try:
+        idx = H.Index(os.path.join(run_dir, ix.get("folder", os.path.join(OUT, "index"))))
+        gb = np.asarray(idx.a["gene_base"])
+        if len(gb) != len(genomes) + 1 or list(np.diff(gb)) != [g["genes"] for g in genomes] or len(idx.a["qs"]) != sum(g["hsps"] for g in genomes):
+            problems.append(dict(error="the lookup index does not hold every query genome's rows"))
+        for qg in range(0, len(genomes), max(1, len(genomes) // 20)):    # a sample of genomes: their pairs as in their own files
+            a = H.load(os.path.join(run_dir, OUT, genomes[qg]["id"] + ".npz"))
+            k0 = int(gb[qg])
+            if not np.array_equal(np.asarray(idx.a["off"][k0:k0 + genomes[qg]["genes"] + 1]) - int(idx.a["off"][k0]), a["off"]):
+                problems.append(dict(genome=genomes[qg]["id"], error="the lookup index differs from the genome's rows"))
+    except (OSError, ValueError, KeyError) as err:
+        problems.append(dict(error="the lookup index cannot be read: %s" % err))
     require(GateResult("G4_rel_w12_search", "fail" if problems else "pass", dict(problems=problems[:50], genomes=len(genomes), rows=rep.get("rows"),
                                                                                  extrapolation=rep.get("extrapolation"))), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False)])

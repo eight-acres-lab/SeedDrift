@@ -22,6 +22,16 @@ a pair of its own genome. No bit score, e-value or rank is kept: the order of pa
   save(path, arrays), load(path)
   columns(cigar, qs, ss)           (query position, target position) of every aligned column (0-based)
   check(arrays, n_targets)         problems of the arrays of one query genome (empty when they are sound)
+  write_index(folder, parts)       the lookup index of every query genome's rows, in the order of the genome list
+  Index(folder)                    the index, memory-mapped: pairs(query genome, target genome, query gene) -> the pair
+                                   indices (a range), tgene(p), alignments(p), lookup(qg, tg, qi) -> [(target gene,
+                                   [(qs, qe, ss, se, cigar)])]; a lookup is two binary searches in a memory-mapped slice
+
+The index (index/<field>.npy, plain .npy, memory-mappable): gene_base int64 [genomes+1] (the first global gene of every
+query genome), off int64 [genes+1] (the pairs of global gene k at off[k]:off[k+1], ordered by target genome, then
+target gene), tgenome, tgene int32 [pairs], hsp_off int64 [pairs+1], qs, qe, ss, se uint32 [alignments], cigar uint8,
+cigar_off int64 [alignments+1], searched uint8 [genes]. Query genomes, target genomes and genes are numbered as in the
+genome list of the search (genomes.json) and each genome's genes.tsv.
 """
 from __future__ import annotations
 
@@ -198,3 +208,73 @@ def check(arrays, n_targets):
                 out.append("a CIGAR that does not span its coordinates (alignment %d)" % h)
                 break
     return out
+
+
+INDEX_FIELDS = dict(gene_base=np.int64, off=np.int64, tgenome=np.int32, tgene=np.int32, hsp_off=np.int64, qs=np.uint32, qe=np.uint32, ss=np.uint32,
+                    se=np.uint32, cigar=np.uint8, cigar_off=np.int64, searched=np.uint8)
+
+
+def write_index(folder, parts):
+    """Write the lookup index from `parts`, the arrays of every query genome in the order of the genome list (an
+    iterable of callables or dicts, read twice: once for the sizes, once for the content). Returns the sizes."""
+    import os
+    get = lambda x: x() if callable(x) else x                           # noqa: E731
+    sizes = []
+    for x in parts:
+        a = get(x)
+        sizes.append((len(a["off"]) - 1, len(a["tgenome"]), len(a["qs"]), len(a["cigar"])))
+    n_genes, n_pairs, n_hsps, n_cig = (sum(z[i] for z in sizes) for i in range(4))
+    os.makedirs(folder, exist_ok=True)
+    shape = dict(gene_base=len(sizes) + 1, off=n_genes + 1, tgenome=n_pairs, tgene=n_pairs, hsp_off=n_pairs + 1, qs=n_hsps, qe=n_hsps, ss=n_hsps, se=n_hsps,
+                 cigar=n_cig, cigar_off=n_hsps + 1, searched=n_genes)
+    mm = {k: np.lib.format.open_memmap(os.path.join(folder, k + ".npy"), mode="w+", dtype=dt, shape=(shape[k],)) for k, dt in INDEX_FIELDS.items()}
+    g0 = p0 = h0 = c0 = 0
+    mm["gene_base"][0] = 0
+    for k, x in enumerate(parts):
+        a = get(x)
+        g, p, h, c = sizes[k]
+        if (len(a["off"]) - 1, len(a["tgenome"]), len(a["qs"]), len(a["cigar"])) != (g, p, h, c):
+            raise ValueError("the rows of query genome %d changed between the two reads" % k)
+        mm["gene_base"][k + 1] = g0 + g
+        mm["off"][g0:g0 + g + 1] = a["off"] + p0
+        mm["searched"][g0:g0 + g] = a["searched"]
+        mm["tgenome"][p0:p0 + p], mm["tgene"][p0:p0 + p] = a["tgenome"], a["tgene"]
+        mm["hsp_off"][p0:p0 + p + 1] = a["hsp_off"] + h0
+        for f in ("qs", "qe", "ss", "se"):
+            mm[f][h0:h0 + h] = a[f]
+        mm["cigar"][c0:c0 + c] = a["cigar"]
+        mm["cigar_off"][h0:h0 + h + 1] = a["cigar_off"] + c0
+        g0, p0, h0, c0 = g0 + g, p0 + p, h0 + h, c0 + c
+    for x in mm.values():
+        x.flush()
+    return dict(genomes=len(sizes), genes=n_genes, pairs=n_pairs, hsps=n_hsps, cigar_bytes=n_cig)
+
+
+class Index:
+    """The lookup index of a search, memory-mapped (see the module doc)."""
+
+    def __init__(self, folder):
+        import os
+        self.a = {k: np.load(os.path.join(folder, k + ".npy"), mmap_mode="r") for k in INDEX_FIELDS}
+
+    def pairs(self, qg, tg, qi):
+        """range of the pair indices of query gene qi of query genome qg with target genome tg."""
+        a = self.a
+        k = int(a["gene_base"][qg]) + int(qi)
+        lo, hi = int(a["off"][k]), int(a["off"][k + 1])
+        t = a["tgenome"][lo:hi]
+        return range(lo + int(np.searchsorted(t, tg, side="left")), lo + int(np.searchsorted(t, tg, side="right")))
+
+    def tgene(self, p):
+        return int(self.a["tgene"][p])
+
+    def alignments(self, p):
+        a = self.a
+        out = []
+        for h in range(int(a["hsp_off"][p]), int(a["hsp_off"][p + 1])):
+            out.append((int(a["qs"][h]), int(a["qe"][h]), int(a["ss"][h]), int(a["se"][h]), bytes(a["cigar"][a["cigar_off"][h]:a["cigar_off"][h + 1]])))
+        return out
+
+    def lookup(self, qg, tg, qi):
+        return [(self.tgene(p), self.alignments(p)) for p in self.pairs(qg, tg, qi)]
+

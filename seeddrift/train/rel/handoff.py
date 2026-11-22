@@ -15,6 +15,10 @@ Table-set manifest (`tableset.json`, written by a stage with `produces: tableset
                  for samplers and evaluators only), truth (synthetic sets only: the correct sources, for tests only)
   genomes        [{id, taxid, split}] every genome that occurs in a row; [] for synthetic sets. The sealed check reads it.
   purpose        train, heldout, probe or ruler; a train set may hold genomes of the train split only (gate G3_rel)
+  not_for_training  true for a set no training may read (W12's tables of the island set's development chromosomes,
+                 whose rows of split island are the 24 development chromosomes, task breakdown 8.8; gate G3_rel allows
+                 that split only here, after ci/stages/rel/common.py development_chromosomes); common.read_tableset
+                 refuses such a set to every train-side stage
   sealed_check   real and ruler sets: the record of the passed sealed check of the stage that built them
                  (ci/stages/rel/common.py sealed_record): passed true, the ids checked, the sealed sources with the
                  registry. Every stage that reads a table set takes it through from_run, which refuses a set without it.
@@ -144,6 +148,10 @@ def tableset_problems(doc, run_dir="") -> list:
         out.append(dict(error="a real or ruler table set lists every genome with its taxid and split"))
     if doc.get("purpose") is not None and doc["purpose"] not in PURPOSES:
         out.append(dict(error="purpose is one of %s" % ", ".join(PURPOSES)))
+    if doc.get("not_for_training") not in (None, True, False) or (doc.get("not_for_training") and doc.get("purpose") == "train"):
+        out.append(dict(error="not_for_training is true or false, and never on a set of purpose train"))
+    if any(isinstance(x, dict) and x.get("split") == "island" for x in doc.get("genomes") or []) and not doc.get("not_for_training"):
+        out.append(dict(error="genomes of split island only in a set marked not_for_training"))
     out += sealed_problems(doc)
     return out
 

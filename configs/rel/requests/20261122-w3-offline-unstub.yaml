@@ -1,0 +1,13 @@
+package: W3
+kind: cpu_run
+to: C0
+what: >-
+  drop the stub flag of stage w3_offline in configs/rel/kinds.yaml (its rule in ci/rules/rel_w3.smk now runs
+  ci/stages/rel/w3_offline.py, gate G4_rel_w3_offline), then start profile rel-dev-w3-offline-i1 on i-1 under the
+  select lock (the lock calendar's next free slot)
+why: >-
+  step one of the leak-free renderer: the strict offline rendering of the 3,000 held-out tables of the first tables
+  run for the conditions scattered and suffix, with the fourth validity test on every table; round 1b evaluates its
+  leak-free arms on these parts
+size: {hours: 0.3, threads: 1, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-24

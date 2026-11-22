@@ -128,14 +128,17 @@ def placement(tab, visible, layout=LEAKFREE):
     cells = cells_of(n)
     vis = np.asarray(visible, dtype=bool) & cells
     f_of = frame[BLOCK_OF]                                      # the frame's length in the block of every slot
+    fr = frame_rows(tab)
+    fr_of = fr[BLOCK_OF]                                        # the frame row of the block of every slot
+    is_frame = np.arange(R)[:, None] == fr_of[None, :]
     slot = np.full((R, L), -1, np.int64)
     ext, empty = np.zeros((R, L), bool), np.zeros((R, L), bool)
-    own = cells[0] & (POS < f_of)
-    slot[0, own] = np.flatnonzero(own)                          # the frame row: its own columns
-    if R == 1:
+    own = cells & is_frame & (POS < f_of)[None, :]
+    fr_r, fr_s = np.nonzero(own)
+    slot[fr_r, fr_s] = fr_s                                     # the frame row of a block: its own columns
+    rr, ss = np.nonzero(cells & ~is_frame)
+    if rr.size == 0:
         return slot, ext, empty
-    rr, ss = np.nonzero(cells[1:])
-    rr = rr + 1
     if layout == UNALIGNED:
         slot[rr, ss] = ss
         return slot, ext, empty
@@ -150,7 +153,7 @@ def placement(tab, visible, layout=LEAKFREE):
     k = POS[ss]
     hidden_row = ~vis[rr, ss]
     frame_vis = np.zeros(rr.shape[0], bool)
-    frame_vis[ok] = vis[0, BLOCK_START[b[ok]] + c[ok]]
+    frame_vis[ok] = vis[fr[b[ok]], BLOCK_START[b[ok]] + c[ok]]
     anchor = ok & ~hidden_row & frame_vis
     N = rr.shape[0]
     idx = np.arange(N)
@@ -176,7 +179,8 @@ def placement(tab, visible, layout=LEAKFREE):
     lo = np.where(has_l, il + 1, gstart)
     hi = np.where(has_r, ir, gend + 1)
     row_hidden = H[hi] - H[lo]
-    hid0 = np.concatenate([[0], np.cumsum(cells[0] & ~vis[0])])  # hidden columns of the frame row between them
+    cols = np.arange(L)
+    hid0 = np.concatenate([[0], np.cumsum(cells[fr_of, cols] & ~vis[fr_of, cols])])  # hidden columns of the frame row
     base = BLOCK_START[b]
     frame_hidden = hid0[base + np.minimum(cr, f)] - hid0[base + cl + 1]
     need = (row_hidden + frame_hidden) > 0
@@ -213,12 +217,20 @@ def placement(tab, visible, layout=LEAKFREE):
     return slot, ext, empty
 
 
+def frame_rows(tab):
+    """(B,) the frame row of every block: tab["frame_row"] where given and still a row of the table, else row 0."""
+    R = np.asarray(tab["tok"]).shape[0]
+    fr = np.asarray(tab.get("frame_row", np.zeros(A.N_BLOCKS)), dtype=np.int64).reshape(-1)
+    return np.where((fr >= 0) & (fr < R), fr, 0)
+
+
 def placement_reference(tab, visible, layout=LEAKFREE):
     """The same as placement, one row and block at a time through lay_leakfree (for the tests)."""
     tok, n, col = np.asarray(tab["tok"]), np.asarray(tab["n"]).astype(np.int64), np.asarray(tab["col"]).astype(np.int64)
     frame = np.asarray(tab["frame_len"]).astype(np.int64)
     vis = np.asarray(visible, dtype=bool) & cells_of(n)
     R = tok.shape[0]
+    fr = frame_rows(tab)
     slot = np.full((R, L), -1, np.int64)
     ext, empty = np.zeros((R, L), bool), np.zeros((R, L), bool)
     for b, (_, s, e) in enumerate(SLICES):
@@ -227,8 +239,8 @@ def placement_reference(tab, visible, layout=LEAKFREE):
             m = int(n[r, b])
             if m == 0:
                 continue
-            if r == 0 or layout == UNALIGNED:
-                kk = np.arange(min(m, f) if r == 0 else m)
+            if r == fr[b] or layout == UNALIGNED:
+                kk = np.arange(min(m, f) if r == fr[b] else m)
                 slot[r, s + kk] = s + kk
                 continue
             c = col[r, s:s + m]
@@ -236,7 +248,7 @@ def placement_reference(tab, visible, layout=LEAKFREE):
                 ok = (c >= 0) & (c < f)
                 slot[r, s + np.flatnonzero(ok)] = s + c[ok]
                 continue
-            pos, ex, em = lay_leakfree(c, vis[r, s:s + m], vis[0, s:s + f])
+            pos, ex, em = lay_leakfree(c, vis[r, s:s + m], vis[fr[b], s:s + f])
             shown = pos >= 0
             slot[r, s + np.flatnonzero(shown)] = s + pos[shown]
             ext[r, s + pos[shown & ex]] = True
@@ -245,13 +257,24 @@ def placement_reference(tab, visible, layout=LEAKFREE):
     return slot, ext, empty
 
 
-def render(tab, visible, target, layout=LEAKFREE):
+CONTROLS = (None, "shuffle", "presence")
+STREAM_SHUFFLE = 41
+
+
+def render(tab, visible, target, layout=LEAKFREE, control=None, key=0):
     """The grid a model reads, the truth of its target cells and the cells laid by extension.
 
-    tab: one table, tok [R, ROW_LEN], n [R, B], col [R, ROW_LEN], kind [R, B], frame_len [B]; visible, target: boolean
-    [R, ROW_LEN] in the rows' own coordinates (a mask scheme's plan; a codon that is not visible shows as MASK).
+    tab: one table, tok [R, ROW_LEN], n [R, B], col [R, ROW_LEN], kind [R, B], frame_len [B] (and frame_row [B]: the
+    frame row of every block, row 0 where not given); visible, target: boolean [R, ROW_LEN] in the rows' own
+    coordinates (a mask scheme's plan; a codon that is not visible shows as MASK).
+    control, applied after the layout to every row but a block's frame row: "shuffle" moves the columns of a block by one
+    permutation shared by all those rows (drawn by the 64-bit hash of key and the block: the correspondence with the
+    frame row is gone, the rows' alignment to each other and their content stay); "presence" shows every codon of those
+    rows as MASK (only where a codon is stays).
     Returns grid uint8 [R, ROW_LEN], truth uint8 [R, ROW_LEN] (0 = no target, else the token to predict) and ext bool
     [R, ROW_LEN]."""
+    if control not in CONTROLS:
+        raise ValueError("unknown control %r (known: %s)" % (control, CONTROLS[1:]))
     tok, kind = np.asarray(tab["tok"]), np.asarray(tab["kind"])
     n = np.asarray(tab["n"]).astype(np.int64)
     frame = np.asarray(tab["frame_len"]).astype(np.int64)
@@ -283,7 +306,69 @@ def render(tab, visible, target, layout=LEAKFREE):
         grid[:, s:e] = g
     ext &= (grid != A.PAD)
     truth[grid != A.MASK] = 0
+    if control is not None:
+        fr = frame_rows(tab)
+        from seeddrift.train.rel.evalh import conditions as cond        # the 64-bit hash every plan uses
+        for b, (_, s, e) in enumerate(SLICES):
+            f = int(frame[b])
+            rows = np.arange(R) != fr[b]
+            if f == 0 or not rows.any():
+                continue
+            if control == "shuffle":
+                perm = np.argsort(cond.hash_u01(int(key), STREAM_SHUFFLE, b, np.arange(f)), kind="stable")
+                for a in (grid, truth, ext):
+                    a[rows, s:s + f] = a[rows][:, s + perm]
+            else:
+                g = grid[rows, s:s + f]
+                g[(g >= A.TARGET_MIN) & (g <= A.TARGET_MAX)] = A.MASK
+                grid[rows, s:s + f] = g
     return grid, truth, ext
+
+
+def anchor_distance(tab, visible):
+    """[ROW_LEN]: for every column of a block's frame row, the distance in columns to the nearest column that is an
+    anchor of some other row (a stored pair with both residues visible); -1 in a block without any anchor. A reporting
+    key: how far a scored cell is from the nearest correspondence the leak-free layout keeps."""
+    n = np.asarray(tab["n"]).astype(np.int64)
+    col = np.asarray(tab["col"]).astype(np.int64)
+    frame = np.asarray(tab["frame_len"]).astype(np.int64)
+    cells = cells_of(n)
+    vis = np.asarray(visible, bool) & cells
+    fr = frame_rows(tab)
+    out = np.full(L, -1, np.int64)
+    for b, (_, s, e) in enumerate(SLICES):
+        f = int(frame[b])
+        if f == 0:
+            continue
+        cols = []
+        for r in range(n.shape[0]):
+            m = int(n[r, b])
+            if r == fr[b] or m == 0:
+                continue
+            c = col[r, s:s + m]
+            ok = (c >= 0) & (c < f)
+            good = ok & vis[r, s:s + m]
+            good[ok] &= vis[fr[b], s + c[ok]]
+            cols.append(c[good])
+        a = np.unique(np.concatenate(cols)) if cols else np.zeros(0, np.int64)
+        if a.size:
+            x = np.arange(f)
+            i = np.clip(np.searchsorted(a, x), 1, a.size) - 1
+            j = np.clip(i + 1, 0, a.size - 1)
+            out[s:s + f] = np.minimum(np.abs(x - a[i]), np.abs(a[j] - x))
+    return out
+
+
+def causal_rows(tab, key=0, extra=2):
+    """The target rows of a causal arm (the programme lead's decision): row 0 always, and `extra` rows drawn by the
+    64-bit hash of key among the other rows that have content (fewer where there are fewer)."""
+    from seeddrift.train.rel.evalh import conditions as cond
+    kind = np.asarray(tab["kind"])
+    have = np.flatnonzero((kind[1:] != KIND_NONE).any(axis=1)) + 1
+    if have.size == 0:
+        return [0]
+    order = have[np.argsort(cond.hash_u01(int(key), STREAM_SHUFFLE + 1, 0, have), kind="stable")]
+    return [0] + sorted(int(r) for r in order[:int(extra)])
 
 
 def dropped(tab, visible, target, layout=LEAKFREE):

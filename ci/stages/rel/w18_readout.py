@@ -1,0 +1,375 @@
+"""Stage rel_w18_readout (package W18; pipeline rel_traineval, after rel_w6_eval): the readouts of the HGT capability
+check, their controls and statistics (protocol w18-v0), from the per-cell files the evaluation of a ruler set wrote.
+`python -m ci.stages.rel.w18_readout RUN_DIR`. CPU only, nothing is trained, no model is run. Every result is
+"construct only".
+
+Inputs: the ruler set (rel_w18_readout.tables: {run, path, sha256}, read through common.read_tableset, so the run
+passed, the kind is one this stage may read and the set carries its sealed record) and the per-cell files of the
+evaluation (data/rel_w6/eval/<arm>/ruler_cells.npz of rel_w18_readout.eval_run, default this run; each file listed with
+its sha256 in that run's record of stage rel_w6_eval). Every file must name the ruler set's manifest, and the digest of
+what it scored must equal the plan of seeddrift/train/rel/readouts/w18_passes.py recomputed here without a model.
+
+Arms by their files: an arm with relatives and trained weights gives the source shift, the two-block gain, the gain
+without relatives and their difference, each from the bits and from the amino-acid bits alone (the lineage readings:
+source_shift_aa, gain_aa, gain_rel_aa), abstention and the calibration; with presence passes the same on them; an arm
+without relatives gives the composition readout; weights "untrained" mark the untrained control. The model-free controls
+come from the tables (seeddrift/train/rel/readouts/w18_readouts.py).
+
+Populations: scenario in place or the donor's lineage unsampled, each with rule 9 on (the triples whose donor gene has a
+homolog in A's context left out) and off. The source shift is read on the triples whose three tables define it and
+whose rows span two tiers or more; its defined share (implant minus own) is a readout of its own. Statistics: the
+paired win rate of implant against own (primary) and against original (the position control) in every stratum; the
+pooled AUC in all, by donor tier and by quartile of the host codon model; paired differences against the best-similarity
+rule, the coverage shift, the untrained model, the presence passes and the host codon model.
+
+Profile block rel_w18_readout: tables, eval_run (optional), arms (optional: the arms to read, default every file
+found), reps (2,000), seed (20261124).
+Outputs under data/rel_w18/readout/: scores.tsv (every score of every table), stats.tsv (the win rates and AUCs),
+defined.tsv (the defined share of the source shift, implant minus own), coverage.tsv (charter rule 7's table), report.md,
+report.json (written last).
+Gate G4_rel_w18_readout: every per-cell file read was checked, at least one trained arm with relatives was read, every
+value is in [0, 1], no coverage cell is marked evaluated, and the report names the run and the tables of every number.
+"""
+from __future__ import annotations
+
+import csv
+import json
+import os
+import time
+
+import numpy as np
+
+from ci.gates import GateResult, require
+from ci.hashing import sha256_file, sha256_json
+from ci.stages.common import main_args, write_json
+from ci.stages.rel import common
+from seeddrift.train.rel.evalh import score as SC
+from seeddrift.train.rel.evalh import shards
+from seeddrift.train.rel.readouts import w18_passes as P
+from seeddrift.train.rel.readouts import w18_readouts as R
+
+OUT = os.path.join("data", "rel_w18", "readout")
+EVAL = os.path.join("data", "rel_w6", "eval")
+KEYS = {"tables", "eval_run", "arms", "reps", "seed"}
+STATUS = ("preliminary: tables of version 0 (rows chosen among the 64 nearest genomes of a gene) and the stored layout, which places relatives by the "
+          "hidden residues; the counting reading is on tables of version 1, the leak-free reading with a model retrained leak-free (protocol w18-v0). "
+          "A ruler, not a transfer label: these numbers choose no arm, head, threshold or readout.")
+
+
+def settings(cfg) -> dict:
+    c = cfg.get("rel_w18_readout") or {}
+    unknown = set(c) - KEYS
+    t = c.get("tables") or {}
+    if unknown or not t.get("run") or not t.get("path"):
+        raise SystemExit("rel_w18_readout: needs tables {run, path[, sha256]}; unknown keys %s" % sorted(unknown))
+    return dict(tables=dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256")), eval_run=c.get("eval_run"),
+                arms=[str(a) for a in c.get("arms") or []], reps=int(c.get("reps", R.BOOT)), seed=int(c.get("seed", R.BOOT_SEED)))
+
+
+def ruler(s):
+    """(manifest, TableSet, W18 meta, table fields, group names, index) of the ruler set, read through the registry's
+    reader (common.read_tableset: the kinds this stage may read, the sealed record)."""
+    doc = common.read_tableset("w18_readout", s["tables"]["run"], s["tables"]["path"], s["tables"]["sha256"])
+    if doc.get("kind") != "ruler":
+        raise SystemExit("rel_w18_readout: the table set is kind %r, not ruler" % doc.get("kind"))
+    sets = shards.by_split(s["tables"]["run"], [doc])
+    if list(sets) != [1]:
+        raise SystemExit("rel_w18_readout: a ruler set of held-out tables only (splits %s)" % sorted(sets))
+    ts = sets[1]
+    meta = P.load_meta(s["tables"]["run"], doc)
+    fields = ts.load(0, ts.tables, ("tok", "n", "col", "kind", "frame_len", "group", "identity", "genome"))
+    with open(os.path.join(s["tables"]["run"], doc["index"])) as f:
+        index = json.load(f)
+    return doc, ts, meta, fields, shards.group_names(s["tables"]["run"], doc), index
+
+
+def cell_files(s, run_dir):
+    """[(arm, path, sha256)] of the per-cell files of the evaluation run, each listed in its record of stage rel_w6_eval."""
+    ev = s["eval_run"] or run_dir
+    root = os.path.join(ev, EVAL)
+    rec = os.path.join(ev, "stages", "rel_w6_eval.json")
+    listed = {}
+    if os.path.exists(rec):
+        with open(rec) as f:
+            for o in json.load(f).get("outputs") or []:
+                listed[os.path.normpath(os.path.join(ev, o["path"]) if not os.path.isabs(o["path"]) else o["path"])] = o.get("sha256")
+    out = []
+    for arm in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        p = os.path.join(root, arm, P.RULER_CELLS)
+        if not os.path.exists(p) or (s["arms"] and arm not in s["arms"]):
+            continue
+        sha = sha256_file(p, use_sidecar=False)
+        if listed.get(os.path.normpath(p)) != sha:
+            raise SystemExit("rel_w18_readout: %s is not an output the evaluation run's record of stage rel_w6_eval lists with this content" % p)
+        out.append((arm, p, sha))
+    missing = sorted(set(s["arms"]) - {a for a, _, _ in out})
+    if missing or not out:
+        raise SystemExit("rel_w18_readout: no per-cell file for arms %s under %s" % (missing or "any", root))
+    return out
+
+
+LINEAGE = ("source_shift_aa", "gain_aa", "gain_rel_aa")          # the lineage readings (amino-acid bits alone): primary
+POOLED_STRATA = ("all", "donor_tier", "host_codon_quartile")
+
+
+def build(st, cfg, run_dir):
+    s, t0 = settings(cfg), time.time()
+    say = lambda text: print("rel_w18_readout: " + text, flush=True)          # noqa: E731
+    doc, ts, meta, fields, groups, index = ruler(s)
+    genomes = index["genomes"]
+    n = ts.tables
+    n0 = fields["n"][:, 0, :]
+    tr = R.Triples(meta, fields["group"], fields["identity"], [genomes[int(d)]["group"] for d in meta["donor"]], groups)
+    boot = R.Bootstrap(tr, reps=s["reps"], seed=s["seed"])
+    arms, scores, plans = [], {}, {}
+    for arm, path, sha in cell_files(s, run_dir):
+        cells, head = P.load_cells(path)
+        if head["tableset_sha256"] != doc["sha256"]:
+            raise SystemExit("rel_w18_readout: %s scored another table set (%s)" % (path, head["tableset_sha256"]))
+        key = (bool(head["relatives"]), bool(head["presence"]))
+        if key not in plans:
+            plans[key] = P.plan_digest(P.tables_of(ts, meta), *key)
+        if cells["digest"] != plans[key][0]:
+            raise SystemExit("rel_w18_readout: %s scored another plan than the passes of this commit" % path)
+        tag = ("untrained:" if head["weights"] == "untrained" else "") + head["arm"]
+        info = dict(arm=head["arm"], folder=arm, file=os.path.relpath(path, run_dir) if path.startswith(run_dir) else path, sha256=sha, weights=head["weights"],
+                    relatives=head["relatives"], presence=head["presence"], layout=head["layout"], render_version=head["render_version"],
+                    eval_run=head["run"], eval_commit=head["commit"], cells=int(len(cells["bits"])), passes=head["passes"])
+        if head["relatives"]:
+            r = R.readouts(cells, meta, n0)
+            info["calibration"] = R.calibration(cells, meta, n0)
+            info["abstain"] = {v: _mean(r["abstain"][meta["variant"] == k]) for k, v in enumerate(("implant", "original", "own"))}
+            for k, v in r.items():
+                if k != "abstain":
+                    scores[(tag, k)] = v
+            scores[(tag, "abstain")] = r["abstain"]
+            if head["presence"]:
+                for k, v in R.readouts(cells, meta, n0, prefix=P.PRESENCE).items():
+                    scores[("presence:" + tag, k)] = v
+        else:
+            for k, v in R.composition(cells, meta, n0).items():
+                scores[(tag, k)] = v
+        arms.append(info)
+        say("%s (%s): %d cells read" % (arm, head["weights"], info["cells"]))
+    ctl = R.controls(fields, meta)
+    for k, v in ctl.items():
+        scores[("control", k)] = v
+    has_rows = tr.phase != 3
+    rule9 = tr.context == 0
+    pops = {("in_place", "on"): (tr.scenario == 0) & rule9, ("in_place", "off"): tr.scenario == 0,
+            ("donor_unsampled", "on"): (tr.scenario == 1) & rule9, ("donor_unsampled", "off"): tr.scenario == 1}
+    full = tr.strata()
+    full.update(tr.host_quartiles(ctl["host_codon"]))
+    short = {k: v for k, v in full.items() if k[0] in ("all", "donor_tier")}
+    expected = tuple("tier=%s" % t for t, e in (index.get("tier_expectation") or {}).items() if e == "expected too few")
+    rows, defined = [], []
+    for (label, name), v in sorted(scores.items()):
+        if name == "abstain":
+            continue
+        base = label.split(":", 1)[-1]
+        ref = {}
+        if label != "control":
+            ref["best_similarity"] = ctl["best_similarity"]
+            if name.startswith("source_shift"):
+                ref["coverage_shift"] = ctl["coverage_shift"]
+            if name.startswith("composition"):
+                ref["host_codon"] = ctl["host_codon_rel" if name.endswith("_rel") else "host_codon"]
+            for other in ("untrained:" + base, "presence:" + base):
+                if (other, name) in scores and other != label:
+                    ref[other.split(":")[0]] = scores[(other, name)]
+        for (scen, r9), pop in pops.items():
+            pop = pop & (has_rows if not name.startswith(("composition", "host_codon")) else True)
+            if name.startswith("source_shift") and label != "control":
+                d = np.isfinite(v)
+                defined += R.defined_share_rows(v, tr, pop, boot, label=label, tag=dict(scenario=scen, rule9=r9))
+                pop = pop & d[tr.table].all(axis=1) & (tr.tiers_present >= 2)
+            strata = full if (scen, r9) == ("in_place", "on") else short
+            tag = dict(scenario=scen, rule9=r9)
+            rows += R.stat_rows({name: v}, tr, pop, strata, boot, label=label, reference=ref, stats=("win",), expected_too_few=expected, tag=tag)
+            rows += R.stat_rows({name: v}, tr, pop, {k: m for k, m in strata.items() if k[0] in POOLED_STRATA}, boot, label=label, reference=ref,
+                                stats=("pooled",), expected_too_few=expected, tag=tag)
+    say("%d result rows, %.0f s" % (len(rows), time.time() - t0))
+    cover = R.coverage_table(tr, pops[("in_place", "on")] & has_rows)
+    folder = os.path.join(run_dir, OUT)
+    os.makedirs(folder, exist_ok=True)
+    sp = os.path.join(folder, "scores.tsv")
+    keys = sorted(scores)
+    with open(sp + ".part", "w", newline="") as f:
+        w = csv.writer(f, delimiter="\t")
+        w.writerow(["table", "triple", "parent", "scenario", "variant", "group", "donor_tier", "on_target", "context_homolog"] + ["%s|%s" % k for k in keys])
+        for t in range(n):
+            w.writerow([t, int(meta["triple"][t]), int(meta["parent"][t]), int(meta["scenario"][t]), int(meta["variant"][t]), groups[int(fields["group"][t])],
+                        int(meta["donor_tier"][t]), int(meta["on_target"][t]), int(meta["context_homolog"][t])]
+                       + ["%.6g" % scores[k][t] if np.isfinite(scores[k][t]) else ("inf" if np.isinf(scores[k][t]) else "") for k in keys])
+    os.replace(sp + ".part", sp)
+    ap, dp, cp = (os.path.join(folder, x) for x in ("stats.tsv", "defined.tsv", "coverage.tsv"))
+    write_rows(ap, rows)
+    write_rows(dp, defined)
+    write_rows(cp, cover)
+    rep = dict(format="rel-w18-readout", version=2, protocol="w18-v0", status=STATUS, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
+               tables=dict(run=os.path.basename(os.path.normpath(s["tables"]["run"])), name=doc["name"], sha256=doc["sha256"], tables=n,
+                           triples=int(len(tr.ids)), in_place=int((tr.scenario == 0).sum()), donor_unsampled=int((tr.scenario == 1).sum()), layout=doc.get("layout")),
+               arms=arms, groups=groups, tiers=index.get("tiers"), tier_expectation=index.get("tier_expectation"), reps=s["reps"], seed=s["seed"],
+               passes_version=P.VERSION, readouts_version=R.VERSION, lineage=list(LINEAGE),
+               readable=dict(min_group=R.MIN_GROUP, min_groups=R.MIN_GROUPS, min_triples=R.MIN_TRIPLES, min_units=R.MIN_UNITS),
+               headline=headline(rows), coverage=cover, defined=defined,
+               files={os.path.relpath(p, run_dir): sha256_file(p, use_sidecar=False) for p in (sp, ap, dp, cp)})
+    page = os.path.join(folder, "report.md")
+    with open(page + ".part", "w") as f:
+        f.write(page_of(rep, rows))
+    os.replace(page + ".part", page)
+    st.output("w18_readout_page", page)
+    for name, p in (("w18_scores", sp), ("w18_stats", ap), ("w18_defined", dp), ("w18_coverage", cp)):
+        st.output(name, p)
+    p = os.path.join(folder, "report.json")
+    write_json(p, rep)
+    st.output("w18_readout_report", p)
+    st.extra.update(arms=[a["arm"] + ":" + a["weights"] for a in arms], rows=len(rows), seconds=round(time.time() - t0, 1))
+    return rep
+
+
+def _mean(x):
+    x = np.asarray(x, dtype=np.float64)
+    x = x[np.isfinite(x)]
+    return float(x.mean()) if len(x) else None
+
+
+def write_rows(path, rows):
+    keys = sorted({k for r in rows for k in r})
+    with open(path + ".part", "w", newline="") as f:
+        w = csv.writer(f, delimiter="\t")
+        w.writerow(keys)
+        for r in rows:
+            w.writerow([json.dumps(r[k], sort_keys=True) if isinstance(r.get(k), dict) else ("" if r.get(k) is None else r[k]) for k in keys])
+    os.replace(path + ".part", path)
+
+
+HEAD_SCORES = ("source_shift_aa", "source_shift", "gain_aa", "gain", "gain_rel_aa", "composition", "best_similarity", "coverage_shift", "host_codon",
+               "rows_on_target", "covered_share")
+
+
+def headline(rows):
+    """The primary reading: scenario in place, rule 9 on, the paired win rate of implant against own, by donor tier and
+    in all, per block."""
+    keys = ("label", "score", "block", "stratum", "value", "lo", "hi", "triples", "groups", "units", "readable", "expected_too_few")
+    return [{k: r.get(k) for k in keys} for r in rows if r.get("scenario") == "in_place" and r.get("rule9") == "on" and r["statistic"] == "win"
+            and r["comparison"] == "own" and r["stratum_kind"] in ("all", "donor_tier")]
+
+
+def _f(x):
+    return "" if x is None else "%.3f" % x
+
+
+def _cell(r):
+    if r is None or r.get("value") is None:
+        return ""
+    if not r["readable"]:
+        return "too few (%d)" % r["triples"]
+    return "%s [%s, %s] n=%d" % (_f(r["value"]), _f(r["lo"]), _f(r["hi"]), r["triples"])
+
+
+def _table(rows, block, scenario, rule9, statistic, comparison, tiers, expectation, scores=HEAD_SCORES):
+    by = {}
+    for r in rows:
+        if (r["block"], r.get("scenario"), r.get("rule9"), r["statistic"], r["comparison"]) == (block, scenario, rule9, statistic, comparison) \
+                and r["stratum_kind"] in ("all", "donor_tier") and r["score"] in scores:
+            by.setdefault((r["label"], r["score"]), {})[r["stratum"]] = r
+    head = ["all"] + ["tier %d (%s)%s" % (t, tiers[t] if t < len(tiers) else "", " *" if (expectation or {}).get(str(t)) == "expected too few" else "")
+                      for t in range(len(tiers))]
+    md = ["| readout | " + " | ".join(head) + " |", "|---|" + "---|" * len(head)]
+    order = {s: k for k, s in enumerate(scores)}
+    for (label, score), cells in sorted(by.items(), key=lambda kv: (kv[0][0] != "control", order.get(kv[0][1], 99), kv[0][0])):
+        md.append("| %s %s | %s |" % (label, score, " | ".join(_cell(cells.get(x)) for x in ["all"] + ["tier=%d" % t for t in range(len(tiers))])))
+    return md
+
+
+def page_of(rep, rows):
+    tiers, exp = rep.get("tiers") or [], rep.get("tier_expectation") or {}
+    md = ["# W18 HGT capability check: readouts on implant tables (construct only)", "",
+          "Run `%s` (commit %s); ruler set `%s` of run `%s` (manifest `%s`): %d tables, %d triples in place and %d with the donor's lineage "
+          "unsampled; layout %s." % (rep["run"], rep["commit"][:12], rep["tables"]["name"], rep["tables"]["run"], rep["tables"]["sha256"][:16],
+                                     rep["tables"]["tables"], rep["tables"]["in_place"], rep["tables"]["donor_unsampled"], rep["tables"]["layout"]),
+          "", "**Status.** " + rep["status"], "",
+          "Primary statistic: the paired win rate inside a triple, P(implant > another gene of A) + 1/2 P(tie), per group of A, then the mean over the "
+          "readable groups of a block; 95%% intervals from %d replicates of a two-level bootstrap (A's split units inside each group, D's split units). "
+          "A group enters with at least %d triples; a block's stratum is read with %d groups, %d triples and %d units of A, otherwise \"too few\". "
+          "Lineage readings use the amino-acid bits alone (%s). Tiers marked * were pre-declared \"expected too few\"." % (
+              rep["reps"], R.MIN_GROUP, R.MIN_GROUPS, R.MIN_TRIPLES, R.MIN_UNITS, ", ".join(rep["lineage"])), "",
+          "Arms: " + "; ".join("%s (%s, %s%s)" % (a["arm"], a["weights"], "relatives" if a["relatives"] else "no relatives", ", presence passes" if a["presence"] else "")
+                               for a in rep["arms"]), ""]
+    for block in SC.BLOCKS:
+        md += ["## %s: implant against another gene of A, in place, rule 9 on" % block, ""] + _table(rows, block, "in_place", "on", "win", "own", tiers, exp) + [""]
+        md += ["## %s: the donor's lineage unsampled, rule 9 on" % block, ""] + _table(rows, block, "donor_unsampled", "on", "win", "own", tiers, exp,
+                                                                                         scores=("source_shift_aa", "gain_aa", "gain_rel_aa", "composition",
+                                                                                                 "best_similarity")) + [""]
+    md += ["## Rule 9 off (viruses and plasmids read both ways)", "",
+           "The same readings with the triples whose donor gene has a homolog in A's context kept: stats.tsv, rows with rule9 = off.", "",
+           "## Abstention, defined share of the source shift, calibration", "",
+           "| arm | abstain: implant / original / own | calibration error (own) |", "|---|---|---|"]
+    for a in rep["arms"]:
+        if a["relatives"]:
+            ab = a["abstain"]
+            md.append("| %s (%s) | %s / %s / %s | %s%s |" % (a["arm"], a["weights"], _f(ab["implant"]), _f(ab["original"]), _f(ab["own"]),
+                                                          _f(a["calibration"]["own"]["error"]), " (uncalibrated)" if a["calibration"]["uncalibrated"] else ""))
+    md += ["", "| label | scenario | rule 9 | block | defined: implant / own | implant minus own [95%] |", "|---|---|---|---|---|---|"]
+    for d in rep["defined"]:
+        if d["score"] == "source_shift_defined" and d["label"] and not d["label"].startswith(("presence:", "untrained:")):
+            md.append("| %s | %s | %s | %s | %s / %s | %s [%s, %s] |" % (d["label"], d["scenario"], d["rule9"], d["block"], _f(d["implant_defined"]),
+                                                                       _f(d["own_defined"]), _f(d["value"]), _f(d["lo"]), _f(d["hi"])))
+    groups = [g for g in rep["groups"]]
+    md += ["", "## Coverage (charter rule 7): direction x recipient group", "",
+           "A ruler marks a cell \"construct only\" (at least %d triples in place, rule 9 on) or \"not evaluated\"; no cell here is \"evaluated\", so "
+           "every cell reads unverified." % R.MIN_GROUP, "",
+           "| direction | " + " | ".join(groups) + " |", "|---|" + "---|" * len(groups)]
+    by = {(c["direction"], c["recipient"]): c for c in rep["coverage"]}
+    for dname in R.DIRECTIONS:
+        md.append("| %s | %s |" % (dname, " | ".join("%s (%d)" % ("construct" if by[(dname, g)]["mark"] == "construct only" else "-", by[(dname, g)]["triples"])
+                                                    for g in groups)))
+    md += ["", "Every stratum, both statistics, both comparisons (original is the position control) and the paired differences against the controls "
+           "(best similarity, coverage shift, the untrained model, the presence passes, the host codon model) are in stats.tsv; every table's scores in scores.tsv."]
+    return "\n".join(md) + "\n"
+
+
+def gate(st, cfg, run_dir):
+    p = os.path.join(run_dir, OUT, "report.json")
+    with open(p) as f:
+        rep = json.load(f)
+    problems = []
+    if not any(a.get("relatives") and a.get("weights") != "untrained" for a in rep.get("arms") or []):
+        problems.append(dict(error="no trained arm with relatives was read"))
+    for name, sha in (rep.get("files") or {}).items():
+        if sha256_file(os.path.join(run_dir, name), use_sidecar=False) != sha:
+            problems.append(dict(file=name, error="not the file the report names"))
+    with open(os.path.join(run_dir, OUT, "stats.tsv")) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    bad = [r for r in rows if r["value"] not in ("", None) and not 0.0 <= float(r["value"]) <= 1.0]
+    if not rows or bad:
+        problems.append(dict(error="no result row, or a win rate or AUC outside [0, 1]", n=len(bad)))
+    if any(c.get("mark") == "evaluated" for c in rep.get("coverage") or []):
+        problems.append(dict(error="a ruler never marks a cell evaluated"))
+    if not rep.get("tables", {}).get("sha256") or not rep.get("run"):
+        problems.append(dict(error="the report does not name its run and tables"))
+    require(GateResult("G4_rel_w18_readout", "fail" if problems else "pass", dict(problems=problems[:20], arms=[a["arm"] + ":" + a["weights"] for a in rep.get("arms") or []],
+                                                                              rows=len(rows))), run_dir)
+    return sha256_json([sha256_file(p, use_sidecar=False)])
+
+
+def summary(run_dir):
+    with open(os.path.join(run_dir, OUT, "report.json")) as f:
+        rep = json.load(f)
+    js = dict(tables=rep["tables"], arms=[a["arm"] + ":" + a["weights"] for a in rep["arms"]], headline=[h for h in rep["headline"] if h["stratum"] == "all"])
+    md = ["W18 readouts on `%s` (%d tables, construct only): %s." % (rep["tables"]["name"], rep["tables"]["tables"], ", ".join(js["arms"])),
+          "Win rate against another gene of A, in place, all tiers: " + "; ".join(
+              "%s %s %s %s" % (h["label"], h["score"], h["block"][:10], _f(h["value"]) if h["readable"] else "too few")
+              for h in js["headline"] if h["score"] in ("source_shift_aa", "gain_aa", "composition", "best_similarity", "host_codon"))]
+    return dict(json=js, md=md)
+
+
+def main():
+    run_dir = main_args()
+    with common.RelStage(run_dir, "rel_w18_readout") as st:
+        build(st, st.config, run_dir)
+
+
+if __name__ == "__main__":
+    main()

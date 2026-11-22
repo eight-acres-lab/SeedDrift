@@ -1,0 +1,7 @@
+package: W13
+kind: cpu_run
+to: C0
+what: drop `stub: true` of stage w13_census in configs/rel/kinds.yaml (its rule in ci/rules/rel_w13.smk now runs ci/stages/rel/w13_census.py), then run it on machine i1 with the select lock, in the combined CPU profile of 2026-11-24 (its block rel_w13_census as in profile rel-dev-w13-census-i1) or on its own
+why: W13 step 1, the census of close relatives per group, reported 2026-11-24 (task breakdown section 8.1, item 3); the user decides the size of the first download from it (D6)
+size: {hours: 0.05, threads: 2, disk_gb: 0.1, gpu_mem_gb: 0}
+by: 2026-11-24

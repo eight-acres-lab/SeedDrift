@@ -1,8 +1,5 @@
 # Package W12 of the relational-model line: its stage rules (configs/rel/kinds.yaml lists each stage, its output and
-# its gates). Owned by W12. rel_w12_search runs its stage; rel_w12_v1 is still a stub: it runs ci/stages/rel/stub.py and
-# fails, until the package replaces the rule with its stage (same rule name and output; inputs as the stage needs,
-# always including gates/pre.ok) and asks the coordinator to drop the stub flag. Rule names rel_<stage>; outputs under
-# data/rel_w12/.
+# its gates). Owned by W12. Rule names rel_<stage>; outputs under data/rel_w12/.
 
 # w12_search: the search without the caps of stage pairs (ci/stages/rel/w12_search.py): training genomes as the
 # database, training and held-out genomes as queries, held-out genomes also against their own proteins; a sample run
@@ -13,8 +10,15 @@ rule rel_w12_search:
     resources: diamond=1
     shell: STAGE.format(name="rel.w12_search")
 
-# w12_v1: tables v1 after the re-search
+# w12_v1: tables v1 from a passed full run of rel_w12_search (ci/stages/rel/w12_v1.py), training and held-out parts
 rule rel_w12_v1:
     input: "gates/pre.ok"
     output: "data/rel_w12/v1/tableset.json"
-    shell: STAGE.format(name="rel.stub") + " w12_v1"
+    shell: STAGE.format(name="rel.w12_v1")
+
+# w12_islands: tables v1 with the island set's development chromosomes as row 0, never for training
+# (ci/stages/rel/w12_islands.py; task breakdown 8.8)
+rule rel_w12_islands:
+    input: "gates/pre.ok"
+    output: "data/rel_w12/islands/tableset.json"
+    shell: STAGE.format(name="rel.w12_islands")

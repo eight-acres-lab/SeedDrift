@@ -427,35 +427,29 @@ def test_census_counts_the_tables():
     assert "bacteria" in text and "## Table set `train`" in text
 
 
-def test_reader_and_writer_agree():
+def test_writer_writes_the_contract_fields():
     out, plan, shards, census, z = tables()
-    part = IO.Part(out, shards, 16)
-    ids = np.array([59, 0, 24, 23, 47, 5, 5])                         # any order, across shards, with a repeat
-    got = part.take(ids, IO.MODEL_FIELDS + IO.META_FIELDS)
-    assert part.tables == 60 and all(np.array_equal(got[f], z[f][ids], equal_nan=(f == "identity")) for f in got)
-    assert np.array_equal(part.field("kind"), z["kind"]) and set(part.shard(1)) == set(A.SHARD_FIELDS) and part.shard(2)["tok"].shape[0] == 12
     assert V.KIND_NONE == A.KIND_NONE == 0 and V.API_VERSION == A.API
     with tempfile.TemporaryDirectory() as e:
         sh = IO.write(e, z, 25)
-        again = IO.Part(e, sh, 16)
-        assert [m for _, m in sh] == [25, 25, 10] and all(np.array_equal(again.field(f), z[f], equal_nan=(f == "identity")) for f in z)
+        assert [m for _, m in sh] == [25, 25, 10] and sorted(os.listdir(e)) == sorted("%s.%s.npy" % (n, f) for n, _ in sh for f in IO.fields(16))
+        assert all(np.array_equal(load(e, sh)[f], z[f], equal_nan=(f == "identity")) for f in z)
         for bad in ({k: v for k, v in z.items() if k != "col"}, dict(z, extra=z["n"]), dict(z, n=z["n"][:, :, :3])):
             try:
                 IO.write(e, bad, 25)
             except ValueError:
                 continue
             raise AssertionError("a part without the contract's fields was written")
-    try:
-        part.take([60])
-    except IndexError:
-        pass
-    else:
-        raise AssertionError("a table outside the part was read")
+    blank = IO.alloc(2, 16)
+    assert (blank["kind"] == A.KIND_NONE).all() and (blank["col"] == -1).all() and (blank["genome"] == -1).all() and np.isnan(blank["identity"]).all()
 
 
-def test_stored_grid_places_rows_in_the_examined_coordinates():
+def test_evaluator_layout_places_rows_in_the_examined_coordinates():
+    """The evaluator's layout (evalh/layout.py place) of the stored tables against a placement made cell by cell from
+    the stored columns, and the identity read from the placed grid against the meta field."""
+    from seeddrift.train.rel.evalh import layout
     out, plan, shards, census, z = tables()
-    grid = IO.stored_grid(z["tok"], z["col"])
+    grid = layout.place(z["tok"], z["n"], z["col"], A.GAP)
     want = np.full(z["tok"].shape, A.GAP, dtype=np.uint8)
     for t in range(0, 60, 7):
         for q in range(16):

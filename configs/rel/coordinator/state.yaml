@@ -5,7 +5,7 @@ ci_version: "0.4"
 # the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel
 branch_from: {commit: 9140dec4f0172e05d283341fb0c201e2e760746a, what: the foundation commit, checks: "T0 and T1 passed on 2026-11-22"}
 contract: {file: seeddrift/train/rel/api.py, version: 1, from: exp/rel-p0 c25b6ef, merged: 2026-11-22}
-merged:             # branches merged into exp/rel: {branch, commit, checks, date}
+merged:             # branches merged into exp/rel: {branch, commit, checks, date}; later ones in git log of exp/rel
   - {branch: exp/rel-p0, commit: c25b6ef, what: contract version 1, checks: "T0 and T1 passed", date: 2026-11-22}
   - {branch: exp/rel-w5, commit: 7d175de, what: "evaluation conditions, classical baselines, copying chain", checks: "T0 and T1 passed on the merge", date: 2026-11-22}
   - {branch: exp/rel-w2, commit: 8ac246c, what: "tables of version 0 and their census", checks: "T0 and T1 passed on the merge", date: 2026-11-22,
@@ -25,10 +25,18 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
       for the contract, as intended"
   - {run_id: 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, machine: i1, profile: rel-dev-w2-v0-i1, commit: b6b3e7e3e27365f9cc49942494e4d62da3a24590, status: passed,
      note: "tables of version 0: 100,800 training and 3,000 held-out tables, 5.57 GB, manifest 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a; census"}
-  - {run_id: 20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started}
-  - {run_id: 20261122T063455-exp-rel-f4e79129-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started,
-     note: "arms w6-ref30m, w6-ref30m-norel, w6-ref10m"}
-  - {run_id: 20261122T063659-exp-rel-f4e79129-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started,
+  - {run_id: 20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: passed}
+  - {run_id: 20261122T063455-exp-rel-f4e79129-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: gate_failed,
+     note: "W6's code before the day's protocol; every arm failed at its first evaluation (the column attention's batch over the CUDA grid limit); nothing trained"}
+  - {run_id: 20261122T063659-exp-rel-f4e79129-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: gate_failed,
+     note: "the same failure; nothing trained"}
+  - {run_id: 20261122T065254-exp-rel-55021e9e-rel-dev-w2-census-i1, machine: i1, profile: rel-dev-w2-census-i1, commit: 55021e9e6c3f9668a79162d51eac3854da20651d, status: passed}
+  - {run_id: 20261122T070214-exp-rel-da1ca6c8-rel-d1probe-i1, machine: i1, profile: rel-d1probe-i1, commit: da1ca6c8c6718ea64c0018fcdb9e7a47a0ae3516, status: passed,
+     note: "short probe, 50 steps: every preflight passed, no learning rate lowered"}
+  - {run_id: 20261122T070230-exp-rel-da1ca6c8-rel-d1probe-i2, machine: i2, profile: rel-d1probe-i2, commit: da1ca6c8c6718ea64c0018fcdb9e7a47a0ae3516, status: passed}
+  - {run_id: 20261122T071504-exp-rel-3382ed5e-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: 3382ed5efbd26ce034c475ca12b0d0fa1ac463fa, status: started,
+     note: "arms w6-ref30m, w6-ref30m-norel, w6-ref10m; alone_share 0.05 for the arms with relatives"}
+  - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: 3382ed5efbd26ce034c475ca12b0d0fa1ac463fa, status: started,
      note: "arm w6-ref100m"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
@@ -40,4 +48,6 @@ copies:
 open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
     until then the profiles rel-dev-c0-synth-i1 and -i2 fail at that stage
-  - exp/rel-w2 0b90789 is not merged: its census calls evalh.score.coarse_stratum, which exp/rel-w5 082c1f8 removed
+  - copy the i-2 training run back to i-1 over R2 when it has ended (for the combined report)
+  - waiting for their turn on i-1's select lock: rel-dev-w2-dist-i1 (8 processes; after the trainings), rel-dev-w5-items-i1
+    (once w5_items is no longer a stub), rel-dev-w5-extra-i1

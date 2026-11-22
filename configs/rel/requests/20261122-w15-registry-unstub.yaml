@@ -1,0 +1,13 @@
+package: W15
+kind: to_package
+to: C0
+what: >-
+  drop the stub flag of stage w15_registry in configs/rel/kinds.yaml: its rule in ci/rules/rel_w15.smk now runs
+  ci/stages/rel/w15_registry.py (gate G4_rel_w15_registry); then start profile rel-dev-w15-registry-i1 on i-1 under
+  the select lock when the machine is free. Only after the programme lead has reviewed branch exp/rel-w15.
+why: >-
+  the first version of the event registry (target 12-06) needs the open full texts and supplements read on the server,
+  the exclusion taxa checked against NCBI taxonomy, and the pretraining and sealed-genus overlap of every radius;
+  no score is read, the sealed test split is never looked at; standard library only, network to Europe PMC
+size: {hours: 0.3, threads: 1, disk_gb: 2, gpu_mem_gb: 0}
+by: 2026-11-24

@@ -168,7 +168,7 @@ def build(st, cfg, run_dir):
     s, t0 = settings(cfg), time.time()
     say = lambda text: print("rel_w12_search: %s (%.0f s)" % (text, time.time() - t0), flush=True)
     diamond = cfg["tools"]["diamond"]
-    src = W.source(s["source"])
+    src = W.source(s["source"], pairs=False)              # W12 reads the training data only
     sealed = common.sealed_set(cfg)
     metas, left, sizes = W.open_genomes(src, s, sealed)
     from ci.taxonomy import Taxonomy
@@ -431,7 +431,7 @@ def gate(st, cfg, run_dir):
             problems.append(dict(file=e["path"], error="missing or not the file the manifest names"))
     with open(os.path.join(run_dir, OUT, "genomes.json")) as f:
         genomes = json.load(f)["genomes"]
-    src = W.source(s["source"])
+    src = W.source(s["source"], pairs=False)              # W12 reads the training data only
     want = sorted(m["id"] for m in src["index"]["genomes"] if m.get("source", "corpus") == "corpus" and m["split"] in V.OPEN_SPLITS)
     have = sorted(g["id"] for g in genomes if g["split"] != "island")
     if any(g["split"] not in V.OPEN_SPLITS + ("island",) for g in genomes) or not set(have) <= set(want) or len(want) - len(have) != len(rep.get("left_out") or []):

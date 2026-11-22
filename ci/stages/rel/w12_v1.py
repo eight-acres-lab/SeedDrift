@@ -98,7 +98,7 @@ def load_arrays(man, genomes, cfg, s, st, with_islands=False):
     """{id: Genome} of the genomes of the search's list (the development chromosomes only with_islands, for the island
     set's tables), every file checked; the sealed checks first. The record of the id check covers every genome loaded,
     the development chromosomes included (handoff.sealed_problems: at least the genomes a manifest lists)."""
-    src = W.source(man["settings"]["source"])                       # the source run the search read (its own settings)
+    src = W.source(man["settings"]["source"], pairs=False)         # the source run the search read (its own settings)
     sealed = common.sealed_set(cfg)
     corpus = [g for g in genomes if g["split"] != "island"]
     islands = [g for g in genomes if g["split"] == "island"] if with_islands else []

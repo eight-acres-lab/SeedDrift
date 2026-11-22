@@ -50,6 +50,7 @@ NODE_RX = re.compile(r"^(ema|raw)@tables=(\d+)$")
 NO_REL = "+" + cond.NO_RELATIVES
 NONE_BIN = SC.FINE[-1]
 WITH_RELATIVES = getattr(SC, "RELATIVES", (None,))[0]               # the stratum of the tables with a relative on the target
+WITHOUT_RELATIVES = getattr(SC, "RELATIVES", (None, None))[1]
 BLOCK_OF = getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
 BLOCKS = getattr(SC, "BLOCKS", ("eukaryotes", "prokaryotes, plasmids, viruses"))
 CAVEATS = [
@@ -226,7 +227,16 @@ def build(st, cfg, run_dir):
         arm_rows.append([a, arms[a]["run"], arms[a]["status"], "yes" if arms[a]["variant"]["relatives"] else "no", i.get("params"), i.get("lr"),
                          "yes" if i.get("lr_reduced") else "no", i.get("steps"), i.get("tables_seen"), passes, number(i.get("cells_per_s")),
                          number(i.get("tables_per_s")), i.get("reserved_mb"), i.get("micro"), number(i.get("eval_overhead")), i.get("ended_by"),
-                         (i.get("row_key_mask") or {}).get("state")])
+                         (i.get("row_key_mask") or {}).get("state"), number(i.get("alone_share_seen"))])
+    # the share of held-out tables without other rows (from the rows of a final evaluation)
+    n_of = {(r["stratum"]): int(r["n_items"]) for r in rows if r["weights"].endswith("@final") and r["condition"] == cond.WHOLE_GENE and r["group"] == SC.ALL}
+    held_alone = n_of[WITHOUT_RELATIVES] / n_of[SC.ALL] if WITHOUT_RELATIVES in n_of and n_of.get(SC.ALL) else None
+    trained_alone = {a: number(arms[a]["info"].get("alone_share_seen")) for a in rel}
+    caveats = CAVEATS + ["The arms with relatives drew tables without other rows at most at 5%% of a group's draws (drawn: %s); %s of the held-out "
+                         "tables have none. On the bin without other rows and under the two conditions without relatives these arms are therefore "
+                         "read on inputs they saw little of; what relatives are worth is reported by bin, without that bin." % (
+                             ", ".join("%s %s" % (a, "%.3f" % x if x is not None else "?") for a, x in trained_alone.items()) or "no arm",
+                             "%.1f%%" % (100 * held_alone) if held_alone is not None else "an unknown share")]
     # headline: by stratum (ten bins, without the bin of tables without other rows), then the eukaryotic groups apart
     headline = [[c, x.replace(SC.FINE_PREFIX, "")] + [F(v, c, SC.ALL, x) for v in cols] for c in conds for x in SC.FINE
                 if x != NONE_BIN and any(F(v, c, SC.ALL, x) is not None for v in cols)]
@@ -250,17 +260,23 @@ def build(st, cfg, run_dir):
         partners = [a for a in rel if arms[a]["variant"]["size"] == size] or rel
         best = arms[b]["info"].get("best") or {}
         has_best = any(k[0] == b and k[1] == "best" for k in bits)
+        x0 = WITH_RELATIVES or SC.ALL                                  # the tables with a relative on the target block
         for a in partners:
             for c in (cond.SCATTERED, cond.WHOLE_GENE):
-                b_end = bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, SC.ALL)) if has_best else None
-                b_end = b_end if b_end is not None else F(b, c + NO_REL)
+                def without(x, c=c):
+                    got = bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, x)) if has_best else None
+                    return got if got is not None else F(b, c + NO_REL, SC.ALL, x)
                 common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
                 last = common_nodes[-1] if common_nodes else None
-                relatives.append(dict(with_relatives=a, without=b, condition=c, without_at="best node (tables %s)" % best.get("tables_seen") if has_best else "end",
-                                      bits_without=b_end, bits_with_end=F(a, c), worth_all_tables=diff(b_end, F(a, c)),
-                                      same_model_rows_removed=diff(F(a, c + NO_REL), F(a, c)), node=last,
-                                      worth_at_node=diff(N(b, last, c + NO_REL), N(a, last, c)) if last else None,
-                                      per_node=[[t, N(b, t, c + NO_REL), N(a, t, c), diff(N(b, t, c + NO_REL), N(a, t, c))] for t in common_nodes]))
+                relatives.append(dict(with_relatives=a, without=b, condition=c, tables=x0,
+                                      without_at="best node (tables %s)" % best.get("tables_seen") if has_best else "end",
+                                      bits_without=without(x0), bits_with_end=F(a, c, SC.ALL, x0), worth=diff(without(x0), F(a, c, SC.ALL, x0)),
+                                      same_model_rows_removed=diff(F(a, c + NO_REL, SC.ALL, x0), F(a, c, SC.ALL, x0)), node=last,
+                                      worth_at_node=diff(N(b, last, c + NO_REL, SC.ALL, x0), N(a, last, c, SC.ALL, x0)) if last else None,
+                                      per_node=[[t, N(b, t, c + NO_REL, SC.ALL, x0), N(a, t, c, SC.ALL, x0), diff(N(b, t, c + NO_REL, SC.ALL, x0), N(a, t, c, SC.ALL, x0))]
+                                                for t in common_nodes],
+                                      by_bin=[[x.replace(SC.FINE_PREFIX, ""), without(x), F(a, c, SC.ALL, x), diff(without(x), F(a, c, SC.ALL, x))]
+                                              for x in SC.FINE if x != NONE_BIN and (without(x) is not None or F(a, c, SC.ALL, x) is not None)]))
     # scale: the arms with relatives at the last node all of them reached
     scale = None
     if len(rel) >= 2:
@@ -296,10 +312,11 @@ def build(st, cfg, run_dir):
 
     md = ["# Relational line: the reference trunk's first curves", "",
           "Bits per codon of the hidden residues of the examined row's target block, on held-out tables (lower is better). "
-          "Development diagnosis. What the numbers do not show:", ""] + ["- " + c for c in CAVEATS]
+          "Development diagnosis. What the numbers do not show:", ""] + ["- " + c for c in caveats]
     md += ["", "## Arms", ""] + md_table(["arm", "run", "status", "relatives", "parameters", "peak lr", "lr reduced by the preflight", "steps", "tables seen",
                                          "passes over the training tables", "cells/s", "tables/s", "GPU MB reserved", "tables per micro-batch",
-                                         "evaluation share of training time", "ended by", "masked row attention"], arm_rows)
+                                         "evaluation share of training time", "ended by", "masked row attention",
+                                         "share of training tables without other rows"], arm_rows)
     md += ["", "## Headline: final evaluation, the held-out tables with a relative on the target block, the two blocks apart (mean of the groups)", ""]
     md += md_table(["condition", "block"] + cols, lead) if lead else ["(the rows carry no stratum of tables with relatives)"]
     md += ["", "## By the identity of the nearest row (mean of the groups; the bin without other rows left out)", ""]
@@ -309,13 +326,18 @@ def build(st, cfg, run_dir):
             ", ".join("%s %s" % (c, "yes" if v else "NO") for c, v in same.items()) or "not known (no digests beside the baseline rows)")]
     md += ["", "### The two blocks over all their tables (mean of the groups, all strata)", ""] + md_table(["condition", "block"] + cols, blocks)
     md += ["", "## What relatives are worth", "",
-           "Bits without relatives minus bits with them (positive: relatives help). First on all held-out tables: the arm without relatives at "
-           "its best node against the arm of the same size with relatives at its end (conservative while the curve with relatives still falls); "
-           "then at the same node, on the tables of the nodes. The column 'same model' removes the rows from the arm with relatives at evaluation.", ""]
-    md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth, all tables", "same model, rows removed",
+           "Bits without relatives minus bits with them (positive: relatives help), on the held-out tables with a relative on the target block. "
+           "First at the end, on all such tables: the arm without relatives at its best node against the arm of the same size with relatives at "
+           "its end (conservative while the curve with relatives still falls); then at the same node, on the tables of the nodes. The column "
+           "'same model' removes the rows from the arm with relatives at evaluation. Then by bin of the nearest identity, without the bin of no "
+           "other rows.", ""]
+    md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth", "same model, rows removed",
                     "last common node", "worth at that node"],
-                   [[r["with_relatives"], r["without"], r["condition"], r["without_at"], r["bits_without"], r["bits_with_end"], r["worth_all_tables"],
+                   [[r["with_relatives"], r["without"], r["condition"], r["without_at"], r["bits_without"], r["bits_with_end"], r["worth"],
                      r["same_model_rows_removed"], r["node"], r["worth_at_node"]] for r in relatives])
+    for r in relatives:
+        md += ["", "%s against %s, %s, by bin (end):" % (r["without"], r["with_relatives"], r["condition"]), ""]
+        md += md_table(["nearest identity", "bits without", "bits with", "worth"], r["by_bin"])
     md += ["", "## Scale", ""]
     if scale:
         md += ["At the last node every arm with relatives reached (%s tables seen): %s." % ("{:,}".format(scale["node"]), scale["verdict"]), ""]
@@ -338,7 +360,8 @@ def build(st, cfg, run_dir):
             md += ["", "%s failed: `%s`" % (a, " ".join((arms[a].get("error") or "").split())[-600:])]
     with open(os.path.join(folder, "report.md"), "w") as f:
         f.write("\n".join(md) + "\n")
-    report = dict(main=s["main"], caveats=CAVEATS, sources=sources, conditions=conds, groups=groups, same_items=same,
+    report = dict(main=s["main"], caveats=caveats, sources=sources, conditions=conds, groups=groups, same_items=same, heldout_alone=held_alone,
+                  trained_alone=trained_alone,
                   arms={a: dict(status=arms[a]["status"], run=arms[a]["run"], relatives=arms[a]["variant"]["relatives"], info=arms[a]["info"],
                                 evaluations=len(nodes.get(a, [])) + (1 if any(F(a, c) is not None for c in conds) else 0),
                                 final={c: F(a, c) for c in conds}) for a in names},
@@ -386,7 +409,7 @@ def summary(run_dir):
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
     small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), lead=rep.get("lead"), headline=rep["headline"],
-                 relatives=[{k: r[k] for k in r if k != "per_node"} for r in rep["relatives"]],
+                 relatives=[{k: r[k] for k in r if k not in ("per_node", "by_bin")} for r in rep["relatives"]],
                  arms={a: dict(status=x["status"], final=x["final"], tables_seen=x["info"].get("tables_seen"), cells_seen=x["info"].get("cells_seen"),
                                cells_per_s=x["info"].get("cells_per_s"), reserved_mb=x["info"].get("reserved_mb"), params=x["info"].get("params"),
                                lr=x["info"].get("lr")) for a, x in rep["arms"].items()},

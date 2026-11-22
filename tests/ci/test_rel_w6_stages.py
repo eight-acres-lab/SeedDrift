@@ -121,7 +121,8 @@ def _rows(run, arm, points, final, conditions, params=100, module="models.axial"
             for group, stratum, x, n in ((GROUPS[0], SC.ALL, bits + k, items // 2), (GROUPS[1], SC.ALL, bits + k + 0.5, items // 2), (SC.ALL, SC.ALL, bits + k + 0.25, items),
                                           (SC.ALL, SC.FINE[2], bits + k + 1, 4), (SC.ALL, SC.FINE[9], bits + k - 1, 2), (SC.ALL, SC.FINE[-1], bits + k + 2, 1),
                                           (SC.ALL, SC.OTHER_ROWS[2], bits + k, 3), (SC.ALL, SC.OTHER_ROWS[0], bits + 0.125, 1),
-                                          (GROUPS[0], SC.RELATIVES[0], bits + k + 0.0625, 4), (GROUPS[1], SC.RELATIVES[0], bits + k + 0.5625, 4)):
+                                          (GROUPS[0], SC.RELATIVES[0], bits + k + 0.0625, 4), (GROUPS[1], SC.RELATIVES[0], bits + k + 0.5625, 4),
+                                          (SC.ALL, SC.RELATIVES[0], bits + k + 0.25, 11), (SC.ALL, SC.RELATIVES[1], bits + k + 2, 1)):
                 out.append(SC.result_row(run=run, commit="c", variant=arm, author="w6", module=module, params=params, seed=1, table_set="t", table_kind="real",
                                          items_sha256="5" * 64, item_half=half, layout="stored", budget="tables=%d;wall_s=10" % tables, weights=weights,
                                          cells_seen=cells, target_cells=40 * n, cells_per_s=10.0, peak_mb=5, condition=c, group=group, tier=SC.TIER,
@@ -227,7 +228,9 @@ def test_report_readings_beside_baselines(tmp_path):
     assert blocks[("scattered", "eukaryotes")] == [5.6, None, 5.5, 5.9, 6.4] and blocks[("scattered", "prokaryotes, plasmids, viruses")][2] == 5.0
     worth = {r["condition"]: r for r in rep["relatives"]}
     assert worth["scattered"]["without_at"].startswith("best node") and worth["scattered"]["bits_without"] == 5.65      # 5.4 at its best node
-    assert abs(worth["scattered"]["worth_all_tables"] - 0.4) < 1e-9 and worth["scattered"]["node"] == 2000
+    assert abs(worth["scattered"]["worth"] - 0.4) < 1e-9 and worth["scattered"]["node"] == 2000 and worth["scattered"]["tables"] == SC.RELATIVES[0]
+    assert [b[0] for b in worth["scattered"]["by_bin"]] == ["0.2-0.3", "0.9-1.0"] and abs(worth["scattered"]["by_bin"][1][3] - 0.4) < 1e-9
+    assert abs(rep["heldout_alone"] - 1 / 12) < 1e-9 and any("drew tables without other rows" in c for c in rep["caveats"])
     assert abs(worth["scattered"]["worth_at_node"] - 0.25) < 1e-9 and [p[0] for p in worth["scattered"]["per_node"]] == [1000, 2000]
     assert rep["scale"]["verdict"] == "bigger is better" and rep["scale"]["node"] == 2000 and rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1"]
     repair = {r[0]: r[1:] for r in rep["repair"]["rows"]}

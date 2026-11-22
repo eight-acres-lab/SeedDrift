@@ -204,7 +204,8 @@ class PlanDigest:
 def run(source, render, score, relatives=True, presence=False, max_rows=64, seed=SEED, progress=None):
     """Every pass of every table of `source` rendered and scored.
 
-    source: iterable of (table_id, tab, row_tier[, mask_id]); tab holds tok, n, col, kind (rows first) and frame_len.
+    source: iterable of (table_id, tab, row_tier[, mask_id[, presence]]); tab holds tok, n, col, kind (rows first) and
+    frame_len; a fifth element overrides `presence` for that table.
     Returns dict of per-cell arrays (one entry per scored cell): table (int64), pass_id (int16, into PASS_NAMES), slot
     (int16, row 0's own slot), truth (uint8), bits, aa_bits, entropy (float32); and pass_names, digest, tables, passes."""
     cols = {k: [] for k in ("table", "pass_id", "slot", "truth", "bits", "aa_bits", "entropy")}
@@ -236,7 +237,8 @@ def run(source, render, score, relatives=True, presence=False, max_rows=64, seed
     for item in source:
         tid, tab, row_tier = item[:3]
         mid = item[3] if len(item) > 3 else None
-        for p in plan(tab, row_tier, tid, relatives, presence, seed, mid):
+        pres = bool(item[4]) if len(item) > 4 else presence
+        for p in plan(tab, row_tier, tid, relatives, pres, seed, mid):
             sub = take(tab, p.keep)
             got = render(sub, p.visible[p.keep], p.target[p.keep])
             grid, truth, ext = (tuple(got) + (None,))[:3]
@@ -279,34 +281,44 @@ def load_meta(run_dir, manifest):
     raise ValueError("the manifest lists no %s (not a ruler set of package W18)" % META_FILE)
 
 
-def tables_of(ts, meta, first=0, last=None, chunk=64):
+def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=None, presence_scenarios=None):
     """(table id, {tok, n, col, kind, frame_len} of one table, its row tiers, its mask id) for the tables first..last-1
     of a ruler set (ts: an evalh/shards.TableSet; meta: load_meta), in storage order; the table id is the position in
-    the set, the mask id the triple it belongs to (meta parent)."""
+    the set, the mask id the triple it belongs to (meta parent). scenarios: only the tables of these scenarios (meta
+    scenario; None: all). presence (not None): a fifth element, whether the table has the presence passes (presence, and
+    its scenario among presence_scenarios unless that is None)."""
     last = ts.tables if last is None else int(last)
+    want = None if scenarios is None else {int(x) for x in scenarios}
+    pwant = None if presence_scenarios is None else {int(x) for x in presence_scenarios}
     if meta["row_tier"].shape[0] != ts.tables:
         raise ValueError("the meta file has %d tables, the set %d" % (meta["row_tier"].shape[0], ts.tables))
     for a in range(int(first), last, chunk):
         b = min(a + chunk, last)
         got = ts.load(a, b, FIELDS)
         for k in range(b - a):
-            yield a + k, {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k], int(meta["parent"][a + k])
+            sc = int(meta["scenario"][a + k])
+            if want is not None and sc not in want:
+                continue
+            item = (a + k, {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k], int(meta["parent"][a + k]))
+            yield item if presence is None else item + (bool(presence) and (pwant is None or sc in pwant),)
 
 
 CELL_FORMAT = "rel-w18-cells-1"
 CELL_INFO = ("arm", "weights", "relatives", "presence", "layout", "render_version", "tableset_sha256", "run", "commit")
+CELL_OPTIONAL = ("scenarios", "presence_scenarios")              # None: every table
 
 
 def save_cells(path, cells, **info):
     """One arm's per-cell arrays (run's result) as an uncompressed .npz, with what produced them: arm (the variant
     name), weights (final, best, or untrained), relatives, presence, layout (stored or leakfree), render_version,
-    tableset_sha256 (the ruler set's manifest), run and commit (the evaluation's)."""
+    tableset_sha256 (the ruler set's manifest), run and commit (the evaluation's); optional scenarios (the scenarios
+    whose tables were scored) and presence_scenarios (those whose tables had the presence passes), lists or None (all)."""
     missing = [k for k in CELL_INFO if k not in info]
     if missing:
         raise ValueError("save_cells needs %s" % ", ".join(missing))
     arrays = {k: np.asarray(cells[k]) for k in ("table", "pass_id", "slot", "truth", "bits", "aa_bits", "entropy")}
     head = dict(format=CELL_FORMAT, version=VERSION, digest=str(cells["digest"]), tables=int(cells["tables"]), passes=int(cells["passes"]),
-                pass_names=[str(x) for x in cells["pass_names"]], **{k: info[k] for k in CELL_INFO})
+                pass_names=[str(x) for x in cells["pass_names"]], **{k: info[k] for k in CELL_INFO}, **{k: info.get(k) for k in CELL_OPTIONAL})
     import json
     with open(path + ".part", "wb") as f:
         np.savez(f, info=np.array(json.dumps(head, sort_keys=True)), **arrays)
@@ -332,7 +344,8 @@ def plan_digest(source, relatives=True, presence=False, seed=SEED):
     d, n, k = PlanDigest(), 0, 0
     for item in source:
         tid, tab, row_tier = item[:3]
-        for p in plan(tab, row_tier, tid, relatives, presence, seed, item[3] if len(item) > 3 else None):
+        pres = bool(item[4]) if len(item) > 4 else presence
+        for p in plan(tab, row_tier, tid, relatives, pres, seed, item[3] if len(item) > 3 else None):
             d.add(tid, p)
             k += 1
         n += 1
@@ -362,13 +375,15 @@ def flat_scorer(scorer):
     return score
 
 
-def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None):
+def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None, scenarios=None, presence_scenarios=None):
     """One arm on a ruler set, for the evaluation stage: every table of `tables` (data/tables.Tables of the set, kind
     ruler; its TableSet and manifest) through the passes of the arm (info["relatives"] False: pass N only; presence: the
     presence passes too), rendered by `render` (default: the stored layout of data/tables.render, for info["layout"] ==
     "stored") and scored by `scorer` (W6's form, flat_scorer). info: arm, weights (final, best or untrained), relatives,
-    layout, render_version, run, commit, and root (the run directory the ruler set's files are under). Writes
-    <out_dir>/ruler_cells.npz; returns its head (save_cells)."""
+    layout, render_version, run, commit, and root (the run directory the ruler set's files are under). scenarios: only the
+    tables of these scenarios; presence_scenarios: the presence passes on these scenarios' tables only (protocol w18-v0:
+    when a reading would take over 5 GPU hours, the untrained arm takes scenarios [0] and the presence arm
+    presence_scenarios [0]); None: every table. Writes <out_dir>/ruler_cells.npz; returns its head (save_cells)."""
     missing = [k for k in INFO_KEYS + ("root",) if k not in info]
     if missing:
         raise ValueError("run_ruler needs info %s" % ", ".join(missing))
@@ -381,11 +396,14 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
         from seeddrift.train.rel.data import tables as T
         render = T.render
     meta = load_meta(info["root"], man)
-    cells = run(tables_of(tables.ts, meta), render, flat_scorer(scorer), relatives=bool(info["relatives"]), presence=bool(presence),
-                max_rows=max_rows, progress=progress)
+    scen = None if scenarios is None else sorted({int(x) for x in scenarios})
+    pres = bool(presence and info["relatives"])
+    psc = None if presence_scenarios is None or not pres else sorted({int(x) for x in presence_scenarios})
+    cells = run(tables_of(tables.ts, meta, scenarios=scen, presence=pres, presence_scenarios=psc), render, flat_scorer(scorer),
+                relatives=bool(info["relatives"]), presence=pres, max_rows=max_rows, progress=progress)
     os.makedirs(out_dir, exist_ok=True)
-    return save_cells(os.path.join(out_dir, RULER_CELLS), cells, presence=bool(presence and info["relatives"]), tableset_sha256=str(man.get("sha256", "")),
-                      **{k: info[k] for k in INFO_KEYS})
+    return save_cells(os.path.join(out_dir, RULER_CELLS), cells, presence=pres, tableset_sha256=str(man.get("sha256", "")), scenarios=scen,
+                      presence_scenarios=psc, **{k: info[k] for k in INFO_KEYS})
 
 
 def count_passes(tab, row_tier, relatives=True, presence=False):

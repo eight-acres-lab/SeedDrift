@@ -16,6 +16,9 @@ import numpy as np
 from seeddrift.train.rel import api
 
 SPLIT_TRAIN, SPLIT_HELDOUT = 0, 1
+SHARD_KNOWN = dict(api.SHARD_FIELDS, **getattr(api, "SHARD_FIELDS_ADDED", {}))      # the contract's fields and its
+META_KNOWN = dict(api.META_FIELDS, **getattr(api, "META_FIELDS_ADDED", {}))         # additions (tables of version 1)
+ADDED = tuple(getattr(api, "SHARD_FIELDS_ADDED", {})) + tuple(getattr(api, "META_FIELDS_ADDED", {}))
 MODEL_FIELDS = ("tok", "n", "col", "kind", "frame_row")           # what a baseline may read
 META_FIELDS = ("group", "split", "identity", "genome")           # what the report may read
 
@@ -61,9 +64,16 @@ class TableSet:
             self.verified[(shard, field)] = e["sha256"]
 
     def load(self, first, last, fields, verify=True):
-        """{field: array} of the tables first..last-1 of the set, read into memory."""
+        """{field: array} of the tables first..last-1 of the set, read into memory. A field the contract added for tables
+        of version 1 that the set does not hold comes with the contract's default (defaults())."""
         if not 0 <= first <= last <= self.tables:
             raise ValueError("tables %d..%d of a set of %d" % (first, last, self.tables))
+        later = [f for f in fields if f not in self.fields and f in ADDED]
+        if later:
+            base = self.load(first, last, [f for f in fields if f not in later] + [f for f in ("n", "kind", "gene") if f not in fields and f in self.fields], verify)
+            out = {f: base[f] for f in fields if f not in later}
+            out.update(defaults(later, base))
+            return out
         out = {f: [] for f in fields}
         at = 0
         for s, size in zip(self.shards, self.sizes):
@@ -86,6 +96,33 @@ class TableSet:
         return int(values.pop())
 
 
+def defaults(fields, base):
+    """The contract's defaults of the fields added for tables of version 1, for a set of version 0 (base: its n, kind and
+    gene). genome_of_row: row r is number r (-1 where the row does not exist); row_gene: row 0's block genes (gene), -1
+    for the other rows (their genes are not stored in version 0) and where there is no segment; row_first: 0 for row 0's
+    segments, -1 elsewhere."""
+    n, kind = np.asarray(base["n"]), np.asarray(base["kind"])
+    N, R, B = n.shape
+    out = {}
+    for f in fields:
+        if f == "genome_of_row":
+            exists = (kind != getattr(api, "KIND_NONE", 0)).any(axis=2)
+            exists[:, 0] = True
+            out[f] = np.where(exists, np.arange(R)[None, :], -1).astype(np.int8)
+        elif f == "row_gene":
+            g = np.full((N, R, B), -1, np.int32)
+            if "gene" in base:
+                g[:, 0] = np.where(n[:, 0] > 0, np.asarray(base["gene"]), -1)
+            out[f] = g
+        elif f == "row_first":
+            r = np.full((N, R, B), -1, np.int16)
+            r[:, 0] = np.where(n[:, 0] > 0, 0, -1)
+            out[f] = r
+        else:
+            raise ValueError("no default for field %s" % f)
+    return out
+
+
 def table_sets(run_dir, manifest):
     """{folder: TableSet} of a table-set manifest (the folders of its shard and meta files)."""
     if manifest.get("format") != "rel-tableset" or int(manifest.get("api_version", -1)) != api.API:
@@ -98,7 +135,7 @@ def table_sets(run_dir, manifest):
         parts = base.split(".")
         if len(parts) != 3:
             raise ValueError("%s is not <shard>.<field>.npy" % e["path"])
-        known = api.SHARD_FIELDS if e["role"] == "shard" else api.META_FIELDS
+        known = SHARD_KNOWN if e["role"] == "shard" else META_KNOWN
         if parts[1] not in known:
             raise ValueError("%s: %s is not a %s field of the contract" % (e["path"], parts[1], e["role"]))
         by.setdefault(folder, {})[(parts[0], parts[1])] = e

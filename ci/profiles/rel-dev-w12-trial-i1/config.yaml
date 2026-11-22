@@ -1,7 +1,9 @@
 # Machine i-1: the 1% trial of the uncapped search (stage w12_search; package W12; task breakdown section 8.1, item 2).
 # The database holds the proteins of the 711 training genomes of the medium corpus; 1% of the query proteins of the 989
 # training and held-out genomes, drawn per group, are searched against it with the settings and thread count of the
-# full search, and the held-out ones also against their own genome's proteins. Every target and every alignment is
+# full search, and the held-out ones also against their own genome's proteins. The 24 development chromosomes of the
+# island set (task breakdown 8.8; never a sealed one) are extra queries, sampled the same way, searched against the
+# database and against their own proteins; they are queries only. Every target and every alignment is
 # kept; no score or rank is stored. The sealed test split is not opened. The run records wall times, rows and bytes and
 # extrapolates them linearly to the full search, with the disk it needs. CPU only (the select lock). Development
 # diagnosis only.
@@ -22,6 +24,7 @@ rel:
 rel_w12_search:
   source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
   expect: {train: 711, heldout: 278, test: 257}
+  islands: true
   sample: 0.01
   seed: 1
   threads: 12

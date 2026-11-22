@@ -240,3 +240,42 @@ def test_development_chromosomes_pass_and_sealed_ones_fail():
     for bad in ([sealed[0]], [sealed[1].split(".")[0]], [dev[0], "NC_000913.3"]):
         with pytest.raises(SystemExit):
             common.development_chromosomes(bad)
+
+
+def test_island_rows_only_in_sets_no_training_reads(tmp_path, monkeypatch):
+    import csv
+    from ci.gates import GateFailure
+    from ci.stages.common import Stage
+    from ci.stages.rel import gates as rel_gates
+    with open(common.DEV_CHROMOSOMES) as f:
+        dev = [r["accession"] for r in csv.DictReader(f, delimiter="\t")][:2]
+    rows = [dict(id=dev[0], taxid=562, split="island"), dict(id=dev[1], taxid=562, split="island"), dict(id="g_train_1", taxid=481146, split="train")]
+    monkeypatch.setattr(common, "sealed_set", lambda cfg, spec=None: RF.sealed())
+    seen = []
+    monkeypatch.setattr(common, "check_lineage", lambda genomes, *a, **k: seen.append([g["id"] for g in genomes]) or dict(checked=len(genomes)))
+    run_dir, cfg = RF.rel_run(tmp_path)
+    doc = RF.write_tableset(run_dir, kind="real", genomes=rows)
+    assert any("not_for_training" in p["error"] for p in handoff.tableset_problems(doc, run_dir))        # islands need the mark
+    doc = dict(doc, purpose="heldout", not_for_training=True)
+    doc = handoff.finish(doc)
+    with open(os.path.join(run_dir, "data/rel_c0/synth/tableset.json"), "w") as f:
+        json.dump(doc, f)
+    assert handoff.tableset_problems(doc, run_dir) == []
+    with Stage(run_dir, "gates_rel_tables") as st:
+        rel_gates.phase(st, cfg, run_dir, "rel_tables")
+    assert seen == [["g_train_1"]]                                     # the lineage check skips the island rows only
+    bad = handoff.finish(dict(doc, genomes=rows + [dict(id="NC_010410.1", taxid=470, split="island")]))     # a sealed chromosome
+    with open(os.path.join(run_dir, "data/rel_c0/synth/tableset.json"), "w") as f:
+        json.dump(bad, f)
+    with pytest.raises(GateFailure):
+        with Stage(run_dir, "gates_rel_tables") as st:
+            rel_gates.phase(st, cfg, run_dir, "rel_tables")
+    out = "data/rel_c0/synth/tableset.json"
+    with open(os.path.join(run_dir, out), "w") as f:
+        json.dump(doc, f)
+    rec = dict(run_id="r", status="passed", stages=[dict(name="rel_c0_synth", outputs=[dict(name="tableset", path=out, sha256=handoff._file_sha(os.path.join(run_dir, out)))])])
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(rec, f)
+    assert common.read_tableset("w6_eval", run_dir, out)["not_for_training"] is True
+    with pytest.raises(SystemExit, match="not for training"):
+        common.read_tableset("w6_fit", run_dir, out)

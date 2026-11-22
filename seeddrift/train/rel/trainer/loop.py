@@ -57,6 +57,8 @@ TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a 
 # the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
 OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",
                 getattr(cond, "SUFFIX", "suffix"): "suffix"}
+# the conditions a leak-free arm also reads in the stored layout its whole-gene samples were trained in
+STORED_TOO = (cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED)
 NEEDED = ("name", "model", "size", "lr", "seed", "wall_s", "train_tables", "train_root", "heldout_tables", "heldout_root", "out")
 
 
@@ -253,16 +255,28 @@ class Run:
                     cells_per_s=round(cells_per_s, 1), peak_mb=round(self.peak_mb()[1]), tier=getattr(SC, "TIER", SC.ALL), passes=1, status=status,
                     versions=versions())
 
+    def eval_plan(self):
+        """[(key, condition, layout, arrays)]: every condition of the arm in the layout eval_source gives it; an arm
+        trained leak-free also reads the whole gene (and its re-pairing) in the stored layout it was trained in (key
+        "<condition>@stored"; the programme lead's ruling for round 1b: that reading is a reference only)."""
+        out = []
+        for c in self.conditions:
+            layout, data = self.eval_source(c)
+            out.append((c, c, layout, data))
+            if layout != A.LAYOUT_STORED and c in STORED_TOO:
+                out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0]))
+        return out
+
     def evaluate(self, ids, fixed, path):
-        """The held-out tables ids under every condition of this arm, read by the moving average. The rows go to
-        self.rows and the whole table to path after every condition. Returns {condition: bits over all groups and
-        strata, None when nothing was scored}, {condition: (bits, cell_table)} and {condition: items digest}."""
+        """The held-out tables ids under every condition of this arm (eval_plan), read by the moving average. The rows
+        go to self.rows and the whole table to path after every condition; their layout column says how the grids were
+        rendered. Returns {key: bits over all groups and strata, None when nothing was scored}, {key: (bits,
+        cell_table)} and {key: items digest}, the keys of eval_plan."""
         _, identity, n_other = self.held_data()
         strata = SC.strata_of(identity[ids], n_other[ids])
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
-        for c in self.conditions:
-            layout, data = self.eval_source(c)
+        for key, c, layout, data in self.eval_plan():
             part = {f: v[ids] for f, v in data.items()}
             fixed = dict(fixed, layout=layout)
             bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout)
@@ -273,8 +287,8 @@ class Run:
                                         n_items=r["n_items"], **fixed) for r in agg]
             SC.write_rows(path + ".part", self.rows)
             os.replace(path + ".part", path)
-            main[c] = next((r["bits"] for r in agg if r["group"] == SC.ALL and r["stratum"] == SC.ALL), None)
-            cells[c], digests[c] = (bits, cell_table), digest
+            main[key] = next((r["bits"] for r in agg if r["group"] == SC.ALL and r["stratum"] == SC.ALL), None)
+            cells[key], digests[key] = (bits, cell_table), digest
         return main, cells, digests
 
 

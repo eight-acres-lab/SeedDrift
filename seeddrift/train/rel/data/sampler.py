@@ -76,12 +76,20 @@ class Sampler:
             i = int(ids[rng.integers(len(ids))])
             tab = self.tables.table(i)
             others = T.present_rows(tab)[1:]
-            if self.relatives:
+            frames = np.unique([f for f in np.asarray(tab.get("frame_row", [0])).reshape(-1).tolist() if f > 0])
+            frames = frames[np.isin(frames, others)].astype(np.int64)  # a block framed on another row keeps that row
+            if self.relatives and len(frames):
+                k = int(rng.integers(self.rows[0], self.rows[1] + 1)) - 1
+                rest = np.setdiff1d(others, frames)
+                m = min(max(k - len(frames), 0), len(rest))
+                keep = np.sort(np.concatenate([frames, rng.choice(rest, size=m, replace=False) if m else rest[:0]]))
+            elif self.relatives:
                 k = int(rng.integers(self.rows[0], self.rows[1] + 1)) - 1
                 keep = np.sort(rng.choice(others, size=min(k, len(others)), replace=False)) if len(others) and k > 0 else others[:0]
             else:
                 keep = others[:0]
-            tab = T.take_rows(tab, np.concatenate([[0], keep]).astype(np.int64))
+            chosen = np.concatenate([[0], keep]).astype(np.int64)
+            tab = T.take_rows(tab, chosen)
             s = int(rng.choice(len(self.plans), p=self.weights))
             visible, target = self.plans[s](dict(n=tab["n"], kind=tab["kind"]), rng)
             lay = self.layouts[s]
@@ -92,7 +100,7 @@ class Sampler:
                 grid, truth, ext = RD.render(tab, visible, target, layout=lay)
             if truth.any():
                 out = dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others),
-                           cells=int(T.inside(tab).sum()), layout=lay)
+                           cells=int(T.inside(tab).sum()), layout=lay, rows=chosen)
                 if ext is not None:
                     out["ext"] = ext
                 return out

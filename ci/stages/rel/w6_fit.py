@@ -116,8 +116,12 @@ def table_set(cfg, spec, verify) -> dict:
     with the record of the sealed check made where the tables were built (handoff.from_run refuses a real set without
     it; the check itself needs the sealed registry, which only the machine that builds tables has), every file it
     lists with its recorded hash."""
+    probe = bool((cfg.get("rel_w6_fit") or {}).get("probe", False))
     try:
-        doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"])
+        if probe:                                                     # a probe reads synthetic sets only
+            doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"], kinds=("synthetic",))
+        else:                                                         # the kinds the registry gives the stage; never a set not for training
+            doc = common.read_tableset("w6_fit", spec["run"], spec["path"], spec["sha256"])
     except (handoff.HandoffError, OSError, ValueError) as err:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], err))
     if doc.get("kind") not in ("real", "synthetic"):                  # a ruler set is read by evaluations only, never trained on

@@ -273,15 +273,27 @@ def point_of(r):
     return None
 
 
+def condition_labels(rows):
+    """{(arm, condition, layout): label}: an arm whose rows read one condition in two layouts (an arm trained leak-free
+    reads the whole gene also in the stored layout it was trained in) has the stored rows under "<condition>@stored";
+    every other row keeps its condition."""
+    seen = {}
+    for r in rows:
+        seen.setdefault((r["variant"], r["condition"]), set()).add(r.get("layout") or "stored")
+    return {(v, c, x): ("%s@%s" % (c, x) if len(xs) > 1 and x == "stored" else c) for (v, c), xs in seen.items() for x in xs}
+
+
 def index_rows(rows, arms, base):
-    """{(arm, point, tables, condition, group, stratum): bits}; baselines under point 'final'."""
+    """{(arm, point, tables, condition label, group, stratum): bits}; baselines under point 'final'."""
     out = {}
+    label = condition_labels(rows)
     for r in rows:
         if r["variant"] not in arms:
             continue
         p = point_of(r)
         if p is not None:
-            out[(r["variant"], p[0], p[1], r["condition"], r["group"], r["stratum"])] = float(r["bits"])
+            c = label.get((r["variant"], r["condition"], r.get("layout") or "stored"), r["condition"])
+            out[(r["variant"], p[0], p[1], c, r["group"], r["stratum"])] = float(r["bits"])
     for r in base:
         if number(r["bits"]) is not None:
             out[(r["variant"], "final", None, r["condition"], r["group"], r["stratum"])] = float(r["bits"])
@@ -364,7 +376,8 @@ def build(st, cfg, run_dir):
     cols = names + bnames
     F = lambda v, c, g=SC.ALL, x=SC.ALL: bits.get((v, "final", None, c, g, x))                     # noqa: E731
     N = lambda v, t, c, g=SC.ALL, x=SC.ALL: bits.get((v, "node", t, c, g, x))                       # noqa: E731
-    conds = [c for c in cond.CONDITIONS if any(F(v, c) is not None for v in cols)]
+    extra = sorted({k[3] for k in bits if "@" in k[3]})                # a condition read in a second layout (condition_labels)
+    conds = [c for c in list(cond.CONDITIONS) + extra if any(F(v, c) is not None for v in cols)]
     reading = {a: (s["main"] if arms[a]["variant"]["relatives"] else s["main"] + NO_REL) for a in names}
     nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
     same = same_items(arms, digests)
@@ -432,6 +445,10 @@ def build(st, cfg, run_dir):
     held_alone = n_of[WITHOUT_RELATIVES] / n_of[SC.ALL] if WITHOUT_RELATIVES in n_of and n_of.get(SC.ALL) else None
     trained_alone = {a: number(arms[a]["info"].get("alone_share_seen")) for a in rel}
     caveats = list(CAVEATS)
+    if extra:                                                          # arms trained leak-free on scattered and span, stored on the whole gene
+        caveats.append("Arms trained leak-free saw the whole gene in the stored layout: their %s rows are read leak-free on the frame relative, "
+                       "a layout they were not trained on (trained stored, evaluated leak-free; a reference only), and the rows %s in the "
+                       "stored layout they were trained in." % (" and ".join(x.split("@")[0] for x in extra), ", ".join(extra)))
     if seed_groups:                                                    # one arm has two seeds: their difference is the noise estimate
         caveats[5] = caveats[5].replace("One seed per arm, no noise floor", "One seed per arm except %s, whose difference (seeds and machines at once) is "
                                         "the only noise estimate" % "; ".join(" and ".join(g) for g in seed_groups))

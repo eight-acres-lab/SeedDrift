@@ -300,6 +300,22 @@ def test_scale_at_the_last_node_of_all_arms_and_of_every_two():
     assert w6_report.scale_readings(["s", "x"], {"s": 10, "x": 20}, dict(nodes, x=[0]), N) == (None, [])        # no node besides step 0 in common
 
 
+def test_report_reads_the_whole_gene_in_two_layouts(tmp_path):
+    """An arm trained leak-free reads the whole gene leak-free and also in the stored layout it was trained in: the
+    stored rows come under "<condition>@stored", the others keep their condition, and a caveat says so."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    rows = SC.read_rows(p)
+    wg = [cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED]
+    lf = [dict(r, layout="leakfree", bits=float(r["bits"]) + 0.5) for r in rows if r["variant"] == "w6-ref30m-s1" and r["condition"] in wg]
+    SC.write_rows(p, rows + lf)
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report={}), run_dir)
+    fin = rep["arms"]["w6-ref30m-s1"]["final"]
+    assert abs(fin["whole_gene"] - fin["whole_gene@stored"] - 0.5) < 1e-9 and "whole_gene+repaired@stored" in rep["conditions"]
+    assert "whole_gene@stored" not in rep["arms"]["w6-ref10m-s1"]["final"] or rep["arms"]["w6-ref10m-s1"]["final"]["whole_gene@stored"] is None
+    assert any("trained stored, evaluated leak-free" in c for c in rep["caveats"])
+
+
 def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)
@@ -508,6 +524,21 @@ def test_evaluation_again_reads_ruler_sets_and_training_never(tmp_path):
         w6_eval.heldout_set(dict(sets["real"], split=0), verify=True)
     with pytest.raises(SystemExit):                                     # the training stage never reads a ruler set
         w6_fit.table_set(cfg, dict(sets["ruler"], split=1), verify=True)
+    # a real set marked not for training (package W12's development sets): read by the evaluation, never by the training
+    run_dir = sets["real"]["run"]
+    p = os.path.join(run_dir, sets["real"]["path"])
+    with open(p) as f:
+        doc = json.load(f)
+    doc = handoff.finish(dict({k: v for k, v in doc.items() if k != "sha256"}, not_for_training=True))
+    with open(p, "w") as f:
+        json.dump(doc, f)
+    stage_report(run_dir, "rel_w2_v0", "", 0.0, [dict(name="tableset", path=sets["real"]["path"], sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+    assert w6_eval.heldout_set(dict(sets["real"], sha256=doc["sha256"], split=1), verify=True)["kind"] == "real"
+    with pytest.raises(SystemExit):
+        w6_fit.table_set(cfg, dict(sets["real"], sha256=doc["sha256"], split=1), verify=True)
 
 
 def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):

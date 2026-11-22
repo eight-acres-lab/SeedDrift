@@ -267,7 +267,8 @@ def build(st, cfg, run_dir):
                selection=prov, source=src["provenance"], catalogue=cprov, host_snapshots=host_snap, ensembl_snapshots=ens_used, census=os.path.basename(s["census_from"]),
                relatives=len(ids), by_split=table, lookups=dict(records=n_look, without_record=sum(1 for v in seen.values() if v is None),
                                                                without_the_replicon=sum(1 for v in seen.values() if v is not None and not v)),
-               anchors_with_a_replacement=len(replaced), bases=sum(x["bases"] for x in rel.values()), proteins_estimate=sum(x["proteins"] for x in rel.values() if x["group"] != "mobile.plasmid"),
+               anchors_with_a_replacement=len(replaced), bases=sum(x["bases"] for x in rel.values()), proteins_estimate=sum(min(x["proteins"], s["max_genes_euk"]) if x["group"].startswith("eukaryota.") else x["proteins"]
+                                                        for x in rel.values() if x["group"] != "mobile.plasmid"),
                sealed_ids=ev_ids, lineage=lin, files=dict(corpus=dict(path=os.path.relpath(cp, run_dir), sha256=sha256_file(cp, use_sidecar=False)),
                                                           relatives=dict(path=os.path.relpath(rp, run_dir), sha256=sha256_file(rp, use_sidecar=False))))
     page = os.path.join(folder, "report.md")

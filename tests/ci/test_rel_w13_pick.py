@@ -161,3 +161,62 @@ def test_a_census_that_differs_is_refused(picked, monkeypatch, tmp_path):
                 WP.gate(st, picked["cfg"], picked["run"])
     finally:
         open(bad, "w").write(body)
+    with pytest.MonkeyPatch.context() as mp:                             # the pick again, so later tests read a passed stage
+        mp.setattr(WP, "replicons", lambda a: [("CP_" + a, "Chromosome"), ("PL_" + a, "Plasmid")])
+        with Stage(picked["run"], "rel_w13_pick") as st:
+            WP.build(st, picked["cfg"], picked["run"])
+
+
+def test_parts_split_the_search_and_keep_the_old_sources(picked, tmp_path):
+    rel = json.load(open(os.path.join(picked["run"], WP.OUT, "relatives.json")))["relatives"]
+    toy = [dict(id="a", group="bacteria", proteins=3000), dict(id="b", group="bacteria", proteins=2000), dict(id="c", group="eukaryota.fungi", proteins=9000),
+           dict(id="d", group="mobile.plasmid", proteins=5000), dict(id="e", group="viruses.phage", proteins=100)]
+    assert WB.parts(toy, 2) == [{"a", "d", "e"}, {"b", "c"}] and [WB.estimate(x) for x in toy] == [3000, 2000, 1500, 200, 100]    # 3,300 against 3,500
+    assert WB.parts(toy, 3) == [{"a"}, {"b"}, {"c", "d", "e"}]
+    text = open(os.path.join(picked["run"], WP.OUT, "corpus.yaml")).read()
+    out = WB.part_spec(text, rel, 1, 2)
+    spec, full = yaml.safe_load(out), yaml.safe_load(text)
+    keep = WB.parts(rel, 2)[0]
+    assert yaml.safe_load(WB.part_spec(text, rel, 2, 2))["sources"] == full["sources"]
+    ids = {x["id"] for x in rel}
+    assert [x["id"] for x in spec["sources"]] == [x["id"] for x in full["sources"] if x["id"] not in ids or x["id"] in keep]
+    p = tmp_path / "part1.yaml"
+    p.write_text(out)
+    assert spec["name"] == full["name"] + "-part1of2" and WC.corpus_header_sha(str(p)) == WC.corpus_header_sha(picked["spec"])
+    scope = WB.spec_scope(str(p), os.path.join(picked["run"], WP.OUT, "corpus.yaml"), rel, "search")
+    assert {x["id"] for x in scope} == keep
+    with pytest.raises(SystemExit, match="byte for byte|not the pick"):
+        WB.spec_scope(str(p), os.path.join(picked["run"], WP.OUT, "corpus.yaml"), rel, "all")
+    bad = yaml.safe_load(out)
+    bad["sources"][-1] = dict(bad["sources"][-1], taxid=1)
+    p.write_text(yaml.safe_dump(bad))
+    with pytest.raises(SystemExit, match="restricted"):
+        WB.spec_scope(str(p), os.path.join(picked["run"], WP.OUT, "corpus.yaml"), rel, "search")
+
+
+def test_the_build_reports_a_fetch_part(picked, monkeypatch, tmp_path):
+    TS.patch(monkeypatch, picked["tmp"])
+    rp = os.path.join(picked["run"], "record.json")
+    json.dump(dict(json.load(open(rp)), status="passed"), open(rp, "w"))
+    rel = json.load(open(os.path.join(picked["run"], WP.OUT, "relatives.json")))["relatives"]
+    spec = os.path.join(picked["run"], WP.OUT, "corpus.yaml")
+    run_dir, cfg = RF.rel_run(tmp_path, kind="rel_corpus", stages=("w13_build",), run_id="20261124T000005-build", corpus_spec=spec, data_root=str(tmp_path),
+                              rel_w13_build=dict(pick_from=picked["run"], upto="fetch"))
+    os.makedirs(os.path.join(run_dir, "data", "fetch"))
+    entries = [dict(id=x["id"], files=[dict(path="aa/x", sha256="0" * 64, bytes=1000)]) for x in rel[1:]]
+    json.dump(dict(entries=entries, meta=dict(unavailable=[dict(id=rel[0]["id"], reason="HTTP 404")])), open(os.path.join(run_dir, "data", "fetch", "manifest.json"), "w"))
+    with Stage(run_dir, "rel_w13_build") as st:
+        rep = WB.build(st, cfg, run_dir)
+    assert rep["totals"] == dict(relatives=len(rel), unavailable=[rel[0]["id"]]) and sum(d["fetched"] for d in rep["fetch"].values()) == len(rel) - 1
+    assert sum(d["bytes"] for d in rep["fetch"].values()) == 1000 * (len(rel) - 1) and rep["sealed_check"]["ids"]["checked"] == len(rel) - 1
+    with Stage(run_dir, "gates_rel_w13_build") as st:
+        WB.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w13_build.json")))["status"] == "pass"
+    json.dump(dict(entries=entries, meta={}), open(os.path.join(run_dir, "data", "fetch", "manifest.json"), "w"))
+    with pytest.raises(SystemExit, match="neither fetched"):
+        with Stage(run_dir, "rel_w13_build") as st:
+            WB.build(st, cfg, run_dir)
+    with pytest.raises(SystemExit, match="upto one of"):
+        WB.settings(dict(rel_w13_build=dict(pick_from="x", upto="half")))
+    with pytest.raises(SystemExit, match="pinned"):
+        WB.settings(dict(rel_w13_build=dict(pick_from="x")))

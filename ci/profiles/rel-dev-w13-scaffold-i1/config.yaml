@@ -1,0 +1,37 @@
+# Machine i-1: W13, the scaffold level of the prokaryotes counted with quality thresholds (task breakdown 8.11): stage
+# w13_scaffold streams NCBI's GenBank assembly summaries of bacteria and archaea into the content store (metadata only)
+# and judges every scaffold-level assembly by the thresholds below; stage w13_census then counts the close relatives
+# three times side by side: on the selection's snapshots, on the snapshot of run 20261122T144516, and on that snapshot
+# with the scaffold-level assemblies that pass. No sequence is downloaded; the sealed test genomes are not read. CPU
+# only (the select lock), about 30 minutes, network to NCBI. Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 3
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w13_scaffold, w13_census]
+rel_w13_scaffold:
+  groups: [bacteria, archaea]
+  max_contigs: 100
+  length_band: [0.85, 1.15]
+  genus_band: [0.7, 1.3]
+rel_w13_census:
+  select_from: /hy-tmp/seeddrift-ci/runs/20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  per_anchor: [1, 2, 3, 5]
+  propose: 3
+  max_genes_euk: 1500
+  catalog_from: /hy-tmp/seeddrift-ci/runs/20261122T144516-exp-rel-63b2a1ca-rel-dev-w13-catalog-i1
+  scaffold_from: this run
+train:
+  gpu_lease: false
+  device: cpu

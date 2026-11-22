@@ -208,3 +208,35 @@ def test_from_run_takes_a_passed_runs_listed_file_and_fails_otherwise(tmp_path):
         json.dump(dict(rec, status="failed"), f)
     with pytest.raises(handoff.HandoffError):
         handoff.from_run(run_dir, out)
+
+
+# --- ruler sets: read by evaluation-only stages, never by a trainer ------------------------------------------------
+
+def test_ruler_sets_reach_evaluation_only_stages_and_training_fails(tmp_path):
+    run_dir, _ = RF.rel_run(tmp_path)
+    RF.write_tableset(run_dir, kind="ruler", genomes=[dict(id="g1", taxid=562, split="heldout")])
+    out = "data/rel_c0/synth/tableset.json"
+    rec = dict(run_id="r", status="passed", stages=[dict(name="rel_c0_synth", outputs=[dict(name="tableset", path=out, sha256=handoff._file_sha(os.path.join(run_dir, out)))])])
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(rec, f)
+    assert common.read_tableset("w6_eval", run_dir, out)["kind"] == "ruler"            # evaluation only: accepted
+    for trainer in ("w6_fit", "w4_train"):
+        with pytest.raises(SystemExit, match="ruler"):
+            common.read_tableset(trainer, run_dir, out)
+    with pytest.raises(handoff.HandoffError):
+        handoff.from_run(run_dir, out, kinds=("real",))
+
+
+# --- the island set's chromosomes: the 24 development ones may be opened, the sealed ones never ----------------------
+
+def test_development_chromosomes_pass_and_sealed_ones_fail():
+    import csv
+    with open(common.DEV_CHROMOSOMES) as f:
+        dev = [r["accession"] for r in csv.DictReader(f, delimiter="\t")]
+    with open(common.SEALED_CHROMOSOMES) as f:
+        sealed = [r["accession"] for r in csv.DictReader(f, delimiter="\t")]
+    assert len(dev) == 24 and not {a.split(".")[0] for a in dev} & {a.split(".")[0] for a in sealed}
+    assert common.development_chromosomes([dev[0].split(".")[0].lower(), dev[1]]) == dev[:2]
+    for bad in ([sealed[0]], [sealed[1].split(".")[0]], [dev[0], "NC_000913.3"]):
+        with pytest.raises(SystemExit):
+            common.development_chromosomes(bad)

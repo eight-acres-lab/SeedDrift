@@ -1,0 +1,42 @@
+# Machine i-1, round 1a of the relational-model line (task breakdown 8.6): the hierarchical output head (variant
+# w6-ref30m-hier: the amino acid first, then the codon given the amino acid; the bits are still counted per codon),
+# about 30 M parameters, with relatives, seed 1, alone, about 4 h, after the short arms of the round (the 100 M arm took
+# its place there, i-1 training at most three at once). A diagnosis, not a decision to keep the head (8.1 item 7). On
+# exp/rel's code: package W6 checked that an ordinary arm trains there exactly as on 3382ed5, so it compares with the
+# evening's w6-ref30m. Tables v0, stored placement: read the scattered and the two no-relatives conditions only. A
+# preflight that fails or a value that is not finite stops the arm; nothing lowers the learning rate. Development
+# diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_selftest, w6_fit, w6_report]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-hier.yaml, seed: 1}
+  wall_s: 14400                  # 4 h: one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
+rel_w6_report:
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

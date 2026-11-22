@@ -17,6 +17,16 @@
                                  the whole sealed check of the CI environment on [{id, taxid}]: check_ids, then
                                  check_lineage. Every rel stage that builds tables from genomes calls it; it needs the
                                  machine's sealed registry, so tables are built on machine i-1
+  development_chromosomes(accessions)
+                                 the island-set chromosomes a stage may open as extra genomes (task breakdown 8.8: the
+                                 24 development chromosomes of bench/islands/results/dev_genomes.tsv as extra queries
+                                 of W12): every accession must be one of them and none one of the sealed chromosomes
+                                 (bench/hard/results/sealed.tsv, the 17 sealed and NC_010167.1), with or without its
+                                 version; raises SystemExit otherwise
+  read_tableset(stage, run_dir, path, sha256=None)
+                                 a table set of another run for stage `stage`, through handoff.from_run with the kinds
+                                 the stage may read (configs/rel/kinds.yaml field reads): an evaluation-only stage may
+                                 read ruler sets, a training stage never; raises SystemExit otherwise
   sealed_record(cfg, genomes, splits=None, allowed=...)
                                  sealed_check, returned as the record a table-set manifest carries (sealed_check:
                                  passed, ids, lineage; seeddrift/train/rel/handoff.py). Stages that read table sets
@@ -136,6 +146,35 @@ def sealed_check(cfg, genomes, splits=None, allowed=S.ALLOWED, sealed=None, tax=
         raise SystemExit(str(err))
     lin = check_lineage(genomes, cfg, tax, spec_path, **g2_paths) if genomes else dict(checked=0, note="no genomes")
     return dict(ids=ids, lineage=lin)
+
+
+DEV_CHROMOSOMES = os.path.join(ROOT, "bench", "islands", "results", "dev_genomes.tsv")
+SEALED_CHROMOSOMES = os.path.join(ROOT, "bench", "hard", "results", "sealed.tsv")
+
+
+def development_chromosomes(accessions, dev_path=DEV_CHROMOSOMES, sealed_path=SEALED_CHROMOSOMES) -> list:
+    import csv
+    stem = lambda a: str(a).strip().split(".")[0].upper()
+    with open(dev_path) as f:
+        dev = {stem(r["accession"]): r["accession"] for r in csv.DictReader(f, delimiter="\t")}
+    with open(sealed_path) as f:
+        sealed = {stem(r["accession"]) for r in csv.DictReader(f, delimiter="\t")}
+    accessions = list(accessions)
+    bad = [a for a in accessions if stem(a) in sealed]
+    if bad:
+        raise SystemExit("sealed chromosomes are never opened: %s" % bad)
+    other = [a for a in accessions if stem(a) not in dev]
+    if other:
+        raise SystemExit("not development chromosomes of the island set (%s): %s" % (os.path.relpath(dev_path, ROOT), other))
+    return [dev[stem(a)] for a in accessions]
+
+
+def read_tableset(stage, run_dir, path, sha256=None) -> dict:
+    from seeddrift.train.rel import handoff
+    try:
+        return handoff.from_run(run_dir, path, sha256, kinds=kinds.reads(stage))
+    except handoff.HandoffError as err:
+        raise SystemExit("stage %s: %s" % (stage, err))
 
 
 def sealed_record(cfg, genomes, splits=None, allowed=S.ALLOWED, **kw) -> dict:

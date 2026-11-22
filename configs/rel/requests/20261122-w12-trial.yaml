@@ -1,0 +1,7 @@
+package: W12
+kind: cpu_run
+to: C0
+what: drop `stub: true` of stage w12_search in configs/rel/kinds.yaml (its rule in ci/rules/rel_w12.smk now runs ci/stages/rel/w12_search.py), then start profile rel-dev-w12-trial-i1 on machine i1 with the select lock, in a window without a training on that machine (the 1% trial of the uncapped search, 12 threads)
+why: the dates of tables v1 are set by this trial (task breakdown section 8.1, item 2; due 2026-11-23)
+size: {hours: 0.5, threads: 12, disk_gb: 2, gpu_mem_gb: 0}
+by: 2026-11-23

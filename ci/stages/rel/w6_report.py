@@ -30,7 +30,7 @@ from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common
-from seeddrift.train.rel import handoff
+from seeddrift.train.rel import api, handoff
 from seeddrift.train.rel.data import heldout_plan as H
 from seeddrift.train.rel.trainer import rows as W
 
@@ -107,10 +107,22 @@ def curves(rows, arms):
     return {a: [pts[k] for k in sorted(pts)] for a, pts in out.items()}
 
 
+def without_relatives(main):
+    """The main condition without relatives (api.condition joins names in the contract's fixed order)."""
+    return api.condition(main, api.COND_NO_RELATIVES)
+
+
 def aligned(cv, main):
     """The main condition of every arm on one grid of cells seen. The subset points make the curve (the final point is
-    scored on all tables, another set of items, and is listed in final.tsv)."""
-    series = {a: [(p["cells_seen"], p[main]) for p in pts if p["weights"] != "final" and main in p] for a, pts in cv.items()}
+    scored on all tables, another set of items, and is listed in final.tsv). An arm without relatives is scored under
+    the conditions without relatives only, so its curve is the main condition without relatives."""
+    def cond(pts):
+        alt = without_relatives(main)
+        return main if any(main in p for p in pts) else alt
+    series = {}
+    for a, pts in cv.items():
+        c = cond(pts)
+        series[a] = [(p["cells_seen"], p[c]) for p in pts if p["weights"] != "final" and c in p]
     series = {a: x for a, x in series.items() if len(x) >= 2}
     if not series:
         return [], []

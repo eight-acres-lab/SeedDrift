@@ -246,6 +246,32 @@ def test_sampler_share_of_tables_without_relatives():
     assert 27 not in never and 27 in natural and 27 in alone and {3, 15} <= never
 
 
+def test_anyorder_scheme_and_its_weights():
+    ts = _set(36)
+    tab = ts.table(1)
+    cells = T.inside(tab)
+    shares = []
+    for k in range(40):
+        visible, target = S.mask_scheme("anyorder").plan(dict(n=tab["n"], kind=tab["kind"]), np.random.default_rng(k))
+        assert not (visible & target).any() and ((visible | target) == cells).all() and target.any()
+        shares.append(target.sum() / cells.sum())
+    assert 0.0 < min(shares) < 0.2 and max(shares) > 0.8
+    s = S.Sampler(ts, seed=4, masks=["anyorder"])
+    ex = s.draw(0)
+    t = [int((e["truth"] > 0).sum()) for e in ex]
+    assert abs(sum(e["weight"] * n for e, n in zip(ex, t)) - sum(t)) < 1e-6
+    ratio = [n / e["cells"] for e, n in zip(ex, t)]
+    assert all(abs(e["weight"] * r - ex[0]["weight"] * ratio[0]) < 1e-9 for e, r in zip(ex, ratio))     # weight x ratio is the same for all
+    c = S.collate(ex)
+    assert c["weight"].shape == c["token"].shape and abs(float(c["weight"].sum()) - sum(t)) < 1e-3
+    assert "weight" not in S.collate(S.Sampler(ts, seed=4).draw(0))
+    try:
+        S.Sampler(ts, seed=4, masks=["anyorder", "scattered"])
+    except ValueError:
+        return
+    raise AssertionError("weighted and unweighted schemes were mixed")
+
+
 def test_collate():
     ts = _set(36)
     ex = S.Sampler(ts, seed=5).draw(2)

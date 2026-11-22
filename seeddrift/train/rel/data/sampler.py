@@ -28,7 +28,12 @@ class Sampler:
     def __init__(self, tables, seed, masks=("scattered", "span", "whole_gene"), weights=None, rows=(4, 16), relatives=True, per_step=4, alone_share=None):
         self.tables, self.seed, self.per_step, self.relatives = tables, int(seed), int(per_step), bool(relatives)
         self.masks = [str(m) for m in masks]
-        self.plans = [mask_scheme(m).plan for m in self.masks]
+        modules = [mask_scheme(m) for m in self.masks]
+        self.plans = [m.plan for m in modules]
+        weighted = {bool(getattr(m, "WEIGHTED", False)) for m in modules}
+        if len(weighted) > 1:
+            raise ValueError("mask schemes %r mix weighted and unweighted schemes" % (self.masks,))
+        self.weighted = weighted == {True}
         w = np.ones(len(self.plans)) if weights is None else np.asarray(weights, dtype=np.float64)
         if len(w) != len(self.plans) or not len(w) or (w < 0).any() or w.sum() <= 0:
             raise ValueError("mask weights %r do not fit the schemes %r" % (weights, self.masks))
@@ -73,12 +78,21 @@ class Sampler:
             visible, target = self.plans[s](dict(n=tab["n"], kind=tab["kind"]), rng)
             grid, truth = T.render(tab, visible, target)
             if truth.any():
-                return dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others))
+                return dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others),
+                            cells=int(T.inside(tab).sum()))
         raise RuntimeError("sixteen tables in a row gave no target cell: the table set or the mask schemes are wrong")
 
     def draw(self, step):
         rng = np.random.default_rng([self.seed, int(step)])
-        return [self.example(rng) for _ in range(self.per_step)]
+        out = [self.example(rng) for _ in range(self.per_step)]
+        if self.weighted:
+            # weight of a table's cells: its cells over its target cells (the inverse of the ratio it realised), scaled so
+            # that the weights of the step's target cells sum to their number (the trainer divides by that number)
+            t = [int((e["truth"] > 0).sum()) for e in out]
+            scale = sum(t) / max(1, sum(e["cells"] for e in out))
+            for e, n in zip(out, t):
+                e["weight"] = e["cells"] / n * scale
+        return out
 
 
 def collate(examples):
@@ -89,5 +103,8 @@ def collate(examples):
     truth = np.concatenate([e["truth"] for e in examples], axis=0)
     row, col = np.nonzero(truth)
     first = np.cumsum([0] + sizes)
-    return dict(grid=grid, sizes=sizes, row=row.astype(np.int64), col=col.astype(np.int64), token=truth[row, col].astype(np.int64),
-                example=(np.searchsorted(first, row, side="right") - 1).astype(np.int64))
+    example = (np.searchsorted(first, row, side="right") - 1).astype(np.int64)
+    out = dict(grid=grid, sizes=sizes, row=row.astype(np.int64), col=col.astype(np.int64), token=truth[row, col].astype(np.int64), example=example)
+    if all("weight" in e for e in examples):
+        out["weight"] = np.asarray([e["weight"] for e in examples], dtype=np.float32)[example]
+    return out

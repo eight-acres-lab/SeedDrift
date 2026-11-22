@@ -1,5 +1,7 @@
 """Objective "mlm": bidirectional fill-in. Every hidden residue (a token 1..65 of its own row) is predicted on its own
-from the grid; the loss is the cross-entropy over those 65 tokens, computed in float32."""
+from the grid; the loss is the cross-entropy over those 65 tokens, computed in float32. When the batch carries a weight
+per target cell (a weighted mask scheme such as anyorder), the summed loss is weighted by it; the loss of every cell is
+returned unweighted, for the logs."""
 from __future__ import annotations
 
 import torch.nn.functional as F
@@ -15,4 +17,5 @@ def loss(model, batch):
     nats and the loss of every target cell (float32 [M], in the order of the batch's cells)."""
     logits = model(batch["grid"], batch["sizes"], batch["row"], batch["col"])
     per = F.cross_entropy(logits, batch["token"] - A.TARGET_MIN, reduction="none")
-    return per.sum(), per
+    w = batch.get("weight")
+    return (per.sum() if w is None else (per * w).sum()), per

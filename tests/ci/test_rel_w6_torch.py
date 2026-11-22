@@ -108,6 +108,12 @@ def test_preflight_guard_stops_by_default():
         assert json.load(f)["ok"] is False
 
 
+def test_anyorder_fill_in_trains():
+    root = tempfile.mkdtemp()
+    out = loop.fit(_config(root, masks=["anyorder"], max_steps=3))
+    assert out["status"] == "ok" and out["steps"] == 3 and all(math.isfinite(v) for v in out["final"].values() if v is not None)
+
+
 def test_moving_average():
     root = tempfile.mkdtemp()
     run = loop.Run(_config(root))

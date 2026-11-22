@@ -28,6 +28,8 @@ def to_device(batch, device):
     out = dict(sizes=batch["sizes"])
     for k in ("grid", "row", "col", "token", "example"):
         out[k] = torch.from_numpy(batch[k]).to(device, non_blocking=True).long()
+    if "weight" in batch:
+        out["weight"] = torch.from_numpy(batch["weight"]).to(device, non_blocking=True).float()
     return out
 
 

@@ -1,0 +1,230 @@
+# Protocol w18-v0: the HGT capability check of the relational model on implant tables (package W18), and its diagnosis on
+# real chromosomes. Written before the first reading; committed by the programme lead before any readout is read.
+# Evaluation only: nothing here is trained, and nothing here is a training table or an evaluation item of a round.
+# Draft 2 (after the programme lead's review of draft 1), committed 2026-11-22 by the programme lead with one change: the 100 M arm.
+name: w18-v0
+version: 2
+what: >
+  A capability check of the readouts of the relational model on implant tables: tables of real sequence in which the
+  target block of a held-out examined genome A is replaced by a gene of another held-out genome D (the donor), in the
+  scenarios a table can simulate. The implant tables are a ruler (kind ruler), the class of the splices of check five,
+  not transfer labels: every result on them is marked "construct only". They are never trained on and never an item of
+  a selection round; no readout head is fitted on them; no arm is built from an HGT evidence type. Their results never
+  choose an arm, an output head, a threshold or a readout: they are a reference at a tie only. The diagnosis on real
+  chromosomes (section real_diagnosis) is a diagnosis under charter rule 7, never a selection.
+status: >
+  Readings on tables of version 0 are preliminary: the stored layout places relatives by the hidden residues, and which
+  rows have cells is decided by a similarity ranking. The counting reading is on tables of version 1. A reading under the
+  leak-free layout uses a model retrained under the leak-free layout and is reported as a 2 x 2 table (training layout x
+  evaluation layout).
+
+coverage:
+  groups: every group of the kingdom map, as the group of A (12)
+  scenarios:
+    - "in place: an implant at the locus of a held-out gene of A, from a held-out donor of the standard code, at every donor distance the held-out split offers"
+    - "donor unsampled: the same implant with the rows of the donor's lineage removed"
+  later_scenarios:                       # charter rule 8: what comes later, with its milestone and date
+    - "partial transfer (a domain-sized stretch of D:j implanted inside A:i): generator by 2026-11-29, read on tables of version 1"
+    - "high foreign share (several loci of A replaced in one table): generator by 2026-12-03, read on tables of version 1"
+    - "close transfer (donor of the same genus or species): after the close-relative data of package W13 (from 2026-12-06)"
+  not_covered:
+    - donors of the training split
+    - close relatives (same species or genus) beyond what the medium corpus holds
+    - non-standard genetic codes
+    - intergenic sequence, partial genes, implants longer than one target block (256 codons)
+    - genes without homolog rows in the training genomes; the draws lean towards genes with homologs in many genomes
+    - the sealed test split (never opened, never named)
+  report_table: >
+    every report carries charter rule 7's table, direction (the seven of charter section 1) x recipient group: a cell
+    reads "construct only" with at least 10 triples in place (rule 9 on) and "not evaluated" otherwise; a ruler never
+    marks a cell "evaluated", so every cell reads unverified
+
+# ---------------------------------------------------------------------------------------------------------------------
+tables:
+  generator: bench/rel/implant.py (the first version of the ruler set; it imports the table code of W2, never the other way round)
+  source: the passed selfsup run the tables of version 0 came from (training arrays with the three-way split, stage pairs), every file checked against its records
+  distances: the passed run of stage w2_dist on the same source (Mash distance of shared amino-acid 6-mers; for sampling and strata only)
+  tiers:
+    edges: [0.05, 0.2, 0.5, 1.0]        # W2's provisional edges; tiers 0..4 and 5 = no shared k-mer
+    stored_in: the ruler set's own meta file (the contract's meta field `tier` stays -1 until the programme lead defines the tiers)
+  eligible_A_and_D: >
+    held-out genomes of the standard code only: the translation table the corpus source declares and the nuclear
+    genetic code the NCBI taxonomy gives the genome's taxon are both 1 or 11 (one codon to amino-acid map); the others
+    are counted by group in the manifest
+  allocation: >
+    by (group of A, tier of the distance from D to A): every eligible A that has a candidate donor in a tier gets 2
+    triples of it, in a seeded order of the A of the group, at most 30 triples per (group, tier); a donor serves at most 3
+    triples per group of A. Expected 1,000 to 1,400 triples in place
+  pre_declared: >
+    tiers 0 and 1 are "expected too few to read" (the split keeps close clusters on one side); tier 2 as well unless the
+    distance matrix gives, in each block, at least 3 groups with at least 5 eligible A that have a candidate donor in
+    tier 2 (the generator stage computes these counts and writes the expectation into the set's index)
+  genes:
+    i: a gene of A at random among those with a candidate row
+    j: a gene of D at random among those that share a candidate row genome with i
+    k: a gene of A at random among those not i, not a neighbour of i, sharing a candidate row genome with i and j
+    candidate_row: a training genome whose homolog row of the gene (stage pairs) starts inside the gene's stored part
+    length: >
+      phase 1 first: i, j and k all with 256 stored codons, so n = 256; phase 2 if no draw of phase 1 finds a common
+      row: stored lengths within 15% of that of i (at least 64), n = the shortest; the three targets are cut to their
+      first n codons, so the three tables have one n and hide the same cells
+  rows: >
+    training genomes that hold, on each of A:i, D:j and A:k, a homolog row starting inside the first n codons with at
+    least max(10, 0.3 n) aligned codons under them; up to 15 drawn at random, the same rows in the same order in the three
+    tables; every row is KIND_PRESENT on the target block of all three (asserted). Their cells on the neighbours and
+    relation blocks are their homolog rows of A's genes, as in version 0. A, D and every genome of their split units
+    (stage train_data's units) are never rows (asserted; the stage fails otherwise). Up to 40 conditioned draws per phase;
+    failing both, the triple is drawn without the conditions and keeps zero rows (phase 3; composition only)
+  three_tables_per_triple:
+    implant: target block = the first n codons of D:j; the rows' target cells are their homolog rows of D:j, placed on D:j
+    original: target block = A:i (the position control)
+    own: target block = A:k, its rows' cells placed on A:k (the primary control: it breaks the synteny as the implant does, not the genome of origin)
+  position_fields: start, strand and replicon of the target block are unknown (-1, 0, -1) in every row of the three tables
+  scenario_donor_unsampled: >
+    a copy of every triple in place without its rows closer to D than to A (distance(row, D) < distance(row, A)), made
+    when it removes a row (it may remove all); the copy keeps the genes, n and the masks of its triple
+  rule_9: >
+    a triple is flagged when A's homolog of D:j (the pairs of D, or of A's context genes) is one of the table's context
+    genes, or when some row's homolog of D:j is that row's homolog on a context block. Flagged triples are kept and
+    counted; the primary reading leaves them out (rule 9 on), and every reading is also given with them (rule 9 off),
+    in particular for the virus and plasmid groups
+  meta: >
+    never a model input: triple, parent, scenario, variant, A, D, genes i, j, k, n, phase, the distance and tier from D
+    to A, every row's distance and tier to A and its distance to D, every row's gene on the target, rows and covered
+    codons on the target, whether each block reaches its gene's end, A's codon counts over its stored genes other than i
+    and k, the split units and genera of A and D, the rule-9 flag, the attempts
+  manifest: kind ruler, purpose ruler, layout stored, the sealed record (common.sealed_record, built on i-1), coverage as above, per triple the digest of the cells its passes hide (equal in its three tables, checked)
+
+# ---------------------------------------------------------------------------------------------------------------------
+passes:                                 # seeddrift/train/rel/readouts/w18_passes.py
+  scored: cells of row 0 only; every hidden cell of row 0 is scored, every other hidden cell is unscored
+  hash: the evaluator's 64-bit hash (conditions.hash_u01) on (the triple, the slot), seed 20261122, streams of this protocol, rate 0.15, at least one cell per mask; the variant does not enter
+  T:   target block scattered, every row
+  T-t: as T, the rows of distance tier t (to A) removed; one pass per tier present among the rows
+  T0:  as T, every other row removed
+  C:   the neighbour and relation blocks of row 0 scattered, every row; the target block visible
+  C-t: as C, the rows of tier t removed
+  W:   the whole target block hidden, every row
+  H1:  the first half of the target (offsets below n // 2) hidden, the second half visible
+  H2:  the second half hidden, the first half visible
+  W0, H10, H20: W, H1, H2 with every other row removed
+  N:   the whole target block hidden, every other row removed (arms without relatives: their only pass)
+  presence: every pass with rows but T0 again with every cell of the other rows hidden and unscored (shown as MASK), as package W3 decided its presence-only control; the renderer's own mode replaces it when it exists
+  layout: the stored layout for the first reading; the leak-free renderer when it exists, chosen by the evaluation's configuration
+  per_cell_output: bits = -log2 p(truth), amino-acid bits (the evaluator's classes: 20 amino acids, the stops, OTHER), entropy of the distribution in bits
+
+# ---------------------------------------------------------------------------------------------------------------------
+readouts:                               # seeddrift/train/rel/readouts/w18_readouts.py; every score higher = more foreign
+  cells_left_out: truth OTHER, the first codon of every block, the last codon of a block that reaches its gene's end (every readout and control)
+  source_shift:
+    definition: >
+      dT(t) = mean over the cells of T of (bits under T-t minus bits under T); dC(t) the same over C and C-t; over the
+      tiers present among the table's rows, pT = max(dT, 0) / sum, pC = max(dC, 0) / sum; source shift = 1/2 sum |pT - pC|
+      (0 to 1). One tier present: 0. Grouping is by the distance of the rows to A, never by anything read from the hidden
+      target.
+    lineage_version: source_shift_aa, the same from the amino-acid bits alone (free of the donor's codon usage): the primary reading when the readout speaks of lineage
+    undefined: when sum max(dT, 0) or sum max(dC, 0) is below 0.02 bits per codon (the block relies on no tier)
+    primary_subset: the triples whose three tables all define it and whose rows span two tiers or more
+    defined_share: defined(implant) - defined(own) per triple, a readout of its own, with its interval
+    secondary: every triple, an undefined table ranked at the top
+  abstention: >
+    reported, not scored: the target abstains when bits under T0 minus bits under T is below 0.05 bits per codon (no
+    other row changes its prediction); its share per variant and stratum
+  inconsistency:
+    definition: >
+      the two-block gain G = [sum over the first half (bits under W - bits under H1) + sum over the second half (W - H2)]
+      / (2 x the cells of the target); bits per codon, M minus the mean of the two orders of J
+    without_relatives: G_norel from W0, H10, H20; the readout gain_rel = G - G_norel
+    lineage_version: gain_aa and gain_rel_aa, from the amino-acid bits alone (primary when speaking of lineage)
+    calibration: >
+      reliability by bits on the cells of W, H1 and H2: bins of the predicted entropy [0, 0.5, 1, 2, 3, 4, 5, inf);
+      per bin the mean observed bits, the mean entropy and the cells; the calibration error = the cell-weighted mean of
+      |observed - entropy| over the bins; per variant, block and arm. A gain read on a model whose calibration error on
+      the own controls exceeds 0.1 bits is marked uncalibrated (reported, not dropped)
+  composition:
+    arm: the arm trained without relatives, pass N (A's own context only)
+    definition: >
+      per scored cell c = bits - amino-acid bits = -log2 p(codon | amino acid), classes: 20 amino acids each, the stops
+      one, OTHER one (probability 1 inside it). Cells kept: as above, and an amino acid of two codons or more.
+      Composition = sum of c / the cells kept (bits per degenerate site)
+    secondary: the mean of c / log2(codons of the amino acid)
+    note: a readout only; no output head or arm is built from it
+
+# ---------------------------------------------------------------------------------------------------------------------
+controls:                               # every readout is reported beside these, on the same triples, paired
+  best_similarity: >
+    in-group = the rows of the nearest tier (to A) present in the table; score = the highest amino-acid identity on
+    the target block among the other rows minus the highest among the in-group (an empty set gives 0); identity over the
+    target columns where row 0 and the row both have a placed codon, a row with fewer than 10 such columns does not count
+  coverage_shift: the source-shift formula with dT(t), dC(t) replaced by the share of target (context) cells the rows of tier t cover; no model
+  untrained_model: the same variant, initialised with seed 1 and never trained, through the same passes and readouts
+  rows_on_target: the number of other rows with content on the target block (equal inside a triple by construction) and the share of target cells they cover
+  presence_only: the readouts on the presence passes with the same arm
+  host_codon_usage: p(codon | amino acid) from A's codon counts over its stored genes other than i and k, plus 0.5 per codon; the cells and normalisation of the composition readout
+  gain_without_relatives: G_norel beside G (the composition the donor's gene carries raises both)
+  arms: >
+    the final weights of the evening's arms with relatives (30 M, 10 M, and 100 M at the width rule's peak rate 2e-4,
+    the arm that saw about 125,000 tables; the 100 M arm at 4e-4 is added beside it when it has passed, labelled as the
+    learning-rate check) and the arm without relatives (30 M) for the composition readout; the untrained model and the
+    presence passes on the 30 M arm only. If the GPU time of a reading would pass 5 hours, the untrained model and the
+    presence passes run on the scenario in place only (a switch of the readout stage), and the report says so
+
+# ---------------------------------------------------------------------------------------------------------------------
+statistics:
+  primary: >
+    the paired win rate inside a triple: P(score of the implant > score of the own control of the same triple) + 1/2
+    P(tie), over the triples of a group of A and a stratum; then the plain mean over the readable groups of a block
+  secondary: the pooled AUC per group (every implant table against every control table of the group and stratum), then the same mean
+  position_control: the same statistics with the original table in place of the own control, labelled "position control"
+  intervals: >
+    a two-level bootstrap: A's split units (stage train_data's units) resampled inside each group, and D's split units
+    resampled over the set, the weight of a triple the product; 2,000 replicates, seed 20261124, percentile 95%
+    intervals; every difference of a readout and a control over the same replicates
+  readable: >
+    counted after every exclusion: a group enters with at least 10 triples (10 implant against 10 control tables); a
+    stratum of a block is read with at least 3 groups entering, 30 triples and 8 split units of A; otherwise "too few to
+    read", with its counts
+  blocks: the eukaryotes (6 groups) and the prokaryotes, plasmids and viruses (6 groups) always apart, never one number over all 12
+  populations: scenario in place and scenario donor unsampled, each with rule 9 on (primary) and off
+  strata:
+    - "the tier of the distance from D to A (the six tiers, and all)"
+    - "the nearest identity on the target block of the implant table (below 0.3, 0.3-0.5, 0.5-0.7, 0.7 and above, no row): the real difficulty"
+    - "the rows on the target block (0, 1, 2-3, 4-7, 8-15)"
+    - "the coverage ratio, codons placed on D:j over those placed on A:k (below 0.8, 0.8-1.25, 1.25 and above)"
+    - "the rows' genes on the target shared between the implant and the original or own table (none, partial, all)"
+    - "the quartile, per block, of the host codon model's score of the implant table (implant and own compared inside it)"
+    - "the direction (charter section 1) and the block of D (the same as A's, or the other)"
+    - "the phase: n = 256, or lengths matched"
+  pooled_auc_strata: all, the donor tiers and the host codon quartiles (the win rate in every stratum)
+
+# ---------------------------------------------------------------------------------------------------------------------
+real_diagnosis:                         # step two; charter rule 7: a diagnosis of the cell "bacteria, recent islands" only
+  genomes: >
+    the 24 development chromosomes of the island set (Escherichia with Shigella 14, Salmonella 5, Yersinia 5), let
+    through by common.development_chromosomes; the 17 sealed chromosomes and NC_010167.1 are never opened. They are
+    Enterobacterales, outside the training corpus, so they serve as examined genomes
+  tables: >
+    after package W12's uncapped search with these chromosomes' proteins as extra queries against the training genomes'
+    library: one table per gene of the chromosome as row 0's target, built by W2's code (rows: training genomes)
+  labels: >
+    bench/hard's gated panel classes (PROTOCOL.md sections 1 and 2): island genes against natives (positional core);
+    unlabelled genes enter no rate; the labels are read by the readout stage only, never by the tables or the model
+  readouts: the same three readouts and controls (best similarity, coverage shift, host codon model, the untrained model)
+  statistics: >
+    per chromosome the AUC of island genes against natives and the recall at 1% of natives flagged; per unit of the
+    island set (Escherichia with Shigella, Salmonella, Yersinia) the mean over its chromosomes with at least 100 natives
+    and 20 island genes; nothing else
+  use: >
+    a diagnosis only: no structure, threshold or readout is chosen on it, and its numbers are not called "effective";
+    the cell it fills is "bacteria, recent islands"
+  date: once W12's extra queries are searched and the tables built (W12's dates); before 2026-12-01
+
+# ---------------------------------------------------------------------------------------------------------------------
+reported: >
+  for every scenario and population: for every tier of the donor distance, for each layout read, the win rate (and the
+  pooled AUC) of every readout and control with intervals and counts, which strata are too few to read, and which tiers
+  were pre-declared too few; abstention and the defined share of the source shift per variant; the calibration tables;
+  charter rule 7's coverage table. The report names the run of every number and the tables it read.
+not_concluded: >
+  no threshold, no selection of arm, head or readout, no claim about natural transfer; a stratum marked too few to read
+  says nothing.

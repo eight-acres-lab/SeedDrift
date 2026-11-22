@@ -1,0 +1,26 @@
+# Protocol w3-offline-v0: the strict offline rendering of evaluation items under the leak-free layout (package W3).
+# Committed 2026-11-22 by the programme lead.
+name: w3-offline-v0
+version: 1
+what: >
+  Evaluation items are rendered offline so that no input depends on a hidden residue: the hidden residues are replaced
+  by "unknown" and the blocks of row 0 that hold hidden cells are aligned again; the online renderer used in training is
+  an approximation of this.
+aligner:
+  implementation: seeddrift/train/rel/tables/align.py (numpy)
+  substitution: BLOSUM62 over the 20 amino acids and the stop
+  gaps: a gap of length g costs 11 + g, as in the stored alignments of stage pairs
+  unknown: a hidden residue and the OTHER codon are unknown and score -1 against every residue
+  mode: semi-global; the relative's segment is aligned end to end, row 0's end gaps are free
+  scope: only the blocks of row 0 that hold hidden cells are aligned again; the other blocks keep the stored placement
+frame_for_whole_gene: >
+  when row 0's whole target block is hidden, the first other row in the table's order that has a segment on the block
+  is the frame; row 0 is placed from column 0 in the frame's coordinates; the other relatives by their alignment to the
+  frame, never through row 0. Nothing of row 0 is used but its length
+validity_test: >
+  the fourth test is run on every item: the hidden residues are replaced and every stored position of these blocks is
+  erased, then the blocks are aligned and rendered again; the grids must be identical cell for cell
+controls_after_placement:
+  column_shuffle: one permutation per block shared by every other row except the frame row (only the correspondence to row 0 is broken)
+  presence_only: every residue cell of the other rows shown as MASK
+training_round_1b: scattered and span samples fully leak-free; whole-gene samples keep the stored layout, labelled

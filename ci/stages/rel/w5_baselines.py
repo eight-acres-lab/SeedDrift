@@ -17,10 +17,11 @@ Profile block rel_w5_baselines:
   conditions       the conditions scored (default: today's five, conditions.CONDITIONS); more of
                    conditions.EXTRA_CONDITIONS may be added, none of the five left out
 
-Coverage: the groups the table set covers (its manifest says which); development diagnosis only. Limits written into
-the results: the stored layout places the relatives by the hidden residues, so every number with the whole gene hidden
-is an upper bound; the rows of a table are drawn among the genomes that have a homolog row on the target gene, so what
-the relatives are worth is overestimated; one seed, no noise floor.
+Coverage: the groups the table set covers (its manifest says which); development diagnosis only. The limits written
+into the results (LIMITS) say which way each one pulls the bits (lower is better): under the stored layout the bits
+with the whole gene hidden are too low (optimistic), scattered cells only slightly (not measured), the conditions
+without relatives not at all; the classical baselines are a lower bound on what the relatives are worth, not an
+estimate; the choice of the rows biases that worth in a direction not known.
 
 Outputs under data/rel_w5/baselines/: rows.tsv (the result table, columns of the contract), params.json (the fitted
 numbers), report.md, results.json (written last: the headline numbers, the digests of what was scored, the inputs).
@@ -48,8 +49,18 @@ from seeddrift.train.rel.evalh import score, shards
 STAGE = "rel_w5_baselines"
 OUT = os.path.join("data", "rel_w5", "baselines")
 LIMITS = [
-    "stored layout: the relatives are placed by the hidden residues, so the numbers with the whole gene hidden are an upper bound",
-    "rows are drawn among genomes with a homolog row on the target gene (a similarity ranking decides that), so the worth of the relatives is overestimated",
+    "lower bits are better. The stored layout shows the relatives where the hidden residues align: with the whole gene hidden the bits are "
+    "too low (optimistic), the worth of the relatives there too high and the cost of re-pairing too small; with scattered cells hidden the "
+    "bits are only slightly too low (not measured); the two conditions without relatives have no leak",
+    "the classical baselines are weak (no codon substitution model, no amino-acid model): what they gain from the relatives is a lower bound "
+    "on what the relatives are worth, not an estimate",
+    "bias of unknown direction: rows drawn among genomes with a homolog row on the target gene (a similarity ranking decides that) make the "
+    "relatives worth more; held-out genomes have no close relative of their own cluster and the rows are drawn at random, which makes them "
+    "worth less; close relatives are not covered",
+    "the strata use the identity over the aligned part of the target block: a short and very similar fragment falls into the highest bin, so "
+    "a flat highest bin does not mean that close relatives are of no use",
+    "the five eukaryote groups hold only the first 1,500 genes of a genome: they are read apart from prokaryotes, plasmids and viruses, and "
+    "the headline is the tables with a relative on the target block, not the mean over all tables",
     "one seed, no noise floor: read large effects only",
     "development diagnosis, not a selection round",
 ]

@@ -1,8 +1,8 @@
 """The stored layout in numpy, for the classical baselines: every row placed into the columns of the frame row.
 
-This is the layout the stored tables carry (``col``). With a stretch of the examined row hidden it still places the
-relatives by the hidden residues, so every number read through it is an upper bound (the leak-free renderer replaces
-it). Table version 0 only: the frame row is row 0.
+This is the layout the stored tables carry (``col``). With a stretch of the examined row hidden it still shows the
+relatives where the hidden residues align, so the bits read through it are too low (optimistic) where a whole stretch
+is hidden (lower bits are better; the leak-free renderer replaces it). Table version 0 only: the frame row is row 0.
 """
 from __future__ import annotations
 

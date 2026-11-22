@@ -96,7 +96,8 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     assert s["json"]["bits"][cond.SCATTERED]["copy_nearest"] == round(bits[cond.SCATTERED]["copy_nearest"], 4) and any("copy_nearest" in line for line in s["md"])
     assert len(json.dumps(s["json"])) < 8000 and set(s["json"]["by_nearest_identity"]) == {cond.SCATTERED, cond.WHOLE_GENE}
     text = open(os.path.join(out, "report.md")).read()
-    assert "upper bound" in text and "/" + "Users" + "/" not in text
+    assert "too low (optimistic)" in text and "lower bound on what the relatives are worth" in text and "upper bound" not in text
+    assert "Headline" in text and "/" + "Users" + "/" not in text
     # a broken result fails the gate: a row without cells, then a missing condition
     rows = open(os.path.join(out, "rows.tsv")).read()
     with open(os.path.join(out, "rows.tsv"), "w") as f:

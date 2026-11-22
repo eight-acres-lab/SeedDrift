@@ -4,9 +4,9 @@
 # seeddrift/train/rel/evalh/conditions.py (scattered cells; the whole target gene; both without relatives; the whole
 # gene with the rows re-paired), per group and per identity of the nearest row. numpy only: the select lock, no GPU.
 # Coverage: the 12 groups of the table set, held-out genomes examined, training genomes as the other rows; nothing of
-# the sealed test part. Limits (written into the results): the stored layout makes the whole-gene numbers an upper
-# bound; rows are drawn among genomes with a homolog row on the target gene, so the worth of relatives is
-# overestimated; one seed, no noise floor. Development diagnosis only.
+# the sealed test part. Limits (written into the results; lower bits are better): the stored layout makes the
+# whole-gene bits too low (optimistic); the classical baselines are a lower bound on the worth of relatives; the choice
+# of rows biases that worth in a direction not known; one seed, no noise floor. Development diagnosis only.
 pipeline: rel_tables
 needs_gpu: false
 tier: medium

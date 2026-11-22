@@ -30,5 +30,6 @@ held-out tables.
   the other rows' relation blocks recoded by synonymous codons; the stage takes a list of conditions (profile
   `rel-dev-w5-extra-i1`). Bits are also reported in two parts, the amino acid and the codon given the amino acid.
 
-Today's limits, written into the results: stored layout only (whole-gene numbers are an upper bound); the chain runs
-inside the target locus only; scored cells are the whole target block, not yet the 128-codon items of the evaluator.
+Today's limits, written into the results (lower bits are better): stored layout only, so the whole-gene bits are too
+low (optimistic); the classical baselines are a lower bound on what the relatives are worth; the chain runs inside the
+target locus only; scored cells are the whole target block, not yet the 128-codon items of the evaluator.

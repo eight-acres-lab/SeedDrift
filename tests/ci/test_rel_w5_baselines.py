@@ -498,7 +498,7 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     a, b = same[(cond.WHOLE_GENE, "row_average")], same[(cond.WHOLE_GENE + "+" + cond.REPAIRED, "row_average")]
     assert a["target_cells"] == b["target_cells"] and abs(a["bits"] - b["bits"]) < 1e-12 and a["n_items"] == b["n_items"] == 29
     assert {r["group"] for r in rows} == {"all", "zero", "one", "2"} and {r["tier"] for r in rows} == {-1} and {r["item_half"] for r in rows} == {"all"}
-    assert {r["stratum"] for r in rows} <= set(score.FINE + score.OTHER_ROWS + score.PARTS + ("all",)) and any(r["stratum"] in score.FINE for r in rows)
+    assert {r["stratum"] for r in rows} <= set(score.FINE + score.RELATIVES + score.OTHER_ROWS + score.PARTS + ("all",)) and any(r["stratum"] in score.FINE for r in rows)
     assert all(tuple(r) == api.RESULT_ROW for r in rows)
     top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["condition"] == cond.SCATTERED]
     assert sorted(r["variant"] for r in top) == sorted(brun.names_under(cond.SCATTERED))
@@ -542,7 +542,8 @@ def test_aggregate_is_the_mean_of_the_group_means():
     group = np.array([0, 1, 1, 2])                                               # table 3 has no cell
     identity = np.array([[1.0, 0.25, np.nan], [1.0, np.nan, np.nan], [1.0, 0.31, 0.95], [1.0, 0.5, 0.5]])
     strata = score.strata_of(identity)
-    assert len(strata) == 1 and len(score.strata_of(identity, [1, 0, 2, 2])) == 2
+    assert len(strata) == 2 and len(score.strata_of(identity, [1, 0, 2, 2])) == 3
+    assert strata[1][1].tolist() == [0, 1, 0, 0] and score.block_of("eukaryota.fungi") == score.BLOCKS[0] and score.block_of("viruses.phage") == score.BLOCKS[1]
     assert [score.FINE[k] for k in strata[0][1]] == ["nearest_identity=0.2-0.3", "nearest_identity=none", "nearest_identity=0.9-1.0", "nearest_identity=0.5-0.6"]
     assert score.fine_stratum(np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.3], [1.0, np.nan]])).tolist() == [9, 0, 3, 10]
     rows = {(r["group"], r["stratum"]): r for r in score.aggregate(bits, cell_table, group, strata, n_groups=3, group_names={1: "one"})}

@@ -1,0 +1,39 @@
+# Machine i-1, the night of 2026-11-22: the arm of about 100 M parameters with relatives at the peak learning rate of
+# the 10 M arm, 4e-4 (variant w6-ref100m-lr4e-4; the user's go-ahead via the programme lead), to tell the learning rate
+# and the size apart beside the evening's arms (w6-ref100m at 2e-4 on i-2, w6-ref10m at 4e-4 on i-1). The code of commit
+# 3382ed5 (this branch adds this profile and the variant only), the tables of version 0 of run
+# 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, seed 1. A preflight that fails or a value that is not finite stops
+# the arm; nothing lowers the learning rate. Wall limit 4.5 h, its final evaluation on all 3,000 held-out tables included.
+# Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 14000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_selftest, w6_fit, w6_report]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref100m-lr4e-4.yaml, seed: 1}
+  wall_s: 16200                  # one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

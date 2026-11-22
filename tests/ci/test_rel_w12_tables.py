@@ -89,6 +89,9 @@ def test_development_chromosomes_have_their_own_table_set_never_for_training(run
     with open(os.path.join(run_dir, doc["index"])) as f:
         ids = [x["id"] for x in json.load(f)["genomes"]]
     assert {ids[i] for i in g[:, 0]} == set(runs["accs"]) and (g[:, 1:] >= 0).any()
+    rec = doc["sealed_check"]                                           # the id check covers the development chromosomes too
+    assert rec["ids"]["distinct"] >= len(doc["genomes"]) and "island" in rec["ids"]["allowed_splits"] and rec["islands"]["checked"] == len(runs["accs"])
+    assert "island" not in runs["out"]["v1"]["doc"]["sealed_check"]["ids"]["allowed_splits"]        # the tables of version 1 never load them
     with Stage(run_dir, "gates_rel_w12_islands") as st:
         w12_islands.gate(st, r["cfg"], run_dir)
     bad = dict(doc)

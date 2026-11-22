@@ -15,7 +15,9 @@ sealed test split gains none. The sealed test genomes are not read.
 
 Configuration (profile block rel_w13_census): select_from, source, expect ({split: genomes}), per_anchor (relatives per
 anchor in the proposals, default [1, 2, 3, 5]), propose (the per_anchor of the proposal, default 3), max_genes_euk
-(the gene cap of eukaryotes in the corpus, default 1500).
+(the gene cap of eukaryotes in the corpus, default 1500), catalog_from (a passed run of stage rel_w13_catalog, or
+"this run" when the profile runs that stage first: the count is made a second time on its wider snapshot and reported
+beside the first; see census_wide).
 Outputs under data/rel_w13/census/: report.json (written last) and report.md.
 Gate G4_rel_w13_census (gate()): every group of the corpus is counted, every count is consistent, the selected table is
 the corpus's, and no genome outside the open splits is named.
@@ -32,9 +34,11 @@ from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common
 from ci.stages.rel import w2_v0 as W
+from ci.kingdom import GroupConflict, KingdomMap, NoGroup
+from ci.taxonomy import UnknownTaxid
 
 OUT = os.path.join("data", "rel_w13", "census")
-KEYS = {"select_from", "source", "expect", "per_anchor", "propose", "max_genes_euk"}
+KEYS = {"select_from", "source", "expect", "per_anchor", "propose", "max_genes_euk", "catalog_from"}
 ELIGIBLE = ("not needed for the target", "another genome of the species")
 OPEN = ("train", "heldout")
 
@@ -46,7 +50,7 @@ def settings(cfg) -> dict:
         raise SystemExit("rel_w13_census: needs `select_from` and `source`; unknown keys %s" % sorted(unknown))
     out = dict(select_from=str(c["select_from"]), source=str(c["source"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()},
                per_anchor=[int(x) for x in c.get("per_anchor") or [1, 2, 3, 5]], propose=int(c.get("propose", 3)), max_genes_euk=int(c.get("max_genes_euk", 1500)),
-               max_left_out=20)
+               catalog_from=str(c["catalog_from"]) if c.get("catalog_from") else None, max_left_out=20)
     if not out["per_anchor"] or min(out["per_anchor"]) < 1 or out["propose"] not in out["per_anchor"]:
         raise SystemExit("rel_w13_census: per_anchor needs positive counts and must include propose: %r" % out)
     return out
@@ -153,6 +157,104 @@ def census(cands, metas, s):
     return anchors, out
 
 
+PROKARYOTES = ("bacteria", "archaea")
+
+
+def wide_reason(tax, km, ex, t, host, prokaryote):
+    """(why not or None, group, species, genus) of a taxid (and a virus's host) under the rules of the selection."""
+    try:
+        tax.lineage(int(t))
+    except (UnknownTaxid, KeyError, ValueError):
+        return "taxid unknown", "", 0, 0
+    sp, ge = tax.at_rank(int(t), "species"), tax.at_rank(int(t), "genus")
+    try:
+        grp = km.group(tax, int(t), "raw_prokaryote" if prokaryote else "raw_virus", None if prokaryote else (host or None))
+    except GroupConflict:
+        return "group conflict", "", sp, ge
+    except (NoGroup, UnknownTaxid, KeyError, ValueError):
+        return "no group", "", sp, ge
+    if (grp in PROKARYOTES) != prokaryote or not (prokaryote or grp.startswith("viruses.")):
+        return "not of the catalogue's kind (group %s)" % grp, grp, sp, ge
+    why = ex.reason(int(t), [])
+    if why:
+        return ("quality (no species)" if "above species" in why[0] else "taxid unknown" if "resolve" in why[0] else "excluded by lineage"), grp, sp, ge
+    if prokaryote and not ge:
+        return "quality (no genus)", grp, sp, ge
+    if not prokaryote:
+        if not host:
+            return "host unknown (the selection's rule: a virus whose host cannot be checked is left out)", grp, sp, ge
+        try:
+            cls = km.host_class(tax, host)
+        except (UnknownTaxid, KeyError, ValueError):
+            return "host unknown (the selection's rule: a virus whose host cannot be checked is left out)", grp, sp, ge
+        if not cls:
+            return "host unknown (the selection's rule: a virus whose host cannot be checked is left out)", grp, sp, ge
+        if ex.host_reason(host):
+            return "excluded by a host rule", grp, sp, ge
+    return None, grp, sp, ge
+
+
+def census_wide(cats, metas, entries, cands, s, tax, sealed, extra_paths):
+    """The same count on a wider catalogue snapshot (stage rel_w13_catalog: ENA assemblies of full genome representation
+    at the levels of that snapshot), with the rules of the selection: the group by the kingdom map (a virus by its host);
+    the exclusions of gate G2 by full lineage (bench/hard/EXCLUDE.tsv, which lists the sealed genera with their families
+    and the closed development order, and the extra lists of the profile: the provisional test recipients); for a virus
+    its host by lineage, and a virus whose host is unknown or only an environment is left out (the selection's default
+    rule for hosts); prokaryotes need a genus and a species. The host of a virus is the record's host, else the host the
+    selection knew for its species. A record whose assembly is a corpus genome of the open splits counts as already in
+    the corpus; one the sealed check refuses is left out and not named. Plasmid anchors count the prokaryote assemblies
+    of their host species, an upper bound (whether those assemblies carry plasmids is not in the snapshot); groups the
+    snapshot has no catalogue for (the eukaryotes) keep the selection's candidates. Proteins: one per kilobase."""
+    from ci.gates.g2_exclusion import Excluder
+    from seeddrift.train.rel import sealed as SL
+    km, ex = KingdomMap(), Excluder(tax, extra_paths=extra_paths)
+    if ex.problems:
+        raise SystemExit("rel_w13_census: the exclusion rules do not resolve: %s" % ex.problems[:5])
+    own = {}                                                    # (group, assembly number) -> corpus genome of the open splits
+    for m, e in zip(metas, entries):
+        for a in SL.assemblies(m["id"]) | SL.assemblies(e.get("accession", "")) | SL.assemblies(e.get("paired_accession", "")):
+            own[(m["group"], a)] = m["id"]
+    hosts = {}
+    for r in cands:                                             # the selection's host of a virus species
+        if (r.get("group") or "").startswith("viruses.") and int(r.get("host_taxid") or 0) and int(r.get("species_taxid") or 0):
+            hosts.setdefault(int(r["species_taxid"]), int(r["host_taxid"]))
+    reasons, rows, cache = {}, [], {}
+    for cid, recs in cats.items():
+        for r in recs:
+            acc, t = r["accession"], int(r.get("tax_id") or 0)
+            prok = cid in PROKARYOTES
+            host = int(r["host_tax_id"]) if (r.get("host_tax_id") or "").strip().isdigit() else 0
+            if not prok and not host:
+                try:
+                    host = hosts.get(tax.at_rank(int(t), "species"), 0)
+                except (UnknownTaxid, KeyError, ValueError):
+                    host = 0
+            key = (t, host, prok)
+            if key not in cache:
+                cache[key] = wide_reason(tax, km, ex, t, host, prok)
+            why, grp, sp, ge = cache[key]
+            asm = SL.assemblies(acc)
+            if why is None and (r.get("genome_representation") or "full") != "full":
+                why = "partial genome"
+            if why is None and acc.split(".")[0][4:] in ex.pan_acc:
+                why = "excluded by lineage"                     # a panel assembly
+            if why is None and sealed.reasons(acc):
+                why = "refused by the sealed check"
+            in_corpus = [own[(grp, a)] for a in asm if (grp, a) in own]
+            kind = why or ("already in the corpus" if in_corpus else "eligible, an environmental sample" if (r.get("environmental_sample") or "").lower() == "true" else "eligible")
+            reasons[(cid, kind)] = reasons.get((cid, kind), 0) + 1
+            if why is None:
+                row = dict(id=in_corpus[0] if in_corpus else acc, group=grp, species_taxid=sp, genus=ge, selected="1" if in_corpus else "0",
+                           out="" if in_corpus else ELIGIBLE[0], proteins_central=int(float(r.get("base_count") or 0) / 1000))
+                rows.append(row)
+                if grp in PROKARYOTES:                          # the host species of a plasmid anchor
+                    pl = [own[("mobile.plasmid", a)] for a in asm if ("mobile.plasmid", a) in own]
+                    rows.append(dict(row, id=pl[0] if pl else "plasmids_of_" + acc, group="mobile.plasmid", selected="1" if pl else "0", out="" if pl else ELIGIBLE[0]))
+    kept = [r for r in cands if (r.get("group") or "").startswith("eukaryota.")]      # no eukaryote catalogue in the new snapshot
+    anchors, counts = census(rows + kept, metas, s)
+    return counts, {"%s | %s" % k: v for k, v in sorted(reasons.items())}, sorted({r["group"] for r in kept})
+
+
 def build(st, cfg, run_dir):
     s = settings(cfg)
     cands, selected, prov = selection(s)
@@ -175,6 +277,17 @@ def build(st, cfg, run_dir):
         k = (r.get("group") or "(no group)", reason_kind(r["out"]))
         reasons[k] = reasons.get(k, 0) + 1
     anchors, counts = census(cands, metas, s)
+    wide = None
+    if s["catalog_from"]:
+        from ci.stages.rel import w13_catalog
+        here = s["catalog_from"] == "this run"
+        cats, clock, cprov = w13_catalog.read(run_dir if here else s["catalog_from"], same_run=here)
+        extra = [st.repo(x) for x in (cfg.get("extra_exclusions") or [])]
+        wcounts, wreasons, same = census_wide(cats, metas, [W.entry(src, m) for m in metas], cands, s, tax, sealed, extra)
+        wide = dict(catalogue=dict(cprov, source=clock.get("source"), catalogues={k: dict(query=v["query"], records=v["records"], sha256=v["sha256"], fetched=v["fetched"])
+                                                                              for k, v in clock["catalogues"].items()}, context=clock.get("context")),
+                    counts=wcounts, reasons=wreasons, groups_from_the_selection=same,
+                    proposal=dict(per_anchor=s["propose"], by_split={sp: {g: d["proposals"][str(s["propose"])] for g, d in by.items()} for sp, by in wcounts.items()}))
     lock = lock_totals(st.repo(prov["lock"])) if prov.get("lock") and os.path.exists(st.repo(prov["lock"])) else {}
     rep = dict(format="rel-w13-census", version=1, note=__doc__.strip().splitlines()[0], selection=prov, source=src["provenance"], corpus_spec=cfg["corpus_spec"],
                settings={k: s[k] for k in ("per_anchor", "propose", "max_genes_euk")}, split_sizes=sizes, left_out=len(left),
@@ -186,7 +299,18 @@ def build(st, cfg, run_dir):
                         "snapshot would hold, which needs a new catalogue snapshot (a metadata download; the user's decision, D6).",
                         "A relative goes with its anchor's split; relatives of held-out genomes are for the evaluation, not for training.",
                         "Proteins are the catalogue's central estimate, eukaryotes capped at %d genes as in the corpus." % s["max_genes_euk"],
-                        "Counts only; nothing was downloaded."])
+                        "Counts only; nothing was downloaded."] + ([
+                        "How the two counts differ. The first reads the selection's snapshots: NCBI RefSeq reference genomes for bacteria and archaea "
+                        "(about one per species), its virus catalogues and the selection's own host records; every candidate there passed the selection's "
+                        "quality rules too (protein-coding genes, a current assembly, the sequence report). The second (wide) reads a fresh ENA snapshot "
+                        "of assembly metadata (stage rel_w13_catalog): every INSDC assembly at the levels of that snapshot (complete genome and chromosome "
+                        "for prokaryotes, complete genome for viruses), reference or not, environmental samples (metagenome-assembled genomes) included and "
+                        "counted apart; the same exclusions by lineage, the same host rule for viruses (the record's host, else the selection's host of the "
+                        "species), but no quality rule beyond a full genome representation, a genus and a species. Proteins there are one per kilobase; "
+                        "plasmid anchors count the assemblies of their host species (an upper bound); the eukaryote groups keep the selection's candidates "
+                        "(the new snapshot has no eukaryote catalogue). No sequence was downloaded."] if wide else []))
+    if wide:
+        rep["wide"] = wide
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     page = os.path.join(folder, "report.md")
@@ -227,6 +351,26 @@ def page_of(rep):
         for c, d in rep["catalogues"].items():
             L.append("| %s | %s | %s |" % (c, "{:,}".format(d["records"] or 0), "; ".join("%s: %s" % (q, "{:,}".format(t)) for q, t in d["totals"].items() if t is not None) or ""))
         L.append("")
+    w = rep.get("wide")
+    if w:
+        L += ["## Side by side: the selection's snapshot and the wider snapshot (%s)" % ", ".join("%s %s records, %s" % (k, "{:,}".format(v["records"]), v["fetched"][:10])
+                                                                                               for k, v in w["catalogue"]["catalogues"].items()), ""]
+        for split in rep["counts"]:
+            L += ["### %s split" % split, "",
+                  "| group | anchors | with a same-species relative (selection / wide) | same-species genomes | same-genus genomes | first batch, k = %d |" % rep["settings"]["propose"],
+                  "|---|---|---|---|---|---|"]
+            for g, d in rep["counts"][split].items():
+                e = (w["counts"].get(split) or {}).get(g)
+                if not e:
+                    continue
+                k = str(rep["settings"]["propose"])
+                L.append("| %s | %d | %d / %d | %s / %s | %s / %s | %s / %s |" % (
+                    g + (" (the selection's snapshot both times)" if g in w.get("groups_from_the_selection", []) else ""), d["anchors"], d["new_same_species"]["anchors_with_one"], e["new_same_species"]["anchors_with_one"],
+                    "{:,}".format(d["new_same_species"]["candidates"]), "{:,}".format(e["new_same_species"]["candidates"]),
+                    "{:,}".format(d["new_same_genus"]["candidates"]), "{:,}".format(e["new_same_genus"]["candidates"]),
+                    "{:,}".format(d["proposals"][k]["genomes"]), "{:,}".format(e["proposals"][k]["genomes"])))
+            L.append("")
+        L += ["Records of the wider snapshot by reason: " + "; ".join("%s %s" % (k, "{:,}".format(v)) for k, v in w["reasons"].items()), ""]
     L += ["## What these numbers are not", ""] + ["- " + x for x in rep["caveats"]] + [""]
     return "\n".join(L)
 

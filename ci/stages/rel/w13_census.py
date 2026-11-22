@@ -93,27 +93,34 @@ def selection(s):
                                                                   sha256=shas, lock=(cfg.get("catalog") or {}).get("lock"), select_spec=cfg.get("select_spec"))
 
 
-def host_records(run):
-    """The virus-host records the selection read (its catalogue snapshots of kind ncbi_virus_reports), each checked
-    against the selection's catalogue manifest: [dict(virus_taxid, host_taxid)]."""
+def selection_snapshots(run, kind):
+    """{catalogue id: records} of the selection's catalogue snapshots of one kind, each checked against the selection's
+    catalogue manifest, and their provenance."""
     import yaml
     from ci.stages.catalog import read_jsonl
     with open(os.path.join(run, "config.resolved.yaml")) as f:
         cfg = yaml.safe_load(f)
     with open(os.path.join(run, "data", "catalog", "manifest.json")) as f:
         man = json.load(f)
-    out, used = [], []
+    out, used = {}, []
     for e in man["entries"]:
-        if e.get("kind") != "ncbi_virus_reports":
+        if e.get("kind") != kind:
             continue
-        p = os.path.join(cfg["data_root"], "cas", e["path"]) if e.get("kind") != "file" else e["path"]
+        p = os.path.join(cfg["data_root"], "cas", e["path"])
         if sha256_file(p, use_sidecar=False) != e["sha256"]:
-            raise SystemExit("rel_w13_census: the host snapshot %s of the selection does not match its manifest" % e["id"])
-        out += [dict(virus_taxid=int(r.get("virus_taxid") or 0), host_taxid=int(r.get("host_taxid") or 0)) for r in read_jsonl(p)]
+            raise SystemExit("rel_w13: the snapshot %s of the selection does not match its manifest" % e["id"])
+        out[e["id"]] = read_jsonl(p)
         used.append(dict(id=e["id"], records=e.get("records"), sha256=e["sha256"]))
     if not used:
-        raise SystemExit("rel_w13_census: the selection run %s has no host snapshot" % run)
+        raise SystemExit("rel_w13: the selection run %s has no snapshot of kind %s" % (run, kind))
     return out, used
+
+
+def host_records(run):
+    """The virus-host records the selection read (its catalogue snapshots of kind ncbi_virus_reports), each checked
+    against the selection's catalogue manifest: [dict(virus_taxid, host_taxid)]."""
+    snaps, used = selection_snapshots(run, "ncbi_virus_reports")
+    return [dict(virus_taxid=int(r.get("virus_taxid") or 0), host_taxid=int(r.get("host_taxid") or 0)) for recs in snaps.values() for r in recs], used
 
 
 def corpus_genomes(metas, entries):
@@ -211,12 +218,13 @@ PROKARYOTES = ("bacteria", "archaea")
 
 
 def wide_reason(tax, km, ex, t, hosts, prokaryote):
-    """(why not or None, group, species, genus) of a taxid under the rules of the selection; for a virus `hosts` are the
-    hosts the selection's host records give its species (ci/stages/select.py, viruses())."""
+    """(why not or None, group, species, genus, host) of a taxid under the rules of the selection; for a virus `hosts`
+    are the hosts the selection's host records give its species (ci/stages/select.py, viruses()), `host` the one it is
+    placed by (0 for a prokaryote)."""
     try:
         tax.lineage(int(t))
     except (UnknownTaxid, KeyError, ValueError):
-        return "taxid unknown", "", 0, 0
+        return "taxid unknown", "", 0, 0, 0
     sp, ge = tax.at_rank(int(t), "species"), tax.at_rank(int(t), "genus")
     host = 0
     if not prokaryote:
@@ -227,33 +235,33 @@ def wide_reason(tax, km, ex, t, hosts, prokaryote):
             except (UnknownTaxid, KeyError, ValueError):
                 classes.add("unresolved")
         if hosts and classes == {""}:
-            return "host unknown (only an environment or unplaced host is recorded)", "", sp, ge
+            return "host unknown (only an environment or unplaced host is recorded)", "", sp, ge, host
         classes.discard("")
         if "unresolved" in classes:
-            return "excluded by a host rule (a host taxid does not resolve)", "", sp, ge
+            return "excluded by a host rule (a host taxid does not resolve)", "", sp, ge, host
         if len(classes) > 1:
-            return "excluded by a host rule (hosts in more than one class)", "", sp, ge
+            return "excluded by a host rule (hosts in more than one class)", "", sp, ge, host
         if classes:
             cls = classes.pop()
             host = min(h for h in hosts if km.host_class(tax, h) == cls)
     try:
         grp = km.group(tax, int(t), "raw_prokaryote" if prokaryote else "raw_virus", host or None)
     except GroupConflict:
-        return "group conflict", "", sp, ge
+        return "group conflict", "", sp, ge, host
     except (NoGroup, UnknownTaxid, KeyError, ValueError):
-        return "no group", "", sp, ge
+        return "no group", "", sp, ge, host
     if (grp in PROKARYOTES) != prokaryote or not (prokaryote or grp.startswith("viruses.")):
-        return "not of the catalogue's kind (group %s)" % grp, grp, sp, ge
+        return "not of the catalogue's kind (group %s)" % grp, grp, sp, ge, host
     if not prokaryote and not hosts:
-        return "host unknown (no host record of the species)", grp, sp, ge
+        return "host unknown (no host record of the species)", grp, sp, ge, host
     why = ex.reason(int(t), [])
     if why:
-        return ("quality (no species)" if "above species" in why[0] else "taxid unknown" if "resolve" in why[0] else "excluded by lineage"), grp, sp, ge
+        return ("quality (no species)" if "above species" in why[0] else "taxid unknown" if "resolve" in why[0] else "excluded by lineage"), grp, sp, ge, host
     if prokaryote and not ge:
-        return "quality (no genus)", grp, sp, ge
+        return "quality (no genus)", grp, sp, ge, host
     if any(ex.host_reason(h) for h in hosts):
-        return "excluded by a host rule", grp, sp, ge
-    return None, grp, sp, ge
+        return "excluded by a host rule", grp, sp, ge, host
+    return None, grp, sp, ge, host
 
 
 def census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra_paths):
@@ -292,7 +300,7 @@ def census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra_paths)
             key = (t, prok)
             if key not in cache:
                 cache[key] = wide_reason(tax, km, ex, t, () if prok else sorted(hosts.get(species(t), ())), prok)
-            why, grp, sp, ge = cache[key]
+            why, grp, sp, ge, host = cache[key]
             if why == "host unknown (no host record of the species)" and (r.get("host_tax_id") or "").strip():
                 why = "host unknown (no host record of the species; the ENA record names a sample host)"
             asm = SL.assemblies(acc)
@@ -307,14 +315,16 @@ def census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra_paths)
             reasons[(cid, kind)] = reasons.get((cid, kind), 0) + 1
             if why is None:
                 row = dict(id=in_corpus[0] if in_corpus else acc, group=grp, species_taxid=sp, genus=ge, selected="1" if in_corpus else "0",
-                           out="" if in_corpus else ELIGIBLE[0], proteins_central=int(float(r.get("base_count") or 0) / 1000))
+                           out="" if in_corpus else ELIGIBLE[0], proteins_central=int(float(r.get("base_count") or 0) / 1000),
+                           taxid=t, accession=acc, version=(r.get("version") or "").strip(), host_taxid=host, catalogue=cid,
+                           bases=int(float(r.get("base_count") or 0)), level=r.get("assembly_level") or "")
                 rows.append(row)
                 if grp in PROKARYOTES:                          # the host species of a plasmid anchor
                     pl = [own[("mobile.plasmid", a)] for a in asm if ("mobile.plasmid", a) in own]
                     rows.append(dict(row, id=pl[0] if pl else "plasmids_of_" + acc, group="mobile.plasmid", selected="1" if pl else "0", out="" if pl else ELIGIBLE[0]))
     kept = [r for r in cands if (r.get("group") or "").startswith("eukaryota.")]      # no eukaryote catalogue in the new snapshot
     anchors, counts = census(rows + kept, metas, s, own)
-    return counts, {"%s | %s" % k: v for k, v in sorted(reasons.items())}, sorted({r["group"] for r in kept})
+    return counts, {"%s | %s" % k: v for k, v in sorted(reasons.items())}, sorted({r["group"] for r in kept}), anchors
 
 
 def build(st, cfg, run_dir):
@@ -348,7 +358,7 @@ def build(st, cfg, run_dir):
         cats, clock, cprov = w13_catalog.read(run_dir if here else s["catalog_from"], same_run=here)
         extra = [st.repo(x) for x in (cfg.get("extra_exclusions") or [])]
         host_recs, host_snap = host_records(s["select_from"])
-        wcounts, wreasons, same = census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra)
+        wcounts, wreasons, same, _ = census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra)
         wide = dict(catalogue=dict(cprov, source=clock.get("source"), catalogues={k: dict(query=v["query"], records=v["records"], sha256=v["sha256"], fetched=v["fetched"])
                                                                               for k, v in clock["catalogues"].items()}, context=clock.get("context")),
                     counts=wcounts, reasons=wreasons, groups_from_the_selection=same, host_snapshots=host_snap,

@@ -14,3 +14,17 @@ rule rel_w13_census:
     input: ["gates/pre.ok"] + (["data/rel_w13/catalog/manifest.json"] if "w13_catalog" in REL_ON else [])
     output: "data/rel_w13/census/report.json"
     shell: STAGE.format(name="rel.w13_census")
+
+# w13_pick: the first batch of close relatives by name (k per genome, the same species first) and the corpus spec that
+# adds them (ci/stages/rel/w13_pick.py); metadata only (the ENA records of the picks)
+rule rel_w13_pick:
+    input: "gates/pre.ok"
+    output: "data/rel_w13/pick/report.json"
+    shell: STAGE.format(name="rel.w13_pick")
+
+# w13_build: the corpus with the relatives, built by the corpus stages as they are (fetch, corpus, reference,
+# eval_inputs, search, train_data: the inputs below), then checked (ci/stages/rel/w13_build.py)
+rule rel_w13_build:
+    input: "gates/pre.ok", "gates/corpus.ok", "data/train_data/index.json"
+    output: "data/rel_w13/build/report.json"
+    shell: STAGE.format(name="rel.w13_build")

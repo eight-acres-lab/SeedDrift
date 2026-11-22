@@ -295,20 +295,66 @@ def _passed(run_dir, rel):
     rec.update(status="passed")
 
 
-def test_report_of_two_runs_with_labels_exclusions_and_a_consistency_pair(tmp_path):
+def test_report_of_two_runs_with_labels_exclusions_and_a_pair_of_runs(tmp_path):
     run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
     second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
     _passed(second, os.path.join(w6_fit.OUT, "models.json"))
     cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], readings_exclude=["w6-ref30m-s1"],
-                                       consistency=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]]))
+                                       seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]]))
     st = Stage(run_dir, "rel_w6_report")
     rep = w6_report.build(st, cfg, run_dir)
     assert {"w6-ref30m-s1", "w6-ref30m-s1 @i2", "w6-ref10m-s1 @i2"} <= set(rep["arms"]) and rep["arms"]["w6-ref10m-s1 @i2"]["status"] == "failed"
-    assert rep["consistency"][0]["rows"] == [[1000, 5.75, 5.75, 0.0], [2000, 5.45, 5.45, 0.0]]
-    assert rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1 @i2"] and rep["scale"]["verdict"] == "bigger is better"
+    assert rep["seeds"][0]["rows"] == [[1000, 5.75, 5.75, 0.0, 6.75, 6.75, 0.0], [2000, 5.45, 5.45, 0.0, 6.45, 6.45, 0.0]]
+    assert rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1 @i2"] and rep["scale"]["verdict"] == "bigger is better"     # the excluded arm is no level
     assert [r["with_relatives"] for r in rep["relatives"]] == ["w6-ref30m-s1 @i2", "w6-ref30m-s1 @i2"]
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
-    assert "Two runs of one arm" in text and "Left out of the readings" in text
+    assert "Runs of one seed of one arm" in text and "Left out of the readings" in text
+    w6_report.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
+
+
+def test_report_with_two_seeds_reads_against_their_difference(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    conds = list(cond.CONDITIONS)
+    # the second run of the 30 M arm: 0.2 bits above the first at every node, and one node more (4,000 tables), which the
+    # 10 M arm of the first run also reached
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")
+    later = [r for r in _rows(os.path.basename(second), "w6-ref30m-s1", [(4000, 40000, 4.5)], 4.5, conds) if r["weights"] == "ema@tables=4000"]
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.2) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)] + later)
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]]))
+    st = Stage(run_dir, "rel_w6_report")
+    level = "w6-ref30m-s1 + w6-ref30m-s1 @i2"
+    # the levels at 2,000 tables, the last node both reached: 30 M is the mean of its two seeds (5.45 and 5.65), not below 10 M (5.55)
+    rep = w6_report.build(st, cfg, run_dir)
+    assert rep["scale"]["node"] == 2000 and abs(rep["scale"]["bits"][level][cond.SCATTERED] - 5.55) < 1e-9 and rep["scale"]["steps"] == ["not lower"]
+    assert rep["scale"]["seeds_read"] == {level: ["w6-ref30m-s1", "w6-ref30m-s1 @i2"]} and rep["scale"]["verdict"] == "cannot be read"
+    rows = rep["seeds"][0]["rows"]
+    assert [r[0] for r in rows] == [1000, 2000] and abs(rows[0][3] - 0.2) < 1e-9 and abs(rows[1][6] - 0.2) < 1e-9
+    noise = {(n["node"], n["condition"], n["stratum"]): n["bits"] for n in rep["noise"]}
+    assert abs(noise[(2000, cond.SCATTERED, SC.ALL)] - 0.2) < 1e-9 and abs(noise[(2000, cond.WHOLE_GENE, SC.RELATIVES[0])] - 0.2) < 1e-9
+    # the 10 M arm reaches 4,000 tables too, where only the second seed of 30 M did: 10 M 5.25, 30 M 4.75 (scattered), more than 0.2 apart
+    q = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    SC.write_rows(q, SC.read_rows(q) + [r for r in _rows(os.path.basename(run_dir), "w6-ref10m-s1", [(4000, 40000, 5.0)], 5.0, conds)
+                                        if r["weights"] == "ema@tables=4000"])
+    rep = w6_report.build(st, cfg, run_dir)
+    assert rep["scale"]["arms"] == ["w6-ref10m-s1", level] and rep["scale"]["node"] == 4000 and rep["scale"]["verdict"] == "bigger is better"
+    assert rep["scale"]["seeds_read"] == {level: ["w6-ref30m-s1 @i2"]} and rep["scale"]["noise"][cond.SCATTERED]["node"] == 2000
+    assert abs(rep["scale"]["bits"][level][cond.SCATTERED] - 4.75) < 1e-9
+    # a step in size lower by no more than the seeds' difference cannot be read
+    vals = {"small": {cond.SCATTERED: 5.55, cond.WHOLE_GENE: 6.55}, "big": {cond.SCATTERED: 5.5, cond.WHOLE_GENE: 6.3}}
+    scale, _ = w6_report.scale_readings(["big", "small"], {"small": 1, "big": 2}, {"small": [2000], "big": [2000]}, lambda v, t, c: vals[v][c],
+                                        lambda t, c: dict(bits=0.2, node=2000))
+    assert scale["verdict"] == "cannot be read" and scale["steps"] == ["lower by no more than the seeds' difference"]
+    worth = {(r["with_relatives"], r["condition"]): r for r in rep["relatives"]}
+    one, two = worth[("w6-ref30m-s1", cond.SCATTERED)], worth[("w6-ref30m-s1 @i2", cond.SCATTERED)]
+    assert abs(one["worth_at_node"] - 0.25) < 1e-9 and one["reading_at_node"] == "beyond the seeds' difference"
+    assert abs(two["worth_at_node"] - 0.05) < 1e-9 and two["reading_at_node"] == "cannot be read" and two["noise_at_node"]["node"] == 2000
+    assert one["reading_end"] == "beyond the seeds' difference" and one["noise_end"]["node"] == 2000
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "Against the seeds' difference" in text and "only " + "w6-ref30m-s1 @i2" in text and "the only noise estimate" in text
+    assert any("whose difference (seeds and machines at once)" in c for c in rep["caveats"])
     w6_report.gate(st, cfg, run_dir)
     assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
 

@@ -1,0 +1,7 @@
+package: W12
+kind: to_package
+to: C0
+what: "(1) drop `stub: true` of stage w12_v1 in configs/rel/kinds.yaml (its rule in ci/rules/rel_w12.smk now runs ci/stages/rel/w12_v1.py); (2) register stage w12_islands in kind rel_tables (package W12, rule rel_w12_islands, output data/rel_w12/islands/tableset.json, module ci.stages.rel.w12_islands, gates [G4_rel_w12_islands], side data, produces tableset); (3) let G3_rel (ci/stages/rel/gates.py kind_phase) accept genomes of split `island` in a table set whose manifest has not_for_training true, after common.development_chromosomes on them (today it allows train and heldout only), and refuse such a set as input of every training stage"
+why: the development chromosomes' tables for W18's diagnosis on real data (task breakdown 8.8), kept from every training; tables v1 after the full uncapped search
+size: {hours: 0.5, threads: 8, disk_gb: 8, gpu_mem_gb: 0}
+by: 2026-11-26

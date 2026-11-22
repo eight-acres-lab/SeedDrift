@@ -65,6 +65,11 @@ for qn, qs in fasta(a[a.index("-q") + 1]):
 '''
 
 
+def codon_of(aa):
+    """A codon token that codes amino-acid token aa (1..20)."""
+    return next(c for c in range(1, 65) if S.CODE[c] == aa)
+
+
 def protein(codons):
     aa = S.CODE[np.asarray(codons, dtype=np.int64)]
     return "".join(AA[x - 1] if 1 <= x <= 20 else "X" for x in aa)
@@ -110,20 +115,31 @@ def add_islands(src, accessions, copy_of):
     training genome `copy_of`, every other one with its second protein a copy of its first (a paralog)."""
     with open(os.path.join(src, "data", "corpus", copy_of, "proteins.faa")) as f:
         base = [line.strip() for line in f if not line.startswith(">")]
+    z = np.load(os.path.join(src, "data", "train_data", copy_of + ".npz"))
+    base_codons = [z["codons"][z["codon_off"][i]:z["codon_off"][i + 1]] for i in range(len(z["codon_off"]) - 1)]
     rng = np.random.default_rng(7)
     genomes, entries = [], []
     for k, acc in enumerate(accessions):
         prot = list(base) if k == 0 else ["M" + "".join(rng.choice(list(AA), int(rng.integers(30, 90)))) for _ in range(8)]
         if k:
             prot[1] = prot[0]
+        codons = list(base_codons) if k == 0 else [np.array([codon_of(AA.index(c) + 1) for c in p], dtype=np.uint8) for p in prot]
+        os.makedirs(os.path.join(src, "data", "islands", "train_data"), exist_ok=True)
+        arr = os.path.join("data", "islands", "train_data", acc + ".npz")
+        n = len(codons)
+        coff = np.concatenate([[0], np.cumsum([len(c) for c in codons])]).astype(np.int64)
+        start = np.arange(n, dtype=np.int64) * 1000 + 1
+        np.savez(os.path.join(src, arr), codons=np.concatenate(codons), codon_off=coff, replicon=np.zeros(n, np.int32), start=start, end=start + 600,
+                 strand=np.ones(n, np.int8), replicon_len=np.array([n * 1000 + 10], np.int64), hit_off=np.zeros(n + 1, np.int64), hit_prot=np.zeros(0, np.int32),
+                 hit_qs=np.zeros(0, np.int32), track=np.zeros(0, np.uint8), track_off=np.zeros(1, np.int64))
         rel = os.path.join("data", "islands", "inputs", acc)
         os.makedirs(os.path.join(src, rel), exist_ok=True)
         with open(os.path.join(src, rel, "genes.tsv"), "w") as f:
             f.write("gene_id\treplicon\tstart\tend\tstrand\tpartial\n" + "".join("i%03d\tr\t1\t2\t+\t\n" % i for i in range(len(prot))))
         with open(os.path.join(src, rel, "proteins.faa"), "w") as f:
             f.write("".join(">%s__i%03d\n%s\n" % (acc, i, p) for i, p in enumerate(prot)))
-        genomes.append(dict(id=acc, folder=rel, group="bacteria", genes=len(prot), taxid=562, ranks=[1224, 1236, 91347, 543, 561, 562], genus="Escherichia"))
-        entries.append(dict(id=acc, files=[M.file_entry(os.path.join(src, rel, n), src) for n in ("genes.tsv", "proteins.faa")]))
+        genomes.append(dict(id=acc, folder=rel, path=arr, group="bacteria", genes=len(prot), taxid=562, ranks=[1224, 1236, 91347, 543, 561, 562], genus="Escherichia"))
+        entries.append(dict(id=acc, files=[M.file_entry(os.path.join(src, rel, x), src) for x in ("genes.tsv", "proteins.faa")] + [M.file_entry(os.path.join(src, arr), src)]))
     man = M.build("islands", "islands", entries)
     with open(os.path.join(src, "data", "islands", "manifest.json"), "w") as f:
         json.dump(dict(sha256=M.write(man, os.path.join(src, "manifests")), dataset_id=M.dataset_id(man), **man), f)

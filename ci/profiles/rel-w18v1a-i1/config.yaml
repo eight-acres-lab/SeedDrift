@@ -25,7 +25,7 @@ rel_w6_eval:
   arms: [w6-ref30m-s1, w6-ref30m-norel-s1, w6-ref10m-s1, w6-ref100m-lr4e-4-s1, {name: w6-ref30m-s1, untrained: true}]
   tables:
     heldout: {run: /hy-tmp/seeddrift-ci/runs/W18-RULERS-V1-RUN-NOT-SET, path: data/rel_w18/rulers/tableset.json, split: 1}
-  readout: {module: seeddrift.train.rel.readouts.w18_passes, presence_arms: [w6-ref30m-s1], max_rows: 32, layout: stored, in_place_only: true, adapt_v0_arms: true}
+  readout: {module: seeddrift.train.rel.readouts.w18_passes, presence_arms: [w6-ref30m-s1], max_rows: 32, layout: stored, in_place_only: false, adapt_v0_arms: true}   # the first reading took 44 min of GPU on i-1; under the protocol's 5 h
   best: false                    # the final weights only (protocol w18-v0)
   threads: 4
   wall_s: 10800                  # one arm's scoring

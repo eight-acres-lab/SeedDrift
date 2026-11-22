@@ -7,3 +7,10 @@ rule rel_w18_rulers:
     input: "gates/pre.ok"
     output: "data/rel_w18/rulers/tableset.json"
     shell: STAGE.format(name="rel.w18_rulers")
+
+# w18_readout: the readouts and their AUCs from the per-cell files the evaluation of a ruler set wrote (CPU only; no
+# model is run); after rel_w6_eval when the profile runs it
+rule rel_w18_readout:
+    input: ["gates/pre.ok"] + (["gates/rel_w6_eval.ok"] if "w6_eval" in REL_ON else [])
+    output: "data/rel_w18/readout/report.json"
+    shell: STAGE.format(name="rel.w18_readout")

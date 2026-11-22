@@ -169,3 +169,98 @@ def test_run_ruler_with_a_scorer_of_the_evaluation_stage(built, tmp_path):
     assert norel["presence"] is False and norel["pass_names"][P.PASS_ID["N"]] == "N" and norel["passes"] == doc["tables"]
     with pytest.raises(ValueError):
         P.run_ruler(w6_form, tabs, dict(info, layout="leakfree"), str(tmp_path / "x"))
+
+
+def uniform_form(examples):
+    """An untrained stand-in: the uniform distribution over tokens 1..65."""
+    import test_rel_w18_readouts as RT
+    cls = RT.CLS
+    pc = np.bincount(cls, minlength=23) / 65.0
+    out = dict(bits=[], aa_bits=[], entropy=[], example=[])
+    for k, e in enumerate(examples):
+        t = e["truth"][np.nonzero(e["truth"])].astype(np.int64)
+        out["bits"].append(np.full(len(t), np.log2(65)))
+        out["aa_bits"].append(-np.log2(pc[cls[t - 1]]))
+        out["entropy"].append(np.full(len(t), np.log2(65)))
+        out["example"].append(np.full(len(t), k))
+    return {k: np.concatenate(v) for k, v in out.items()}
+
+
+@pytest.fixture(scope="module")
+def evaluated(built, tmp_path_factory):
+    """The ruler run marked passed, and an evaluation run with the per-cell files of three arms, listed in its record of
+    stage rel_w6_eval."""
+    from seeddrift.train.rel.data import tables as T
+    run_dir, doc = built["run_dir"], built["doc"]
+    with open(os.path.join(run_dir, "stages", "rel_w18_rulers.json")) as f:
+        stage = json.load(f)
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(dict(run_id=os.path.basename(run_dir), status="passed", stages=[stage]), f)
+    tmp = tmp_path_factory.mktemp("w18eval")
+    ev, cfg = RF.rel_run(tmp, kind="rel_traineval", stages=("w6_eval",), run_id="20261126T000000-exp-rel-00000000-eval")
+    tabs = T.open_split(run_dir, doc, 1)
+    base = dict(weights="final", relatives=True, layout="stored", render_version=T.RENDER_VERSION, run=os.path.basename(ev), commit="0" * 40, root=run_dir)
+    with Stage(ev, "rel_w6_eval") as st:
+        for folder, scorer, info, presence in (("toy", w6_form, dict(base, arm="toy"), True), ("toy-norel", w6_form, dict(base, arm="toy-norel", relatives=False), False),
+                                               ("toy-s1", uniform_form, dict(base, arm="toy", weights="untrained"), False)):
+            out = os.path.join(ev, "data", "rel_w6", "eval", folder)
+            P.run_ruler(scorer, tabs, info, out, presence=presence)
+            st.output("ruler_cells_" + folder, os.path.join(out, P.RULER_CELLS))
+    cfg = dict(cfg, rel=dict(machine="i1", stages=["w6_eval", "w18_readout"]),
+               rel_w18_readout=dict(tables=dict(run=run_dir, path=os.path.join("data", "rel_w18", "rulers", "tableset.json")), reps=50))
+    return dict(ev=ev, cfg=cfg, tabs=tabs)
+
+
+def test_readout_stage_reads_every_arm_and_writes_the_aucs(built, evaluated, monkeypatch):
+    from ci.stages.rel import w18_readout
+    from seeddrift.train.rel.readouts import w18_readouts as R
+    ev, cfg = evaluated["ev"], evaluated["cfg"]
+    monkeypatch.setattr(R, "MIN_GROUP", 1)                             # the fixture has a few tables per group; let them enter
+    with Stage(ev, "rel_w18_readout") as st:
+        rep = w18_readout.build(st, cfg, ev)
+    assert sorted((a["arm"], a["weights"]) for a in rep["arms"]) == [("toy", "final"), ("toy", "untrained"), ("toy-norel", "final")]
+    assert rep["tables"]["sha256"] == built["doc"]["sha256"] and rep["tables"]["tables"] == built["doc"]["tables"]
+    with open(os.path.join(ev, w18_readout.OUT, "auc.tsv")) as f:
+        import csv
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    labels = {(r["label"], r["score"]) for r in rows}
+    assert {("toy", "source_shift"), ("toy", "gain"), ("presence:toy", "gain"), ("untrained:toy", "gain"), ("toy-norel", "composition"),
+            ("control", "best_similarity"), ("control", "host_codon"), ("control", "rows_on_target")} <= labels
+    assert all(0 <= float(r["auc"]) <= 1 for r in rows if r["auc"])
+    assert not any(r["readable"] == "True" for r in rows)              # the fixture is far too small to read anything
+    g = [r for r in rows if r["label"] == "toy" and r["score"] == "gain" and r["stratum"] == "all" and r["comparison"] == "own" and r["groups"] != "0"]
+    assert g and json.loads(g[0]["vs_untrained"])["reference_auc"] is not None and json.loads(g[0]["vs_best_similarity"])["auc"] is not None
+    c = [r for r in rows if r["label"] == "toy-norel" and r["score"] == "composition" and r["groups"] != "0"]
+    assert c and json.loads(c[0]["vs_host_codon"])["diff"] is not None
+    with open(os.path.join(ev, w18_readout.OUT, "scores.tsv")) as f:
+        assert len(f.read().strip().splitlines()) == built["doc"]["tables"] + 1
+    with Stage(ev, "gates_rel_w18_readout") as st:
+        w18_readout.gate(st, cfg, ev)
+    assert _gate(ev, "G4_rel_w18_readout")["status"] == "pass"
+    assert "too few" in open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
+    assert w18_readout.summary(ev)["json"]["tables"]["name"] == built["doc"]["name"]
+
+
+def test_readout_stage_refuses_cells_of_another_plan(built, evaluated, tmp_path):
+    from ci.stages.rel import w18_readout
+    from seeddrift.train.rel.data import tables as T
+    ev, cfg = evaluated["ev"], evaluated["cfg"]
+    meta = P.load_meta(built["run_dir"], built["doc"])
+    cells = P.run(P.tables_of(evaluated["tabs"].ts, meta), T.render, P.flat_scorer(w6_form), relatives=True, presence=False)
+    bad = os.path.join(ev, "data", "rel_w6", "eval", "toy", P.RULER_CELLS)
+    P.save_cells(bad, cells, arm="toy", weights="final", relatives=True, presence=True, layout="stored", render_version=T.RENDER_VERSION,
+                 tableset_sha256=built["doc"]["sha256"], run="r", commit="0" * 40)
+    with pytest.raises(SystemExit):                                    # not the file the evaluation's record lists
+        with Stage(ev, "rel_w18_readout") as st:
+            w18_readout.build(st, cfg, ev)
+    rec = os.path.join(ev, "stages", "rel_w6_eval.json")
+    with open(rec) as f:
+        stage = json.load(f)
+    for o in stage["outputs"]:
+        if o["path"].endswith(os.path.join("toy", P.RULER_CELLS)):
+            o["sha256"] = sha256_file(bad, use_sidecar=False)
+    with open(rec, "w") as f:
+        json.dump(stage, f)
+    with pytest.raises(SystemExit, match="another plan"):              # listed now, but it scored the plan without presence passes
+        with Stage(ev, "rel_w18_readout") as st:
+            w18_readout.build(st, cfg, ev)

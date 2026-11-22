@@ -25,6 +25,8 @@ same replicates for every score, so differences are paired.
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from seeddrift.train.rel import api
@@ -230,6 +232,10 @@ def controls(tables, meta):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+def _num(x):
+    return float(x) if x is not None and np.isfinite(x) else None
+
+
 def auc_matrix(sp, sn):
     """(n_pos, n_neg): 1 where the implant scores higher, 1/2 at a tie."""
     sp, sn = np.asarray(sp, dtype=np.float64)[:, None], np.asarray(sn, dtype=np.float64)[None, :]
@@ -321,7 +327,9 @@ def auc_rows(scores, meta, groups_of_table, group_names, strata, boot, label=Non
                     readable = len(enter) >= MIN_GROUPS and n_pos >= MIN_IMPLANTS and genera >= MIN_GENERA
                     if enter:
                         point = float(np.mean([x[3] for x in enter]))
-                        reps = np.nanmean(np.vstack([x[4] for x in enter]), axis=0)
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", RuntimeWarning)       # a replicate that drew no genus of a class
+                            reps = np.nanmean(np.vstack([x[4] for x in enter]), axis=0)
                         lo, hi = (float(np.nanpercentile(reps, 2.5)), float(np.nanpercentile(reps, 97.5))) if np.isfinite(reps).any() else (None, None)
                     else:
                         point, reps, lo, hi = None, None, None, None
@@ -337,11 +345,13 @@ def auc_rows(scores, meta, groups_of_table, group_names, strata, boot, label=Non
                             pos = mask & (var == IMPLANT) & (groups_of_table == g) & ~np.isnan(s) & ~np.isnan(r)
                             neg = mask & (var == cv) & (groups_of_table == g) & ~np.isnan(s) & ~np.isnan(r)
                             both.append((boot.group_auc(g, s[pos], genus[pos], s[neg], genus[neg]), boot.group_auc(g, r[pos], genus[pos], r[neg], genus[neg])))
-                        a_s = float(np.nanmean([x[0][0] for x in both]))
-                        a_r = float(np.nanmean([x[1][0] for x in both]))
-                        d = np.nanmean(np.vstack([x[0][1] for x in both]), axis=0) - np.nanmean(np.vstack([x[1][1] for x in both]), axis=0)
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", RuntimeWarning)       # a group without a table both define
+                            a_s = float(np.nanmean([x[0][0] for x in both]))
+                            a_r = float(np.nanmean([x[1][0] for x in both]))
+                            d = np.nanmean(np.vstack([x[0][1] for x in both]), axis=0) - np.nanmean(np.vstack([x[1][1] for x in both]), axis=0)
                         fin = np.isfinite(d).any()
-                        row["vs_" + rname] = dict(auc=a_s, reference_auc=a_r, diff=a_s - a_r, lo=float(np.nanpercentile(d, 2.5)) if fin else None,
+                        row["vs_" + rname] = dict(auc=_num(a_s), reference_auc=_num(a_r), diff=_num(a_s - a_r), lo=float(np.nanpercentile(d, 2.5)) if fin else None,
                                                   hi=float(np.nanpercentile(d, 97.5)) if fin else None)
                     rows.append(row)
     return rows

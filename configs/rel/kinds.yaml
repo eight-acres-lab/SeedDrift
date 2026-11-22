@@ -64,7 +64,6 @@ kinds:
         gates: [G4_rel_w2_v0]
         side: data
         produces: tableset
-        stub: true
       w5_items:
         package: W5
         rule: rel_w5_items
@@ -73,6 +72,13 @@ kinds:
         gates: [G4_rel_w5_items]
         side: eval
         stub: true
+      w5_baselines:
+        package: W5
+        rule: rel_w5_baselines
+        output: data/rel_w5/baselines/results.json
+        module: ci.stages.rel.w5_baselines
+        gates: [G4_rel_w5_baselines]
+        side: eval
       w2_items:
         package: W2
         rule: rel_w2_items
@@ -98,7 +104,6 @@ kinds:
         module: ci.stages.rel.w2_census
         gates: [G4_rel_w2_census]
         side: data
-        stub: true
       w12_search:
         package: W12
         rule: rel_w12_search

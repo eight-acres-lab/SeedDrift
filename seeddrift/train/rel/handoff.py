@@ -14,6 +14,10 @@ Table-set manifest (`tableset.json`, written by a stage with `produces: tableset
                  meta (what models never read: genome ids, groups, splits, distance bins, identities, cell presence;
                  for samplers and evaluators only), truth (synthetic sets only: the correct sources, for tests only)
   genomes        [{id, taxid, split}] every genome that occurs in a row; [] for synthetic sets. The sealed check reads it.
+  purpose        train, heldout, probe or ruler; a train set may hold genomes of the train split only (gate G3_rel)
+  sealed_check   real and ruler sets: the record of the passed sealed check of the stage that built them
+                 (ci/stages/rel/common.py sealed_record): passed true, the ids checked, the sealed sources with the
+                 registry. Every stage that reads a table set takes it through from_run, which refuses a set without it.
   producer       {stage, package, run_id, commit}
   sha256         sha256 of the canonical JSON of every other field (written last)
 Model index (`models.json`, written by the training stage, read by evaluation and readouts):
@@ -28,10 +32,12 @@ A package may add fields; it may not drop or change these without a new format v
   finish(doc)                         doc with its sha256 set
   tableset_problems(doc, run_dir)     what is wrong with a table-set manifest (and its files, given run_dir)
   models_problems(doc, run_dir)       what is wrong with a model index
+  sealed_problems(doc)                what is wrong with the sealed record of a real or ruler table set
   from_run(run_dir, path, expect_sha256=None)
                                       a hand-off file of another run: the run passed, its stage record lists the file
                                       with this content, the manifest's digest is its sha256 and, when given, the one
-                                      expected; returns the parsed manifest
+                                      expected, and a real or ruler table set carries a passed sealed record; returns
+                                      the parsed manifest
 """
 from __future__ import annotations
 
@@ -41,6 +47,7 @@ import os
 import re
 
 KINDS = ("real", "synthetic", "ruler")
+PURPOSES = ("train", "heldout", "probe", "ruler")
 ROLES = ("shard", "index", "meta", "truth")
 NAME_RX = re.compile(r"^[A-Za-z0-9._-]+$")
 SHA_RX = re.compile(r"^[0-9a-f]{64}$")
@@ -135,7 +142,24 @@ def tableset_problems(doc, run_dir="") -> list:
         out.append(dict(error="a synthetic table set has no genomes"))
     elif doc.get("kind") != "synthetic" and (not g or any("taxid" not in x or "split" not in x for x in g)):
         out.append(dict(error="a real or ruler table set lists every genome with its taxid and split"))
+    if doc.get("purpose") is not None and doc["purpose"] not in PURPOSES:
+        out.append(dict(error="purpose is one of %s" % ", ".join(PURPOSES)))
+    out += sealed_problems(doc)
     return out
+
+
+def sealed_problems(doc) -> list:
+    if not isinstance(doc, dict) or doc.get("kind") == "synthetic":
+        return []
+    rec = doc.get("sealed_check")
+    if not isinstance(rec, dict) or rec.get("passed") is not True:
+        return [dict(error="a real or ruler table set carries the record of a passed sealed check (sealed_check.passed)")]
+    ids = rec.get("ids") or {}
+    want = len({g.get("id") for g in doc.get("genomes") or [] if isinstance(g, dict)})
+    if not isinstance(ids.get("distinct"), int) or ids["distinct"] < want or not ((ids.get("source") or {}).get("registry")):
+        return [dict(error="the sealed record checked %s distinct ids against %s; it must cover at least the %d genomes listed, with the "
+                     "machine's registry" % (ids.get("distinct"), (ids.get("source") or {}).get("kind"), want))]
+    return []
 
 
 def models_problems(doc, run_dir="") -> list:
@@ -189,4 +213,8 @@ def from_run(run_dir, path, expect_sha256=None) -> dict:
         raise HandoffError("%s of run %s does not match its own sha256" % (path, rec.get("run_id")))
     if expect_sha256 and doc["sha256"] != expect_sha256:
         raise HandoffError("%s of run %s is manifest %s, %s expected" % (path, rec.get("run_id"), doc["sha256"], expect_sha256))
+    if doc.get("format") == "rel-tableset":
+        bad = sealed_problems(doc)
+        if bad:
+            raise HandoffError("%s of run %s: %s" % (path, rec.get("run_id"), bad[0]["error"]))
     return doc

@@ -15,8 +15,12 @@
                                  on [{id, taxid, accession?}]; raises SystemExit on any hit
   sealed_check(cfg, genomes, splits=None)
                                  the whole sealed check of the CI environment on [{id, taxid}]: check_ids, then
-                                 check_lineage. Every rel stage that reads genomes calls it (or check_ids where the
-                                 taxonomy is not at hand, as in the model's Python).
+                                 check_lineage. Every rel stage that builds tables from genomes calls it; it needs the
+                                 machine's sealed registry, so tables are built on machine i-1
+  sealed_record(cfg, genomes, splits=None, allowed=...)
+                                 sealed_check, returned as the record a table-set manifest carries (sealed_check:
+                                 passed, ids, lineage; seeddrift/train/rel/handoff.py). Stages that read table sets
+                                 take them through handoff.from_run, which refuses a set without a passed record.
 """
 from __future__ import annotations
 
@@ -132,3 +136,7 @@ def sealed_check(cfg, genomes, splits=None, allowed=S.ALLOWED, sealed=None, tax=
         raise SystemExit(str(err))
     lin = check_lineage(genomes, cfg, tax, spec_path, **g2_paths) if genomes else dict(checked=0, note="no genomes")
     return dict(ids=ids, lineage=lin)
+
+
+def sealed_record(cfg, genomes, splits=None, allowed=S.ALLOWED, **kw) -> dict:
+    return dict(passed=True, **sealed_check(cfg, genomes, splits, allowed, **kw))

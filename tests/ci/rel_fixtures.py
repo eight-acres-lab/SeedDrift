@@ -24,7 +24,9 @@ def synthetic(n=4, seed=1, **params):
 
 
 def sealed(test_ids=("medium_test_GCF_000000001.1",), chromosomes=("NC_000913.3",), aliases=()):
-    return S.SealedSet.from_parts(test_ids, aliases, chromosomes)
+    """A SealedSet from given parts; its source names a stand-in registry, as SealedSet.load does on machine i-1, so that
+    manifests built in tests carry a complete sealed record."""
+    return S.SealedSet.from_parts(test_ids, aliases, chromosomes, source=dict(kind="given", registry=dict(path="fixture: no registry file")))
 
 
 def gpus(machine="i1"):
@@ -62,10 +64,14 @@ def write_tableset(run_dir, stage="c0_synth", name="t", kind="synthetic", genome
         with open(p, "wb") as f:
             f.write(body)
         files.append(dict(path=os.path.relpath(p, run_dir), sha256=handoff._file_sha(p), bytes=len(body), role=role))
-    doc = handoff.finish(dict(format="rel-tableset", format_version=1, name=name, kind=kind, api_version=0, table_version="test",
-                              coverage=dict(groups=[], scenarios=[], not_covered=["everything: a test fixture"], note="test"),
-                              tables=1, files=files, genomes=list(genomes),
-                              producer=dict(stage=stage, package=package, run_id=os.path.basename(run_dir), commit="0" * 40)))
+    doc = dict(format="rel-tableset", format_version=1, name=name, kind=kind, api_version=1, table_version="test",
+               coverage=dict(groups=[], scenarios=[], not_covered=["everything: a test fixture"], note="test"),
+               tables=1, files=files, genomes=list(genomes),
+               producer=dict(stage=stage, package=package, run_id=os.path.basename(run_dir), commit="0" * 40))
+    if kind != "synthetic":                          # the record a table-building stage writes (common.sealed_record)
+        doc["sealed_check"] = dict(passed=True, ids=dict(checked=len(doc["genomes"]), distinct=len({g["id"] for g in doc["genomes"]}),
+                                                         source=dict(kind="pinned", registry=dict(path="host/sealed_registry.json"))))
+    doc = handoff.finish(doc)
     with open(os.path.join(run_dir, out), "w") as f:
         json.dump(doc, f)
     return doc

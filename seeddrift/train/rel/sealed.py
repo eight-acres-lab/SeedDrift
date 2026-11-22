@@ -6,8 +6,10 @@ standard library only.
   SealedSet.load(ci_root)       the sealed test genomes: the test split of the pinned training-data index (found under
                                 <ci_root>/runs or <ci_root>/imports/runs, checked by sha256 and by the expected count)
                                 with their assembly accessions; the sealed chromosome accessions of the lists in the
-                                repository; and, where <ci_root>/host/sealed_registry.json exists, its test split (one
-                                of its splits must be exactly these genomes) and every alias it names
+                                repository; and the machine's sealed registry <ci_root>/host/sealed_registry.json, whose
+                                test split must be exactly these genomes and every alias of which is refused. Without
+                                the registry it fails: tables are built only where the registry is (machine i-1), and
+                                every other stage accepts only tables whose manifest records a passed check
   SealedSet.from_parts(...)     the same from given parts (tests and fixtures)
   check_ids(ids, sealed, splits=None, allowed=("train", "heldout"))
                                 raises SealedError when an id, an assembly accession inside it (GCA or GCF, any
@@ -95,19 +97,21 @@ class SealedSet:
             raise SealedError("no sealed chromosome accession in %s" % spec.get("chromosome_lists"))
         source = dict(kind="pinned", index=os.path.relpath(idx, ci_root), index_sha256=sha, test_genomes=len(test), chromosomes=len(chroms), registry=None)
         reg_path = os.path.join(ci_root, spec["registry"]) if spec.get("registry") else ""
-        if reg_path and os.path.exists(reg_path):
-            with open(reg_path) as f:
-                reg = json.load(f)
-            splits = reg.get("corpus_test_splits") or []
-            if not any(sorted(g["id"] for g in s.get("genomes") or []) == test for s in splits):
-                raise SealedError("%s has no test split equal to the pinned one (%d genomes); the sealed sources disagree" % (reg_path, len(test)))
-            for s in splits:
-                for g in s.get("genomes") or []:
-                    extra_ids.add(g["id"])
-                    aliases.update(g.get("aliases") or [])
-            for c in reg.get("chromosomes") or []:
-                chroms += list(c.get("aliases") or []) + [c.get("accession", "")]
-            source["registry"] = dict(path=os.path.relpath(reg_path, ci_root), sha256=_sha256(reg_path), test_splits=len(splits))
+        if not reg_path or not os.path.exists(reg_path):
+            raise SealedError("the sealed registry %s is not on this machine: the sealed check cannot run here (tables are built where it "
+                              "is; elsewhere only tables whose manifest records a passed check are read)" % (reg_path or "(none named)"))
+        with open(reg_path) as f:
+            reg = json.load(f)
+        splits = reg.get("corpus_test_splits") or []
+        if not any(sorted(g["id"] for g in s.get("genomes") or []) == test for s in splits):
+            raise SealedError("%s has no test split equal to the pinned one (%d genomes); the sealed sources disagree" % (reg_path, len(test)))
+        for s in splits:
+            for g in s.get("genomes") or []:
+                extra_ids.add(g["id"])
+                aliases.update(g.get("aliases") or [])
+        for c in reg.get("chromosomes") or []:
+            chroms += list(c.get("aliases") or []) + [c.get("accession", "")]
+        source["registry"] = dict(path=os.path.relpath(reg_path, ci_root), sha256=_sha256(reg_path), test_splits=len(splits))
         return cls(set(test) | extra_ids, aliases, chroms, source)
 
     def reasons(self, gid) -> list:

@@ -35,11 +35,13 @@ def test_sealed_check_fails(gid, splits):
         S.check_ids([gid], s, splits=splits)
 
 
-def _ci_root(tmp_path, test=("g_test_GCF_000000003.1",), train=("g_train_GCF_000000001.1",), registry=None):
+def _ci_root(tmp_path, test=("g_test_GCF_000000003.1",), train=("g_train_GCF_000000001.1",), registry="same"):
     root = tmp_path / "root"
     idx = root / "imports" / "runs" / "R" / "data" / "train_data" / "index.json"
     idx.parent.mkdir(parents=True)
     idx.write_text(json.dumps(dict(genomes=[dict(id=g, split="test") for g in test] + [dict(id=g, split="train") for g in train])))
+    if registry == "same":
+        registry = dict(corpus_test_splits=[dict(genomes=[dict(id=g) for g in test])])
     if registry is not None:
         (root / "host").mkdir()
         (root / "host" / "sealed_registry.json").write_text(json.dumps(registry))
@@ -74,6 +76,14 @@ def test_sealed_set_fails_on_a_wrong_index_count_or_registry(tmp_path):
     root2, sp2, _ = _ci_root(tmp_path / "b", registry=dict(corpus_test_splits=[dict(genomes=[dict(id="another")])]))
     with pytest.raises(S.SealedError):                                              # the registry disagrees with the pin
         S.SealedSet.load(root2, sp2, ROOT)
+
+
+def test_sealed_set_without_the_registry_fails(tmp_path):
+    root, sp, _ = _ci_root(tmp_path, registry=None)                                 # machine i-2 has none
+    with pytest.raises(S.SealedError, match="registry"):
+        S.SealedSet.load(root, sp, ROOT)
+    root, sp, _ = _ci_root(tmp_path / "c")
+    assert S.SealedSet.load(root, sp, ROOT).source["registry"]
 
 
 def test_lineage_check_passes_clean_genomes_and_fails_an_excluded_one(tax, tmp_path):
@@ -181,6 +191,17 @@ def test_from_run_takes_a_passed_runs_listed_file_and_fails_otherwise(tmp_path):
     with open(os.path.join(run_dir, "record.json"), "w") as f:
         json.dump(rec, f)
     assert handoff.from_run(run_dir, out, doc["sha256"])["name"] == doc["name"]
+    real = RF.write_tableset(run_dir, kind="real", genomes=[dict(id="g1", taxid=562, split="train")])
+    assert handoff.sealed_problems(real) == []
+    unsealed = handoff.finish({k: v for k, v in real.items() if k != "sealed_check"})
+    assert handoff.sealed_problems(unsealed) != [] and handoff.tableset_problems(unsealed, run_dir) != []
+    with open(os.path.join(run_dir, out), "w") as f:
+        json.dump(unsealed, f)
+    rec["stages"][0]["outputs"][0]["sha256"] = handoff._file_sha(os.path.join(run_dir, out))
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(rec, f)
+    with pytest.raises(handoff.HandoffError, match="sealed"):                      # a real set without a passed record
+        handoff.from_run(run_dir, out)
     with pytest.raises(handoff.HandoffError):
         handoff.from_run(run_dir, out, "f" * 64)
     with open(os.path.join(run_dir, "record.json"), "w") as f:

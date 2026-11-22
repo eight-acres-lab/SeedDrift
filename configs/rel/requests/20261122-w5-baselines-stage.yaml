@@ -1,0 +1,14 @@
+package: W5
+kind: to_package
+to: C0
+what: >-
+  register stage w5_baselines under kind rel_tables in configs/rel/kinds.yaml (package W5, rule rel_w5_baselines,
+  output data/rel_w5/baselines/results.json, module ci.stages.rel.w5_baselines, gates [G4_rel_w5_baselines], side eval,
+  no stub flag); then, once the tables run of package W2 has passed, write its run directory and the sha256 of its
+  table-set manifest into ci/profiles/rel-dev-w5-baselines-i1/config.yaml (rel_w5_baselines.tables_from and
+  tablesets) and start that profile on i-1
+why: >-
+  the classical baselines on the held-out tables are numpy only and must not take the GPU lock that the stages
+  w5_eval and w5_report of kind rel_traineval take; their numbers are the line the first models are read against
+size: {hours: 0.2, threads: 2, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-22

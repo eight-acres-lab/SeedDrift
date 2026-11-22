@@ -108,6 +108,15 @@ def group_names(src, doc):
     return [str(g) for g in (doc.get("coverage") or {}).get("groups") or []]
 
 
+def row_group_names(doc):
+    """{group index: the name the group column of the result rows carries}: the manifest's group_names where it has
+    them (the rule of the trainer's rows, so both sides write the same key), else nothing (the index is written)."""
+    names = doc.get("group_names")
+    if isinstance(names, dict):
+        return {int(k): str(v) for k, v in names.items()}
+    return {k: str(v) for k, v in enumerate(names or [])}
+
+
 def headline(rows):
     main, strata = brun.summary(rows)
     return dict(bits=main, by_nearest_identity=strata)
@@ -145,9 +154,9 @@ def main():
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
         results = brun.evaluate(tables, np.arange(n_held), params, seed=seed, with_chain=with_chain, log=log)
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
-                    table_set=held.manifest["name"], table_kind=held.manifest["kind"],
+                    table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
-        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups)
+        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, row_group_names(held.manifest), brun.other_rows(tables))
 
         rows_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in ("rows.tsv", "params.json", "report.md", "results.json"))
         score.write_rows(rows_path, rows)
@@ -156,7 +165,8 @@ def main():
         with open(report_path, "w") as f:
             f.write(brun.markdown(rows, title, groups) + "\nLimits:\n" + "".join("- %s\n" % x for x in LIMITS))
         doc = dict(
-            stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), reference=brun.REFERENCE,
+            stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), chain=with_chain,
+            reference=brun.REFERENCE,
             headline=headline(rows), groups=groups, n_groups=n_groups, limits=LIMITS,
             items={k: dict(sha256=r["items_sha256"], cells=int(r["cell_table"].shape[0]), tables=r["tables"]) for k, r in results.items()},
             selfcheck=cond.selfcheck(), numpy=np.__version__,
@@ -196,9 +206,8 @@ def gate(st, cfg, run_dir):
     for c in cond.CONDITIONS:
         if c not in doc.get("conditions", []):
             problems.append(dict(condition=c, error="condition not evaluated"))
-        relatives = cond.parse(c)[1] != cond.NO_RELATIVES
-        for n in doc.get("baselines", []):
-            if (relatives or n not in ("row_average", "copy_nearest", "copy_nearest_binned", "switch_copy")) and (c, n) not in seen:
+        for n in brun.names_under(c, bool(doc.get("chain"))):
+            if (c, n) not in seen:
                 problems.append(dict(condition=c, baseline=n, error="no row over all groups"))
         it = (doc.get("items") or {}).get(c) or {}
         if not it.get("sha256") or not it.get("cells"):

@@ -30,7 +30,7 @@ def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True,
         p = fitting.fit(tables, table_ids, mask, seed, base)
         if with_chain:
             k = min(int(chain_tables), table_ids.shape[0])
-            p["chain"] = switch.fit(fitting.take(tables, 0, k), table_ids[:k], mask, seed, p, base)
+            p["chains"] = switch.fit(fitting.take(tables, 0, k), table_ids[:k], mask, seed, p, base)
         p["fit"]["seconds"] = round(time.time() - t0, 1)
         out[mask] = p
         if log:
@@ -39,11 +39,19 @@ def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True,
 
 
 def names(with_chain=True):
-    return cl.NAMES + ((switch.NAME,) if with_chain else ())
+    return cl.NAMES + (switch.NAMES if with_chain else ())
+
+
+def names_under(condition, with_chain=True):
+    """The baselines that mean something under a condition: without relatives only those that use none."""
+    mask, rows_mode = cond.parse(condition)
+    if rows_mode == cond.NO_RELATIVES:
+        return tuple(n for n in cl.NAMES if n not in cl.USES_RELATIVES)
+    return cl.NAMES + (switch.variants(mask) if with_chain else ())
 
 
 def n_params(name):
-    return switch.N_PARAMS if name == switch.NAME else fitting.N_PARAMS[name]
+    return switch.N_PARAMS if name in switch.NAMES else fitting.N_PARAMS[name]
 
 
 def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SEED, base=4, with_chain=True, log=None):
@@ -52,10 +60,9 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
     table_ids = np.asarray(table_ids)
     out = {}
     for condition in conditions:
-        mask, rows_mode = cond.parse(condition)
-        p = params[mask]
+        p = params[cond.parse(condition)[0]]
         digest = cond.ItemsDigest(condition, seed)
-        which = [n for n in names(with_chain) if rows_mode != cond.NO_RELATIVES or n not in cl.USES_RELATIVES + (switch.NAME,)]
+        which = names_under(condition, with_chain)
         bits = {n: [] for n in which}
         seconds = {n: 0.0 for n in which}
         cell_table = []
@@ -64,9 +71,12 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
             cell_table.append(a + bt.cells[0])
             for n in which:
                 t0 = time.time()
-                P = switch.predict(bt, p) if n == switch.NAME else cl.predict(n, bt, p)
-                cl.check_normalised(P)
-                bits[n].append(cl.bits_of(P, truth))
+                if n == switch.JOINT:                      # a stretch as a whole: chain-rule terms, not one distribution per cell
+                    bits[n].append(switch.joint_bits(bt, truth, p))
+                else:
+                    P = switch.predict(bt, p, n) if n in switch.NAMES else cl.predict(n, bt, p)
+                    cl.check_normalised(P)
+                    bits[n].append(cl.bits_of(P, truth))
                 seconds[n] += time.time() - t0
         out[condition] = dict(
             items_sha256=digest.hexdigest(), tables=int(table_ids.shape[0]), seconds=seconds,
@@ -78,14 +88,20 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
     return out
 
 
-def result_rows(results, group, identity, params, head, n_groups=12):
-    """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind and
-    versions. One row per baseline x condition x group x stratum that has cells."""
-    stratum = score.identity_stratum(identity)
+def other_rows(tables):
+    """(N,) the number of other rows every table has."""
+    return cond.present_rows(tables["kind"])[:, 1:].sum(axis=1)
+
+
+def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None):
+    """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind,
+    items_sha256 (of the table set scored) and versions. One row per baseline x condition x group x stratum that has
+    cells; the group column carries group_names[index] where given, else the index. n_other: other_rows(tables)."""
+    strata = score.strata_of(identity, n_other)
     rows = []
     for condition, res in results.items():
         mask = cond.parse(condition)[0]
-        agg = {n: score.aggregate(b, res["cell_table"], group, stratum, n_groups) for n, b in res["bits"].items()}
+        agg = {n: score.aggregate(b, res["cell_table"], group, strata, n_groups, group_names) for n, b in res["bits"].items()}
         ref = {(r["group"], r["stratum"]): r["bits"] for r in agg.get(REFERENCE, [])}
         for n, rws in agg.items():
             cells = int(res["cell_table"].shape[0])
@@ -93,9 +109,9 @@ def result_rows(results, group, identity, params, head, n_groups=12):
                 key = (r["group"], r["stratum"])
                 rows.append(score.result_row(
                     run=head.get("run", ""), commit=head.get("commit", ""), variant=n, author=AUTHOR,
-                    module="baselines." + ("switch" if n == switch.NAME else "classical"), params=n_params(n),
+                    module="baselines." + ("switch" if n in switch.NAMES else "classical"), params=n_params(n),
                     seed=head.get("seed", ""), table_set=head.get("table_set", ""), table_kind=head.get("table_kind", ""),
-                    items_sha256=res["items_sha256"], item_half="", layout=api.LAYOUT_STORED, budget=0, weights="",
+                    items_sha256=head.get("items_sha256", ""), item_half=score.ALL, layout=api.LAYOUT_STORED, budget=0, weights="",
                     cells_seen=int(params[mask]["fit"]["cells"]), target_cells=r["target_cells"],
                     cells_per_s=round(cells / max(res["seconds"][n], 1e-9), 1), peak_mb="", condition=condition,
                     group=r["group"], tier=score.ALL, stratum=r["stratum"], passes=1, bits=r["bits"], baseline=REFERENCE,
@@ -106,7 +122,8 @@ def result_rows(results, group, identity, params, head, n_groups=12):
 
 
 def summary(rows):
-    """{condition: {baseline: bits}} over all groups, and {condition: {stratum: {baseline: bits}}}."""
+    """{condition: {baseline: bits}} over all groups, and {condition: {stratum: {baseline: bits}}} (every stratum, the
+    coarse and the fine bins)."""
     main, strata = {}, {}
     for r in rows:
         if r["group"] != score.ALL:
@@ -137,24 +154,40 @@ def markdown(rows, title="Classical baselines: bits per codon", groups=None):
         if c not in strata or cond.parse(c)[1] == cond.NO_RELATIVES:      # without relatives: the own_freq column of the base condition
             continue
         mine = [n for n in order if n in main[c]]
-        out += ["## %s, by the identity of the nearest row at the target locus" % c, "", "| nearest identity | cells | tables | " + " | ".join(mine) + " |", "|---|---|---|" + "---|" * len(mine)]
-        for s in score.STRATA:
-            if s not in strata[c]:
-                continue
-            nc, nt = cells.get((c, s), (0, 0))
-            out.append("| %s | %d | %d | " % (s.split("=")[1], nc, nt) + " | ".join("%.3f" % strata[c][s][n] if n in strata[c][s] else "" for n in mine) + " |")
+        for what, labels in (("ten bins", score.FINE), ("the bins of the models' rows", score.COARSE)):
+            out += ["## %s, by the identity of the nearest row at the target locus (%s)" % (c, what), "",
+                    "| nearest identity | cells | tables | " + " | ".join(mine) + " |", "|---|---|---|" + "---|" * len(mine)]
+            for s in labels:
+                if s not in strata[c]:
+                    continue
+                nc, nt = cells.get((c, s), (0, 0))
+                out.append("| %s | %d | %d | " % (s.split("=")[-1], nc, nt) + " | ".join("%.3f" % strata[c][s][n] if n in strata[c][s] else "" for n in mine) + " |")
+            out.append("")
+    same = score.OTHER_ROWS[2]
+    whole, repaired = cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED
+    if repaired in main and same in strata.get(whole, {}):
+        out += ["## %s against %s on the same tables (two or more other rows)" % (whole, repaired), "",
+                "| baseline | %s | %s | re-pairing costs |" % (whole, repaired), "|---|---|---|---|"]
+        for n in order:
+            if n in main[repaired] and n in strata[whole][same]:
+                a, b = strata[whole][same][n], main[repaired][n]
+                out.append("| %s | %.3f | %.3f | %+.3f |" % (n, a, b, b - a))
         out.append("")
-    per_group = {}
+    per_group, seen = {}, []
     for r in rows:
         if r["group"] != score.ALL and r["stratum"] == score.ALL:
             per_group.setdefault(r["condition"], {}).setdefault(r["group"], {})[r["variant"]] = (r["bits"], r["target_cells"])
+            if r["group"] not in seen:
+                seen.append(r["group"])
     for c in conds:
         if c not in per_group or cond.parse(c)[1] == cond.NO_RELATIVES:
             continue
         mine = [n for n in order if n in main[c]]
         out += ["## %s, by group" % c, "", "| group | cells | " + " | ".join(mine) + " |", "|---|---|" + "---|" * len(mine)]
-        for g in sorted(per_group[c], key=int):
-            name = groups[int(g)] if groups and int(g) < len(groups) else g
+        for g in seen:
+            if g not in per_group[c]:
+                continue
+            name = groups[int(g)] if groups and g.isdigit() and int(g) < len(groups) else g
             row = per_group[c][g]
             out.append("| %s | %d | " % (name, row[REFERENCE][1] if REFERENCE in row else 0) + " | ".join("%.3f" % row[n][0] if n in row else "" for n in mine) + " |")
         out.append("")

@@ -5,6 +5,7 @@ The tables here are tiny and random: rows copied from the examined row with know
 import itertools
 
 import numpy as np
+import pytest
 
 from seeddrift.train.rel import api
 from seeddrift.train.rel.baselines import classical as cl
@@ -33,14 +34,15 @@ def mutate(seq, rates, base, rng):
 
 def toy_tables(n_tables=8, rows=5, base=4, seed=0, rates=(0.03, 0.02, 0.25), spread=(0.2, 3.0), n_groups=3):
     """Tables in the shard format. Row r > 0 is a copy of a stretch of row 0 with rates * a row factor; some rows miss
-    some blocks, the last row of table 1 misses everything, and some segments start with a residue without a column."""
+    some blocks, the last row of table 1 does not exist, table 2 has one other row only, and some segments start with
+    a residue without a column."""
     rng = np.random.default_rng(seed)
     nc = base ** 3
     N, R, B, L = n_tables, rows, api.N_BLOCKS, api.ROW_LEN
     tok = np.zeros((N, R, L), np.uint8)
     n = np.zeros((N, R, B), np.int16)
     col = np.full((N, R, L), -1, np.int16)
-    kind = np.full((N, R, B), api.KIND_NOT_SEARCHED, np.uint8)
+    kind = np.zeros((N, R, B), np.uint8)
     identity = np.full((N, R), np.nan, np.float32)
     for t in range(N):
         factor = np.exp(rng.uniform(np.log(spread[0]), np.log(spread[1]), R))
@@ -51,7 +53,10 @@ def toy_tables(n_tables=8, rows=5, base=4, seed=0, rates=(0.03, 0.02, 0.25), spr
             tok[t, 0, s:s + length], n[t, 0, b], kind[t, 0, b] = seq0, length, api.KIND_PRESENT
             col[t, 0, s:s + length] = np.arange(length)
             for r in range(1, R):
-                if (t == 1 and r == R - 1) or (role != api.ROLE_TARGET and rng.random() < 0.2):
+                if (t == 1 and r == R - 1) or (t == 2 and r >= 2):                 # rows that do not exist
+                    continue
+                if role != api.ROLE_TARGET and rng.random() < 0.2:
+                    kind[t, r, b] = api.KIND_NOT_SEARCHED
                     continue
                 a = int(rng.integers(0, length // 3 + 1))
                 z = int(rng.integers(a + 1, length + 1))
@@ -126,7 +131,12 @@ def test_hash_is_pinned():
                      [0.25112809168933914, 0.7607817665714194, 0.7339823616532581],
                      [0.8878849276188093, 0.4391936579058807, 0.3614612490738829]])
     assert u.shape == (3, 3) and np.array_equal(u, want)
-    assert cond.selfcheck() == cond.SELFCHECK == "b18b72830b1b95ede37f262535566c5a6208aeaea256e6bb3ae2c8b8a49e2535"
+    hidden = cond.hidden_target_cells(np.full((2, 3, api.N_BLOCKS), api.LEN_TARGET), [0, 2999], cond.SCATTERED)
+    assert np.flatnonzero(hidden[0])[:12].tolist() == [0, 4, 14, 15, 19, 21, 29, 30, 34, 38, 45, 50] and 20 < hidden[1].sum() < 60
+    kind = np.ones((8, 16, api.N_BLOCKS), np.uint8)
+    src, has = cond.repair_rows(kind, np.arange(8))
+    assert has.all() and (src[:, 1] - 1).tolist() == [13, 3, 12, 2, 1, 1, 7, 11]      # the shift of every table, k = 15
+    assert cond.selfcheck() == cond.SELFCHECK == "b0da9955aa199eed4a5a75b8616ca642680a33b48d96af7208e83f222040b39e"
     pinned, cond.SELFCHECK = cond.SELFCHECK, "0" * 64                            # an interpreter that plans other cells is refused
     del cond._PORTABLE[:]
     try:
@@ -153,7 +163,7 @@ def test_plans_hide_row0_target_cells_only():
         n0 = tables["n"][:, 0, cond.TARGET_BLOCK]
         hid = m["target"][:, 0, tb].sum(axis=1)
         if c.startswith(cond.WHOLE_GENE):
-            assert np.array_equal(hid, n0)
+            assert np.array_equal(hid, np.where(m["has"], n0, 0)) and (m["has"].all() or c.endswith(cond.REPAIRED))
         else:
             assert 0.10 < hid.sum() / n0.sum() < 0.20
         if c.endswith(cond.NO_RELATIVES):
@@ -173,30 +183,61 @@ def test_plan_depends_on_lengths_only():
         assert np.array_equal(a["target"], b["target"]) and np.array_equal(a["visible"], b["visible"]) and np.array_equal(a["rows"], b["rows"])
 
 
-def test_repaired_moves_every_other_block_by_one_cycle():
+def test_repaired_shifts_the_other_rows_of_every_other_block():
     tables, _ = toy_tables(n_tables=12, rows=6)
     ids = np.arange(12)
     m = cond.materialise(tables, ids, cond.WHOLE_GENE + "+" + cond.REPAIRED)
     tb = slice(cond.TARGET_START, cond.TARGET_STOP)
     assert np.array_equal(m["tok"][:, :, tb], tables["tok"][:, :, tb]) and np.array_equal(m["n"][:, :, -1], tables["n"][:, :, -1])
     assert np.array_equal(m["tok"][:, 0], tables["tok"][:, 0])
+    present = cond.present_rows(tables["kind"])
+    assert present[:, 0].all() and not present[1, 5] and present[2].tolist() == [True, True] + [False] * 4
     for t in range(12):
         src = m["rows"][t]
-        exists = (tables["n"][t] > 0).any(axis=1)
-        live = [r for r in range(1, 6) if exists[r]]
-        assert src[0] == 0 and sorted(src[live]) == live and all(src[r] != r for r in live)
-        assert all(src[r] == r for r in range(1, 6) if not exists[r])
-        seen, r = [], live[0]                                                    # one cycle through every existing row
-        while r not in seen:
-            seen.append(r)
-            r = int(src[r])
-        assert sorted(seen) == live
+        live = [r for r in range(1, 6) if present[t, r]]
+        assert src[0] == 0 and all(src[r] == r for r in range(1, 6) if not present[t, r])
+        if len(live) < 2:                                                        # one other row: nothing to re-pair, nothing scored
+            assert t == 2 and not m["has"][t] and not m["target"][t].any() and np.array_equal(src, np.arange(6))
+            continue
+        shift = live.index(int(src[live[0]]))
+        assert m["has"][t] and 1 <= shift < len(live) and [int(src[r]) for r in live] == live[shift:] + live[:shift]
+        assert m["target"][t, 0, tb].sum() == tables["n"][t, 0, -1]
         for r in range(6):
             assert np.array_equal(m["tok"][t, r, :cond.TARGET_START], tables["tok"][t, src[r], :cond.TARGET_START])
             assert np.array_equal(m["col"][t, r, :cond.TARGET_START], tables["col"][t, src[r], :cond.TARGET_START])
-            assert np.array_equal(m["n"][t, r, :-1], tables["n"][t, src[r], :-1])
-    one = dict((k, v[1:2]) for k, v in tables.items())                           # table 1: its last row has no segment
-    assert cond.repair_rows(one["n"], [5])[0, -1] == 5
+            assert np.array_equal(m["n"][t, r, :-1], tables["n"][t, src[r], :-1]) and np.array_equal(m["kind"][t, r, :-1], tables["kind"][t, src[r], :-1])
+
+
+def test_plan_is_the_plan_of_the_trainers_heldout_evaluation():
+    """Cell for cell and row for row, on tiny tables; and the same strata labels."""
+    try:
+        from seeddrift.train.rel.data import heldout_plan as H
+        from seeddrift.train.rel.data import tables as T
+    except ImportError:
+        pytest.skip("the trainer's held-out plan is not on this branch")
+    tables, meta = toy_tables(n_tables=9, rows=6, seed=17)
+    ids = np.arange(9) + 100
+    assert tuple(H.CONDITIONS) == cond.CONDITIONS and tuple(H.STRATA) == score.COARSE and H.RATE == cond.MASK_RATE
+    present = cond.present_rows(tables["kind"])
+    for c in cond.CONDITIONS:
+        m = cond.materialise(tables, ids, c)
+        for t in range(9):
+            tab = dict(tok=tables["tok"][t], n=tables["n"][t], col=tables["col"][t], kind=tables["kind"][t], frame_len=tables["n"][t, 0])
+            plan = H.condition(T.take_rows(tab, T.present_rows(tab)), c, int(ids[t]))
+            if plan is None:
+                assert not m["has"][t] and not m["target"][t].any()
+                continue
+            theirs, visible, hide = plan
+            rows = [0] if c.endswith(cond.NO_RELATIVES) else np.flatnonzero(present[t]).tolist()
+            assert np.array_equal(T.present_rows(tab), np.flatnonzero(present[t])) and m["has"][t]
+            for f in ("tok", "n", "col", "kind"):
+                assert np.array_equal(m[f][t][rows], theirs[f]), (c, t, f)
+            assert np.array_equal(m["target"][t][rows], hide) and np.array_equal(m["visible"][t][rows], visible), (c, t)
+            assert not m["target"][t][[r for r in range(m["target"].shape[1]) if r not in rows]].any()
+    mine = score.coarse_stratum(meta["identity"])
+    assert [score.COARSE[k] for k in mine] == [H.stratum(meta["identity"][t]) for t in range(9)]
+    edge = np.array([[1.0, x, np.nan] for x in (0.0, 0.29999, 0.3, 0.5, 0.7, 0.9, 1.0)] + [[1.0, np.nan, np.nan]])
+    assert [score.COARSE[k] for k in score.coarse_stratum(edge)] == [H.stratum(e) for e in edge]
 
 
 def test_items_digest_tells_content_and_plan_apart():
@@ -243,7 +284,7 @@ def _params(base):
     prior = np.arange(1, V + 1, dtype=float)
     return dict(prior=(prior / prior.sum()).tolist(), alpha=3.0, beta=0.7, eps=[0.05, 0.02, 0.3], rho=0.01,
                 eps_binned=[[0.02 * (k + 1), 0.01, 0.03 * (k + 1)] for k in range(cl.N_SHARE_BINS + 1)],
-                chain=dict(eps=[0.04, 0.03, 0.2], tau=0.1, nosrc=0.2))
+                chains={n: dict(eps=[0.04, 0.03, 0.2], tau=0.1, nosrc=0.2) for n in switch.NAMES})
 
 
 def test_view_holds_nothing_of_the_hidden_residues():
@@ -263,7 +304,8 @@ def test_view_holds_nothing_of_the_hidden_residues():
             ba, bb = cl.Batch(va, ca, base), cl.Batch(vb, cb, base)
             for name in cl.NAMES:
                 assert np.array_equal(cl.predict(name, ba, _params(base)), cl.predict(name, bb, _params(base)))
-            assert np.array_equal(switch.predict(ba, _params(base)), switch.predict(bb, _params(base)))
+            for name in (switch.NAME, switch.PAST, switch.AHEAD):
+                assert np.array_equal(switch.predict(ba, _params(base), name), switch.predict(bb, _params(base), name))
 
 
 def test_every_baseline_sums_to_one_over_every_residue():
@@ -277,10 +319,10 @@ def test_every_baseline_sums_to_one_over_every_residue():
         view, cells, truth = layout.masked_view(m)
         bt = cl.Batch(view, cells, base)
         assert truth.shape[0] > 0
-        for name in brun.names(True):
+        for name in cl.NAMES + (switch.NAME, switch.PAST, switch.AHEAD):
             total = np.zeros(truth.shape[0])
             for x in range(1, V + 1):
-                P = switch.predict(bt, _params(base)) if name == switch.NAME else cl.predict(name, bt, _params(base))
+                P = switch.predict(bt, _params(base), name) if name in switch.NAMES else cl.predict(name, bt, _params(base))
                 cl.check_normalised(P)
                 assert P.shape == (truth.shape[0], V)
                 total += 2.0 ** -cl.bits_of(P, np.full(truth.shape[0], x))
@@ -343,7 +385,9 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
         p = params[mask]
         assert p["fit"]["cells"] > 0 and abs(sum(p["prior"]) - 1) < 1e-9 and len(p["eps_binned"]) == cl.N_SHARE_BINS + 1
         assert max(abs(a - b) for a, b in zip(p["eps"], rates)) < 0.02, p["eps"]
-        assert p["chain"]["fit"]["trace"][-1]["bits"] <= p["chain"]["fit"]["trace"][0]["bits"]
+        assert sorted(p["chains"]) == sorted(switch.variants(mask))
+        for ch in p["chains"].values():
+            assert ch["fit"]["trace"][-1]["bits"] <= ch["fit"]["trace"][0]["bits"] and ch["fit"]["cells"] > 0
     held, hmeta = toy_tables(n_tables=30, rows=5, seed=22, rates=rates, spread=(1.0, 1.0))
     res = brun.evaluate(held, np.arange(30), params, seed=9)
     assert sorted(res) == sorted(cond.CONDITIONS)
@@ -352,19 +396,33 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     assert abs(mean(sc, "uniform") - np.log2(65)) < 1e-12
     assert max(mean(sc, "copy_nearest"), mean(sc, "row_average")) < mean(sc, "own_freq") - 1.0 and mean(sc, "own_freq") <= mean(sc, "uniform") + 0.05
     assert mean(sc, switch.NAME) < mean(sc, "own_freq") - 1.0 and mean(wg, "copy_nearest") < mean(wg, "own_freq") - 1.0
+    assert mean(sc, switch.NAME) < mean(sc, switch.AHEAD) + 0.02 < mean(sc, switch.PAST) + 0.04      # seeing less never helps
+    assert mean(wg, switch.JOINT) < mean(wg, switch.NAME) - 0.2                    # the stretch as a whole finds its source
+    assert switch.JOINT not in sc["bits"] and switch.PAST not in wg["bits"]
     assert "copy_nearest" not in res[cond.WHOLE_GENE + "+" + cond.NO_RELATIVES]["bits"]
     assert np.array_equal(res[cond.SCATTERED + "+" + cond.NO_RELATIVES]["bits"]["own_freq"], sc["bits"]["own_freq"])
-    assert np.array_equal(res[cond.WHOLE_GENE + "+" + cond.REPAIRED]["bits"]["row_average"], wg["bits"]["row_average"])
-    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, dict(run="r", commit="c", seed=9, table_set="toy", table_kind=api.TABLE_SYNTHETIC, versions="v"), n_groups=3)
+    rp = res[cond.WHOLE_GENE + "+" + cond.REPAIRED]                               # table 2 has one other row: not re-paired, not scored
+    n_other = brun.other_rows(held)
+    assert n_other[2] == 1 and 2 not in rp["cell_table"] and set(rp["cell_table"]) == set(np.flatnonzero(n_other >= 2))
+    assert np.array_equal(rp["bits"]["row_average"], wg["bits"]["row_average"][wg["cell_table"] != 2])
+    assert not np.array_equal(rp["bits"]["copy_nearest"], wg["bits"]["copy_nearest"][wg["cell_table"] != 2])
+    head = dict(run="r", commit="c", seed=9, table_set="toy", table_kind=api.TABLE_SYNTHETIC, items_sha256="5" * 64, versions="v")
+    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, head, n_groups=3, group_names={0: "zero", 1: "one"}, n_other=n_other)
+    same = {(r["condition"], r["variant"]): r for r in rows if r["group"] == "all" and r["stratum"] in ("all", score.OTHER_ROWS[2])
+            and (r["condition"], r["stratum"]) in ((cond.WHOLE_GENE, score.OTHER_ROWS[2]), (cond.WHOLE_GENE + "+" + cond.REPAIRED, "all"))}
+    a, b = same[(cond.WHOLE_GENE, "row_average")], same[(cond.WHOLE_GENE + "+" + cond.REPAIRED, "row_average")]
+    assert a["target_cells"] == b["target_cells"] and abs(a["bits"] - b["bits"]) < 1e-12 and a["n_items"] == b["n_items"] == 29
+    assert {r["group"] for r in rows} == {"all", "zero", "one", "2"} and {r["tier"] for r in rows} == {"all"} == {r["item_half"] for r in rows}
+    assert {r["stratum"] for r in rows} <= set(score.COARSE + score.FINE + score.OTHER_ROWS + ("all",)) and any(r["stratum"] in score.COARSE for r in rows)
     assert all(tuple(r) == api.RESULT_ROW for r in rows)
     top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["condition"] == cond.SCATTERED]
-    assert sorted(r["variant"] for r in top) == sorted(brun.names(True))
+    assert sorted(r["variant"] for r in top) == sorted(brun.names_under(cond.SCATTERED))
     own = [r for r in top if r["variant"] == "own_freq"][0]
     cn = [r for r in top if r["variant"] == "copy_nearest"][0]
     assert own["bits_minus_baseline"] == 0 and abs(cn["bits_minus_baseline"] - (cn["bits"] - own["bits"])) < 1e-12 and cn["bits_minus_baseline"] < -1
-    assert cn["target_cells"] == sc["cell_table"].shape[0] and cn["items_sha256"] == sc["items_sha256"] and cn["n_items"] == 30
+    assert cn["target_cells"] == sc["cell_table"].shape[0] and cn["items_sha256"] == "5" * 64 and cn["n_items"] == 30
     text = brun.markdown(rows)
-    assert "| copy_nearest |" in text and "by the identity of the nearest row" in text
+    assert "| copy_nearest |" in text and "by the identity of the nearest row" in text and "on the same tables" in text
 
 
 def test_aggregate_is_the_mean_of_the_group_means():
@@ -372,14 +430,16 @@ def test_aggregate_is_the_mean_of_the_group_means():
     cell_table = np.array([0, 0, 1, 1, 1, 2])
     group = np.array([0, 1, 1, 2])                                               # table 3 has no cell
     identity = np.array([[1.0, 0.25, np.nan], [1.0, np.nan, np.nan], [1.0, 0.31, 0.95], [1.0, 0.5, 0.5]])
-    stratum = score.identity_stratum(identity)
-    assert [score.STRATA[k] for k in stratum] == ["nearest_identity=0.2-0.3", "nearest_identity=none", "nearest_identity=0.9-1.0", "nearest_identity=0.5-0.6"]
-    assert score.identity_stratum(np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.3]])).tolist() == [9, 0, 3]
-    rows = {(r["group"], r["stratum"]): r for r in score.aggregate(bits, cell_table, group, stratum, n_groups=3)}
+    strata = score.strata_of(identity)
+    assert [score.FINE[k] for k in strata[1][1]] == ["nearest_identity=0.2-0.3", "nearest_identity=none", "nearest_identity=0.9-1.0", "nearest_identity=0.5-0.6"]
+    assert [score.COARSE[k] for k in strata[0][1]] == ["<0.3", "none", ">=0.9", "0.5-0.7"]
+    assert score.fine_stratum(np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.3]])).tolist() == [9, 0, 3]
+    assert [score.COARSE[k] for k in score.coarse_stratum(np.array([[1.0, 0.3], [1.0, 0.29], [1.0, 0.9], [1.0, 0.7]]))] == ["0.3-0.5", "<0.3", ">=0.9", "0.7-0.9"]
+    rows = {(r["group"], r["stratum"]): r for r in score.aggregate(bits, cell_table, group, strata, n_groups=3, group_names={1: "one"})}
     top = rows[("all", "all")]
     assert abs(top["bits"] - (2.0 + (10 + 20 + 30 + 7) / 4.0) / 2) < 1e-12 and top["target_cells"] == 6 and top["n_items"] == 3 and top["n_groups"] == 2
-    assert rows[("1", "all")]["bits"] == 67 / 4.0 and rows[("1", "nearest_identity=none")]["bits"] == 20.0
-    assert rows[("all", "nearest_identity=0.9-1.0")]["bits"] == 7.0 and ("2", "all") not in rows
+    assert rows[("one", "all")]["bits"] == 67 / 4.0 and rows[("one", "nearest_identity=none")]["bits"] == 20.0 == rows[("one", "none")]["bits"]
+    assert rows[("all", "nearest_identity=0.9-1.0")]["bits"] == 7.0 == rows[("all", ">=0.9")]["bits"] and ("2", "all") not in rows and ("0", "<0.3") in rows
     row = score.result_row(run="x", bits=1.5)
     assert tuple(row) == api.RESULT_ROW and row["commit"] == ""
     try:
@@ -395,6 +455,45 @@ def test_result_rows_round_trip(tmp_path):
     score.write_rows(path, rows)
     back = score.read_rows(path)
     assert len(back) == 1 and tuple(back[0]) == api.RESULT_ROW and float(back[0]["bits"]) == 4.25 and back[0]["variant"] == "own_freq"
+
+
+def test_joint_reading_sums_to_one_over_every_stretch():
+    """The whole gene hidden and read as one stretch: over every possible stretch of three residues (nine tokens) the
+    probabilities add up to one, through the same path the scorer takes."""
+    base, length = 2, 3
+    nc, V = cl.sizes(base)
+    tables, _ = toy_tables(n_tables=3, rows=4, base=base, seed=8)
+    s = cond.TARGET_START
+    for name in ("tok", "col"):                                                  # cut the target block to three columns
+        a = tables[name]
+        fill = 0 if name == "tok" else -1
+        for t in range(3):
+            for r in range(4):
+                n = int(tables["n"][t, r, -1])
+                keep = np.flatnonzero((tables["col"][t, r, s:s + n] >= 0) & (tables["col"][t, r, s:s + n] < length)) if name == "tok" else None
+                if name == "tok":
+                    tables.setdefault("_keep", {})[(t, r)] = keep
+                keep = tables["_keep"][(t, r)]
+                vals = a[t, r, s:s + n][keep].copy()
+                a[t, r, s:] = fill
+                a[t, r, s:s + len(vals)] = vals
+    for (t, r), keep in tables.pop("_keep").items():
+        tables["n"][t, r, -1] = len(keep)
+    assert (tables["n"][:, 0, -1] == length).all()
+    p = _params(base)
+    total = np.zeros(3)
+    for seq in itertools.product(range(1, V + 1), repeat=length):
+        tables["tok"][:, 0, s:s + length] = seq
+        view, cells, truth = layout.masked_view(cond.materialise(tables, np.arange(3), cond.WHOLE_GENE))
+        bits = switch.joint_bits(cl.Batch(view, cells, base), truth, p)
+        total += 2.0 ** -np.bincount(cells[0], weights=bits, minlength=3)
+    assert np.abs(total - 1.0).max() < 1e-12
+    try:                                                                         # scattered cells are not a stretch
+        view, cells, truth = layout.masked_view(cond.materialise(tables, np.arange(3), cond.SCATTERED, rate=0.5))
+        switch.joint_bits(cl.Batch(view, cells, base), truth, p)
+        raise AssertionError("the joint reading must refuse a stretch with visible cells")
+    except ValueError:
+        pass
 
 
 def _chain_case(base=2, C=4, K=2, seed=0):
@@ -439,6 +538,8 @@ def test_chain_equals_enumeration_and_is_normalised():
     seqs = np.array(list(itertools.product(range(1, V + 1), repeat=3)), dtype=np.uint8)   # every stretch of three residues
     lj = sw.log_joint(seqs, np.repeat(Y[:, :, :3], seqs.shape[0], axis=0), np.repeat(q, seqs.shape[0], axis=0), kernel, tau, nosrc, base)
     assert seqs.shape[0] == V ** 3 and abs(np.exp(lj).sum() - 1.0) < 1e-12
+    terms = sw.log_joint(seqs, np.repeat(Y[:, :, :3], seqs.shape[0], axis=0), np.repeat(q, seqs.shape[0], axis=0), kernel, tau, nosrc, base, per_column=True)
+    assert terms.shape == (V ** 3, 3) and np.allclose(terms.sum(axis=1), lj, atol=1e-13)   # the chain-rule terms of the stretch
     # a hidden cell: its distribution = the joint with every residue in its place, renormalised; other hidden cells summed out
     X = rng.integers(1, V + 1, (1, C)).astype(np.uint8)
     for hidden in ([1], [0, 2], [C - 1]):

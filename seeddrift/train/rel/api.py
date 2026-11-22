@@ -85,6 +85,31 @@ META_FIELDS = {
     "identity":  ("float32", "N R", "share of identical codons between the row and row 0 over the aligned part of the target block; nan = no cell"),
 }
 
+# ---- additions for tables of version 1 (the uncapped search); compatible: API stays 1 ----
+# Kept in their own mappings so that code written for version 0 (which iterates SHARD_FIELDS and META_FIELDS) is
+# unchanged; a reader of version 1 tables reads both. A field listed here is absent from tables of version 0, where the
+# defaults below hold.
+# KIND_ABSENT from table version 1: the row's genome was searched (it is a training genome of the search database) and
+#   holds no homolog of this block's gene. An input only, never a target, until the protocol of round 1 decides.
+# KIND_SELF_COPY: a row of the examined genome itself showing another copy of the block's gene; its genome_of_row is 0;
+#   at most MAX_SELF_COPY_ROWS such rows per table, drawn at random, never by score; its other blocks are KIND_ABSENT
+#   or KIND_NONE (the examined genome's own context is row 0).
+SHARD_FIELDS_ADDED = {
+    "genome_of_row": ("int8", "N R", "the genome of each row inside the table: 0 for row 0 and its self-copy rows, then 1, 2, ... in row order; rows of one genome share the number; -1 = no row. A model may use it only as equality between rows (same genome or not), never as a value, so that a model stays equivariant to the order of rows. Default (version 0): row r has number r"),
+}
+META_FIELDS_ADDED = {
+    "row_gene":  ("int32", "N R B", "index of the gene the row's segment lies in, in its genome's gene list; -1 = no segment. Row 0 equals `gene`"),
+    "row_first": ("int16", "N R B", "the codon of that gene at which the segment starts; -1 = no segment. Row 0: 0"),
+}
+MAX_ROWS_PER_GENOME = 2      # rows of one relative genome in a table (paralogs), drawn at random beyond that, never by score
+MAX_SELF_COPY_ROWS = 2
+# Distance tiers of a row's genome to the examined genome (META `tier`), provisional from table version 1: edges of the
+# k-mer distance of the passed distance stage; tier t holds distances in [edge[t-1], edge[t]); the last tier is "no
+# shared k-mer". For sampling and reporting only, never a model input.
+TIER_EDGES = (0.05, 0.2, 0.5, 1.0)
+TIER_NO_SHARED = len(TIER_EDGES) + 1
+
+
 TABLE_REAL, TABLE_SYNTHETIC, TABLE_RULER = "real", "synthetic", "ruler"
 LAYOUT_LEAKFREE, LAYOUT_STORED, LAYOUT_UNALIGNED = "leakfree", "stored", "unaligned"
 

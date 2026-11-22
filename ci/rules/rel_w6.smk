@@ -23,3 +23,12 @@ rule rel_w6_report:
     input: ["gates/pre.ok"] + (["gates/rel_w6_fit.ok"] if "w6_fit" in REL_ON else [])
     output: "data/rel_w6/report/report.json"
     shell: STAGE.format(name="rel.w6_report")
+
+
+# w6_eval: the saved weights of a training run's arms evaluated again (an arm whose final evaluation the wall limit cut
+# short); nothing is trained
+rule rel_w6_eval:
+    input: "gates/pre.ok"
+    output: "data/rel_w6/eval/models.json"
+    resources: gpu=1
+    shell: STAGE.format(name="rel.w6_eval")

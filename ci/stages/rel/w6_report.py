@@ -4,9 +4,17 @@ ci.stages.rel.w6_report RUN_DIR`. CPU only, numpy and the standard library; it r
 contract), the model index and each arm's preflight record, nothing of a model.
 
 Profile block rel_w6_report (all optional):
-  fits       [run directory, ...]: passed runs whose stage rel_w6_fit trained arms (of this machine, or copied to it
-             with record.json, stages/ and data/rel_w6/fit/); their rows are set beside those of this run (which comes
-             first when its own rel_w6_fit ran)
+  fits       [run directory | {run, folder, label, accept}, ...]: runs whose stage rel_w6_fit trained arms (folder
+             data/rel_w6/fit, the default) or whose stage rel_w6_eval evaluated their weights again (folder
+             data/rel_w6/eval), of this machine or copied to it with record.json, stages/ and the folder. A run must
+             have passed unless accept names its status (e.g. [gate_failed]); its index must be the file its stage
+             record lists either way. label tells apart arms of one name from two runs (the arm is "<name> @<label>");
+             a later entry with the same arms adds to and replaces what an earlier one gave (its final evaluation over
+             a training run's, say). This run comes first when its own rel_w6_fit ran.
+  readings_exclude  [arm, ...]: arms shown in the curves and tables but left out of the readings "relatives" and
+             "scale" (an arm whose run was slowed, with another run of the same arm as the reading)
+  consistency [[arm, arm], ...]: pairs of arms of the same variant and seed from two runs, set side by side at their
+             common nodes
   baselines  [{run, path}]: result tables of passed runs (the classical baselines of package W5: path
              data/rel_w5/baselines/rows.tsv; its results.json beside it gives the digest of the cells it scored)
   main       the condition of the headline curve (default scattered; an arm trained without relatives is read under
@@ -46,6 +54,7 @@ from seeddrift.train.rel.evalh import score as SC
 
 OUT = os.path.join("data", "rel_w6", "report")
 FIT = os.path.join("data", "rel_w6", "fit")
+EVAL = os.path.join("data", "rel_w6", "eval")
 NODE_RX = re.compile(r"^(ema|raw)@tables=(\d+)$")
 NO_REL = "+" + cond.NO_RELATIVES
 NONE_BIN = SC.FINE[-1]
@@ -78,11 +87,19 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "consistency"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     base = [dict(run=str(b["run"]), path=str(b["path"])) for b in sc.get("baselines") or []]
-    return dict(fits=[str(x) for x in sc.get("fits") or []], baselines=base, main=str(sc.get("main", cond.SCATTERED)))
+    fits = []
+    for x in sc.get("fits") or []:
+        x = dict(run=x) if isinstance(x, str) else dict(x)
+        if set(x) - {"run", "folder", "label", "accept"} or not x.get("run") or x.get("folder", FIT) not in (FIT, EVAL):
+            raise SystemExit("rel_w6_report.fits: a run directory or {run, folder (%s or %s), label, accept}: %r" % (FIT, EVAL, x))
+        fits.append(dict(run=str(x["run"]), folder=str(x.get("folder", FIT)), label=str(x.get("label") or ""), accept=[str(a) for a in x.get("accept") or []]))
+    pairs = [[str(a), str(b)] for a, b in sc.get("consistency") or []]
+    return dict(fits=fits, baselines=base, main=str(sc.get("main", cond.SCATTERED)), exclude=[str(a) for a in sc.get("readings_exclude") or []],
+                consistency=pairs)
 
 
 def number(x):
@@ -110,23 +127,41 @@ def variant_of(st, path):
         return dict(relatives=True, size=None)
 
 
+def index_of(run, rel, accept):
+    """A model index of another run, checked against that run's stage record: from a passed run through
+    handoff.from_run; from a run whose status `accept` names, the same check without the status."""
+    rec = read_json(os.path.join(run, "record.json")) or {}
+    if rec.get("status") == "passed":
+        try:
+            return handoff.from_run(run, rel)
+        except (handoff.HandoffError, OSError, ValueError) as err:
+            raise SystemExit("rel_w6_report: %s: %s" % (run, err))
+    if rec.get("status") not in accept:
+        raise SystemExit("rel_w6_report: run %s is %s, which the profile does not accept" % (run, rec.get("status")))
+    p = os.path.join(run, rel)
+    listed = [o for x in rec.get("stages") or [] for o in x.get("outputs") or [] if o.get("path") == rel]
+    doc = read_json(p)
+    if doc is None or not listed or any(o.get("sha256") != sha256_file(p, use_sidecar=False) for o in listed) or doc.get("sha256") != handoff.digest(doc):
+        raise SystemExit("rel_w6_report: %s of run %s is not the file its stage record lists" % (rel, run))
+    return doc
+
+
 def collect(st, run_dir, s):
-    """Rows, arms (model index entries with their run and variant), baseline rows and digests, sources, group names."""
-    fits = ([run_dir] if os.path.exists(os.path.join(run_dir, FIT, "models.json")) else []) + [f for f in s["fits"] if os.path.realpath(f) != os.path.realpath(run_dir)]
+    """Rows, arms (model index entries with their run and variant, keyed by name and label), baseline rows and digests,
+    sources, group names."""
+    own = [dict(run=run_dir, folder=FIT, label="", accept=[])] if os.path.exists(os.path.join(run_dir, FIT, "models.json")) else []
+    fits = own + [f for f in s["fits"] if not (os.path.realpath(f["run"]) == os.path.realpath(run_dir) and f["folder"] == FIT)]
     if not fits:
         raise SystemExit("rel_w6_report: no fit to report (this run trained nothing and rel_w6_report.fits names no run)")
     rows, arms, sources, groups = [], {}, [], []
-    for f in fits:
-        if f == run_dir:
+    for spec in fits:
+        f, folder, label = spec["run"], spec["folder"], spec["label"]
+        key = lambda name: name + (" @" + label if label else "")                                   # noqa: E731
+        if f == run_dir and folder == FIT:
             doc = read_json(os.path.join(f, FIT, "models.json"))
         else:
-            try:
-                doc = handoff.from_run(f, os.path.join(FIT, "models.json"))
-            except (handoff.HandoffError, OSError, ValueError) as err:
-                raise SystemExit("rel_w6_report: %s: %s" % (f, err))
+            doc = index_of(f, os.path.join(folder, "models.json"), spec["accept"])
         for v in doc["variants"]:
-            if v["name"] in arms:
-                raise SystemExit("rel_w6_report: arm %s is in two of the runs reported" % v["name"])
             pre = read_json(os.path.join(f, v["info"]["folder"], "preflight.json")) or {}
             node_items = {}
             try:                                                       # the digest of the cells the nodes scored (the same subset at every node)
@@ -138,11 +173,19 @@ def collect(st, run_dir, s):
                             break
             except (OSError, ValueError):
                 pass
-            arms[v["name"]] = dict(v, run=os.path.basename(f), variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"),
-                                   node_items=node_items)
-        rows += SC.read_rows(os.path.join(f, FIT, "results.tsv"))
+            entry = dict(v, name=key(v["name"]), run=os.path.basename(f), variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"),
+                         node_items=node_items)
+            old = arms.get(entry["name"])
+            if old is not None:                                        # a later entry adds to and replaces an earlier one
+                entry["info"] = dict(old["info"], **{k: x for k, x in v["info"].items() if x is not None})
+                entry["train_tables"] = entry["train_tables"] or old.get("train_tables")
+                entry["node_items"] = entry["node_items"] or old.get("node_items")
+                entry["run"] = "%s + %s" % (old["run"], entry["run"]) if old["run"] != entry["run"] else entry["run"]
+            arms[entry["name"]] = entry
+        names = {v["name"] for v in doc["variants"]}
+        rows += [dict(r, variant=key(r["variant"])) if r["variant"] in names else r for r in SC.read_rows(os.path.join(f, folder, "results.tsv"))]
         groups = groups or list(doc.get("groups") or [])
-        sources.append(dict(run=os.path.basename(f), models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
+        sources.append(dict(run=os.path.basename(f), folder=folder, label=label, models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
     base, digests, sub = [], {}, dict(rows=[], digests={})
     for b in s["baselines"]:
         p = os.path.join(b["run"], b["path"])
@@ -225,15 +268,15 @@ def build(st, cfg, run_dir):
     os.makedirs(folder, exist_ok=True)
     bits = index_rows(rows, arms, base)
     ok = sorted(a for a in arms if arms[a]["status"] == "ok")
-    rel = [a for a in ok if arms[a]["variant"]["relatives"]]
-    norel = [a for a in ok if not arms[a]["variant"]["relatives"]]
+    rel = [a for a in ok if arms[a]["variant"]["relatives"] and a not in s["exclude"]]
+    norel = [a for a in ok if not arms[a]["variant"]["relatives"] and a not in s["exclude"]]
     bnames = sorted({r["variant"] for r in base if number(r["bits"]) is not None})
     names = sorted(arms)
     cols = names + bnames
     F = lambda v, c, g=SC.ALL, x=SC.ALL: bits.get((v, "final", None, c, g, x))                     # noqa: E731
     N = lambda v, t, c, g=SC.ALL, x=SC.ALL: bits.get((v, "node", t, c, g, x))                       # noqa: E731
     conds = [c for c in cond.CONDITIONS if any(F(v, c) is not None for v in cols)]
-    reading = {a: (s["main"] if a in rel else s["main"] + NO_REL) for a in names}
+    reading = {a: (s["main"] if arms[a]["variant"]["relatives"] else s["main"] + NO_REL) for a in names}
     nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
     same = same_items(arms, digests)
     same_subset = {}
@@ -320,6 +363,13 @@ def build(st, cfg, run_dir):
     repair = [[v, F(v, cond.WHOLE_GENE, SC.ALL, two), F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two),
                diff(F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two), F(v, cond.WHOLE_GENE, SC.ALL, two))] for v in rel + bnames
               if F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two) is not None]
+    # two runs of one arm at their common nodes
+    consistency = []
+    for a, b in s["consistency"]:
+        if a in arms and b in arms:
+            common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
+            consistency.append(dict(arms=[a, b], condition=reading[a], rows=[[t, N(a, t, reading[a]), N(b, t, reading[a]), diff(N(b, t, reading[a]), N(a, t, reading[a]))]
+                                                                           for t in common_nodes]))
     # the free check: tables without other rows
     zero = SC.OTHER_ROWS[0]
     check = [[a, c, F(a, c, SC.ALL, zero), F(a, c + NO_REL, SC.ALL, zero), diff(F(a, c, SC.ALL, zero), F(a, c + NO_REL, SC.ALL, zero))]
@@ -380,6 +430,11 @@ def build(st, cfg, run_dir):
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]
+    for c in consistency:
+        md += ["", "## Two runs of one arm: %s and %s (%s, at their common nodes)" % (c["arms"][0], c["arms"][1], c["condition"]), ""]
+        md += md_table(["tables seen", c["arms"][0], c["arms"][1], "difference"], c["rows"])
+    if s["exclude"]:
+        md += ["", "Left out of the readings of relatives and scale (shown in the curves only): %s." % ", ".join(s["exclude"])]
     md += ["", "## A check: tables without other rows", "",
            "There an arm reads the same table with and without relatives, so the two columns must agree (up to rounding).", ""]
     md += md_table(["arm", "condition", "with relatives", "without", "difference"], check)
@@ -408,7 +463,7 @@ def build(st, cfg, run_dir):
                   relatives=relatives, scale=scale, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
-                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset)
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, consistency=consistency, readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))
     p = os.path.join(folder, "report.json")

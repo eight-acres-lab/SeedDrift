@@ -1,0 +1,14 @@
+package: W6
+kind: to_package
+to: C0
+what: >
+  register stage w6_eval in kind rel_traineval of configs/rel/kinds.yaml (not a stub; its rule rel_w6_eval is in
+  ci/rules/rel_w6.smk on this branch): rule rel_w6_eval, module ci.stages.rel.w6_eval, output
+  data/rel_w6/eval/models.json, gate G4_rel_w6_eval, side train, produces models.
+why: >
+  i-1 was slowed four to five times from about 17:20 by another user's processes; the final evaluation of an arm may
+  not fit its wall limit. final.pt is written before that evaluation starts, and this stage evaluates it again on
+  every held-out table (and best.pt for the arm without relatives), as the training's final evaluation would have,
+  so that the report has the final readings.
+size: {hours: 1.0, threads: 4, disk_gb: 1, gpu_mem_gb: 10}
+by: 2026-11-22

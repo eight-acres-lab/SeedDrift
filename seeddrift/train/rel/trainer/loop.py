@@ -323,6 +323,51 @@ def preflight(cfg):
     return out
 
 
+def evaluate_checkpoints(cfg):
+    """The held-out evaluation of an arm's saved weights, again: the moving average of final.pt (rows "ema@final") and,
+    when cfg["best"] names it, of best.pt (rows "ema@best"), on the first final_per_group tables of every group (0: all),
+    under the arm's conditions, with the evaluator's plan, strata and rows. For an arm whose final evaluation the wall
+    limit cut short. cfg: the arm's training configuration plus final (the path of final.pt), best (that of best.pt or
+    None), out (an empty folder), and the training's tables seen, cells seen and wall seconds at the end
+    (final_tables, final_cells, final_wall_s) and at its best node (best_tables, best_cells, best_wall_s). Writes
+    results.tsv, heldout_final.npz and summary.json in out."""
+    began = time.time()
+    run = Run(dict(cfg, out=cfg["out"]))
+    cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
+    out_dir = cfg["out"]
+    os.makedirs(out_dir, exist_ok=True)
+    for name in ("results.tsv", "summary.json"):
+        if os.path.exists(os.path.join(out_dir, name)):
+            raise SystemExit("%s exists in %s: an evaluation starts in an empty folder" % (name, out_dir))
+    results, summary = os.path.join(out_dir, "results.tsv"), os.path.join(out_dir, "summary.json")
+    final_ids = E.subset(run.held, int(cfg["final_per_group"]))
+    half = "all" if len(final_ids) == len(run.held) else "subset"
+    reader = run.reader()
+    state = dict(name=cfg["name"], status="evaluating", conditions=run.conditions, main_condition=run.main, versions=versions(), params=run.params,
+                 eval_final=len(final_ids), weights_read="ema")
+    for which, key in (("final", "final"), ("best", "best")):
+        path = cfg.get(key)
+        if not path:
+            continue
+        t = time.time()
+        ck = torch.load(path, map_location=run.device, weights_only=True)
+        reader.load_state_dict(ck["ema"])
+        fixed = run.fixed_columns("ema@%s" % which, half, int(cfg["%s_cells" % which]), 0.0, "ok", int(cfg["%s_tables" % which]),
+                                  float(cfg["%s_wall_s" % which]))
+        main, cells, digests = run.evaluate(final_ids, fixed, results)
+        if which == "final":
+            np.savez(os.path.join(out_dir, "heldout_final.npz"),
+                     **{"%s_%s" % (x, c.replace("+", "__")): v for c, (b, tb) in cells.items() for x, v in (("bits", b), ("table", final_ids[tb]))})
+            state.update(final=main, final_items=digests, final_tables=len(final_ids), final_eval_s=round(time.time() - t, 1), step=int(ck["step"]),
+                         tables_seen=int(ck["tables_seen"]), cells_seen=int(ck["cells_seen"]))
+        else:
+            state["final_best"] = dict(tables_seen=int(cfg["best_tables"]), bits=main, items=digests, eval_s=round(time.time() - t, 1))
+        write_json(summary, state)
+    state.update(status="ok", wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
+    write_json(summary, state)
+    return state
+
+
 def fit(cfg):
     began = time.time()
     run = Run(cfg)

@@ -4,10 +4,12 @@ assemblies, metadata only, for the census of close relatives (task breakdown W13
 a count of relatives needs a wider snapshot; no sequence is downloaded). `python -m ci.stages.rel.w13_catalog RUN_DIR`.
 
 Source: the ENA portal API (result=assembly; INSDC assemblies, the archive the corpus fetch stage downloads from), one
-query per catalogue, the record fields of `fields`. A snapshot is accepted only when its distinct accessions equal the
-count the server announces for the same query (read again otherwise, at most three times). It is made canonical
-(tab-separated, the header, rows sorted by accession, no duplicate accession), stored once in the CI's content store
-(<data_root>/cas) and copied into the run. For context the stage also records, per taxon, the count of every assembly
+query per catalogue, the record fields of `fields`. The portal answers one row per version of an assembly (the
+accession without its version, the version in its own field) and announces the count of rows. A snapshot is accepted
+only when its rows equal the count the server announces for the same query (read again otherwise, at most three
+times). It is made canonical: one record per accession, the highest version (then the latest update), tab-separated,
+the header, rows sorted by accession; the lock records the rows, the records and the rows dropped (older versions, repeats). It is
+stored once in the CI's content store (<data_root>/cas) and copied into the run. For context the stage also records, per taxon, the count of every assembly
 level (counts only).
 
 Configuration (profile block rel_w13_catalog): catalogues ([{id, query}], default: bacteria and archaea at the levels
@@ -52,8 +54,8 @@ def settings(cfg) -> dict:
         raise SystemExit("rel_w13_catalog: unknown keys %s" % sorted(unknown))
     cats = [dict(id=str(x["id"]), query=str(x["query"])) for x in c.get("catalogues") or CATALOGUES]
     fields = [str(x) for x in c.get("fields") or FIELDS]
-    if len({x["id"] for x in cats}) != len(cats) or "accession" not in fields or "tax_id" not in fields:
-        raise SystemExit("rel_w13_catalog: catalogue ids must be distinct and the fields name accession and tax_id")
+    if len({x["id"] for x in cats}) != len(cats) or not {"accession", "tax_id", "version", "last_updated"} <= set(fields):
+        raise SystemExit("rel_w13_catalog: catalogue ids must be distinct and the fields name accession, tax_id, version and last_updated")
     return dict(catalogues=cats, fields=fields, levels={str(k): list(v) for k, v in (c.get("levels") or CONTEXT).items()})
 
 
@@ -68,36 +70,51 @@ def count(query):
     return int(lines[-1].strip())
 
 
+def _version(r):
+    v = (r.get("version") or "").strip()
+    return int(v) if v.isdigit() else -1
+
+
 def canonical(body, fields):
-    """(canonical TSV bytes, rows) of a portal answer: the header of `fields`, rows sorted by accession, no duplicates."""
+    """(canonical TSV bytes, info) of a portal answer: one record per accession, the highest version, then the latest
+    update, then the greatest row (a fixed order for rows the two do not tell apart); the header of `fields`, rows
+    sorted by accession. info: rows (of the answer), records, older (versions dropped), ties (several rows of an
+    accession with the same version and update date)."""
     rows = list(csv.DictReader(io.StringIO(body.decode()), delimiter="\t"))
-    by = {}
+    by, older, ties = {}, 0, 0
+    clean = lambda v: (v or "").replace("\t", " ").replace("\n", " ")         # noqa: E731
     for r in rows:
         acc = (r.get("accession") or r.get("assembly_accession") or "").strip()
         if not acc:
             raise SystemExit("rel_w13_catalog: a row without an accession")
-        if acc in by and by[acc] != r:
-            raise SystemExit("rel_w13_catalog: accession %s twice with different fields" % acc)
-        by[acc] = dict(r, accession=acc)
+        r = dict(r, accession=acc)
+        key = (_version(r), (r.get("last_updated") or "").strip(), [clean(r.get(f)) for f in fields])
+        if acc in by:
+            older += 1
+            if key[:2] == by[acc][0][:2] and key[2] != by[acc][0][2]:
+                ties += 1
+            if key <= by[acc][0]:
+                continue
+        by[acc] = (key, r)
     out = io.StringIO()
     w = csv.writer(out, delimiter="\t", lineterminator="\n")
     w.writerow(fields)
     for acc in sorted(by):
-        w.writerow([(by[acc].get(f) or "").replace("\t", " ").replace("\n", " ") for f in fields])
-    return out.getvalue().encode(), len(by)
+        w.writerow(by[acc][0][2])
+    return out.getvalue().encode(), dict(rows=len(rows), records=len(by), older=older, ties=ties)
 
 
 def snapshot(cat, fields, tries=3):
-    """(canonical bytes, records, announced total) of one catalogue, accepted when complete."""
+    """(canonical bytes, info, announced total) of one catalogue, accepted when the answer has every row announced."""
     last = None
     for _ in range(tries):
         total = count(cat["query"])
         body = get("%s/search?%s" % (PORTAL, urllib.parse.urlencode(dict(result="assembly", query=cat["query"], fields=",".join(f for f in fields if f != "accession"),
                                                                          format="tsv", limit=0))))
-        data, n = canonical(body, fields)
-        if n == total:
-            return data, n, total
-        last = "%d distinct accessions, the server announced %d" % (n, total)
+        data, info = canonical(body, fields)
+        if info["rows"] == total:
+            return data, info, total
+        last = "%d rows, the server announced %d" % (info["rows"], total)
     raise SystemExit("rel_w13_catalog: catalogue %s is not complete after %d tries (%s)" % (cat["id"], tries, last))
 
 
@@ -109,14 +126,15 @@ def build(st, cfg, run_dir):
     cas = os.path.join(cfg["data_root"], "cas")
     lock, files = dict(source=PORTAL, result="assembly", fields=s["fields"], catalogues={}, context={}), []
     for cat in s["catalogues"]:
-        data, n, total = snapshot(cat, s["fields"])
+        data, info, total = snapshot(cat, s["fields"])
         path, sha = fetch.store(cas, data, ".tsv")
         p = os.path.join(folder, cat["id"] + ".tsv")
         shutil.copyfile(path, p)
-        lock["catalogues"][cat["id"]] = dict(query=cat["query"], query_sha256=sha256_json(dict(query=cat["query"], fields=s["fields"])), records=n, announced=total,
+        lock["catalogues"][cat["id"]] = dict(query=cat["query"], query_sha256=sha256_json(dict(query=cat["query"], fields=s["fields"])), announced=total,
+                                             rows=info["rows"], records=info["records"], older_versions_dropped=info["older"], version_ties=info["ties"],
                                              sha256=sha, bytes=len(data), fetched=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
         files.append(p)
-        print("rel_w13_catalog: %s: %d records" % (cat["id"], n), flush=True)
+        print("rel_w13_catalog: %s: %d rows, %d records (%d older versions dropped)" % (cat["id"], info["rows"], info["records"], info["older"]), flush=True)
     for taxon, levels in s["levels"].items():
         lock["context"][taxon] = {lv: count('tax_tree(%s) AND assembly_level="%s"' % (taxon, lv)) for lv in levels}
     lp = os.path.join(folder, "lock.yaml")
@@ -174,13 +192,14 @@ def gate(st, cfg, run_dir):
     s = settings(cfg)
     for cat in s["catalogues"]:
         c = (man.get("lock") or {}).get("catalogues", {}).get(cat["id"])
-        if not c or c.get("records") != c.get("announced") or c.get("query") != cat["query"]:
+        if not c or c.get("rows") != c.get("announced") or c.get("records", 0) + c.get("older_versions_dropped", -1) != c.get("rows") or c.get("query") != cat["query"]:
             problems.append(dict(catalogue=cat["id"], error="missing, incomplete or another query"))
             continue
         with open(os.path.join(run_dir, OUT, cat["id"] + ".tsv")) as f:
             rows = list(csv.DictReader(f, delimiter="\t"))
-        if len(rows) != c["records"] or any(not r.get("accession") or not (r.get("tax_id") or "").strip().isdigit() for r in rows):
-            problems.append(dict(catalogue=cat["id"], error="rows without an accession or a taxid, or another count"))
+        if (len(rows) != c["records"] or len({r.get("accession") for r in rows}) != len(rows)
+                or any(not r.get("accession") or not (r.get("tax_id") or "").strip().isdigit() for r in rows)):
+            problems.append(dict(catalogue=cat["id"], error="rows without an accession or a taxid, an accession twice, or another count"))
     require(GateResult("G4_rel_w13_catalog", "fail" if problems else "pass", dict(problems=problems[:50], records={k: v.get("records") for k, v in
                                                                                                                   ((man.get("lock") or {}).get("catalogues") or {}).items()})), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False)])
@@ -191,7 +210,8 @@ def summary(run_dir):
         man = json.load(f)
     lock = man["lock"]
     return dict(json=dict(records={k: v["records"] for k, v in lock["catalogues"].items()}, context=lock["context"]),
-                md=["Catalogue snapshot (ENA portal, metadata only): " + "; ".join("%s %s records" % (k, "{:,}".format(v["records"])) for k, v in lock["catalogues"].items()),
+                md=["Catalogue snapshot (ENA portal, metadata only): " + "; ".join("%s %s records (%s rows, %s older versions dropped)" % (
+                    k, "{:,}".format(v["records"]), "{:,}".format(v["rows"]), "{:,}".format(v["older_versions_dropped"])) for k, v in lock["catalogues"].items()),
                     "Assembly levels (counts): " + "; ".join("taxon %s: %s" % (t, ", ".join("%s %s" % (lv, "{:,}".format(n)) for lv, n in d.items())) for t, d in lock["context"].items())])
 
 

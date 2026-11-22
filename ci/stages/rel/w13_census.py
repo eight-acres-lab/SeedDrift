@@ -167,6 +167,11 @@ def wide_reason(tax, km, ex, t, host, prokaryote):
     except (UnknownTaxid, KeyError, ValueError):
         return "taxid unknown", "", 0, 0
     sp, ge = tax.at_rank(int(t), "species"), tax.at_rank(int(t), "genus")
+    if not prokaryote and host:
+        try:
+            tax.lineage(int(host))
+        except (UnknownTaxid, KeyError, ValueError):
+            return "excluded by a host rule (the host taxid does not resolve)", "", sp, ge
     try:
         grp = km.group(tax, int(t), "raw_prokaryote" if prokaryote else "raw_virus", None if prokaryote else (host or None))
     except GroupConflict:

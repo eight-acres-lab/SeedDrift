@@ -241,7 +241,6 @@ def build(st, cfg, run_dir):
     lead = [[c, "%s (%d groups)" % (b, len(gs))] + [mean_of(v, c, gs, WITH_RELATIVES) for v in cols] for c in conds for b, gs in in_block.items()
             if gs and WITH_RELATIVES is not None]
     blocks = [[c, "%s (%d groups)" % (b, len(gs))] + [mean_of(v, c, gs) for v in cols] for c in conds for b, gs in in_block.items() if gs]
-    euk = in_block[BLOCKS[0]]
     by_group = [[g, BLOCK_OF(g)] + [F(v, s["main"] if v not in norel else s["main"] + NO_REL, g) for v in cols] for g in group_set]
 
     # what relatives are worth, twice

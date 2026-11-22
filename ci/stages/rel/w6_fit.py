@@ -15,7 +15,8 @@ Profile block rel_w6_fit:
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
   optional   eval_per_group (50), eval_first (1000 tables), final_per_group (0: all), eval_max_rows, warmup_steps (1000),
              ema (true), preflight_steps (200), preflight_guard (stop), max_steps, threads, preflight_wall_s, verify_files (default true: every
-             file of the table sets is hashed against its manifest before any training starts)
+             file of the table sets is hashed against its manifest before any training starts), extra_conditions (evaluator
+             conditions scored besides today's five, e.g. [suffix])
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
 What the stage does:
@@ -55,7 +56,8 @@ from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
-PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps")
+PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
+           "extra_conditions")
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")

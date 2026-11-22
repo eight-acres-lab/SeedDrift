@@ -6,7 +6,15 @@ ci_version: "0.4"
 branch_from: {commit: 9140dec4f0172e05d283341fb0c201e2e760746a, what: the foundation commit, checks: "T0 and T1 passed on 2026-11-22"}
 contract: {file: seeddrift/train/rel/api.py, version: 0, note: "placeholder; version 1 comes from branch exp/rel-p0"}
 merged: []          # branches merged into exp/rel: {branch, commit, checks, date}
-runs: []            # runs started by the coordinator: {run_id, machine, profile, commit, status}
+runs:               # runs started by the coordinator: {run_id, machine, profile, commit, status}
+  - run_id: 20261122T052142-exp-rel-95d832f4-rel-dev-c0-synth-i1
+    machine: i1
+    profile: rel-dev-c0-synth-i1
+    commit: 95d832f4e4197e987ee11668cedb1b6d18ae8a95
+    status: failed
+    note: "diagnostic: the pre gates, the machine check (A800, 81920 MiB) and this machine's sealed sources (the pinned
+      index, 257 test genomes, the sealed registry agreeing) passed; the stage stopped at the shard writer, which waits
+      for the contract, as intended"
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines: none until the user decides how (an open decision)
 copies: []

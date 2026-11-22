@@ -3,8 +3,8 @@
 # rule with its stage (same rule name and output; inputs as the stage needs, always including gates/pre.ok) and asks the
 # coordinator to drop the stub flag. Rule names rel_<stage>; outputs under data/rel_w3/.
 
-# w3_offline: the strict offline rendering of the evaluation items
+# w3_offline: the strict offline rendering of the evaluation items (ci/stages/rel/w3_offline.py; numpy only)
 rule rel_w3_offline:
     input: "gates/pre.ok"
     output: "data/rel_w3/offline/tableset.json"
-    shell: STAGE.format(name="rel.stub") + " w3_offline"
+    shell: STAGE.format(name="rel.w3_offline")

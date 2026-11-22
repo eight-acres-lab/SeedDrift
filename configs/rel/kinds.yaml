@@ -98,7 +98,6 @@ kinds:
         gates: [G4_rel_w3_offline]
         side: data
         produces: tableset
-        stub: true
       w2_census:
         package: W2
         rule: rel_w2_census

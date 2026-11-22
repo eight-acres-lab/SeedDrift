@@ -2,6 +2,7 @@
 candidate table, on a synthetic selection run whose relatives are known, over the synthetic source run of the table
 stages (tests/ci/test_rel_w2_stage.py)."""
 import csv
+import hashlib
 import json
 import os
 
@@ -46,7 +47,16 @@ def make_selection(tmp, metas):
             w.writeheader()
             w.writerows(rs)
     (run / "record.json").write_text(json.dumps(dict(run_id="sel", status="passed", pipeline="select", git=dict(sha="2" * 40))))
-    (run / "config.resolved.yaml").write_text("catalog: {mode: lock, lock: configs/select/v1.lock.yaml}\nselect_spec: configs/select/medium.yaml\n")
+    store = tmp / "store"                                                # the selection's host snapshot in its content store
+    body = b"".join(json.dumps(dict(accession="NC_%d" % k, virus_taxid=10702, host_taxid=2320)).encode() + b"\n" for k in range(2))
+    sha = hashlib.sha256(body).hexdigest()
+    (store / "cas" / sha[:2]).mkdir(parents=True)
+    (store / "cas" / sha[:2] / (sha + ".jsonl")).write_bytes(body)
+    (run / "data" / "catalog").mkdir(parents=True)
+    (run / "data" / "catalog" / "manifest.json").write_text(json.dumps(dict(entries=[dict(id="phage_hosts", kind="ncbi_virus_reports", records=2, sha256=sha,
+                                                                                       path="%s/%s.jsonl" % (sha[:2], sha))])))
+    (run / "config.resolved.yaml").write_text("catalog: {mode: lock, lock: configs/select/v1.lock.yaml}\nselect_spec: configs/select/medium.yaml\n"
+                                              "data_root: %s\n" % store)
     spec = tmp / "corpus.yaml"
     spec.write_text("# Corpus x, emitted from the selection of run sel (\n# selected.tsv sha256 %s). Edit the selection.\nname: x\n"
                     % sha256_file(str(run / "data" / "select" / "selected.tsv"), use_sidecar=False))

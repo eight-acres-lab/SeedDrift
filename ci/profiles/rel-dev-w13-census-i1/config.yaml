@@ -1,9 +1,10 @@
 # Machine i-1: W13 step 1, how many close relatives (the same species, the same genus) of the medium corpus's train and
-# held-out genomes the catalogue snapshots of its selection already hold, after every exclusion of the selection, and a
-# first batch per group (stage w13_census; task breakdown section 8.1, item 3). It reads the candidate and selected
-# tables of the selection run the corpus was emitted from and the splits of round R3's run; nothing is downloaded and
-# no rule is added; the sealed test genomes are not read. CPU only (the select lock), under a minute. Development
-# diagnosis only.
+# held-out genomes the catalogue snapshots hold, after every exclusion of the selection, and a first batch per group
+# (stage w13_census; task breakdown section 8.1, item 3), counted twice side by side: on the catalogue snapshots of the
+# corpus's selection and on the snapshot of assembly metadata that run 20261122T144516 locked (stage w13_catalog,
+# profile rel-dev-w13-catalog-i1). It reads the candidate and selected tables and the host snapshots of the selection
+# run, the splits of round R3's run and that snapshot; nothing is downloaded and no rule is added; the sealed test
+# genomes are not read. CPU only (the select lock), about a minute. Development diagnosis only.
 pipeline: rel_corpus
 needs_gpu: false
 tier: medium
@@ -25,6 +26,7 @@ rel_w13_census:
   per_anchor: [1, 2, 3, 5]
   propose: 3
   max_genes_euk: 1500
+  catalog_from: /hy-tmp/seeddrift-ci/runs/20261122T144516-exp-rel-63b2a1ca-rel-dev-w13-catalog-i1
 train:
   gpu_lease: false
   device: cpu

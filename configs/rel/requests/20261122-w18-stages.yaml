@@ -1,0 +1,16 @@
+package: W18
+kind: to_package
+to: C0
+what: >
+  Register the stages of package W18 in configs/rel/kinds.yaml.
+  (1) w18_rulers in kind rel_tables: package W18, rule rel_w18_rulers, output data/rel_w18/rulers/tableset.json, module
+  ci.stages.rel.w18_rulers, gates [G4_rel_w18_rulers], side eval, produces tableset. Its rule is in ci/rules/rel_w18.smk.
+  (2) w18_readout in kind rel_traineval, so that it runs after w6_eval in the same run (it reads the per-cell files the
+  ruler mode of w6_eval writes, data/rel_w6/eval/<arm>/ruler_cells.npz): package W18, rule rel_w18_readout, output
+  data/rel_w18/readout/report.json, module ci.stages.rel.w18_readout, gates [G4_rel_w18_readout], side eval; stub true
+  until its module and rule are merged (a second request drops the flag).
+  Once (1) is merged into exp/rel, the profile rel-dev-w18-rulers-i1 follows on exp/rel-w18 (a profile naming an
+  unregistered stage fails the profile checks, so it waits for the registration).
+why: the implant tables of the HGT capability check (a ruler set; never trained on, never an item of a round) and their readouts
+size: {hours: 0.25, threads: 4, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-24

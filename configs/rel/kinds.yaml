@@ -70,7 +70,6 @@ kinds:
         module: ci.stages.rel.w5_items
         gates: [G4_rel_w5_items]
         side: eval
-        stub: true
       w5_baselines:
         package: W5
         rule: rel_w5_baselines

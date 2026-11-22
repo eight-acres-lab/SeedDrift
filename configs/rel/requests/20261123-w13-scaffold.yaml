@@ -1,0 +1,7 @@
+package: W13
+kind: cpu_run
+to: C0
+what: register stage w13_scaffold in kind rel_corpus of configs/rel/kinds.yaml before w13_census (rule rel_w13_scaffold, output data/rel_w13/scaffold/manifest.json, module ci.stages.rel.w13_scaffold, gates [G4_rel_w13_scaffold], side data); W13 then pushes profile rel-dev-w13-scaffold-i1 (stages w13_scaffold then w13_census, scaffold_from this run, catalog_from the snapshot of run 20261122T144516) for machine i1 with the select lock - metadata only, NCBI's GenBank assembly summaries of bacteria (1.6 GB) and archaea (25 MB) streamed into the content store, about 30 minutes, 2 threads
+why: task breakdown 8.11, the scaffold level of the prokaryotes counted with quality thresholds proposed by W13 (no quality exclusion by RefSeq, at most 100 contigs, a length within 0.85-1.15 of its species' complete genomes or 0.7-1.3 of its genus'), reported to the programme lead in the census's format
+size: {hours: 0.5, threads: 2, disk_gb: 2, gpu_mem_gb: 0}
+by: 2026-11-24

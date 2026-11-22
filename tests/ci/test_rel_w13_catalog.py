@@ -202,3 +202,119 @@ def test_a_genbank_twin_of_a_refseq_genome_is_one_genome():
     metas = [dict(id="phage_GCF_000000301.1", group="viruses.phage", split="train", ranks=[0, 0, 0, 0, 6, 7])]
     _, counts = WC.census(cands, metas, dict(per_anchor=[1], max_genes_euk=1500), own)
     assert counts["train"]["viruses.phage"]["new_same_species"]["candidates"] == 2     # 302 once and the one without an accession, never its own twin
+
+
+SUMMARY_HEAD = ["assembly_accession", "bioproject", "biosample", "wgs_master", "refseq_category", "taxid", "species_taxid", "organism_name", "infraspecific_name",
+                "isolate", "version_status", "assembly_level", "release_type", "genome_rep", "seq_rel_date", "asm_name", "asm_submitter", "gbrs_paired_asm",
+                "paired_asm_comp", "ftp_path", "excluded_from_refseq", "relation_to_type_material", "asm_not_live_date", "assembly_type", "group", "genome_size",
+                "genome_size_ungapped", "gc_percent", "replicon_count", "scaffold_count", "contig_count"]
+
+
+def summary_row(acc, level, taxid, species, size, contigs=10, excluded="na", status="latest"):
+    r = {k: "na" for k in SUMMARY_HEAD}
+    r.update(assembly_accession=acc, taxid=str(taxid), species_taxid=str(species), organism_name="x", version_status=status, assembly_level=level, genome_rep="Full",
+             seq_rel_date="2025/01/01", excluded_from_refseq=excluded, genome_size=str(size), contig_count=str(contigs))
+    return r
+
+
+# references: two complete genomes of species 777 (median 2,050,000); scaffolds: one that passes, one with too many
+# contigs, one RefSeq calls contaminated, one from a metagenome (passes, marked), one too long, one of a species without
+# a complete genome (the genus 776's median), two versions of one, one no longer the latest
+SUMMARY = [summary_row("GCA_000000301.1", "Complete Genome", 227377, 777, 2_000_000), summary_row("GCA_000000302.1", "Chromosome", 777, 777, 2_100_000),
+           summary_row("GCA_000000401.1", "Scaffold", 227377, 777, 2_000_000), summary_row("GCA_000000402.1", "Scaffold", 227377, 777, 2_000_000, contigs=500),
+           summary_row("GCA_000000403.1", "Scaffold", 227377, 777, 2_000_000, excluded="contaminated; fragmented assembly"),
+           summary_row("GCA_000000404.1", "Scaffold", 777, 777, 2_050_000, excluded="derived from metagenome"),
+           summary_row("GCA_000000405.1", "Scaffold", 227377, 777, 3_000_000), summary_row("GCA_000000406.1", "Scaffold", NEW_SPECIES, NEW_SPECIES, 1_900_000),
+           summary_row("GCA_000000407.1", "Scaffold", 227377, 777, 1_000_000), summary_row("GCA_000000407.2", "Scaffold", 227377, 777, 2_010_000),
+           summary_row("GCA_000000408.1", "Scaffold", 227377, 777, 2_000_000, status="replaced")]
+
+
+def write_summary(path, rows):
+    with open(path, "w") as f:
+        f.write("##  See the README for a description of the columns in this file.\n#" + "\t".join(SUMMARY_HEAD) + "\n")
+        for r in rows:
+            f.write("\t".join(r[k] for k in SUMMARY_HEAD) + "\n")
+
+
+def test_scaffold_assemblies_are_judged_by_the_thresholds(tmp_path):
+    from ci.stages.rel import w13_scaffold as WS
+    p = str(tmp_path / "summary.txt")
+    write_summary(p, SUMMARY)
+    s = WS.settings({})
+    rows, ctx = WS.judge(WS.rows_of(p), s, lambda sp: 776 if sp in (777, NEW_SPECIES) else 0)
+    data, n = WS.table(rows)
+    got = {r["accession"]: r for r in __import__("csv").DictReader(data.decode().splitlines(), delimiter="\t")}
+    assert n == 7 and ctx == dict(reference_rows=2, species_with_a_reference=1, genera_with_a_reference=1)
+    assert got["GCA_000000401"]["quality"] == "pass" and got["GCA_000000401"]["length_ratio"] == "0.976"
+    assert got["GCA_000000402"]["quality"] == "more than 100 contigs" and got["GCA_000000403"]["quality"] == "excluded by RefSeq: contaminated"
+    assert got["GCA_000000404"]["quality"] == "pass" and got["GCA_000000404"]["environmental_sample"] == "true"
+    assert got["GCA_000000405"]["quality"].startswith("length 1.46 of the species")
+    assert got["GCA_000000406"]["quality"] == "pass" and got["GCA_000000406"]["reference_length"] == "2050000"     # the genus's median
+    assert got["GCA_000000407"]["version"] == "2" and got["GCA_000000407"]["quality"] == "pass" and "GCA_000000408" not in got
+    with pytest.raises(SystemExit, match="bands around 1"):
+        WS.settings(dict(rel_w13_scaffold=dict(length_band=[1.1, 1.2])))
+
+
+def scaffold_run(tmp, monkeypatch):
+    from ci.stages.rel import w13_scaffold as WS
+    tmp.mkdir(parents=True, exist_ok=True)
+    p = str(tmp / "summary.txt")
+    write_summary(p, SUMMARY)
+    run_dir, cfg = RF.rel_run(tmp, kind="rel_corpus", stages=("w13_catalog",), run_id="20261124T000003-scaffold", data_root=str(tmp / "store"),
+                              rel_w13_scaffold=dict(groups=["bacteria"]))
+    monkeypatch.setattr(WS, "download", lambda url, cas: (p, "0" * 64, 1, "date"))
+    monkeypatch.setattr(WS, "SUMMARY", "fixture://%s")
+    from ci.taxonomy import Taxonomy
+    ft = fixture_taxonomy()                                              # the stage's taxonomy: the fixture with the added species
+    monkeypatch.setattr(Taxonomy, "__init__", lambda self, folder, names=True: self.__dict__.update(ft.__dict__))
+    with Stage(run_dir, "rel_w13_scaffold") as st:
+        WS.build(st, cfg, run_dir)
+    rp = os.path.join(run_dir, "record.json")
+    rec_ = json.load(open(rp))
+    json.dump(dict(rec_, status="passed"), open(rp, "w"))
+    return run_dir, cfg
+
+
+def test_the_scaffold_snapshot_is_locked_and_counted(tmp_path, monkeypatch):
+    from ci.stages.rel import w13_scaffold as WS
+    run_dir, cfg = scaffold_run(tmp_path, monkeypatch)
+    cats, lock, _ = WS.read(run_dir)
+    c = lock["catalogues"]["bacteria_scaffold"]
+    assert len(cats["bacteria_scaffold"]) == c["records"] == 7 and c["verdicts"]["pass"] == 4 and c["summary"]["url"] == "fixture://bacteria"
+    with Stage(run_dir, "gates_rel_w13_scaffold") as st:
+        WS.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w13_scaffold.json")))["status"] == "pass"
+    tax = fixture_taxonomy()
+    base, _ = catalog_run(tmp_path / "c")
+    wcats, _, _ = WK.read(base)
+    metas = [dict(id="bacteria_GCF_000000104.1", group="bacteria", split="train", taxid=227377, ranks=[0, 0, 0, 0, 776, 777])]
+    own = WC.corpus_genomes(metas, [dict(accession="GCF_000000104.1", paired_accession="")])
+    s = dict(per_anchor=[3], propose=3, max_genes_euk=1500)
+    sealed = RF.sealed(test_ids=TS.SEALED)
+    one, _, _, _ = WC.census_wide(wcats, metas, own, [], [], s, tax, sealed, [])
+    two, reasons, _, _ = WC.census_wide(dict(wcats, **cats), metas, own, [], [], s, tax, sealed, [])
+    b1, b2 = one["train"]["bacteria"], two["train"]["bacteria"]
+    assert b2["new_same_species"]["candidates"] - b1["new_same_species"]["candidates"] == 3      # 401, 404, 407 (406 is of the genus)
+    assert b2["new_same_genus"]["candidates"] - b1["new_same_genus"]["candidates"] == 1
+    assert reasons["bacteria_scaffold | scaffold quality: more than 100 contigs"] == 1 and reasons["bacteria_scaffold | scaffold quality: length outside the band"] == 1
+    assert reasons["bacteria_scaffold | eligible, an environmental sample"] == 1
+
+
+def test_the_census_reports_the_scaffold_level_beside_the_others(tmp_path, monkeypatch):
+    scaff_dir, _ = scaffold_run(tmp_path / "s", monkeypatch)
+    src = str(tmp_path / "ci-root" / "runs" / "20261120T000000-src")
+    os.makedirs(src)
+    metas = TS.make_source(src)
+    sel, spec, _ = T13.make_selection(tmp_path, metas)
+    cat_dir, _ = catalog_run(tmp_path / "cat")
+    run_dir, cfg = RF.rel_run(tmp_path, kind="rel_corpus", stages=("w13_census",), run_id="20261124T000004-w13", corpus_spec=spec,
+                              rel_w13_census=dict(select_from=sel, source=src, expect=TS.SIZES, per_anchor=[1, 3], propose=3, catalog_from=cat_dir, scaffold_from=scaff_dir))
+    TS.patch(monkeypatch, tmp_path)
+    with Stage(run_dir, "rel_w13_census") as st:
+        rep = WC.build(st, cfg, run_dir)
+    assert set(rep["scaffold"]["counts"]) == {"train", "heldout"} and rep["scaffold"]["catalogue"]["catalogues"]["bacteria_scaffold"]["verdicts"]["pass"] == 4
+    assert all("_scaffold |" in k for k in rep["scaffold"]["reasons"])
+    page = open(os.path.join(run_dir, WC.OUT, "report.md")).read()
+    assert "With the scaffold level" in page and not any(x in page for x in TS.SEALED)
+    with pytest.raises(SystemExit, match="adds to the snapshot"):
+        WC.settings(dict(rel_w13_census=dict(select_from="a", source="b", scaffold_from="c")))

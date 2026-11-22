@@ -151,9 +151,10 @@ def build(st, cfg, run_dir):
     return man
 
 
-def read(run, same_run=False):
+def read(run, same_run=False, stage="rel_w13_catalog", folder=OUT, output="catalog_manifest"):
     """({catalogue: [rows]}, lock, provenance) of a passed run of this stage, every file checked (same_run: the run that
-    reads it, whose record is not final yet; its stage rel_w13_catalog must have passed)."""
+    reads it, whose record is not final yet; its stage must have passed). stage, folder, output: of another stage that
+    writes a snapshot in this format (rel_w13_scaffold)."""
     from ci.stages.rel import w2_v0 as W
     rp = os.path.join(run, "record.json")
     if not os.path.exists(rp):
@@ -162,14 +163,14 @@ def read(run, same_run=False):
         rec = json.load(f)
     if not same_run and rec.get("status") != "passed":
         raise SystemExit("rel_w13_catalog: the catalogue run %s is %s, not passed" % (rec.get("run_id"), rec.get("status")))
-    mp = os.path.join(run, OUT, "manifest.json")
-    sha = W._output(run, "rel_w13_catalog", "catalog_manifest", mp)
+    mp = os.path.join(run, folder, "manifest.json")
+    sha = W._output(run, stage, output, mp)
     with open(mp) as f:
         man = json.load(f)
     files = {e["path"]: e["sha256"] for e in man.get("files") or []}
     out = {}
     for cid, c in man["lock"]["catalogues"].items():
-        rel = os.path.join(OUT, cid + ".tsv")
+        rel = os.path.join(folder, cid + ".tsv")
         p = os.path.join(run, rel)
         if files.get(rel) != c["sha256"] or sha256_file(p, use_sidecar=False) != c["sha256"]:
             raise SystemExit("rel_w13_catalog: %s is not the snapshot its lock names" % rel)

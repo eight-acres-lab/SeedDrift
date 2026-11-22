@@ -35,6 +35,7 @@ rel_w6_fit:
   eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
   eval_max_rows: 32
   extra_conditions: [suffix]
+  references_at_nodes: true      # as round 1b's short arms: the reference readings at every node (under 4 % of the wall time here)
 train:
   gpu_lease: false
   device: auto

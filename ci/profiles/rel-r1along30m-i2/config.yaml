@@ -1,0 +1,41 @@
+# Machine i-2, round 1a of the relational-model line (the programme lead's plan of 2026-11-22, task breakdown 8.6;
+# the user: "10 个小时到 12 个小时均可。最好是训练一个长一些的，多验证几个短的"): the long arm, about 30 M parameters at the peak learning rate 3e-4 (the reference arm, variant w6-ref30m),
+# with relatives, seed 1, alone on the A100 for about 11 hours: does the curve still fall after one, two, three passes
+# over the 100,800 training tables of version 0, does it overfit. One of the two long profiles of this round is run,
+# chosen by the evening's learning-rate check (rel-r1along100m-i2 when 4e-4 at 100 M catches up with or passes 10 M,
+# rel-r1along30m-i2 otherwise). The code of commit 3382ed5, the evening's arms' (this branch adds profiles only, on
+# top of exp/rel-d1c's variant); stored placement: read the scattered and the two no-relatives conditions only.
+# A preflight that fails or a value that is not finite stops the arm; nothing lowers the learning rate. Tables of run
+# 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, copied to i-2 and checked by sha256. Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 19000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_selftest, w6_fit, w6_report]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m.yaml, seed: 1}
+  wall_s: 39600                  # 11 h: one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

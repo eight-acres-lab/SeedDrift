@@ -1,0 +1,12 @@
+package: W5
+kind: to_package
+to: C0
+what: >-
+  drop the stub flag of stage w5_items in configs/rel/kinds.yaml: its rule in ci/rules/rel_w5.smk now runs
+  ci/stages/rel/w5_items.py (the evaluation items, gate G4_rel_w5_items); then start profile rel-dev-w5-items-i1 on
+  i-1 under the select lock when the machine is free
+why: >-
+  the items (per group 100 stretches of held-out genes, halves by genus) are what package W2 builds the evaluation
+  tables from and what the offline rendering of package W3 renders; numpy only, a few minutes
+size: {hours: 0.1, threads: 2, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-23

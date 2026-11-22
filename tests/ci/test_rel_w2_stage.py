@@ -33,8 +33,10 @@ GENOMES = ([("%s_%s%d" % (g.replace(".", "_"), s[:2], k), g, s) for g in sorted(
 SIZES = dict(train=25, heldout=12, test=2)
 
 
-def make_source(run):
-    """A passed selfsup run as stage rel_w2_v0 reads it: the arrays, their manifests, the stage records, the record."""
+def make_source(run, with_truth=False):
+    """A passed selfsup run as stage rel_w2_v0 reads it: the arrays, their manifests, the stage records, the record.
+    Returns the genomes of the training-data index (with_truth: and the true correspondences of the homolog rows, as
+    test_rel_w2_tables.make_run gives them). Other packages' tests import this fixture."""
     metas, truth = T.make_run(run, genomes=GENOMES, lengths=[20, 24, 30, 33, 36, 40, 44, 50, 140, 270], taxids={g: v[0] for g, v in TINY.items()})
     ip = os.path.join(run, "data", "train_data", "index.json")
     tman = M.build("train-data", "train_data", [dict(id=m["id"], files=[M.file_entry(os.path.join(run, "data", "train_data", m["id"] + ".npz"), run)]) for m in metas])
@@ -58,7 +60,7 @@ def make_source(run):
             json.dump(dict(name=stage, status="passed", outputs=[dict(name=n, path=p, sha256=sha256_file(os.path.join(run, p), use_sidecar=False)) for n, p in outs]), f)
     with open(os.path.join(run, "record.json"), "w") as f:
         json.dump(dict(run_id=os.path.basename(run), status="passed", ci_version="0.3", git=dict(sha="1" * 40), pipeline="selfsup"), f)
-    return metas, truth
+    return (metas, truth) if with_truth else metas
 
 
 def patch(mp, tmp):
@@ -77,7 +79,7 @@ def built(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("w2")
     src = str(tmp / "ci-root" / "runs" / "20261120T000000-src")
     os.makedirs(src)
-    metas, truth = make_source(src)
+    metas, truth = make_source(src, with_truth=True)
     run_dir, cfg = RF.rel_run(tmp, stages=("w2_v0", "w2_census"), rel_w2_v0=dict(source=src, expect=SIZES, rows=16, train_per_group=6, heldout_per_group=2,
                                                                                   shard_tables=24, processes=2))
     with pytest.MonkeyPatch.context() as mp:

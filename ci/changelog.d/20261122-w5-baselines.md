@@ -20,6 +20,10 @@ held-out tables.
   modes, the chain-rule terms of a stretch), tested against enumeration.
 - Stage `w5_baselines` (kind `rel_tables`, the select lock; gate `G4_rel_w5_baselines`) and profile
   `rel-dev-w5-baselines-i1`.
+- The evaluation items: `evalh/items.py` and stage `w5_items` (gate `G4_rel_w5_items`, profile
+  `rel-dev-w5-items-i1`): per group 100 stretches of at most 128 codons inside the stored part of held-out genes, the
+  genomes of a group taking turns, halves (screening, confirmation) by genus, every choice a 64-bit hash; read from the
+  training-data arrays of the source run, the held-out split only, after the sealed check.
 
 Today's limits, written into the results: stored layout only (whole-gene numbers are an upper bound); the chain runs
 inside the target locus only; scored cells are the whole target block, not yet the 128-codon items of the evaluator.

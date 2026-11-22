@@ -141,7 +141,7 @@ def dist(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("w2dist")
     src = str(tmp / "ci-root" / "runs" / "20261120T000000-src")
     os.makedirs(src)
-    metas, _ = TS.make_source(src)
+    metas = TS.make_source(src)
     with pytest.MonkeyPatch.context() as mp:
         TS.patch(mp, tmp)
         tables, tcfg = RF.rel_run(tmp, stages=("w2_v0",), run_id="20261122T000003-tables",

@@ -1,0 +1,33 @@
+# Machine i-1: the classical baselines of the relational-model line on the first tables run, as in profile
+# rel-dev-w5-baselines-i1, under today's five conditions and the conditions only an evaluation uses
+# (seeddrift/train/rel/evalh/conditions.py EXTRA_CONDITIONS): the second half of the target gene hidden (suffix, with and
+# without relatives); the other rows' correspondence moved 1, 3 or 12 codons; the whole gene hidden with the other rows'
+# relation blocks recoded by synonymous codons. Bits are also split into the amino acid and the codon given the amino
+# acid. numpy only: the select lock, no GPU. Limits as in rel-dev-w5-baselines-i1 (stored layout; rows drawn among
+# genomes with a homolog row; one seed). Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 2
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w5_baselines]
+rel_w5_baselines:
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1
+  tablesets:
+    - {path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a}
+  seed: 20261122
+  fit_tables: 6000
+  chain_tables: 1500
+  conditions: [scattered, whole_gene, scattered+no_relatives, whole_gene+no_relatives, whole_gene+repaired, suffix,
+               suffix+no_relatives, scattered+offset1, scattered+offset3, scattered+offset12, whole_gene+synonymous]
+train:
+  gpu_lease: false
+  device: cpu

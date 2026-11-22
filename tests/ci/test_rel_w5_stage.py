@@ -107,6 +107,22 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_baselines.json")))["status"] == "fail"
 
 
+def test_stage_with_the_conditions_only_an_evaluation_uses(tmp_path, monkeypatch):
+    src, doc = tables_run(tmp_path)
+    extra = list(cond.CONDITIONS + cond.EXTRA_CONDITIONS)
+    run_dir, cfg = baselines_run(tmp_path, monkeypatch, src, doc, conditions=extra)
+    w5_baselines.main()
+    res = json.load(open(os.path.join(run_dir, w5_baselines.OUT, "results.json")))
+    assert res["conditions"] == extra and sorted(res["fit"]["numbers"]) == sorted(cond.MASKS)
+    with Stage(run_dir, "gates_rel_w5_baselines", requires=("pre",)) as st:
+        w5_baselines.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_baselines.json")))["status"] == "pass"
+    for bad in ([cond.SCATTERED], extra + ["scattered+synonymous"]):                 # one of the five left out; an unknown one
+        run2, _ = baselines_run(tmp_path / str(len(bad)), monkeypatch, src, doc, conditions=bad)
+        with pytest.raises(SystemExit):
+            w5_baselines.main()
+
+
 def test_stage_on_a_real_table_set_with_its_sealed_record(tmp_path, monkeypatch):
     src, doc = tables_run(tmp_path, kind=api.TABLE_REAL)
     run_dir, cfg = baselines_run(tmp_path, monkeypatch, src, doc, allow_kinds=[api.TABLE_REAL])

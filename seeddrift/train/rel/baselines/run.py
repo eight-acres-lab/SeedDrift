@@ -21,11 +21,17 @@ REFERENCE = "own_freq"                      # bits_minus_baseline of every row i
 MASKS = (cond.SCATTERED, cond.WHOLE_GENE)
 
 
-def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True, log=None):
+def masks_of(conditions):
+    """The kinds of mask the conditions use, in the order of conditions.MASKS."""
+    used = {cond.parse(c)[0] for c in conditions}
+    return tuple(m for m in cond.MASKS if m in used)
+
+
+def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True, log=None, masks=MASKS):
     """{mask: numbers of every baseline}, from training tables. The chain is fitted on the first chain_tables of them."""
     out = {}
     table_ids = np.asarray(table_ids)
-    for mask in MASKS:
+    for mask in masks:
         t0 = time.time()
         p = fitting.fit(tables, table_ids, mask, seed, base)
         if with_chain:
@@ -148,7 +154,7 @@ def markdown(rows, title="Classical baselines: bits per codon", groups=None):
         if r["group"] == score.ALL and r["variant"] == REFERENCE:
             cells[(r["condition"], r["stratum"])] = (r["target_cells"], r["n_items"])
     order = [n for n in names(True) if any(n in v for v in main.values())]
-    conds = [c for c in cond.CONDITIONS if c in main]
+    conds = [c for c in cond.CONDITIONS + cond.EXTRA_CONDITIONS if c in main]
     out = ["# " + title, "", "Mean over the groups of the per-group bits per codon; row 0, target block, stored layout (an upper",
            "bound where the whole gene is hidden). In brackets: bits saved against %s under the same condition." % REFERENCE, ""]
     out += ["| baseline | " + " | ".join(conds) + " |", "|---|" + "---|" * len(conds)]

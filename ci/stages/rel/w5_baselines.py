@@ -14,6 +14,8 @@ Profile block rel_w5_baselines:
   chain_tables     training tables the chain is fitted on (default 1500); chain: false leaves the chain out
   heldout_tables   score only the first tables of the held-out set (development; default: all)
   allow_kinds      table-set kinds accepted (default [real])
+  conditions       the conditions scored (default: today's five, conditions.CONDITIONS); more of
+                   conditions.EXTRA_CONDITIONS may be added, none of the five left out
 
 Coverage: the groups the table set covers (its manifest says which); development diagnosis only. Limits written into
 the results: the stored layout places the relatives by the hidden residues, so every number with the whole gene hidden
@@ -116,6 +118,13 @@ def main():
         n_fit = min(int(c.get("fit_tables", 6000)), train.tables)
         n_held = min(int(c.get("heldout_tables") or held.tables), held.tables)
         with_chain = c.get("chain", True) is not False
+        conditions = list(c.get("conditions") or cond.CONDITIONS)
+        try:
+            [cond.parse(x) for x in conditions]
+        except ValueError as err:
+            raise SystemExit("%s: %s" % (STAGE, err))
+        if [x for x in cond.CONDITIONS if x not in conditions] or len(set(conditions)) != len(conditions):
+            raise SystemExit("%s: the conditions hold today's five (%s), each once" % (STAGE, ", ".join(cond.CONDITIONS)))
         log("training set %s: %d tables (fit on %d); held-out set %s: %d tables (scoring %d)" % (train.folder, train.tables, n_fit, held.folder, held.tables, n_held))
 
         fit_tables = train.load(0, n_fit, shards.MODEL_FIELDS)
@@ -123,7 +132,8 @@ def main():
         if (fit_split != shards.SPLIT_TRAIN).any():
             raise SystemExit("%s: a table to fit on is not a training table" % STAGE)
         # the fit uses another seed than the scoring, so no cell pattern of the held-out plan is reused
-        params = brun.fit_all(fit_tables, np.arange(n_fit), seed + 1, chain_tables=int(c.get("chain_tables", 1500)), with_chain=with_chain, log=log)
+        params = brun.fit_all(fit_tables, np.arange(n_fit), seed + 1, chain_tables=int(c.get("chain_tables", 1500)), with_chain=with_chain, log=log,
+                              masks=brun.masks_of(conditions))
         del fit_tables
 
         tables = held.load(0, n_held, shards.MODEL_FIELDS)
@@ -132,7 +142,7 @@ def main():
             raise SystemExit("%s: a table to score is not a held-out table" % STAGE)
         groups = shards.group_names(src, held.manifest)
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
-        results = brun.evaluate(tables, np.arange(n_held), params, seed=seed, with_chain=with_chain, log=log)
+        results = brun.evaluate(tables, np.arange(n_held), params, conditions=conditions, seed=seed, with_chain=with_chain, log=log)
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
@@ -186,6 +196,7 @@ def gate(st, cfg, run_dir):
     for c in cond.CONDITIONS:
         if c not in doc.get("conditions", []):
             problems.append(dict(condition=c, error="condition not evaluated"))
+    for c in list(dict.fromkeys(list(cond.CONDITIONS) + list(doc.get("conditions") or []))):
         for n in brun.names_under(c, bool(doc.get("chain"))):
             if (c, n) not in seen:
                 problems.append(dict(condition=c, baseline=n, error="no row over all groups"))

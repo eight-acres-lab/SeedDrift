@@ -22,6 +22,15 @@ of the table set, in storage order:
 
 What is hidden depends on the lengths and kinds only, never on the content. A row or block of kind KIND_NONE does not
 exist: it is no relative, enters no average and is never the nearest row.
+
+Conditions of the evaluator that only an evaluation uses (EXTRA_CONDITIONS; not in today's five, so a trainer's
+evaluation does not change):
+- ``suffix``: the second half of the target block of row 0 hidden (offsets from n // 2 on), the first half visible;
+- ``+offset<k>`` (k in OFFSETS): the other rows' correspondence in the target block moved k codons (their stored
+  columns + k; a codon pushed past row 0's segment has no column any more): how exact the correspondence must be;
+- ``whole_gene+synonymous``: every codon of the other rows' relation blocks replaced by another codon of the same
+  amino acid (a hashed choice; stops among the stops; a codon without a synonym stays): whether a relative is told
+  by its codon usage rather than by what it encodes. The genetic code is used for this recoding only.
 """
 from __future__ import annotations
 
@@ -34,7 +43,7 @@ from seeddrift.train.rel import api
 VERSION = 3
 SEED = 20261122
 MASK_RATE = 0.15
-STREAM_SCATTERED, STREAM_REPAIR = 1, 2
+STREAM_SCATTERED, STREAM_REPAIR, STREAM_SYNONYMOUS = 1, 2, 3
 SUBSET_PER_GROUP = 50                   # the evaluation during training: the first 50 tables of each group
 
 NO_RELATIVES = api.COND_NO_RELATIVES
@@ -48,6 +57,13 @@ CONDITIONS = (
     WHOLE_GENE + "+" + NO_RELATIVES,
     WHOLE_GENE + "+" + REPAIRED,
 )
+SUFFIX = api.COND_SUFFIX
+SYNONYMOUS = "synonymous"               # not yet a name of the contract (a request asks for it)
+OFFSET = "offset"
+OFFSETS = (1, 3, 12)
+MASKS = (SCATTERED, WHOLE_GENE, SUFFIX)
+EXTRA_CONDITIONS = ((SUFFIX, SUFFIX + "+" + NO_RELATIVES) + tuple("%s+%s%d" % (SCATTERED, OFFSET, k) for k in OFFSETS)
+                    + (WHOLE_GENE + "+" + SYNONYMOUS,))
 
 _BLOCKS = api.block_slices()
 TARGET_BLOCK = len(_BLOCKS) - 1
@@ -87,12 +103,14 @@ def hash_u01(seed, stream, table_id, index):
 
 
 def parse(condition):
-    """'whole_gene+repaired' -> ('whole_gene', 'repaired'); the second part is '' when the relatives are given as stored."""
+    """'whole_gene+repaired' -> ('whole_gene', 'repaired'); the second part is '' when the relatives are given as
+    stored. Masks: scattered, whole_gene, suffix; second parts: no_relatives, offset<k>, and with the whole gene
+    repaired and synonymous."""
     mask, _, rows = condition.partition("+")
-    if mask not in (SCATTERED, WHOLE_GENE) or rows not in ("", NO_RELATIVES, REPAIRED):
+    if mask not in MASKS or rows not in ("", NO_RELATIVES, REPAIRED, SYNONYMOUS) + tuple("%s%d" % (OFFSET, k) for k in OFFSETS):
         raise ValueError("unknown evaluation condition %r" % condition)
-    if rows == REPAIRED and mask != WHOLE_GENE:
-        raise ValueError("%r: rows are re-paired only with the whole gene hidden" % condition)
+    if rows in (REPAIRED, SYNONYMOUS) and mask != WHOLE_GENE:
+        raise ValueError("%r: rows are re-paired or recoded only with the whole gene hidden" % condition)
     return mask, rows
 
 
@@ -109,6 +127,8 @@ def hidden_target_cells(n, table_ids, mask, seed=SEED, rate=MASK_RATE):
     residue = offs[None, :] < n0[:, None]
     if mask == WHOLE_GENE:
         return residue
+    if mask == SUFFIX:
+        return residue & (offs[None, :] >= (n0 // 2)[:, None])
     if mask != SCATTERED:
         raise ValueError("unknown mask %r" % mask)
     u = hash_u01(seed, STREAM_SCATTERED, np.asarray(table_ids).reshape(-1, 1), offs[None, :])
@@ -125,6 +145,41 @@ def present_rows(kind):
     out = (np.asarray(kind) != api.KIND_NONE).any(axis=2)
     out[:, 0] = True
     return out
+
+
+def offset_target(col, n, k):
+    """col with the other rows' columns in the target block moved k to the right; a codon moved past row 0's segment
+    (the frame of the block) has no column any more."""
+    col = np.array(col, copy=True)
+    n0 = np.asarray(n)[:, 0, TARGET_BLOCK].astype(np.int64)
+    c = col[:, 1:, TARGET_START:TARGET_STOP].astype(np.int64)
+    moved = np.where(c >= 0, c + int(k), -1)
+    col[:, 1:, TARGET_START:TARGET_STOP] = np.where(moved < n0[:, None, None], moved, -1).astype(col.dtype)
+    return col
+
+
+def synonymous(tok, n, table_ids, seed=SEED):
+    """tok with every codon of the other rows' relation blocks replaced by another codon of the same amino acid (stop
+    codons among the stops), chosen by hash; a codon without a synonym, and "other", stay."""
+    from seeddrift.train.rel.evalh import score                      # the genetic code: this recoding and the report only
+    cls = score.amino_acid_classes()
+    tok = np.array(tok, copy=True)
+    relation = (BLOCK_OF_SLOT < api.N_RELATION)[None, None, :]
+    t, r, s = np.nonzero(residue_cells(n)[:, 1:, :] & relation)
+    r = r + 1
+    codon = tok[t, r, s].astype(np.int64)
+    u = hash_u01(seed, STREAM_SYNONYMOUS, np.asarray(table_ids).reshape(-1)[t], r * api.ROW_LEN + s)
+    new = codon.copy()
+    for c in np.unique(cls[1:65]):
+        members = np.flatnonzero(cls[1:65] == c) + 1
+        sel = (codon >= 1) & (codon <= 64) & (cls[np.minimum(codon, 65)] == c)
+        if members.shape[0] < 2 or not sel.any():
+            continue
+        pick = np.floor(u[sel] * (members.shape[0] - 1)).astype(np.int64)
+        pick = pick + (pick >= np.searchsorted(members, codon[sel]))        # never the codon itself
+        new[sel] = members[pick]
+    tok[t, r, s] = new.astype(tok.dtype)
+    return tok
 
 
 def subset(group, per_group=SUBSET_PER_GROUP):
@@ -200,6 +255,10 @@ def materialise(tables, table_ids, condition, seed=SEED, rate=MASK_RATE):
         src = np.tile(np.arange(R, dtype=np.int64), (N, 1))
         for k, v in per_row.items():
             out[k] = v
+        if rows_mode.startswith(OFFSET):
+            out["col"] = offset_target(out["col"], n, int(rows_mode[len(OFFSET):]))
+        elif rows_mode == SYNONYMOUS:
+            out["tok"] = synonymous(out["tok"], n, table_ids, seed)
     hidden = np.zeros(out["tok"].shape, dtype=bool)
     hidden[:, 0, TARGET_START:TARGET_STOP] = hidden_target_cells(n, table_ids, mask, seed, rate) & has[:, None]
     out["visible"] = residue_cells(out["n"]) & ~hidden
@@ -252,7 +311,7 @@ class ItemsDigest:
         return h.hexdigest()
 
 
-SELFCHECK = "6f6e8fa5ef91471bc5b3f312a89ec453fdc40acac09c0291f9cec0a3fee95625"
+SELFCHECK = "442d6c33b194d2a004d95ecaa18dc442850e29c05e31ada95d4b04790500373b"
 _PORTABLE = []
 
 
@@ -266,9 +325,9 @@ def check_portable():
             raise RuntimeError("the evaluation plan is not the pinned one in this interpreter (numpy %s): %s" % (np.__version__, got))
 
 
-def selfcheck():
-    """A digest of the plans of a fixed, hash-made batch. The same string (SELFCHECK) in every interpreter, or the
-    rule is not portable; materialise refuses to plan in an interpreter where it differs."""
+def selfcheck(conditions=CONDITIONS):
+    """A digest of the plans of a fixed, hash-made batch. The same string (SELFCHECK, for today's five conditions) in
+    every interpreter, or the rule is not portable; materialise refuses to plan in an interpreter where it differs."""
     N, R, B = 7, 6, len(_BLOCKS)
     ids = np.arange(100, 100 + N)
     lens = np.array([e - s for _, s, e in _BLOCKS])
@@ -285,8 +344,9 @@ def selfcheck():
     kind[~(n > 0).any(axis=2)] = 0                                 # a row without any segment does not exist
     tables = dict(tok=tok, n=n, col=col, kind=kind)
     out = []
-    for c in CONDITIONS:
+    for c in conditions:
+        m = materialise(tables, ids, c)
         d = ItemsDigest(c)
-        d.add(materialise(tables, ids, c))
-        out.append(d.hexdigest())
+        d.add(m)
+        out.append(d.hexdigest() + hashlib.sha256(m["tok"].tobytes() + m["col"].tobytes()).hexdigest())
     return hashlib.sha256("\n".join(out).encode()).hexdigest()

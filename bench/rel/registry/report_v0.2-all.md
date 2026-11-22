@@ -77,4 +77,4 @@ Grades that would change if `donor_structure` were accepted as evidence of forei
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 7, partial 6, y 17. Genomes inside the radius in the medium corpus: ? 9, n 17, y 4. Overlap with sealed genera or the sealed test part: ? 8, n 22. Exposure: ? 28, L4 1, L5 1.
+Provisional list covers the radius: n 7, partial 6, y 17. Genomes inside the radius in the medium corpus: ? 1, n 22, y 7. Overlap with sealed genera or the sealed test part: ? 1, n 29. Exposure: ? 28, L4 1, L5 1.

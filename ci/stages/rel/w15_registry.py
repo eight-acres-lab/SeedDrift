@@ -43,7 +43,8 @@ OUT = os.path.join("data", "rel_w15", "registry")
 KEYS = {"registry", "source", "fetch", "supplements", "max_supplement_mb", "pause_s"}
 EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
 USER_AGENT = "literature-registry-fetch/0.2 (python urllib)"
-DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;()\[\]]+")
+DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;\[\]]+")
+RETRIES = (10, 30)           # seconds to wait before the second and third try of a lookup or a supplement
 CATALOGUE = os.path.join("bench", "catalogue", "events.tsv")
 PRETRAIN_SPLITS = ("train", "heldout")
 FETCH_MIN_SHARE = 0.5        # gate: with fetch on, at least half the lookups must return a parsed record
@@ -68,7 +69,10 @@ def dois(rows) -> list:
     for r in rows:
         for col in ("papers", "later", "exclusion_basis", "notes"):
             for m in DOI_RE.finditer(r.get(col) or ""):
-                d = m.group(0).rstrip(".,:").lower()
+                d = m.group(0).rstrip(".,:")
+                while d.endswith(")") and d.count(")") > d.count("("):   # a DOI inside brackets; keep 10.1016/S1473-3099(15)...
+                    d = d[:-1].rstrip(".,:")
+                d = d.lower()
                 if d not in out:
                     out.append(d)
     return out
@@ -90,6 +94,9 @@ def taxa(rows, tax) -> dict:
         else:
             same = cands
         wanted = set(reg._lineage(r))
+        stated = (r.get("recipient_exclusion_taxid") or "").strip()
+        if stated and int(stated) in same:                       # a stated taxid settles homonyms (environmental samples)
+            same = [int(stated)]
         scored = sorted(((len(wanted & {tax.name(x) for x in tax.lineage(t)}), t) for t in same), reverse=True)
         rec = dict(name=name, rank=rank, candidates=len(cands))
         if not cands:
@@ -107,7 +114,6 @@ def taxa(rows, tax) -> dict:
             lin = [tax.name(x) for x in reversed(tax.lineage(t))]
             rec.update(status="ok", taxid=t, ncbi_rank=tax.rank.get(t), ncbi_lineage=lin,
                        names_not_in_ncbi=[x for x in reg._lineage(r) if x not in lin])
-            stated = (r.get("recipient_exclusion_taxid") or "").strip()
             if stated and int(stated) != t:
                 rec["stated_taxid_differs"] = int(stated)
         out[r["event_id"]] = rec
@@ -181,12 +187,42 @@ def _store(dest, name, data):
     return dict(file=name, bytes=len(data), sha256=sha256_file(p, use_sidecar=False))
 
 
-def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_supplement_mb=50.0, pause_s=0.5) -> dict:
+def _tries(fn, waits, sleep=time.sleep):
+    """fn() with retries after transient failures (connection errors, 5xx, an error body); the last error is raised."""
+    for i, wait in enumerate((0,) + tuple(waits)):
+        if wait:
+            sleep(wait)
+        try:
+            return fn()
+        except urllib.error.HTTPError as err:
+            if err.code < 500 or i == len(waits):
+                raise
+        except (urllib.error.URLError, OSError, ValueError):
+            if i == len(waits):
+                raise
+
+
+def _supplement(url, opener, max_bytes):
+    status, data = _get(url, opener, max_bytes)
+    if not data.startswith(b"PK"):                                 # Europe PMC answers 200 with an XML errorBean when its back end fails
+        raise ValueError("not a zip archive: %r" % data[:160])
+    return status, data
+
+
+def _fulltext(url, opener):
+    status, data = _get(url, opener)
+    if b"errorBean" in data[:400] or not data.lstrip().startswith(b"<"):
+        raise ValueError("not an article: %r" % data[:160])
+    return status, data
+
+
+def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_supplement_mb=50.0, pause_s=0.5,
+          waits=RETRIES, sleep=time.sleep) -> dict:
     """Europe PMC metadata for one DOI, the open full text when Europe PMC has it, the supplements when asked."""
     rec = dict(doi=doi, when=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     url = EPMC + "search?" + urllib.parse.urlencode(dict(query='DOI:"%s"' % doi, resultType="core", format="json"))
     try:
-        status, data = _get(url, opener)
+        status, data = _tries(lambda: _get(url, opener), waits, sleep)
         rec["meta"] = dict(_store(dest, "meta.json", data), url=url, status=status)
         hits = (json.loads(data, strict=False).get("resultList") or {}).get("result") or []
         hit = hits[0] if hits else {}
@@ -202,14 +238,21 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
         url = EPMC + "%s/%s" % (rec["pmcid"], path)
         max_bytes = int(cap * 1e6) if cap else None
         try:
-            status, data = _get(url, opener, max_bytes)
+            if what == "supplements":
+                status, data = _tries(lambda: _supplement(url, opener, max_bytes), waits, sleep)
+            else:
+                status, data = _tries(lambda: _fulltext(url, opener), waits, sleep)
             if max_bytes and len(data) > max_bytes:
                 rec[what] = dict(url=url, error="larger than %.0f MB, not stored" % cap)
             else:
                 rec[what] = dict(_store(dest, "fulltext.xml" if what == "fulltext" else "supplements.zip", data), url=url, status=status)
         except urllib.error.HTTPError as err:
             rec[what] = dict(url=url, status=err.code, error=str(err)[:200])
-        except (urllib.error.URLError, OSError) as err:
+            if what == "fulltext" and err.code == 500:
+                rec[what]["note"] = ("HTTP 500 after retries: Europe PMC's back end failed (run 20261122T153204 had such failures "
+                                     "for open-access articles too), or the article is outside its open subset; PMC's terms bar "
+                                     "automated bulk download from its own site")
+        except (urllib.error.URLError, OSError, ValueError) as err:
             rec[what] = dict(url=url, error=str(err)[:200])
     return rec
 

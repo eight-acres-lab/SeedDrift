@@ -68,4 +68,4 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 4, partial 1, y 5. Genomes inside the radius in the medium corpus: ? 6, n 4. Overlap with sealed genera or the sealed test part: ? 5, n 5. Exposure: ? 9, L5 1.
+Provisional list covers the radius: n 4, partial 1, y 5. Genomes inside the radius in the medium corpus: n 8, y 2. Overlap with sealed genera or the sealed test part: n 10. Exposure: ? 9, L5 1.

@@ -17,10 +17,11 @@ Profile block rel_w18_rulers:
   dist               the passed run of stage w2_dist on the same source
   expect             optional {split: genomes}
   rows               rows per table (16)
-  triples_per_group  triples per group of A (40); a triple is three tables
+  per_tier           triples per eligible A and donor tier (2); group_tier_cap: at most this many per (group, tier) (30)
+  scenarios          true: the copies of scenario donor_unsampled too
   edges              the tier edges of the distance ([0.05, 0.2, 0.5, 1.0]; the protocol's)
   k                  the k-mer length of the distance matrix read (the distance run's primary k, 6)
-  min_codons, length_tol, attempts, donor_cap     the generator's draws (64, 0.15, 40, 3)
+  min_codons, length_tol, attempts, donor_cap, min_aligned, aligned_share    the generator's draws (64, 0.15, 40, 3, 10, 0.3)
   shard_tables, processes, max_left_out
 Outputs under data/rel_w18/rulers/: tables/ (the shards: the contract's fields written by W2's writer, and beside each
 shard W18's meta fields <shard>.w18_<name>.npy, role meta), index.json (the genome list, groups, edges, the triples and
@@ -51,8 +52,8 @@ from seeddrift.train.rel.tables import v0_build as V
 from seeddrift.train.rel.tables import v0_io as IO
 
 OUT = os.path.join("data", "rel_w18", "rulers")
-KEYS = {"source", "dist", "expect", "rows", "triples_per_group", "edges", "k", "min_codons", "length_tol", "attempts", "donor_cap", "shard_tables",
-        "processes", "max_left_out"}
+KEYS = {"source", "dist", "expect", "rows", "per_tier", "group_tier_cap", "scenarios", "edges", "k", "min_codons", "length_tol", "attempts",
+        "donor_cap", "min_aligned", "aligned_share", "shard_tables", "processes", "max_left_out"}
 COVERAGE_NOTE = ("Implant tables (ruler, evaluation only): the target block of a held-out genome A replaced by a gene of another held-out genome D of "
                  "the standard code, with two controls at the same locus (A's own gene, another gene of A). Rows are training genomes with a homolog row "
                  "on all three target genes; before the corpus is searched again without caps, having such a row is decided by a similarity ranking, "
@@ -68,12 +69,14 @@ def settings(cfg) -> dict:
     if unknown or not c.get("source") or not c.get("dist"):
         raise SystemExit("rel_w18_rulers: needs source and dist; unknown keys %s" % sorted(unknown))
     out = dict(source=str(c["source"]), dist=str(c["dist"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()},
-               rows=int(c.get("rows", 16)), triples_per_group=int(c.get("triples_per_group", 40)),
+               rows=int(c.get("rows", 16)), per_tier=int(c.get("per_tier", 2)), group_tier_cap=int(c.get("group_tier_cap", 30)),
+               scenarios=bool(c.get("scenarios", True)), min_aligned=int(c.get("min_aligned", 10)), aligned_share=float(c.get("aligned_share", 0.3)),
                edges=[float(x) for x in c.get("edges") or [0.05, 0.2, 0.5, 1.0]], k=int(c.get("k", 6)), min_codons=int(c.get("min_codons", 64)),
                length_tol=float(c.get("length_tol", 0.15)), attempts=int(c.get("attempts", 40)), donor_cap=int(c.get("donor_cap", 3)),
                shard_tables=int(c.get("shard_tables", 720)), processes=int(c.get("processes", 4)), max_left_out=int(c.get("max_left_out", 20)),
                seed=int(cfg.get("seed", 1)))
-    if not (2 <= out["rows"] <= 32 and 1 <= out["triples_per_group"] <= 1000 and out["edges"] == sorted(out["edges"]) and 1 <= out["min_codons"] <= 256
+    if not (2 <= out["rows"] <= 32 and 1 <= out["per_tier"] <= 10 and 1 <= out["group_tier_cap"] <= 1000 and out["edges"] == sorted(out["edges"])
+            and 1 <= out["min_codons"] <= 256 and 1 <= out["min_aligned"] and 0 <= out["aligned_share"] < 1
             and 0 < out["length_tol"] < 1 and 1 <= out["attempts"] <= 1000 and 1 <= out["donor_cap"] and 3 <= out["shard_tables"] <= 20000
             and out["shard_tables"] % 3 == 0 and 1 <= out["processes"] <= 16):
         raise SystemExit("rel_w18_rulers: settings out of range: %r" % out)
@@ -141,6 +144,35 @@ def eligibility(metas, declared, codes):
     return ok, left
 
 
+def mask_digests(out, meta):
+    """({triple: the sha256 of the cells its passes hide}, [triples whose three tables differ]): the masks are hashed on
+    the triple, so the three tables of a triple hide the same cells (the target blocks have one length)."""
+    from seeddrift.train.rel.readouts import w18_passes as P
+    got, bad = {}, []
+    for t in range(len(out["tok"])):
+        tab = {k: out[k][t] for k in P.FIELDS}
+        d = P.mask_digest(tab, meta["row_tier"][t], t, int(meta["parent"][t]))
+        s = int(meta["triple"][t])
+        if got.setdefault(s, d) != d and s not in bad:
+            bad.append(s)
+    return got, bad
+
+
+def tier_expectation(capacity, groups, edges):
+    """The protocol's pre-declaration per donor tier: tiers 0 and 1 "expected too few" (the split keeps close clusters
+    on one side); tier 2 as well unless every block has at least 3 groups with at least 5 eligible A that have a
+    candidate donor in it; the other tiers "expected readable"."""
+    from seeddrift.train.rel.evalh import score as SC
+    out = {}
+    for t in range(len(edges) + 2):
+        if t <= 1:
+            out[str(t)] = "expected too few"
+            continue
+        ok = all(sum(1 for g in groups if SC.block_of(g) == block and capacity.get("%s|%d" % (g, t), 0) >= 5) >= 3 for block in SC.BLOCKS)
+        out[str(t)] = "expected readable" if (t > 2 or ok) else "expected too few"
+    return out
+
+
 def write_meta(path, meta):
     """W18's meta of every table, in the order of the set, as one uncompressed .npz (the evaluator's reader of shards
     reads <shard>.<field>.npy files only, so this file never reaches a table reader; readers of the ruler set take it
@@ -162,7 +194,7 @@ def build(st, cfg, run_dir):
     metas, left, sizes = W.open_genomes(src, dict(s, expect=s["expect"]), sealed)
     tax = Taxonomy(st.repo(cfg["taxdump"]))
     ents = {m["id"]: W.entry(src, m) for m in metas}
-    st.extra["sealed_check"] = common.sealed_check(cfg, list(ents.values()), splits={m["id"]: m["split"] for m in metas}, sealed=sealed, tax=tax)
+    st.extra["sealed_check"] = common.sealed_record(cfg, list(ents.values()), splits={m["id"]: m["split"] for m in metas}, sealed=sealed, tax=tax)
     st.extra.update(source=src["provenance"], split_sizes=sizes, left_out=left)
     dist_ids, dist, dist_rep = distance_run(s["dist"], s["k"])
     if dist_rep.get("source") != src["provenance"]:
@@ -180,14 +212,22 @@ def build(st, cfg, run_dir):
     say("%d files checked, %d genomes loaded, %.0f s" % (len(paths), len(genomes), time.time() - t0))
     ids = [m["id"] for m in metas]
     train = [m["id"] for m in metas if m["split"] == "train"]
-    imp = I.Implanter(SS.Pairs(run), genomes, train, ids, dist, dist_ids, s["edges"], eligible, rows=s["rows"], min_codons=s["min_codons"],
-                      length_tol=s["length_tol"], attempts=s["attempts"], donor_cap=s["donor_cap"])
-    out, meta, triples, counts = imp.build(metas, groups, s["triples_per_group"], s["seed"], progress=say)
+    units = I.split_units(metas)
+    imp = I.Implanter(SS.Pairs(run), genomes, train, ids, dist, dist_ids, s["edges"], eligible, units, rows=s["rows"], min_codons=s["min_codons"],
+                      length_tol=s["length_tol"], attempts=s["attempts"], donor_cap=s["donor_cap"], min_aligned=s["min_aligned"],
+                      aligned_share=s["aligned_share"])
+    out, meta, triples, counts, capacity = imp.build(metas, groups, s["seed"], per_tier=s["per_tier"], group_tier_cap=s["group_tier_cap"],
+                                                     scenarios=s["scenarios"], progress=say)
     gix = {g: i for i, g in enumerate(ids)}
-    problems = I.verify(out, meta, {gix[g] for g in eligible}, {gix[g] for g in train})
+    problems = I.verify(out, meta, {gix[g] for g in eligible}, {gix[g] for g in train}, {gix[g]: u for g, u in units.items()})
+    digests, unequal = mask_digests(out, meta)
+    if unequal:
+        problems.append("triples whose three tables hide different cells: %s" % unequal[:5])
     if problems:
         raise SystemExit("rel_w18_rulers: the implant tables are not sound: %s" % problems[:10])
-    say("%d triples, %d tables, %.0f s" % (counts["triples"], len(out["tok"]), time.time() - t0))
+    for t in triples:
+        t["mask_sha256"] = digests[t["triple"]]
+    say("%d triples (%d copies of scenario donor_unsampled), %d tables, %.0f s" % (len(triples), counts["copies"], len(out["tok"]), time.time() - t0))
     base = os.path.join(run_dir, OUT)
     folder = os.path.join(base, "tables")
     shards = IO.write(folder, out, s["shard_tables"])
@@ -200,11 +240,12 @@ def build(st, cfg, run_dir):
     for f, sha in zip(files, V.hash_files([os.path.join(run_dir, f["path"]) for f in files], s["processes"])):
         f.update(sha256=sha, bytes=os.path.getsize(os.path.join(run_dir, f["path"])))
     used = sorted({int(x) for x in np.unique(out["genome"]) if x >= 0} | {int(x) for x in np.unique(meta["donor"])})
-    present = sorted({t["group"] for t in triples if t["status"] == "ok"})
+    present = sorted({t["group"] for t in triples})
     index = dict(format="rel-w18-rulers-index", version=1, table_version=I.TABLE_VERSION, api_version=V.API_VERSION, rows=s["rows"], groups=groups,
                  edges=s["edges"], tiers=["<%g" % s["edges"][0]] + ["%g-%g" % (a, b) for a, b in zip(s["edges"], s["edges"][1:])] + [">=%g" % s["edges"][-1], "no shared k-mer"],
                  k=s["k"], variants=list(I.VARIANTS), meta_fields={k: v[2] for k, v in I.FIELDS.items()}, settings=s, counts=counts,
-                 triples=[dict(t, a=gix[t["a"]], d=gix[t["d"]]) if t.get("d") else dict(t, a=gix[t["a"]]) for t in triples],
+                 triples=[dict(t, a=gix[t["a"]], d=gix[t["d"]]) for t in triples], units=imp.unit_names, capacity=capacity,
+                 tier_expectation=tier_expectation(capacity, groups, s["edges"]),
                  left_out_by_code={g: len(v) for g, v in by_code.items()}, code_detail=by_code, eligible=sorted(gix[g] for g in eligible),
                  meta_file="w18_meta.npz",
                  genomes=[dict(id=m["id"], group=m["group"], split=m["split"], taxid=int(m["taxid"])) for m in metas],
@@ -224,12 +265,12 @@ def build(st, cfg, run_dir):
         tables=n, rows=s["rows"], seed=s["seed"], parts=dict(ruler=part), files=files, group_names=groups,
         genomes=[dict(id=ids[i], taxid=int(metas[i]["taxid"]), split=metas[i]["split"]) for i in used],
         left_out=[dict(group=x["group"], split=x["split"], reasons=x["reasons"]) for x in left], source=src["provenance"],
-        distance_run=index["distance_run"], sealed_check=dict(passed=True, **st.extra["sealed_check"]), index=os.path.relpath(ip, run_dir),
+        distance_run=index["distance_run"], sealed_check=st.extra["sealed_check"], index=os.path.relpath(ip, run_dir),
         producer=dict(stage="w18_rulers", package="W18", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     p = os.path.join(base, "tableset.json")
     write_json(p, doc)
     st.output("tableset", p)
-    st.extra.update(tables=n, triples=counts["triples"], counts=counts, eligible=len(eligible), tableset_sha256=doc["sha256"], seconds=round(time.time() - t0, 1))
+    st.extra.update(tables=n, triples=len(triples), counts=counts, eligible=len(eligible), tableset_sha256=doc["sha256"], seconds=round(time.time() - t0, 1))
     return doc
 
 
@@ -267,7 +308,11 @@ def gate(st, cfg, run_dir):
     held = {i for i, g in enumerate(listed) if g["split"] == "heldout"}
     eligible = set(index.get("eligible") or []) & held
     train = {i for i, g in enumerate(listed) if g["split"] == "train"}
-    problems += [dict(error=e) for e in I.verify(out, meta, eligible, train)]
+    units = I.split_units([by[g["id"]] for g in listed if g["id"] in by])
+    problems += [dict(error=e) for e in I.verify(out, meta, eligible, train, {i: units.get(g["id"]) for i, g in enumerate(listed)})]
+    digests, unequal = mask_digests(out, meta)
+    if unequal or any(t.get("mask_sha256") != digests.get(t["triple"]) for t in index.get("triples") or []):
+        problems.append(dict(error="the cells the passes hide differ between the tables of a triple, or from the index", triples=unequal[:10]))
     sealed_ids = {m["id"] for m in src["index"]["genomes"] if m["split"] not in V.OPEN_SPLITS}
     if sealed_ids & ({g["id"] for g in listed} | {g["id"] for g in doc.get("genomes") or []}):
         problems.append(dict(error="genomes outside the open splits are named"))
@@ -283,19 +328,21 @@ def summary(run_dir):
     with open(os.path.join(run_dir, OUT, "index.json")) as f:
         index = json.load(f)
     c = index.get("counts") or {}
-    tiers = {}
-    rows = {}
+    tiers, rows = {}, {}
     for t in index.get("triples") or []:
-        if t.get("status") == "ok":
+        if t.get("scenario") == "in_place":
             tiers[t["tier"]] = tiers.get(t["tier"], 0) + 1
             rows[min(t["rows"], 8)] = rows.get(min(t["rows"], 8), 0) + 1
-    js = dict(name=doc["name"], tables=doc["tables"], triples=c.get("triples"), failed=c.get("failed"), zero_rows=c.get("zero_rows"),
+    js = dict(name=doc["name"], tables=doc["tables"], triples=c.get("triples"), copies=c.get("copies"), failed=c.get("failed"), zero_rows=c.get("zero_rows"),
+              phases={k: c.get(k) for k in ("phase1", "phase2", "phase3")}, context_homolog=c.get("context_homolog"),
               donor_tiers={str(k): v for k, v in sorted(tiers.items())}, rows_on_target={str(k): v for k, v in sorted(rows.items())},
-              left_out_by_code=index.get("left_out_by_code"), tableset_sha256=doc["sha256"], folder=OUT)
-    md = ["Implant tables (`%s`, kind ruler): %d triples, %d tables; triples without a common row %s, failed %s." % (
-              doc["name"], c.get("triples", 0), doc["tables"], c.get("zero_rows"), c.get("failed")),
-          "Donor tiers (tier: triples) %s; rows on the target (8 = 8 or more) %s; held-out genomes left out by the genetic code %s." % (
-              js["donor_tiers"], js["rows_on_target"], js["left_out_by_code"]),
+              tier_expectation=index.get("tier_expectation"), left_out_by_code=index.get("left_out_by_code"), tableset_sha256=doc["sha256"], folder=OUT)
+    md = ["Implant tables (`%s`, kind ruler, construct only): %d triples in place and %d copies with the donor's lineage unsampled, %d tables; "
+          "phases (n = 256 / matched / zero rows) %s; failed %s; triples flagged by rule 9 %s." % (
+              doc["name"], c.get("triples", 0), c.get("copies", 0), doc["tables"], "/".join(str(c.get(k)) for k in ("phase1", "phase2", "phase3")),
+              c.get("failed"), c.get("context_homolog")),
+          "Donor tiers (tier: triples) %s, pre-declared %s; rows on the target (8 = 8 or more) %s; held-out genomes left out by the genetic code %s." % (
+              js["donor_tiers"], js["tier_expectation"], js["rows_on_target"], js["left_out_by_code"]),
           "Manifest `%s`." % doc["sha256"]]
     return dict(json=js, md=md)
 

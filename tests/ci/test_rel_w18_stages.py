@@ -56,9 +56,12 @@ def make_dist(run, src):
 
 
 def patch(mp, tmp):
+    from ci.stages.rel import kinds
     W2S.patch(mp, tmp)
     mp.setattr(w18_rulers, "declared_tables", lambda path: {})
     mp.setattr(w18_rulers, "nuclear_codes", lambda taxdump, taxids, tax=None: {int(t): 11 for t in taxids})
+    real = kinds.reads
+    mp.setattr(kinds, "reads", lambda name, *a: ("ruler",) if name == "w18_readout" else real(name, *a))   # until the stage is registered
 
 
 @pytest.fixture(scope="module")
@@ -72,7 +75,7 @@ def built(tmp_path_factory):
     dmetas, dist = make_dist(dist_run, src)
     run_dir, cfg = RF.rel_run(tmp)
     cfg = dict(cfg, rel=dict(machine="i1", stages=["w18_rulers"]),
-               rel_w18_rulers=dict(source=src, dist=dist_run, expect=W2S.SIZES, rows=8, triples_per_group=3, k=4, min_codons=20, length_tol=0.6,
+               rel_w18_rulers=dict(source=src, dist=dist_run, expect=W2S.SIZES, rows=8, per_tier=2, group_tier_cap=4, k=4, min_codons=20, length_tol=0.6,
                                    shard_tables=9, processes=1))
     with pytest.MonkeyPatch.context() as mp:
         patch(mp, tmp)
@@ -92,6 +95,10 @@ def test_rulers_stage_writes_a_ruler_set(built):
     assert handoff.tableset_problems(doc, run_dir) == []
     assert doc["kind"] == "ruler" and doc["purpose"] == "ruler" and doc["producer"]["stage"] == "w18_rulers" and doc["sealed_check"]["passed"] is True
     assert doc["tables"] % 3 == 0 and doc["tables"] >= 9
+    with open(os.path.join(run_dir, w18_rulers.OUT, "index.json")) as f:
+        index = json.load(f)
+    assert index["tier_expectation"]["0"] == index["tier_expectation"]["1"] == "expected too few" and index["units"]
+    assert all(t["mask_sha256"] for t in index["triples"]) and {t["scenario"] for t in index["triples"]} <= {"in_place", "donor_unsampled"}
     text = json.dumps(doc) + open(os.path.join(run_dir, w18_rulers.OUT, "index.json")).read()
     assert not any(g in text for g in W2S.SEALED)                     # the sealed genomes are named nowhere
     split = {m["id"]: m["split"] for m in built["metas"]}
@@ -108,7 +115,8 @@ def test_the_evaluator_reads_the_ruler_set_and_the_meta_file(built):
     got = list(P.tables_of(ts, meta))
     assert [g[0] for g in got] == list(range(ts.tables))
     k = ts.load(0, ts.tables, ("kind", "genome"))
-    for tid, tab, tier in got:
+    for tid, tab, tier, mid in got:
+        assert mid == meta["parent"][tid]
         exists = (k["kind"][tid] != api.KIND_NONE).any(axis=1)
         assert ((tier >= 0) == (exists & (np.arange(len(tier)) > 0))).all()
 
@@ -123,6 +131,7 @@ def test_rulers_gate_passes_and_catches_a_broken_triple(built, monkeypatch):
            "split": np.ones(3, np.int8)}
     out["genome"][:, 1:] = -1
     meta = dict(triple=np.zeros(3, np.int32), variant=np.array([0, 1, 1], np.int8), donor=np.ones(3, np.int32))
+    out["start"], out["strand"], out["replicon"] = (np.full((3, 8, api.N_BLOCKS), v) for v in (-1, 0, -1))
     from bench.rel import implant as I
     assert any("three tables" in p for p in I.verify(out, meta, {0, 1}, set()))
     assert w18_rulers.summary(run_dir)["json"]["tables"] == built["doc"]["tables"]
@@ -215,25 +224,33 @@ def test_readout_stage_reads_every_arm_and_writes_the_aucs(built, evaluated, mon
     from ci.stages.rel import w18_readout
     from seeddrift.train.rel.readouts import w18_readouts as R
     ev, cfg = evaluated["ev"], evaluated["cfg"]
-    monkeypatch.setattr(R, "MIN_GROUP", 1)                             # the fixture has a few tables per group; let them enter
+    patch(monkeypatch, built["tmp"])
+    monkeypatch.setattr(R, "MIN_GROUP", 1)                             # the fixture has a few triples per group; let them enter
     with Stage(ev, "rel_w18_readout") as st:
         rep = w18_readout.build(st, cfg, ev)
     assert sorted((a["arm"], a["weights"]) for a in rep["arms"]) == [("toy", "final"), ("toy", "untrained"), ("toy-norel", "final")]
     assert rep["tables"]["sha256"] == built["doc"]["sha256"] and rep["tables"]["tables"] == built["doc"]["tables"]
-    with open(os.path.join(ev, w18_readout.OUT, "auc.tsv")) as f:
-        import csv
+    import csv
+    with open(os.path.join(ev, w18_readout.OUT, "stats.tsv")) as f:
         rows = list(csv.DictReader(f, delimiter="\t"))
     labels = {(r["label"], r["score"]) for r in rows}
-    assert {("toy", "source_shift"), ("toy", "gain"), ("presence:toy", "gain"), ("untrained:toy", "gain"), ("toy-norel", "composition"),
-            ("control", "best_similarity"), ("control", "host_codon"), ("control", "rows_on_target")} <= labels
-    assert all(0 <= float(r["auc"]) <= 1 for r in rows if r["auc"])
+    assert {("toy", "source_shift_aa"), ("toy", "gain_aa"), ("toy", "gain_rel_aa"), ("presence:toy", "gain"), ("untrained:toy", "gain"),
+            ("toy-norel", "composition"), ("control", "best_similarity"), ("control", "coverage_shift"), ("control", "host_codon")} <= labels
+    assert all(0 <= float(r["value"]) <= 1 for r in rows if r["value"])
+    assert {r["scenario"] for r in rows} == {"in_place", "donor_unsampled"} and {r["rule9"] for r in rows} == {"on", "off"}
+    assert {r["statistic"] for r in rows} == {"win", "pooled"}
     assert not any(r["readable"] == "True" for r in rows)              # the fixture is far too small to read anything
-    g = [r for r in rows if r["label"] == "toy" and r["score"] == "gain" and r["stratum"] == "all" and r["comparison"] == "own" and r["groups"] != "0"]
-    assert g and json.loads(g[0]["vs_untrained"])["reference_auc"] is not None and json.loads(g[0]["vs_best_similarity"])["auc"] is not None
+    g = [r for r in rows if r["label"] == "toy" and r["score"] == "gain" and r["stratum"] == "all" and r["comparison"] == "own" and r["groups"] != "0"
+         and r["scenario"] == "in_place"]
+    assert g and json.loads(g[0]["vs_untrained"])["reference"] is not None and json.loads(g[0]["vs_best_similarity"])["value"] is not None
     c = [r for r in rows if r["label"] == "toy-norel" and r["score"] == "composition" and r["groups"] != "0"]
     assert c and json.loads(c[0]["vs_host_codon"])["diff"] is not None
+    with open(os.path.join(ev, w18_readout.OUT, "coverage.tsv")) as f:
+        cover = list(csv.DictReader(f, delimiter="\t"))
+    assert len(cover) == 7 * 12 and {c["mark"] for c in cover} <= {"construct only", "not evaluated"}
     with open(os.path.join(ev, w18_readout.OUT, "scores.tsv")) as f:
         assert len(f.read().strip().splitlines()) == built["doc"]["tables"] + 1
+    assert "Coverage (charter rule 7)" in open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
     with Stage(ev, "gates_rel_w18_readout") as st:
         w18_readout.gate(st, cfg, ev)
     assert _gate(ev, "G4_rel_w18_readout")["status"] == "pass"
@@ -241,10 +258,11 @@ def test_readout_stage_reads_every_arm_and_writes_the_aucs(built, evaluated, mon
     assert w18_readout.summary(ev)["json"]["tables"]["name"] == built["doc"]["name"]
 
 
-def test_readout_stage_refuses_cells_of_another_plan(built, evaluated, tmp_path):
+def test_readout_stage_refuses_cells_of_another_plan(built, evaluated, tmp_path, monkeypatch):
     from ci.stages.rel import w18_readout
     from seeddrift.train.rel.data import tables as T
     ev, cfg = evaluated["ev"], evaluated["cfg"]
+    patch(monkeypatch, built["tmp"])
     meta = P.load_meta(built["run_dir"], built["doc"])
     cells = P.run(P.tables_of(evaluated["tabs"].ts, meta), T.render, P.flat_scorer(w6_form), relatives=True, presence=False)
     bad = os.path.join(ev, "data", "rel_w6", "eval", "toy", P.RULER_CELLS)

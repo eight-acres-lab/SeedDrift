@@ -4,7 +4,9 @@ numpy only: it runs in the CI environment and in the model interpreter, and neve
 (bench/rel/) or the generator of synthetic tables. A pass is one model evaluation of one table: which rows are kept and
 which cells are visible and scored. Only cells of row 0 (the examined genome) are scored; every hidden cell of row 0 is
 scored and no other cell is. Every random choice is the evaluator's 64-bit hash (evalh/conditions.hash_u01) on streams of
-this module, so the plan is the same in every numpy and never depends on the content of a cell.
+this module, so the plan is the same in every numpy and never depends on the content of a cell. The hash takes a mask id
+(the ruler set's `parent`: the triple, shared by its three variants and its scenario copies) and the slot, so the three
+tables of a triple, whose target blocks have the same length, hide exactly the same cells.
 
 Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the examined genome, from the ruler set's meta):
   T      the target block of row 0 scattered (rate 0.15, at least one cell), every row
@@ -15,6 +17,7 @@ Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the 
   W      the whole target block of row 0 hidden, every row
   H1     the first half of the target block hidden (offsets below n // 2), the second half visible
   H2     the second half hidden (offsets from n // 2 on), the first half visible
+  W0, H10, H20   W, H1 and H2 with every other row removed (the gain without relatives; only when the table has other rows)
   N      the whole target block hidden, every other row removed: the only pass of an arm trained without relatives
   P:<x>  pass x with every cell of the other rows hidden and unscored (shown as MASK): the presence pattern without the
          content, for x in T, T-t<t>, C, C-t<t>, W, H1, H2 (only when the table has other rows)
@@ -61,7 +64,7 @@ T0_, T1_ = SLICES[TARGET_BLOCK][1], SLICES[TARGET_BLOCK][2]
 BLOCK_OF = cond.BLOCK_OF_SLOT
 OFFSET_OF = cond.OFFSET_OF_SLOT
 CONTEXT_SLOT = BLOCK_OF != TARGET_BLOCK            # the neighbour and relation blocks
-BASE = ("T", "T0", "C", "W", "H1", "H2", "N")
+BASE = ("T", "T0", "C", "W", "H1", "H2", "N", "W0", "H10", "H20")
 PRESENCE = "P:"
 _TIERED = tuple("T-t%d" % t for t in range(MAX_TIERS)) + tuple("C-t%d" % t for t in range(MAX_TIERS))
 PASS_NAMES = BASE + _TIERED + tuple(PRESENCE + x for x in ("T", "C", "W", "H1", "H2") + _TIERED)
@@ -104,9 +107,10 @@ def tiers_present(row_tier, keep):
     return sorted({int(x) for x in t})
 
 
-def plan(tab, row_tier, table_id, relatives=True, presence=False, seed=SEED):
+def plan(tab, row_tier, table_id, relatives=True, presence=False, seed=SEED, mask_id=None):
     """The passes of one table (fields tok, n, col, kind [R, ...]; row_tier (R,) the tier of every row to row 0, -1 for
-    row 0 and for rows that do not exist). relatives False: the arm was trained without relatives; its only pass is N."""
+    row 0 and for rows that do not exist). relatives False: the arm was trained without relatives; its only pass is N.
+    mask_id: what the scattered masks are hashed on (default the table id)."""
     res = residue(tab)
     R = res.shape[0]
     pres = present(tab)
@@ -132,8 +136,9 @@ def plan(tab, row_tier, table_id, relatives=True, presence=False, seed=SEED):
     if not relatives:
         return [make("N", whole, only0)]
     out = []
-    hide_t = scattered(target_cells, table_id, STREAM_TARGET, seed)
-    hide_c = scattered(res[0] & CONTEXT_SLOT, table_id, STREAM_CONTEXT, seed)
+    mid = table_id if mask_id is None else mask_id
+    hide_t = scattered(target_cells, mid, STREAM_TARGET, seed)
+    hide_c = scattered(res[0] & CONTEXT_SLOT, mid, STREAM_CONTEXT, seed)
     tiers = tiers_present(tier, pres)
     first = target_cells & (offs < n0 // 2)
     second = target_cells & (offs >= n0 // 2)
@@ -148,8 +153,14 @@ def plan(tab, row_tier, table_id, relatives=True, presence=False, seed=SEED):
     if first.any() and second.any():
         out.append(make("H1", first, pres))
         out.append(make("H2", second, pres))
+    base = list(out)
+    if others.any():
+        out.append(make("W0", whole, only0))
+        if first.any() and second.any():
+            out.append(make("H10", first, only0))
+            out.append(make("H20", second, only0))
     if presence and others.any():
-        for p in list(out):
+        for p in base:
             if p.name == "T0":
                 continue
             vis = p.visible.copy()
@@ -193,7 +204,7 @@ class PlanDigest:
 def run(source, render, score, relatives=True, presence=False, max_rows=64, seed=SEED, progress=None):
     """Every pass of every table of `source` rendered and scored.
 
-    source: iterable of (table_id, tab, row_tier); tab holds tok, n, col, kind (rows first) and frame_len.
+    source: iterable of (table_id, tab, row_tier[, mask_id]); tab holds tok, n, col, kind (rows first) and frame_len.
     Returns dict of per-cell arrays (one entry per scored cell): table (int64), pass_id (int16, into PASS_NAMES), slot
     (int16, row 0's own slot), truth (uint8), bits, aa_bits, entropy (float32); and pass_names, digest, tables, passes."""
     cols = {k: [] for k in ("table", "pass_id", "slot", "truth", "bits", "aa_bits", "entropy")}
@@ -222,8 +233,10 @@ def run(source, render, score, relatives=True, presence=False, max_rows=64, seed
                 cols[k].append(x.astype(np.float32))
         pending, rows = [], 0
 
-    for tid, tab, row_tier in source:
-        for p in plan(tab, row_tier, tid, relatives, presence, seed):
+    for item in source:
+        tid, tab, row_tier = item[:3]
+        mid = item[3] if len(item) > 3 else None
+        for p in plan(tab, row_tier, tid, relatives, presence, seed, mid):
             sub = take(tab, p.keep)
             got = render(sub, p.visible[p.keep], p.target[p.keep])
             grid, truth, ext = (tuple(got) + (None,))[:3]
@@ -267,8 +280,9 @@ def load_meta(run_dir, manifest):
 
 
 def tables_of(ts, meta, first=0, last=None, chunk=64):
-    """(table id, {tok, n, col, kind, frame_len} of one table, its row tiers) for the tables first..last-1 of a ruler
-    set (ts: an evalh/shards.TableSet; meta: load_meta), in storage order; the table id is the position in the set."""
+    """(table id, {tok, n, col, kind, frame_len} of one table, its row tiers, its mask id) for the tables first..last-1
+    of a ruler set (ts: an evalh/shards.TableSet; meta: load_meta), in storage order; the table id is the position in
+    the set, the mask id the triple it belongs to (meta parent)."""
     last = ts.tables if last is None else int(last)
     if meta["row_tier"].shape[0] != ts.tables:
         raise ValueError("the meta file has %d tables, the set %d" % (meta["row_tier"].shape[0], ts.tables))
@@ -276,7 +290,7 @@ def tables_of(ts, meta, first=0, last=None, chunk=64):
         b = min(a + chunk, last)
         got = ts.load(a, b, FIELDS)
         for k in range(b - a):
-            yield a + k, {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k]
+            yield a + k, {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k], int(meta["parent"][a + k])
 
 
 CELL_FORMAT = "rel-w18-cells-1"
@@ -316,8 +330,9 @@ def load_cells(path):
 def plan_digest(source, relatives=True, presence=False, seed=SEED):
     """(digest, tables, passes) of the plan of every table of source, as run computes it."""
     d, n, k = PlanDigest(), 0, 0
-    for tid, tab, row_tier in source:
-        for p in plan(tab, row_tier, tid, relatives, presence, seed):
+    for item in source:
+        tid, tab, row_tier = item[:3]
+        for p in plan(tab, row_tier, tid, relatives, presence, seed, item[3] if len(item) > 3 else None):
             d.add(tid, p)
             k += 1
         n += 1
@@ -376,3 +391,16 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
 def count_passes(tab, row_tier, relatives=True, presence=False):
     """How many passes plan gives a table (for the cost estimate of a run)."""
     return len(plan(tab, row_tier, 0, relatives, presence))
+
+
+def mask_digest(tab, row_tier, table_id, mask_id):
+    """sha256 of the row-0 cells every pass of an arm with relatives hides, by pass name (the tier passes left out: the
+    tiers present are a property of the rows): equal for the three tables of a triple, whose target blocks have one
+    length and whose other blocks are the same."""
+    h = hashlib.sha256()
+    for p in sorted(plan(tab, row_tier, table_id, True, False, mask_id=mask_id), key=lambda x: x.name):
+        if p.name.startswith(("T-t", "C-t")):
+            continue
+        h.update(p.name.encode())
+        h.update(np.flatnonzero(p.target[0]).astype("<i4").tobytes())
+    return h.hexdigest()

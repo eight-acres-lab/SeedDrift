@@ -341,6 +341,7 @@ def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
     assert got[(cond.SUFFIX, SC.RELATIVES[0])]["bits_stored"] == 4.25 and cond.SUFFIX in rep["conditions"]
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "## The leak of the stored layout" in text and "Scattered at every node both reached" in text and "## head: w6-ref10m-s1 against w6-ref30m-s1" in text
+    assert "so the suffix pair is a side reading" in text
     with pytest.raises(SystemExit):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["nobody", "w6-ref30m-s1"]])), run_dir)
 

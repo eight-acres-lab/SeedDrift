@@ -52,7 +52,7 @@ DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask
                 eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
                 preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
-                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN)
+                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False)
 TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
 # the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
 OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",
@@ -257,19 +257,24 @@ class Run:
                     cells_per_s=round(cells_per_s, 1), peak_mb=round(self.peak_mb()[1]), tier=getattr(SC, "TIER", SC.ALL), passes=1, status=status,
                     versions=versions())
 
-    def eval_plan(self):
+    def eval_plan(self, at_node=False):
         """[(key, condition, layout, arrays)]: every condition of the arm in the layout eval_source gives it; an arm
         trained leak-free also reads the whole gene (and its re-pairing) in the stored layout it was trained in (key
-        "<condition>@stored"; the programme lead's ruling for round 1b: that reading is a reference only)."""
+        "<condition>@stored"; the programme lead's ruling for round 1b: that reading is a reference only). The
+        references (those, and the extra conditions such as suffix) are read at the final evaluation only, not at the
+        nodes, unless references_at_nodes (the ruling of 2026-11-23, from round 1 on)."""
+        refs = not at_node or bool(self.cfg["references_at_nodes"])
         out = []
         for c in self.conditions:
+            if c not in cond.CONDITIONS and not refs:
+                continue
             layout, data = self.eval_source(c)
             out.append((c, c, layout, data))
-            if layout != A.LAYOUT_STORED and c in STORED_TOO:
+            if refs and layout != A.LAYOUT_STORED and c in STORED_TOO:
                 out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0]))
         return out
 
-    def evaluate(self, ids, fixed, path):
+    def evaluate(self, ids, fixed, path, at_node=False):
         """The held-out tables ids under every condition of this arm (eval_plan), read by the moving average. The rows
         go to self.rows and the whole table to path after every condition; their layout column says how the grids were
         rendered. Returns {key: bits over all groups and strata, None when nothing was scored}, {key: (bits,
@@ -278,7 +283,7 @@ class Run:
         strata = SC.strata_of(identity[ids], n_other[ids])
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
-        for key, c, layout, data in self.eval_plan():
+        for key, c, layout, data in self.eval_plan(at_node):
             part = {f: v[ids] for f, v in data.items()}
             fixed = dict(fixed, layout=layout)
             bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout)
@@ -537,7 +542,7 @@ def fit(cfg):
         t = time.time()
         rate = k["cells"] / k["train_s"] if k["train_s"] > 0 else 0.0
         fixed = run.fixed_columns("%s@tables=%d" % (reads, k["tables"]), "subset", k["cells"], rate, "running", k["tables"], time.time() - began)
-        main, _, digests = run.evaluate(sub, fixed, results)
+        main, _, digests = run.evaluate(sub, fixed, results, at_node=True)
         took = time.time() - t
         k["eval_s"] += took
         rec = dict(tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"], wall_s=round(time.time() - began, 1),
@@ -556,7 +561,8 @@ def fit(cfg):
     # final_best (default: the arms trained without relatives): the weights of the best node evaluated on the final
     # tables too, so that an arm's best can be set against another arm's end on the same tables
     best_too = (not cfg["relatives"]) if cfg["final_best"] is None else bool(cfg["final_best"])
-    reserve = eval0 * len(final_ids) / max(1, len(sub)) * 1.3 * (2 if best_too else 1) + 60.0
+    more = len(run.eval_plan(False)) / max(1, len(run.eval_plan(True)))   # the final evaluation reads the references too
+    reserve = eval0 * len(final_ids) / max(1, len(sub)) * more * 1.3 * (2 if best_too else 1) + 60.0
     deadline = began + float(cfg["wall_s"]) - reserve
     if deadline <= time.time():
         raise SystemExit("the wall limit of %s s leaves no time to train (the final evaluation needs about %.0f s)" % (cfg["wall_s"], reserve))

@@ -149,6 +149,7 @@ def test_leakfree_layout_trains():
     assert lay == {"scattered": {"leakfree"}, "whole_gene": {"leakfree", "stored"}, "whole_gene+repaired": {"leakfree", "stored"},
                    "scattered+no_relatives": {"stored"}, "whole_gene+no_relatives": {"stored"}}           # the whole gene in both layouts
     assert {"whole_gene@stored", "whole_gene+repaired@stored"} <= set(out["final"])
+    assert all(set(e["bits"]) == set(cond.CONDITIONS) for e in out["evals"])                                    # the nodes: the main readings
     for c in cond.CONDITIONS:                                     # the cells scored stay the evaluator's whatever the layout
         assert out["final_items"][c] == _digest(cfg, root, c), c
     assert out["final_items"]["whole_gene@stored"] == out["final_items"]["whole_gene"]
@@ -317,6 +318,12 @@ def test_extra_and_only_conditions():
     assert cond.SUFFIX in out["final"] and out["final_items"][cond.SUFFIX] == _digest(cfg, root, cond.SUFFIX)
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     assert {r["condition"] for r in rows if r["weights"] == "ema@final"} == set(cond.CONDITIONS) | {cond.SUFFIX}
+    assert {r["condition"] for r in rows if r["weights"].startswith("ema@tables=")} == set(cond.CONDITIONS)       # references at the end only
+    root = tempfile.mkdtemp()
+    cfg = _config(root, extra_conditions=[cond.SUFFIX], references_at_nodes=True, max_steps=2)
+    loop.fit(cfg)
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    assert {r["condition"] for r in rows if r["weights"].startswith("ema@tables=")} == set(cond.CONDITIONS) | {cond.SUFFIX}
 
 
 def test_split_and_gradient_checks():

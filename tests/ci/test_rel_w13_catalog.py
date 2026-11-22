@@ -143,7 +143,7 @@ def test_the_wide_count_follows_the_rules_of_the_selection(tmp_path):
     s = dict(per_anchor=[1, 3], propose=3, max_genes_euk=1500)
     own = WC.corpus_genomes(metas, entries)
     host_recs = [dict(virus_taxid=v, host_taxid=h) for v, h in HOSTS]
-    counts, reasons, kept = WC.census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, [])
+    counts, reasons, kept, _ = WC.census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, [])
     b = counts["train"]["bacteria"]
     assert b["new_same_species"]["candidates"] == 2 and b["new_same_genus"]["candidates"] == 1        # 101, 102; 105
     assert counts["train"]["mobile.plasmid"]["new_same_species"]["candidates"] == 2                    # the host species' assemblies, not its own

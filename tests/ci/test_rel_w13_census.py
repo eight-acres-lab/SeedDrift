@@ -33,8 +33,8 @@ def make_selection(tmp, metas):
         first = m["split"] in ("train", "heldout") and m["group"] not in seen and m["id"] != TS.LEFT_OUT
         if m["split"] == "test" or first:
             seen.add(m["group"]) if first else None
-            base = dict(group=m["group"], catalogue="c", taxid=m["taxid"], host_taxid=0, order=m["ranks"][2], genus=m["ranks"][4], accession="", units=1,
-                        proteins_central=3000, proteins_level="", pick="")
+            base = dict(group=m["group"], catalogue="ens_fixture" if m["group"].startswith("eukaryota.") else "c", taxid=m["taxid"], host_taxid=0,
+                        order=m["ranks"][2], genus=m["ranks"][4], accession="", units=1, proteins_central=3000, proteins_level="", pick="")
             rows += [dict(base, id=m["id"] + "_sp1", species_taxid=m["ranks"][5], out="not needed for the target (pick 9)", selected=0),
                      dict(base, id=m["id"] + "_sp2", species_taxid=m["ranks"][5], out="another genome of the species (%s) preferred" % m["id"], selected=0),
                      dict(base, id=m["id"] + "_sp3", species_taxid=m["ranks"][5], out="excluded: sealed genus X", selected=0),
@@ -52,13 +52,21 @@ def make_selection(tmp, metas):
     sha = hashlib.sha256(body).hexdigest()
     (store / "cas" / sha[:2]).mkdir(parents=True)
     (store / "cas" / sha[:2] / (sha + ".jsonl")).write_bytes(body)
+    ens = [dict(name=r["id"].split("_", 1)[1], site="ensemblgenomes", site_division="fungi", release=63, core_db="x_collection_core_63_116_1" if k % 2 else "y_core_63")
+           for k, r in enumerate(rows) if r["catalogue"] == "ens_fixture"]          # the Ensembl records of the eukaryote candidates
+    ebody = b"".join(json.dumps(x).encode() + b"\n" for x in ens)
+    esha = hashlib.sha256(ebody).hexdigest()
+    (store / "cas" / esha[:2]).mkdir(parents=True, exist_ok=True)
+    (store / "cas" / esha[:2] / (esha + ".jsonl")).write_bytes(ebody)
     (run / "data" / "catalog").mkdir(parents=True)
-    (run / "data" / "catalog" / "manifest.json").write_text(json.dumps(dict(entries=[dict(id="phage_hosts", kind="ncbi_virus_reports", records=2, sha256=sha,
-                                                                                       path="%s/%s.jsonl" % (sha[:2], sha))])))
+    (run / "data" / "catalog" / "manifest.json").write_text(json.dumps(dict(entries=[
+        dict(id="phage_hosts", kind="ncbi_virus_reports", records=2, sha256=sha, path="%s/%s.jsonl" % (sha[:2], sha)),
+        dict(id="ens_fixture", kind="ensembl_species", records=len(ens), sha256=esha, path="%s/%s.jsonl" % (esha[:2], esha))])))
     (run / "config.resolved.yaml").write_text("catalog: {mode: lock, lock: configs/select/v1.lock.yaml}\nselect_spec: configs/select/medium.yaml\n"
                                               "data_root: %s\n" % store)
     spec = tmp / "corpus.yaml"
-    spec.write_text("# Corpus x, emitted from the selection of run sel (\n# selected.tsv sha256 %s). Edit the selection.\nname: x\n"
+    spec.write_text("# Corpus x, emitted from the selection of run sel (\n# selected.tsv sha256 %s). Edit the selection.\nname: x\ntier: tiny\n"
+                    "groups: {bacteria: {min_genomes: 1}}\nsources:\n- {id: bacteria_GCF_000000104.1, source_kind: raw_prokaryote, taxid: 227377, accession: GCF_000000104.1}\n"
                     % sha256_file(str(run / "data" / "select" / "selected.tsv"), use_sidecar=False))
     return str(run), str(spec), truth
 

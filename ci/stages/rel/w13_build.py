@@ -1,0 +1,211 @@
+"""Stage rel_w13_build (package W13; pipeline rel_corpus): the corpus with the first batch of close relatives, built by
+the corpus stages of the CI as they are (fetch, corpus, reference, eval_inputs, search, train_data; its rule asks for
+their outputs), and checked (task breakdown W13 step 2). `python -m ci.stages.rel.w13_build RUN_DIR`.
+
+The run's corpus spec must be the corpus.yaml of the passed pick run (rel_w13_build.pick_from, stage rel_w13_pick),
+byte for byte. Checks on this run's training-data index:
+  pinned     every genome of the pinned index (rel_w13_build.pinned_from: the run whose splits the line works on; its
+             index sha256 rel_w13_build.pinned_index_sha256) is here with the same split; nothing else of the old corpus
+             is new or gone
+  relatives  every relative of the pick is here (or listed by stage fetch as unavailable), with its anchor's split, and
+             no other genome is new
+  no leak    no new training genome shares a genus or, without a genus, a species with a held-out or a test genome of
+             its group; no new held-out genome shares one with a test genome; no new genome carries a cluster
+  sealed     the new genomes pass the sealed check and the exclusions by lineage
+It reports the genes of the new genomes per group and split and the disk the run takes. Test genomes are compared by
+their split only; none is named in an output. Outputs under data/rel_w13/build/: report.json (written last) and
+report.md. Gate G4_rel_w13_build.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+
+from ci.gates import GateResult, require
+from ci.hashing import sha256_file, sha256_json
+from ci.stages.common import main_args, write_json
+from ci.stages.rel import common
+from ci.stages.rel import w13_pick
+
+OUT = os.path.join("data", "rel_w13", "build")
+KEYS = {"pick_from", "pinned_from", "pinned_index_sha256"}
+
+
+def settings(cfg) -> dict:
+    c = cfg.get("rel_w13_build") or {}
+    unknown = set(c) - KEYS
+    if unknown or KEYS - set(c):
+        raise SystemExit("rel_w13_build: needs %s; unknown keys %s" % (sorted(KEYS), sorted(unknown)))
+    return {k: str(c[k]) for k in KEYS}
+
+
+def _json(p):
+    with open(p) as f:
+        return json.load(f)
+
+
+def pick_run(run):
+    """(relatives, corpus spec sha256) of a passed run of stage rel_w13_pick."""
+    rec = _json(os.path.join(run, "record.json"))
+    if rec.get("status") != "passed":
+        raise SystemExit("rel_w13_build: the pick run %s is %s, not passed" % (rec.get("run_id"), rec.get("status")))
+    from ci.stages.rel import w2_v0 as W
+    rp = os.path.join(run, w13_pick.OUT, "report.json")
+    W._output(run, "rel_w13_pick", "pick_report", rp)
+    rep = _json(rp)
+    for name, e in rep["files"].items():
+        if sha256_file(os.path.join(run, e["path"]), use_sidecar=False) != e["sha256"]:
+            raise SystemExit("rel_w13_build: the %s file of the pick run is not the one its report names" % name)
+    rel = _json(os.path.join(run, rep["files"]["relatives"]["path"]))["relatives"]
+    return rel, rep["files"]["corpus"]["sha256"], dict(run_id=rec.get("run_id") or os.path.basename(run), report_sha256=sha256_file(rp, use_sidecar=False))
+
+
+def check(old, new, rel, unavailable):
+    """Problems of the new index against the pinned one and the pick, and the counts. old, new: index genome lists."""
+    problems = []
+    o = {g["id"]: g for g in old if g.get("source", "corpus") == "corpus"}
+    n = {g["id"]: g for g in new if g.get("source", "corpus") == "corpus"}
+    moved = sorted(i for i in o if i in n and n[i]["split"] != o[i]["split"])
+    gone = sorted(i for i in o if i not in n)
+    if moved:
+        problems.append(dict(check="pinned", error="%d genomes of the pinned index changed their split" % len(moved),
+                             examples=[i for i in moved if o[i]["split"] != "test" and n[i]["split"] != "test"][:5]))
+    if gone:
+        problems.append(dict(check="pinned", error="%d genomes of the pinned index are not here" % len(gone),
+                             examples=[i for i in gone if o[i]["split"] != "test"][:5]))
+    r = {x["id"]: x for x in rel}
+    new_ids = sorted(set(n) - set(o))
+    other = [i for i in new_ids if i not in r]
+    if other:
+        problems.append(dict(check="relatives", error="new genomes that are not relatives of the pick", examples=other[:5]))
+    missing = sorted(i for i in r if i not in n and i not in unavailable)
+    if missing:
+        problems.append(dict(check="relatives", error="relatives neither built nor listed as unavailable", examples=missing[:5]))
+    wrong = sorted(i for i in r if i in n and n[i]["split"] != r[i]["split"])
+    if wrong:
+        problems.append(dict(check="relatives", error="relatives outside their anchor's split", examples=wrong[:5]))
+    clustered = sorted(i for i in new_ids if n[i].get("cluster"))
+    if clustered:
+        problems.append(dict(check="no leak", error="new genomes with a near-relative cluster", examples=clustered[:5]))
+
+    def unit(g):
+        return ("g", g["ranks"][4]) if g["ranks"][4] else (("s", g["ranks"][5]) if g["ranks"][5] else ("id", g["id"]))
+    held = {}
+    for g in n.values():
+        held.setdefault((g["group"], g["split"]), set()).add(unit(g))
+    leaks = []
+    for i in new_ids:
+        g = n[i]
+        above = ("heldout", "test") if g["split"] == "train" else (("test",) if g["split"] == "heldout" else ())
+        if g["split"] == "test" or any(unit(g) in held.get((g["group"], sp), set()) for sp in above):
+            leaks.append(i)
+    if leaks:
+        problems.append(dict(check="no leak", error="%d new genomes in a held-out or test unit, or in the test split" % len(leaks), examples=leaks[:5]))
+    counts = {}
+    for i in new_ids:
+        g = n[i]
+        d = counts.setdefault(g["split"], {}).setdefault(g["group"], dict(genomes=0, genes=0, with_hits=0))
+        d["genomes"] += 1
+        d["genes"] += int(g.get("genes") or 0)
+        d["with_hits"] += 1 if int(g.get("hits") or 0) else 0
+    return problems, counts, dict(pinned=len(o), kept=len(o) - len(gone), new=len(new_ids), relatives=len(r), unavailable=sorted(set(unavailable) & set(r)))
+
+
+def disk(run_dir, data_root):
+    out = {}
+    for name in ("fetch", "corpus", "hits", "train_data", "reference", "eval_inputs"):
+        p = os.path.join(run_dir, "data", name)
+        if os.path.isdir(p):
+            try:
+                kb = int(subprocess.run(["du", "-sk", p], capture_output=True, text=True, timeout=600).stdout.split()[0])
+            except Exception:  # noqa: BLE001 - du is a report, not a check
+                kb = -1
+            out[name] = round(kb / 1048576.0, 2)
+    u = shutil.disk_usage(data_root)
+    return dict(run_gb=out, free_gb=round(u.free / 1e9, 1), total_gb=round(u.total / 1e9, 1))
+
+
+def build(st, cfg, run_dir):
+    s = settings(cfg)
+    rel, spec_sha, prov = pick_run(s["pick_from"])
+    mine = sha256_file(st.repo(cfg["corpus_spec"]), use_sidecar=False)
+    if mine != spec_sha:
+        raise SystemExit("rel_w13_build: the corpus spec %s is not the pick run's corpus.yaml (%s, %s)" % (cfg["corpus_spec"], mine[:12], spec_sha[:12]))
+    pp = os.path.join(s["pinned_from"], "data", "train_data", "index.json")
+    if sha256_file(pp, use_sidecar=False) != s["pinned_index_sha256"]:
+        raise SystemExit("rel_w13_build: the pinned index of %s is not the one the profile names" % s["pinned_from"])
+    old = _json(pp)["genomes"]
+    new = _json(os.path.join(run_dir, "data", "train_data", "index.json"))["genomes"]
+    fm = _json(os.path.join(run_dir, "data", "fetch", "manifest.json"))
+    unavailable = {m["id"] for m in ((fm.get("meta") or {}).get("unavailable") or [])}
+    problems, counts, totals = check(old, new, rel, unavailable)
+    by = {x["id"]: x for x in rel}
+    built = [g for g in new if g["id"] in by]
+    from ci.taxonomy import Taxonomy
+    ev = common.sealed_check(cfg, [dict(id=g["id"], taxid=int(g["taxid"]), accession=by[g["id"]]["accession"], paired_accession="",
+                                        **({"host_taxid": by[g["id"]]["host_taxid"]} if by[g["id"]]["host_taxid"] else {})) for g in built],
+                             splits={g["id"]: g["split"] for g in built}, tax=Taxonomy(st.repo(cfg["taxdump"]))) if built else dict(note="no relative built")
+    st.extra["sealed_check"] = ev
+    rep = dict(format="rel-w13-build", version=1, note=__doc__.strip().splitlines()[0], corpus_spec=cfg["corpus_spec"], corpus_spec_sha256=mine, pick=prov,
+               pinned=dict(run=os.path.basename(os.path.normpath(s["pinned_from"])), index_sha256=s["pinned_index_sha256"]), totals=totals, counts=counts,
+               problems=problems, disk=disk(run_dir, cfg["data_root"]), sealed_check=ev)
+    folder = os.path.join(run_dir, OUT)
+    os.makedirs(folder, exist_ok=True)
+    page = os.path.join(folder, "report.md")
+    with open(page, "w") as f:
+        f.write(page_of(rep))
+    st.output("build_page", page)
+    p = os.path.join(folder, "report.json")
+    write_json(p, rep)
+    st.output("build_report", p)
+    st.extra.update(totals=totals, problems=len(problems))
+    if problems:
+        raise SystemExit("rel_w13_build: %s" % json.dumps(problems)[:1500])
+    return rep
+
+
+def page_of(rep):
+    t = rep["totals"]
+    L = ["# The corpus with the first batch of close relatives (package W13, step 2)", "", rep["note"], "",
+         "Corpus spec %s (sha256 %s), the pick of run `%s`; pinned splits of run `%s`. %d genomes of the pinned index kept with their split; "
+         "%d new genomes of %d relatives (%d unavailable in the archive)." % (rep["corpus_spec"], rep["corpus_spec_sha256"][:12], rep["pick"]["run_id"],
+                                                                         rep["pinned"]["run"], t["kept"], t["new"], t["relatives"], len(t["unavailable"])), ""]
+    for sp, by in sorted(rep["counts"].items()):
+        L += ["## New genomes of the %s split" % sp, "", "| group | genomes | genes | with reference hits |", "|---|---|---|---|"]
+        for g, d in sorted(by.items()):
+            L.append("| %s | %d | %s | %d |" % (g, d["genomes"], "{:,}".format(d["genes"]), d["with_hits"]))
+        L.append("")
+    d = rep["disk"]
+    L += ["Disk: this run %s GB (%s); %s GB free of %s GB." % (round(sum(v for v in d["run_gb"].values() if v > 0), 1),
+                                                         ", ".join("%s %s" % (k, v) for k, v in d["run_gb"].items()), d["free_gb"], d["total_gb"]), ""]
+    L += ["Checks: " + ("all passed." if not rep["problems"] else "; ".join("%s: %s" % (x["check"], x["error"]) for x in rep["problems"])), ""]
+    return "\n".join(L)
+
+
+def gate(st, cfg, run_dir):
+    p = os.path.join(run_dir, OUT, "report.json")
+    rep = _json(p)
+    problems = list(rep.get("problems") or [])
+    if sha256_file(st.repo(cfg["corpus_spec"]), use_sidecar=False) != rep.get("corpus_spec_sha256"):
+        problems.append(dict(error="the corpus spec is not the one the report names"))
+    if not (rep.get("sealed_check") or {}).get("ids"):
+        problems.append(dict(error="no sealed check of the new genomes"))
+    require(GateResult("G4_rel_w13_build", "fail" if problems else "pass", dict(problems=problems[:50], totals=rep.get("totals"))), run_dir)
+    return sha256_json([sha256_file(p, use_sidecar=False)])
+
+
+def summary(run_dir):
+    rep = _json(os.path.join(run_dir, OUT, "report.json"))
+    return dict(json=dict(totals=rep["totals"], counts=rep["counts"], disk=rep["disk"]), md=page_of(rep).splitlines()[2:40])
+
+
+def main():
+    run_dir = main_args()
+    with common.RelStage(run_dir, "rel_w13_build") as st:
+        build(st, st.config, run_dir)
+
+
+if __name__ == "__main__":
+    main()

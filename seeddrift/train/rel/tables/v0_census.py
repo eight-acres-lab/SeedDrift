@@ -223,6 +223,18 @@ def page(doc):
                   _pct(a["checks"]["codons_coding_their_aligned_residue"]), "{:,}".format(a["checks"]["aligned_codons_checked"]),
                   "{:,}".format(a["checks"]["cells_cut_at_block_length"]), "{:,}".format(a["checks"]["aligned_codons_lost_to_the_cut"]),
                   "{:,}".format(a["checks"]["candidate_rows_without_stored_codons"]), "{:,}".format(a["checks"]["duplicate_pair_rows"]))]
+    if doc.get("cap"):
+        cp = doc["cap"]
+        splits = [x for x in ("train", "heldout") if x in cp["per_split"]]
+        L += ["", "## Genes whose homolog rows reach the cap of stage pairs (%d genomes kept per gene)" % cp["cap"], "",
+              "| group | " + " | ".join("%s genes | at the cap | rows per gene" % x for x in splits) + " |", "|---|" + "---|---|---|" * len(splits)]
+        for g in doc["groups"] + ["all"]:
+            cells = []
+            for x in splits:
+                d = cp["per_split"][x].get(g) or {}
+                cells.append("%s | %s | %s" % ("{:,}".format(d.get("genes", 0)), _pct(d.get("share_at_cap")),
+                                               "n/a" if d.get("rows_per_gene") is None else "%.1f" % d["rows_per_gene"]))
+            L.append("| %s | " % g + " | ".join(cells) + " |")
     if doc.get("strata"):
         st = doc["strata"]
         parts = [p for p in ("train", "heldout") if p in st]

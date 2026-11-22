@@ -154,6 +154,19 @@ def test_gates_pass_and_the_kind_gates_accept_the_table_set(built, monkeypatch):
     page = open(os.path.join(run_dir, w2_census.OUT, "report.md")).read()
     assert "## Table set `heldout`" in page and "viruses.giant" in page and not any(g in page for g in SEALED)
     assert "the strata of the evaluator" in page and "nearest_identity=0.9-1.0" in page and "at least 0.98 identical" in page
+    cap = rep["cap"]                                                     # genes at the cap, against the homolog files themselves
+    assert cap["cap"] == T.KEEP and cap["training_genomes"] == 24 and abs(cap["random_fill_ceiling"] - T.KEEP / 23) < 1e-12
+    want = {}
+    for m in built["metas"]:
+        if m["split"] in ("train", "heldout") and m["id"] != LEFT_OUT:
+            rows = np.diff(np.load(os.path.join(built["src"], "data", "pairs", m["id"] + ".npz"))["off"].astype(np.int64))
+            d = want.setdefault(m["split"], [0, 0])
+            d[0] += len(rows)
+            d[1] += int((rows >= T.KEEP).sum())
+    for split, (genes, at_cap) in want.items():
+        assert cap["per_split"][split]["all"]["genes"] == genes and cap["per_split"][split]["all"]["genes_at_cap"] == at_cap
+    assert all(at_cap > 0 for _, at_cap in want.values()) and head["train"]["genes_at_cap"]["all"] == cap["per_split"]["train"]["all"]["share_at_cap"]
+    assert "reach the cap of stage pairs" in page and "measures the cap, not biology" in page
     assert w2_census.summary(run_dir)["json"] == head
     with open(os.path.join(run_dir, "gates", "rel_w2_census.ok"), "w") as f:
         json.dump(dict(phase="rel_w2_census", passed=True), f)

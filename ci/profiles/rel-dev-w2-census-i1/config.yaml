@@ -1,9 +1,10 @@
 # Machine i-1: the census of the tables of version 0 again (stage w2_census alone; package W2), from the table set of
 # run 20261122T061139 of this machine (rel_w2_census.tables_from), now with the evaluator's strata of the nearest other
-# row (seeddrift/train/rel/evalh/score.py: ten equal bins and none) and the share of tables whose nearest row is at
-# least 0.98 identical. It reads the census counts and two metadata fields (identity, group) of that table set, each
-# file checked against its manifest; no genome is opened and no table is written. CPU only (the select lock), seconds.
-# Development diagnosis only.
+# row (seeddrift/train/rel/evalh/score.py: ten equal bins and none), the share of tables whose nearest row is at least
+# 0.98 identical, and the share of genes whose homolog rows reach the cap of stage pairs. It reads the census counts and
+# two metadata fields (identity, group) of that table set, and the row offsets of the open genomes' homolog files of the
+# source run (the sealed check first; every file checked against its manifest); no sequence is read and no table is
+# written. CPU only (the select lock), under a minute. Development diagnosis only.
 pipeline: rel_tables
 needs_gpu: false
 tier: medium
@@ -20,6 +21,7 @@ rel:
   stages: [w2_census]
 rel_w2_census:
   tables_from: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1
+  processes: 2
 train:
   gpu_lease: false
   device: cpu

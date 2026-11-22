@@ -13,7 +13,12 @@ Outputs under data/rel_w2/census/:
                evaluator's strata (seeddrift/train/rel/evalh/score.py: ten equal bins and none, and the trainer's six),
                read from the metadata field identity through the evaluator's reader, and the share of tables whose
                nearest row is at least 0.98 identical
+               `cap` holds, per split and group of the open genomes, the genes whose homolog rows in stage pairs reach
+               the cap of that stage (the `genomes` nearest genomes kept per gene), read from the `off` arrays of the
+               source run's homolog rows (each file checked against the source's manifest; the sealed check first)
   report.md    the same on one page
+Configuration (profile block rel_w2_census): tables_from (a passed run whose stage rel_w2_v0 wrote the tables; default:
+this run), processes (for checking the source files, default 2).
 Gate G4_rel_w2_census (gate()): the report covers every part of the table set with its number of tables, every share is
 a share, every group of the table set has its codon counts, and the page is there.
 """
@@ -49,7 +54,7 @@ CAVEATS = [
 def tables(run_dir, cfg):
     """(run directory that holds the tables, the table-set manifest, the counts document)."""
     src = (cfg.get("rel_w2_census") or {}).get("tables_from")
-    unknown = set(cfg.get("rel_w2_census") or {}) - {"tables_from"}
+    unknown = set(cfg.get("rel_w2_census") or {}) - {"tables_from", "processes"}
     if unknown:
         raise SystemExit("rel_w2_census: unknown keys %s" % sorted(unknown))
     if src:
@@ -104,7 +109,52 @@ def strata(src, doc, groups) -> dict:
     return out
 
 
-def report(doc, counts, src=None) -> dict:
+def cap_counts(cfg, src, doc, processes=2) -> dict:
+    """Per split and group of the genomes of the table set's index (the open genomes): genes, genes whose homolog rows
+    in stage pairs reach the stage's cap, and homolog rows per gene, from the source run of the tables."""
+    import yaml
+    from ci.stages.rel import w2_v0 as W
+    from seeddrift.train.rel.tables import v0_build as V
+    with open(os.path.join(src, "config.resolved.yaml")) as f:
+        source = (yaml.safe_load(f).get("rel_w2_v0") or {}).get("source")
+    if not source:
+        raise SystemExit("rel_w2_census: the run of the tables names no source run (rel_w2_v0.source)")
+    s = W.source(source)
+    if s["provenance"] != doc["source"]:
+        raise SystemExit("rel_w2_census: the source run %s is not the one the table set was built from" % source)
+    ix = [f for f in doc["files"] if f.get("role") == "index"]
+    if len(ix) != 1 or sha256_file(os.path.join(src, ix[0]["path"]), use_sidecar=False) != ix[0]["sha256"]:
+        raise SystemExit("rel_w2_census: the index of the table set is missing or not the file its manifest names")
+    with open(os.path.join(src, ix[0]["path"])) as f:
+        genomes = json.load(f)["genomes"]
+    if any(g["split"] not in V.OPEN_SPLITS for g in genomes):
+        raise SystemExit("rel_w2_census: the index lists genomes outside the open splits")
+    common.sealed_check(cfg, [dict(id=g["id"], taxid=int(g["taxid"])) for g in genomes], splits={g["id"]: g["split"] for g in genomes})
+    paths = [os.path.join("data", "pairs", g["id"] + ".npz") for g in genomes]
+    bad = [p for p, h in zip(paths, V.hash_files([os.path.join(source, p) for p in paths], processes)) if s["files"].get(p) != h]
+    if bad:
+        raise SystemExit("rel_w2_census: homolog files of %s differ from its manifests: %s" % (source, bad[:5]))
+    limit = int((s["provenance"].get("pairs_settings") or {}).get("genomes") or 64)
+    out = {}
+    for g in genomes:
+        with np.load(os.path.join(source, "data", "pairs", g["id"] + ".npz")) as z:
+            rows = np.diff(z["off"].astype(np.int64))
+        for key in (g["group"], "all"):
+            d = out.setdefault(g["split"], {}).setdefault(key, dict(genomes=0, genes=0, genes_at_cap=0, rows=0))
+            d["genomes"] += 1
+            d["genes"] += int(len(rows))
+            d["genes_at_cap"] += int((rows >= limit).sum())
+            d["rows"] += int(rows.sum())
+    for by in out.values():
+        for d in by.values():
+            d["share_at_cap"] = d["genes_at_cap"] / d["genes"] if d["genes"] else None
+            d["rows_per_gene"] = d["rows"] / d["genes"] if d["genes"] else None
+    train = (out.get("train") or {}).get("all", {}).get("genomes", 0)
+    return dict(cap=limit, training_genomes=train, random_fill_ceiling=limit / max(train - 1, 1), per_split=out,
+                note="genes of the open genomes whose homolog rows in stage pairs number the cap (the `genomes` nearest genomes kept per gene)")
+
+
+def report(doc, counts, src=None, cap=None) -> dict:
     groups, rows = counts["groups"], int(counts["rows"])
     sets = {}
     for part, arrays in counts["parts"].items():
@@ -131,6 +181,13 @@ def report(doc, counts, src=None) -> dict:
                                          without_any_row=a["nearest_row_identity"]["relation"]["share_without_any_row"]),
             random_rows_filled=dict(not_target=a["random_rows_filled"]["not_target"]["share"], target=a["random_rows_filled"]["target"]["share"]),
             random_rows_filled_per_group={g: x["random_rows_filled"]["not_target"]["share"] for g, x in d["census"]["per_group"].items()})
+    if cap is not None:
+        out["cap"] = cap
+        out["caveats"] = CAVEATS + ["The fill of rows drawn at random is bounded by the cap of stage pairs: at most %d of the %d other training genomes "
+                                    "(%.1f%%) have a homolog row on a gene, so that share measures the cap, not biology." % (
+                                        cap["cap"], cap["training_genomes"] - 1, 100 * cap["random_fill_ceiling"])]
+        for split, by in cap["per_split"].items():
+            head.setdefault(split, {})["genes_at_cap"] = dict(all=by["all"]["share_at_cap"], per_group={g: d["share_at_cap"] for g, d in by.items() if g != "all"})
     if src is not None:
         out["strata"] = strata(src, doc, groups)
         out["strata_note"] = ("nearest other row of every table at the target locus: the largest identity of rows 1.. "
@@ -145,7 +202,8 @@ def report(doc, counts, src=None) -> dict:
 
 def build(st, cfg, run_dir):
     src, doc, counts = tables(run_dir, cfg)
-    rep = report(doc, counts, src)
+    cap = cap_counts(cfg, src, doc, int((cfg.get("rel_w2_census") or {}).get("processes", 2)))
+    rep = report(doc, counts, src, cap)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     page = os.path.join(folder, "report.md")
@@ -199,6 +257,11 @@ def gate(st, cfg, run_dir):
                 problems.append(dict(part=part, strata=key, error="the strata do not hold every table of the set"))
         if (x.get("high") or {}).get("from_0.98", {}).get("share") is None:
             problems.append(dict(part=part, error="no share of nearest rows at or above 0.98"))
+    cap = rep.get("cap") or {}
+    for split in {g.get("split") for g in (doc.get("genomes") or [])}:
+        d = ((cap.get("per_split") or {}).get(split) or {}).get("all") or {}
+        if not d.get("genes") or d.get("share_at_cap") is None or not 0 <= d["share_at_cap"] <= 1:
+            problems.append(dict(split=split, error="no share of genes at the cap of stage pairs"))
     bad = [k for k, v in _shares(rep.get("strata")) if v is not None and not (math.isfinite(v) and -1e-9 <= v <= 1 + 1e-9)]
     if bad:
         problems.append(dict(error="strata values that are not shares", where=bad[:10]))

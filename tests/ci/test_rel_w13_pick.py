@@ -314,3 +314,18 @@ def test_the_build_reports_a_fetch_part(picked, monkeypatch, tmp_path):
         WB.settings(dict(rel_w13_build=dict(pick_from="x", upto="half")))
     with pytest.raises(SystemExit, match="pinned"):
         WB.settings(dict(rel_w13_build=dict(pick_from="x")))
+
+
+def test_a_source_without_stage_pairs_serves_the_training_data(tmp_path):
+    """The corpus of stage rel_w13_build has no stage pairs; package W12 reads its training data all the same."""
+    from ci.stages.rel import w2_v0 as W
+    src = str(tmp_path / "ci-root" / "runs" / "20261120T000000-src")
+    os.makedirs(src)
+    TS.make_source(src)
+    full = W.source(src)
+    os.remove(os.path.join(src, "stages", "pairs.json"))
+    with pytest.raises(SystemExit, match="no stage pairs"):
+        W.source(src)
+    lean = W.source(src, pairs=False)
+    assert lean["index"] == full["index"] and lean["provenance"]["pairs_manifest"] is None
+    assert {p: h for p, h in full["files"].items() if p.startswith("data/train_data/")} == lean["files"]

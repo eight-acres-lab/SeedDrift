@@ -10,6 +10,9 @@
   can be read on the same tables. Reporting keys only, never given to a model.
 - rows (contract api.RESULT_ROW): n_items = the tables, target_cells = the scored cells; today tier is -1 and
   baseline and bits_minus_baseline stay empty (the report puts models and baselines side by side).
+- parts of the bits of a codon (reporting only, the genetic code never reaches a model): the bits of its amino acid
+  (stop and "other" each a class of their own) and the bits of the codon given the amino acid; they add up to the
+  bits of the codon. Rows carry them under stratum PARTS[0] and PARTS[1].
 """
 from __future__ import annotations
 
@@ -26,6 +29,30 @@ N_FINE = 10
 FINE_PREFIX = "nearest_identity="
 FINE = tuple("%s%.1f-%.1f" % (FINE_PREFIX, k / 10.0, (k + 1) / 10.0) for k in range(N_FINE)) + (FINE_PREFIX + "none",)
 OTHER_ROWS = ("other_rows=0", "other_rows=1", "other_rows>=2")
+PARTS = ("part=amino_acid", "part=codon_given_amino_acid")
+_CLASSES = []
+
+
+def amino_acid_classes():
+    """(66,) the class of every token for the parts of the bits: the amino acid of a codon (1..20, the standard code of
+    the training arrays), stop (21), other (22); tokens outside 1..65 are 0."""
+    if not _CLASSES:
+        from seeddrift.train import source_model as S                       # the genetic code, for reporting only
+        c = np.zeros(66, dtype=np.int64)
+        c[1:65] = np.asarray(S.CODE)[1:65]
+        c[api.OTHER] = 22
+        _CLASSES.append(c)
+    return _CLASSES[0]
+
+
+def amino_acid_bits(P, truth):
+    """(C,) -log2 of the probability a distribution P (C, 65) over tokens 1..65 gives to the amino acid (class) of the
+    true token of every cell. The bits of the codon minus these are the bits of the codon given the amino acid."""
+    cls = amino_acid_classes()[1:66]
+    onehot = np.zeros((cls.shape[0], 23))
+    onehot[np.arange(cls.shape[0]), cls] = 1.0
+    per_class = np.asarray(P, dtype=np.float64) @ onehot
+    return -np.log2(per_class[np.arange(truth.shape[0]), cls[np.asarray(truth) - 1]])
 
 
 def nearest_identity(identity):

@@ -1,0 +1,38 @@
+# Machine i-2: the short probe before today's trainings (the programme lead's ruling of 2026-11-22, section 11): the
+# arms of profile rel-d1-i2 on the real tables for 50 steps, evaluated at step 0 and at the end on 5 held-out tables per
+# group, after the self-tests and each arm's preflight: are the losses finite, what are the memory peaks and each
+# arm's cells per second. Nothing of it is a reading; the trainings start only after it passed.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 18000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_selftest, w6_fit]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref100m.yaml, seed: 1}
+  wall_s: 1800
+  max_steps: 50
+  eval_per_group: 5
+  final_per_group: 5
+  eval_max_rows: 32
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

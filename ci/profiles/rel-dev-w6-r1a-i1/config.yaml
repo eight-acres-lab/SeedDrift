@@ -1,0 +1,48 @@
+# Machine i-1: the report of round 1a of the relational-model line's reference trunk (task-breakdown section 8.6; stage
+# w6_report of package W6, alone). Stored layout, tables of version 0; round 1a reads scattered and the two conditions
+# without relatives. Its arms beside the evening's:
+#   the short arms (run 20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1, i-1, three at once): 30 M at peak rates
+#   1.5e-4 and 6e-4, 100 M at 1e-4 (the side the learning-rate check of the evening chose);
+#   the long arm (run 20261122T162214-exp-rel-r1a-098d93a7-rel-r1along30m-i2, i-2 alone, wall limit 11 h, copied to i-1
+#   without checkpoints): 30 M at 3e-4, seed 1, read over passes of the training tables ("w6-ref30m-s1 @long");
+#   the evening's arms: 10 M, 30 M seed 1 and without relatives (run 20261122T071504, i-1), 100 M at 2e-4 (run
+#   20261122T071650, i-2), 30 M seed 2 (run 20261122T114919, i-2), 100 M at 4e-4 (run 20261122T121228, i-1).
+# The learning-rate sweeps set the rates of one size side by side at every node all reached (the 3e-4 entry of 30 M is
+# the mean of its three runs), the best against the next with the two seeds' difference as the threshold; the curve over
+# passes reads the long arm and seed 2 node by node with their training loss. The arms of round 1a and the 4e-4 arm are
+# left out of the readings of scale and of what relatives are worth (they compare the rates of the protocol). Beside the
+# classical baselines of package W5 (run 20261122T075150). Reads result rows, model indexes, preflight records and the
+# arms' steps.csv only; CPU only. Development diagnosis only. Run after the long arm has passed and been copied to i-1.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T071650-exp-rel-3382ed5e-rel-d1-i2
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2
+    - /hy-tmp/seeddrift-ci/runs/20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1
+    - /hy-tmp/seeddrift-ci/runs/20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1
+    - {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T162214-exp-rel-r1a-098d93a7-rel-r1along30m-i2, label: long}
+  seeds: [[w6-ref30m-s1, w6-ref30m-s2]]
+  readings_exclude: [w6-ref100m-lr4e-4-s1, w6-ref30m-lr1.5e-4-s1, w6-ref30m-lr6e-4-s1, w6-ref100m-lr1e-4-s1, "w6-ref30m-s1 @long"]
+  lr_sweeps:
+    - {name: 30 M, arms: [w6-ref30m-lr1.5e-4-s1, [w6-ref30m-s1, w6-ref30m-s2, "w6-ref30m-s1 @long"], w6-ref30m-lr6e-4-s1]}
+    - {name: 100 M, arms: [w6-ref100m-lr1e-4-s1, w6-ref100m-s1, w6-ref100m-lr4e-4-s1]}
+  passes: ["w6-ref30m-s1 @long", w6-ref30m-s2]
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

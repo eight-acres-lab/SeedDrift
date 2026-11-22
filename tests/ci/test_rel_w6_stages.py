@@ -336,6 +336,28 @@ def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["nobody", "w6-ref30m-s1"]])), run_dir)
 
 
+def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    folder = os.path.join(run_dir, w6_fit.OUT, "w6-ref30m-s1")
+    with open(os.path.join(folder, "steps.csv"), "w") as f:
+        f.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s,bits_scattered\n")
+        for k in range(1, 501):
+            f.write("%d,%d,0,0,0,%.3f,0,0,0,0,0,\n" % (k, 4 * k, 6.0 - k / 250.0))
+    sc = dict(lr_sweeps=[dict(name="fixture", arms=["w6-ref10m-s1", ["w6-ref30m-s1"]])], passes=["w6-ref30m-s1"])
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=sc), run_dir)
+    w = rep["lr_sweeps"][0]
+    assert w["node"] == 2000 and [r[0] for r in w["rows"]] == [1000, 2000] and w["best"][cond.SCATTERED]["entry"] == "w6-ref30m-s1"
+    assert abs(w["best"][cond.SCATTERED]["margin"] - 0.1) < 1e-9 and w["best"][cond.SCATTERED]["reading"] is None   # no seeds: no threshold
+    o = rep["passes"][0]
+    assert [r[0] for r in o["rows"]] == [1000, 2000] and abs(o["rows"][1][1] - 2000 / 100800) < 1e-12
+    assert abs(o["rows"][1][5] - 0.3) < 1e-9                                       # the fall of scattered from 5.75 to 5.45
+    assert abs(o["rows"][1][7] - (6.0 - 375.5 / 250.0)) < 1e-6                      # the training loss of steps 251..500 (tables 1,004..2,000)
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "## Learning rates of fixture" in text and "over passes of the training tables" in text
+    with pytest.raises(SystemExit):
+        w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
+
+
 def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)

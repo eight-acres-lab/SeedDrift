@@ -775,7 +775,11 @@ def build(st, cfg, run_dir):
         md += ["", "## The leak of the stored layout", "",
                "The same arm trained and read leak-free against it trained and read in the stored layout, at the end, on all held-out tables "
                "and on those with a relative on the target block: the leak is the bits leak-free minus the bits stored (positive: the stored "
-               "layout read too low). Scattered for the scattered mask; suffix (the second half of the target hidden) for the span.", ""]
+               "layout read too low). Scattered for the scattered mask; suffix (the second half of the target hidden) for the span. Suffix is "
+               "read end against end only (the stored arms were evaluated on it at their end): the two arms saw different numbers of tables "
+               "(%s), so the suffix pair is a side reading; the main reading of the leak is scattered at the common nodes below." % "; ".join(
+                   "%s %s against %s %s" % (lf, "{:,}".format(arms[lf]["info"].get("tables_seen") or 0), st_arm,
+                                            "{:,}".format(arms[st_arm]["info"].get("tables_seen") or 0)) for lf, st_arm in s["leak_pairs"]), ""]
         md += md_table(["leak-free arm", "stored arm", "condition", "tables", "bits leak-free", "bits stored", "leak", "seeds' difference", "reading"],
                        [[r["leakfree"], r["stored"], r["condition"], r["tables"], r["bits_leakfree"], r["bits_stored"], r["leak"], fmt_noise(r["noise"]),
                          r["reading"] or ""] for r in leak])

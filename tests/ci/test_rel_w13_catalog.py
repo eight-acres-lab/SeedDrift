@@ -21,18 +21,20 @@ HEAD = ["assembly_accession", "tax_id", "scientific_name", "strain", "assembly_l
 NEW_SPECIES = 90000001                                                   # a second species of the genus Coxiella (776), added to the fixture
 
 
-def rec(acc, taxid, host="", rep="full", env="false", bases=2_000_000):
+def rec(acc, taxid, host="", rep="full", env="false", bases=2_000_000, version="1", updated="2026-01-01"):
     return dict(assembly_accession=acc, tax_id=str(taxid), scientific_name="x", strain="", assembly_level="complete genome", genome_representation=rep,
-                base_count=str(bases), completeness_score="", contamination_score="", host_tax_id=str(host), environmental_sample=env, version="1",
-                last_updated="2026-01-01", accession=acc)
+                base_count=str(bases), completeness_score="", contamination_score="", host_tax_id=str(host), environmental_sample=env, version=version,
+                last_updated=updated, accession=acc)
 
 
-# bacteria: the anchor's species twice (one an environmental sample), a partial one, the anchor's own assembly, a sealed
+# bacteria: the anchor's species twice (one an environmental sample, and in two versions: the portal answers a row per
+# version), a partial one, the anchor's own assembly, a sealed
 # test genome's assembly, one of the genus, one of the closed development order, an unknown taxid; viruses: the anchor
 # phage's species with a bacterial host, with an excluded host, without a host (the selection knows one), with a
 # eukaryote host (a conflict), and a eukaryote virus without any host
 RECORDS = {
-    "bacteria": [rec("GCA_000000101", 227377), rec("GCA_000000102", 777, env="true"), rec("GCA_000000103", 227377, rep="partial"),
+    "bacteria": [rec("GCA_000000101", 227377), rec("GCA_000000102", 777, env="true", version="2", bases=2_000_100),
+                 rec("GCA_000000102", 777, env="true", version="1", updated="2025-01-01"), rec("GCA_000000103", 227377, rep="partial"),
                  rec("GCA_000000104", 227377), rec("GCA_000000001", 227377), rec("GCA_000000105", NEW_SPECIES), rec("GCA_000000106", 615),
                  rec("GCA_000000107", 99999999)],
     "viruses": [rec("GCA_000000201", 10702, host=227377, bases=40_000), rec("GCA_000000202", 10702, host=615), rec("GCA_000000203", 10702),
@@ -77,9 +79,12 @@ def test_the_snapshot_is_canonical_locked_and_read_back(tmp_path):
     run_dir, cfg = catalog_run(tmp_path)
     cats, lock, prov = WK.read(run_dir)
     assert {k: len(v) for k, v in cats.items()} == {"bacteria": 8, "archaea": 0, "viruses": 5}
-    assert [r["accession"] for r in cats["bacteria"]] == sorted(r["accession"] for r in RECORDS["bacteria"])
+    assert [r["accession"] for r in cats["bacteria"]] == sorted({r["accession"] for r in RECORDS["bacteria"]})
     assert lock["catalogues"]["viruses"]["records"] == lock["catalogues"]["viruses"]["announced"] == 5 and len(lock["catalogues"]["viruses"]["sha256"]) == 64
-    assert lock["catalogues"]["bacteria"]["fetched"].endswith("Z") and lock["context"]["2"]["contig"] == 24
+    b = lock["catalogues"]["bacteria"]                                  # one row per version; the highest version kept
+    assert (b["rows"], b["announced"], b["records"], b["older_versions_dropped"], b["version_ties"]) == (9, 9, 8, 1, 0)
+    assert [r["base_count"] for r in cats["bacteria"] if r["accession"] == "GCA_000000102"] == ["2000100"]
+    assert lock["catalogues"]["bacteria"]["fetched"].endswith("Z") and lock["context"]["2"]["contig"] == 3 * 9
     with Stage(run_dir, "gates_rel_w13_catalog") as st:
         WK.gate(st, cfg, run_dir)
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w13_catalog.json")))["status"] == "pass"
@@ -100,9 +105,14 @@ def test_an_incomplete_answer_is_refused(tmp_path):
         catalog_run(tmp_path, short="viruses")
     with pytest.raises(SystemExit, match="unknown keys"):
         WK.settings(dict(rel_w13_catalog=dict(colour=1)))
-    body = ("\t".join(HEAD) + "\n" + "\t".join(rec("GCA_1", 2).get(c, "") for c in HEAD) + "\n" + "\t".join(rec("GCA_1", 3).get(c, "") for c in HEAD) + "\n").encode()
-    with pytest.raises(SystemExit, match="twice"):
-        WK.canonical(body, WK.FIELDS)
+    line = lambda r: "\t".join(r.get(c, "") for c in HEAD) + "\n"                                  # noqa: E731
+    rows = [rec("GCA_1", 2, version="3"), rec("GCA_1", 3, version="3"), rec("GCA_1", 4, version="2", updated="2027-01-01"), rec("GCA_2", 5), rec("GCA_2", 5)]
+    data, info = WK.canonical(("\t".join(HEAD) + "\n" + "".join(line(r) for r in rows)).encode(), WK.FIELDS)
+    assert info == dict(rows=5, records=2, older=3, ties=1)            # GCA_1: version 3 twice (a tie), an older one; GCA_2: a repeat
+    kept = data.decode().splitlines()[1].split("\t")
+    assert kept[0] == "GCA_1" and kept[1] == "3"                        # the tie by the greatest row: a fixed choice
+    with pytest.raises(SystemExit, match="version and last_updated"):
+        WK.settings(dict(rel_w13_catalog=dict(fields=["accession", "tax_id"])))
 
 
 def fixture_taxonomy():
@@ -115,6 +125,7 @@ def test_the_wide_count_follows_the_rules_of_the_selection(tmp_path):
     tax = fixture_taxonomy()
     run_dir, _ = catalog_run(tmp_path)
     cats, _, _ = WK.read(run_dir)
+    cats["viruses"].append(rec("GCA_000000206", 10702, host=99999999))     # a host the taxonomy does not know
     metas = [dict(id="bacteria_GCF_000000104.1", group="bacteria", split="train", taxid=227377, ranks=[0, 0, 0, 0, 776, 777]),
              dict(id="plasmid_GCF_000000104.1", group="mobile.plasmid", split="train", taxid=227377, ranks=[0, 0, 0, 0, 776, 777]),
              dict(id="phage_a", group="viruses.phage", split="heldout", taxid=10702, ranks=[0, 0, 0, 0, 3044853, 3060797]),
@@ -138,7 +149,8 @@ def test_the_wide_count_follows_the_rules_of_the_selection(tmp_path):
             "viruses | group conflict": 1}
     assert all(reasons.get(k) == v for k, v in want.items()), reasons
     assert reasons["viruses | eligible"] == 2
-    assert [k for k in reasons if k.startswith("viruses | host unknown")] and sum(reasons.values()) == 13
+    assert [k for k in reasons if k.startswith("viruses | host unknown")] and sum(reasons.values()) == 14
+    assert reasons["viruses | excluded by a host rule (the host taxid does not resolve)"] == 1
     text = json.dumps(dict(counts=counts, reasons=reasons))
     assert "GCA_000000001" not in text and not any(x in text for x in TS.SEALED)
 

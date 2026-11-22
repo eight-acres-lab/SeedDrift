@@ -71,3 +71,11 @@ def test_profile_rules_fail_on_gpu_lock_lease_or_device():
     assert problems("rel-dev-c0-x", text3, yaml.safe_load(text3)) != []               # not on the CPU
     text4 = "pipeline: rel_traineval\nneeds_gpu: false\nrel: {machine: i3, stages: [w4_train]}\ntrain: {gpu_lease: false, device: cpu}\n"
     assert problems("rel-r1-i1", text4, yaml.safe_load(text4)) != []                  # unknown machine; a round without the GPU lock
+
+
+def test_no_rel_profile_names_a_sealed_chromosome():
+    """Gate G3_static refuses a sealed accession in a run's configuration; this catches it before any launch."""
+    from ci.gates import g3_sealed
+    rx = g3_sealed._pattern(g3_sealed.load_sealed())
+    hits = {name: sorted(set(m.group(0) for m in rx.finditer(text))) for name, text, _ in _profiles() if rx.search(text)}
+    assert hits == {}

@@ -1,0 +1,20 @@
+# The hierarchical output head (task-breakdown section 8.1, item 7): the reference arm w6-ref30m with one change, its
+# output head: the distribution of the amino acid first (22 groups: the 20 amino acids of the standard code, the three
+# stop codons, OTHER alone), then that of the codon given the amino acid; the bits are still per codon. It writes the
+# standard genetic code into the model. In round 1a it is a diagnosis only: whether it stays is decided later, on
+# version 1 of the tables, against the plain head of 65 classes. Relatives given; otherwise w6-ref30m.
+name: w6-ref30m-hier
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: stored
+rows: [4, 16]
+columns: 1024
+size: {layers: 12, width: 384, head: hierarchical}
+relatives: true
+optimizer: {lr: 3.0e-4}                   # today's rule: 3e-4 at width 384, scaled by the inverse square root of the width
+gpu_mb: 26000
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws
+tables: real

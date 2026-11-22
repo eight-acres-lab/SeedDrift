@@ -47,6 +47,21 @@ def test_variant_files_follow_the_contract():
     assert lr == {"w6-ref10m": 4e-4, "w6-ref30m": 3e-4, "w6-ref30m-norel": 3e-4, "w6-ref100m": 2e-4}
 
 
+def test_every_variant_file_loads_and_round_1a_changes_one_key():
+    st = Stage.__new__(Stage)
+    folder = os.path.join(ROOT, "configs", "rel", "variants")
+    names = sorted(f[:-5] for f in os.listdir(folder) if f.startswith("w6-") and f.endswith(".yaml"))
+    for n in names:
+        assert w6_fit.load_variant(st, "configs/rel/variants/%s.yaml" % n)["name"] == n
+    load = lambda n: yaml.safe_load(open(os.path.join(folder, n + ".yaml")))                      # noqa: E731
+    rest = lambda v, *keys: {k: x for k, x in v.items() if k not in ("name",) + keys}              # noqa: E731
+    for n, base, lr in (("w6-ref30m-lr1.5e-4", "w6-ref30m", 1.5e-4), ("w6-ref30m-lr6e-4", "w6-ref30m", 6e-4),
+                        ("w6-ref100m-lr8e-4", "w6-ref100m", 8e-4), ("w6-ref100m-lr1e-4", "w6-ref100m", 1e-4)):
+        assert load(n)["optimizer"] == {"lr": lr} and rest(load(n), "optimizer") == rest(load(base), "optimizer"), n
+    assert load("w6-ref30m-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
+    assert rest(load("w6-ref30m-hier"), "size") == rest(load("w6-ref30m"), "size")
+
+
 def test_a_changed_variant_file_fails(tmp_path):
     st = Stage.__new__(Stage)
     v = yaml.safe_load(open(os.path.join(ROOT, "configs", "rel", "variants", "w6-ref30m.yaml")))

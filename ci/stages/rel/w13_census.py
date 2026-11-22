@@ -17,7 +17,8 @@ Configuration (profile block rel_w13_census): select_from, source, expect ({spli
 anchor in the proposals, default [1, 2, 3, 5]), propose (the per_anchor of the proposal, default 3), max_genes_euk
 (the gene cap of eukaryotes in the corpus, default 1500), catalog_from (a passed run of stage rel_w13_catalog, or
 "this run" when the profile runs that stage first: the count is made a second time on its wider snapshot and reported
-beside the first; see census_wide).
+beside the first; see census_wide), scaffold_from (a passed run of stage rel_w13_scaffold: a third count, the wide
+snapshot and the scaffold-level assemblies that pass its quality thresholds).
 Outputs under data/rel_w13/census/: report.json (written last) and report.md.
 Gate G4_rel_w13_census (gate()): every group of the corpus is counted, every count is consistent, the selected table is
 the corpus's, and no genome outside the open splits is named.
@@ -38,7 +39,7 @@ from ci.kingdom import GroupConflict, KingdomMap, NoGroup
 from ci.taxonomy import UnknownTaxid
 
 OUT = os.path.join("data", "rel_w13", "census")
-KEYS = {"select_from", "source", "expect", "per_anchor", "propose", "max_genes_euk", "catalog_from"}
+KEYS = {"select_from", "source", "expect", "per_anchor", "propose", "max_genes_euk", "catalog_from", "scaffold_from"}
 ELIGIBLE = ("not needed for the target", "another genome of the species")
 OPEN = ("train", "heldout")
 
@@ -50,7 +51,10 @@ def settings(cfg) -> dict:
         raise SystemExit("rel_w13_census: needs `select_from` and `source`; unknown keys %s" % sorted(unknown))
     out = dict(select_from=str(c["select_from"]), source=str(c["source"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()},
                per_anchor=[int(x) for x in c.get("per_anchor") or [1, 2, 3, 5]], propose=int(c.get("propose", 3)), max_genes_euk=int(c.get("max_genes_euk", 1500)),
-               catalog_from=str(c["catalog_from"]) if c.get("catalog_from") else None, max_left_out=20)
+               catalog_from=str(c["catalog_from"]) if c.get("catalog_from") else None, scaffold_from=str(c["scaffold_from"]) if c.get("scaffold_from") else None,
+               max_left_out=20)
+    if out["scaffold_from"] and not out["catalog_from"]:
+        raise SystemExit("rel_w13_census: scaffold_from adds to the snapshot of catalog_from")
     if not out["per_anchor"] or min(out["per_anchor"]) < 1 or out["propose"] not in out["per_anchor"]:
         raise SystemExit("rel_w13_census: per_anchor needs positive counts and must include propose: %r" % out)
     return out
@@ -296,7 +300,7 @@ def census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra_paths)
     for cid, recs in cats.items():
         for r in recs:
             acc, t = r["accession"], int(r.get("tax_id") or 0)
-            prok = cid in PROKARYOTES
+            prok = cid.split("_")[0] in PROKARYOTES           # bacteria, archaea, and their scaffold-level catalogues
             key = (t, prok)
             if key not in cache:
                 cache[key] = wide_reason(tax, km, ex, t, () if prok else sorted(hosts.get(species(t), ())), prok)
@@ -304,6 +308,8 @@ def census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra_paths)
             if why == "host unknown (no host record of the species)" and (r.get("host_tax_id") or "").strip():
                 why = "host unknown (no host record of the species; the ENA record names a sample host)"
             asm = SL.assemblies(acc)
+            if why is None and r.get("quality") and r["quality"] != "pass":      # a scaffold-level assembly below the thresholds
+                why = "scaffold quality: %s" % ("length outside the band" if r["quality"].startswith("length ") else r["quality"])
             if why is None and (r.get("genome_representation") or "full") != "full":
                 why = "partial genome"
             if why is None and acc.split(".")[0][4:] in ex.pan_acc:
@@ -363,6 +369,18 @@ def build(st, cfg, run_dir):
                                                                               for k, v in clock["catalogues"].items()}, context=clock.get("context")),
                     counts=wcounts, reasons=wreasons, groups_from_the_selection=same, host_snapshots=host_snap,
                     proposal=dict(per_anchor=s["propose"], by_split={sp: {g: d["proposals"][str(s["propose"])] for g, d in by.items()} for sp, by in wcounts.items()}))
+    scaff = None
+    if s["scaffold_from"]:
+        from ci.stages.rel import w13_scaffold
+        here = s["scaffold_from"] == "this run"
+        scats, slock, sprov = w13_scaffold.read(run_dir if here else s["scaffold_from"], same_run=here)
+        both = dict(cats, **scats)
+        scounts, sreasons, _, _ = census_wide(both, metas, own, cands, host_recs, s, tax, sealed, extra)
+        scaff = dict(catalogue=dict(sprov, source=slock.get("source"), thresholds=slock.get("thresholds"),
+                                    catalogues={k: dict(query=v["query"], records=v["records"], sha256=v["sha256"], fetched=v["fetched"], verdicts=v.get("verdicts"),
+                                                        summary=v.get("summary")) for k, v in slock["catalogues"].items()}),
+                     counts=scounts, reasons={k: v for k, v in sreasons.items() if "_scaffold |" in k},
+                     proposal=dict(per_anchor=s["propose"], by_split={sp: {g: d["proposals"][str(s["propose"])] for g, d in by.items()} for sp, by in scounts.items()}))
     lock = lock_totals(st.repo(prov["lock"])) if prov.get("lock") and os.path.exists(st.repo(prov["lock"])) else {}
     rep = dict(format="rel-w13-census", version=1, note=__doc__.strip().splitlines()[0], selection=prov, source=src["provenance"], corpus_spec=cfg["corpus_spec"],
                settings={k: s[k] for k in ("per_anchor", "propose", "max_genes_euk")}, split_sizes=sizes, left_out=len(left),
@@ -387,6 +405,12 @@ def build(st, cfg, run_dir):
                         "(the new snapshot has no eukaryote catalogue). No sequence was downloaded."] if wide else []))
     if wide:
         rep["wide"] = wide
+    if scaff:
+        rep["scaffold"] = scaff
+        rep["caveats"].append("The third count (scaffold) adds the scaffold-level prokaryote assemblies of NCBI's GenBank assembly summaries that pass "
+                              "the thresholds of stage rel_w13_scaffold (no quality exclusion by RefSeq, at most the contigs allowed, a length within the band "
+                              "of its species' or genus' complete genomes); the ENA records of scaffold-level assemblies list no chromosome, so their download "
+                              "would need another fetch path (their WGS sets).")
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     page = os.path.join(folder, "report.md")
@@ -447,6 +471,24 @@ def page_of(rep):
                     "{:,}".format(d["proposals"][k]["genomes"]), "{:,}".format(e["proposals"][k]["genomes"])))
             L.append("")
         L += ["Records of the wider snapshot by reason: " + "; ".join("%s %s" % (k, "{:,}".format(v)) for k, v in w["reasons"].items()), ""]
+    sc = rep.get("scaffold")
+    if sc and w:
+        L += ["## With the scaffold level: selection / wide / wide and scaffold (%s)" % ", ".join(
+            "%s %s rows, %s pass" % (k, "{:,}".format(v["records"]), "{:,}".format((v.get("verdicts") or {}).get("pass", 0))) for k, v in sc["catalogue"]["catalogues"].items()), ""]
+        k = str(rep["settings"]["propose"])
+        for split in rep["counts"]:
+            L += ["### %s split" % split, "",
+                  "| group | anchors | with a same-species relative | same-species genomes | same-genus genomes | first batch, k = %s |" % k, "|---|---|---|---|---|---|"]
+            for g, d in rep["counts"][split].items():
+                e, f = (w["counts"].get(split) or {}).get(g), (sc["counts"].get(split) or {}).get(g)
+                if not e or not f:
+                    continue
+                L.append("| %s | %d | %s | %s | %s | %s |" % (g, d["anchors"], " / ".join(str(x["new_same_species"]["anchors_with_one"]) for x in (d, e, f)),
+                                                           " / ".join("{:,}".format(x["new_same_species"]["candidates"]) for x in (d, e, f)),
+                                                           " / ".join("{:,}".format(x["new_same_genus"]["candidates"]) for x in (d, e, f)),
+                                                           " / ".join("{:,}".format(x["proposals"][k]["genomes"]) for x in (d, e, f))))
+            L.append("")
+        L += ["Scaffold-level records by reason: " + "; ".join("%s %s" % (a, "{:,}".format(b)) for a, b in sc["reasons"].items()), ""]
     L += ["## What these numbers are not", ""] + ["- " + x for x in rep["caveats"]] + [""]
     return "\n".join(L)
 

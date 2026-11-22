@@ -104,8 +104,7 @@ def picked(tmp_path_factory):
         with Stage(run_c, "rel_w13_census") as st:
             WC.build(st, cfg_c, run_c)
     block = dict(select_from=sel, source=src, expect=TS.SIZES, catalog_from=cat_dir, census_from=run_c, k=3, name="x-k3", threads=2)
-    # stage w13_pick is not yet in the registry of kinds (request 20261123-w13-step2 asks for it)
-    run_p, cfg_p = RF.rel_run(tmp, kind="rel_corpus", stages=("w13_census",), run_id="20261124T000002-pick", corpus_spec=spec, rel_w13_pick=block)
+    run_p, cfg_p = RF.rel_run(tmp, kind="rel_corpus", stages=("w13_pick",), run_id="20261124T000002-pick", corpus_spec=spec, rel_w13_pick=block)
     with pytest.MonkeyPatch.context() as mp:
         TS.patch(mp, tmp)
         mp.setattr(WP, "replicons", lambda a: [("CP_" + a, "Chromosome"), ("PL_" + a, "Plasmid")])

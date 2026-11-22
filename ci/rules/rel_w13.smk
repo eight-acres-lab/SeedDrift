@@ -8,10 +8,18 @@ rule rel_w13_catalog:
     output: "data/rel_w13/catalog/manifest.json"
     shell: STAGE.format(name="rel.w13_catalog")
 
+# w13_scaffold: the prokaryote assemblies at the scaffold level, metadata only, judged by quality thresholds
+# (ci/stages/rel/w13_scaffold.py: NCBI's GenBank assembly summaries, streamed into the content store)
+rule rel_w13_scaffold:
+    input: "gates/pre.ok"
+    output: "data/rel_w13/scaffold/manifest.json"
+    shell: STAGE.format(name="rel.w13_scaffold")
+
 # w13_census: the close relatives each group can get from the catalogue snapshots of the selection (no download), and
 # a second time from the snapshot of w13_catalog (rel_w13_census.catalog_from; "this run" when the profile runs both)
 rule rel_w13_census:
-    input: ["gates/pre.ok"] + (["data/rel_w13/catalog/manifest.json"] if "w13_catalog" in REL_ON else [])
+    input: ["gates/pre.ok"] + (["data/rel_w13/catalog/manifest.json"] if "w13_catalog" in REL_ON else []) + \
+        (["data/rel_w13/scaffold/manifest.json"] if "w13_scaffold" in REL_ON else [])
     output: "data/rel_w13/census/report.json"
     shell: STAGE.format(name="rel.w13_census")
 

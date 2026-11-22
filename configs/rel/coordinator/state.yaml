@@ -40,7 +40,11 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
      note: "arm w6-ref100m (124,712 tables seen), final evaluation on all 3,000 held-out tables"}
   - {run_id: 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, machine: i2, profile: rel-d1b-i2, commit: ff8430cbe73d22c94c8e44e42506db53e1c2cf91, status: started,
      note: "arm w6-ref30m with seed 2 (branch exp/rel-d1b: commit 3382ed5 plus this profile); the day's estimate of the noise between seeds"}
-  - {run_id: 20261122T115230-exp-rel-6ec9b29e-rel-dev-w2-dist-i1, machine: i1, profile: rel-dev-w2-dist-i1, commit: 6ec9b29ed7faa37c16c52e2694bee84cd82b9f7d, status: started}
+  - {run_id: 20261122T115230-exp-rel-6ec9b29e-rel-dev-w2-dist-i1, machine: i1, profile: rel-dev-w2-dist-i1, commit: 6ec9b29ed7faa37c16c52e2694bee84cd82b9f7d, status: passed}
+  - {run_id: 20261122T115715-exp-rel-a9fd55d3-rel-dev-w6-report-i1, machine: i1, profile: rel-dev-w6-report-i1, commit: a9fd55d, status: passed,
+     note: "the combined report of the evening's four arms beside the baselines (run 20261122T075150)"}
+  - {run_id: 20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1, machine: i1, profile: rel-d1c-i1, commit: 826eacc0f4647040306b370037b2485b93b62796, status: started,
+     note: "arm w6-ref100m-lr4e-4 (w6-ref100m at the 10 M arm's peak rate; the user's go-ahead); branch exp/rel-d1c: commit 3382ed5 plus the variant and this profile"}
   - {run_id: 20261122T073023-exp-rel-81a0dfbd-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: gate_failed,
      note: "a stray group of the source index (the one genome of split eval); fixed by W5 in 3efed75"}
   - {run_id: 20261122T073224-exp-rel-81a0dfbd-rel-dev-w5-extra-i1, machine: i1, profile: rel-dev-w5-extra-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: passed}
@@ -60,5 +64,6 @@ copies:
 open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
     until then the profiles rel-dev-c0-synth-i1 and -i2 fail at that stage
-  - copy the seed-2 run of i-2 back to i-1 over R2 when it has ended; then the combined report of W6 (rel-dev-w6-report-i1)
+  - copy the seed-2 run of i-2 back to i-1 over R2 when it has ended; then W6's ladder report (rel-dev-w6-ladder-i1)
+  - after the 4e-4 run: W6's report with the learning-rate check (rel-dev-w6-lr-i1, to come)
   - the re-evaluation profile rel-d1eval-i1 was not run: every arm's final evaluation completed

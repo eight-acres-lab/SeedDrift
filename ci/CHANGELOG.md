@@ -5,7 +5,64 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
-## 0.4 (branch exp/rel, in progress)
+## 0.5 (branch exp/rel, 2026-11-23: round 1b's foundation)
+
+The packages' work since the foundation, merged into exp/rel and folded here from their change notes; the round
+profiles of round 1b. Nothing of the existing pipelines, gates or stages changes what it decides; stage fetch gains two
+switches that are off by default.
+- Contract version 1 (package P0; `seeddrift/train/rel/api.py`, `API` = 1): the vocabulary of 73 tokens (a target is a
+  residue, tokens 1 to 65), the 19 blocks of a row of 1,024 slots, the kinds of a (row, block), the arrays of a shard
+  and those no model reads, layouts, conditions and result-row columns; `col` 0-based inside a block of the frame row.
+  Additions for tables of version 1 (API stays 1): `SHARD_FIELDS_ADDED` (`genome_of_row`), `META_FIELDS_ADDED`
+  (`row_gene`, `row_first`), `KIND_ABSENT`, `KIND_SELF_COPY`, at most 2 rows per genome, provisional distance tiers.
+- Protocols (P0; `configs/rel/protocols/`): w18-v0, the pre-registered HGT capability check on implant tables, and
+  w3-offline-v0, the strict offline rendering of evaluation items under the leak-free layout.
+- Tables of version 0 and their census (W2; `seeddrift/train/rel/tables/v0_*`, stages w2_v0, w2_census, w2_dist):
+  genomes x loci from a passed selfsup run's training arrays and homolog rows, plain `.npy` shards in the contract's
+  fields, bit scores dropped before anything is read; the census of fill, nearest-row identity and codons; MinHash
+  distances between genomes for sampling and reporting only.
+- Evaluation and baselines (W5 with W10; `seeddrift/train/rel/evalh/`, `baselines/`, `chain/`; stages w5_items,
+  w5_baselines): the five conditions (scattered, whole_gene, both without relatives, whole_gene with the rows re-paired)
+  and the conditions only an evaluation uses (suffix, shifted correspondence, synonymous recoding), every random choice
+  a 64-bit hash; the stored layout in numpy; bits per group and stratum; the classical baselines (own codon frequencies,
+  the rows' average, copy the nearest row) and the copying chain with switching; the evaluation items.
+- The reference trunk and its trainer (W6 with W4; `seeddrift/train/rel/models/axial.py`, `data/`, `objectives/`,
+  `trainer/`; stages w6_selftest, w6_fit, w6_eval, w6_report): the axial trunk in sizes 10m, 30m, 100m; bidirectional
+  fill-in with warm-up then a constant rate to the wall limit; evaluation by the weights' moving average at doubling
+  tables seen and at the end; a preflight as the divergence guard; the leak-free layout through package W3's renderer,
+  a leak-free arm scored on W3's strict offline rendering (`tables.heldout_offline`) and its whole-gene conditions also
+  in the stored layout (`<condition>@stored`); `extra_conditions`; w6_eval's ruler mode for W18; the report's curves at
+  equal tables seen, the ladder over two seeds, the learning-rate check and sweep, curves by pass, `notes`.
+- The uncapped search and tables of version 1 (W12; `seeddrift/train/rel/tables/v1_hits.py`, `v1_build.py`; stages
+  w12_search, w12_v1, w12_islands): every pair once with all its alignments, no score, e-value or rank stored; the 1 %
+  trial's linear extrapolation; the island set's 24 development chromosomes as extra queries (the 17 sealed never) and
+  their tables in a set marked `not_for_training`; a memory-mapped lookup index of the rows.
+- Close relatives (W13; stages w13_catalog, w13_scaffold, w13_census, w13_pick, w13_build): a wider ENA catalogue
+  snapshot (one record per accession, the highest version), NCBI's GenBank assembly summaries for the scaffold level
+  judged by quality thresholds, the census counted on three snapshots (twins counted once, virus hosts from the
+  selection's host records), the first batch of relatives by name (the user's k = 3; each pick's ENA record and FASTA
+  tried, candidates in a seeded random order, replacements listed, at most 5 % not given), and the corpus build in
+  parts (`rel_w13_build.upto`) with its checks of the pinned splits, the relatives' units and the sealed check.
+  `configs/corpus/medium-k3.yaml` and its two part specs.
+- Stage fetch: `fetch.retry_s` (waits between tries) and `fetch.server_errors_unavailable` (a server error or no
+  connection through every try is listed as unavailable under `fetch.allow_missing`); both off by default, so every
+  other profile behaves as before (the programme lead's rule of 2026-11-23).
+- The event registry, first version, no scores (W15; `bench/rel/registry/`; stage w15_registry): rules 0.2, a sample of
+  20 records and a batch of 10; the server checks (NCBI taxonomy of every exclusion taxon, genomes inside each radius
+  in the train and held-out splits, overlap with the sealed island genera) and the papers' metadata, open full texts and
+  named supplements from Europe PMC, every network error retried and a paper still missing listed with its error type.
+  Nothing is written to `bench/catalogue/events.tsv`.
+- The HGT capability check's ruler set (W18; `bench/rel/implant.py`, `seeddrift/train/rel/readouts/`; stages
+  w18_rulers, w18_readout): implant triples of held-out genomes, kind ruler, never trained on; the readouts' passes and
+  statistics, the readout over several evaluation runs.
+- The coordinator (C0): every stage above registered in `configs/rel/kinds.yaml`; the field `reads` (the table kinds
+  a stage may read; a train-side stage never reads ruler sets; `common.read_tableset`); island rows only in sets marked
+  `not_for_training`, checked by `common.development_chromosomes`, refused as input of every training stage; the lock
+  calendar and state in `configs/rel/coordinator/`.
+- Round profiles of round 1b: `rel-r1bshort-i1` (the 10 M and 30 M arms on the leak-free layout and the hierarchical
+  output head, three at once, 4 h each) and `rel-r1blong-i2` (the 30 M arm on the leak-free layout at 1.5e-4, 11 h).
+
+## 0.4 (branch exp/rel, 2026-11-22: the foundation)
 
 The relational-model line: a general model of how genomes inherit from each other (pretraining, then post-training),
 built by several packages in parallel on the integration branch exp/rel. This version is its foundation; nothing of the

@@ -18,6 +18,10 @@ reaches its gene's end. Every score is oriented so that higher means more foreig
 Controls (no model): best_similarity, rows_on_target, covered_share, coverage_shift (the source-shift formula on the
 share of cells the rows of each tier cover on the target and on the context), host_codon and host_codon_rel (the
 composition readout with p(codon | amino acid) from A's codon counts over its other genes, plus 0.5 per codon).
+Exploratory, outside the pre-registered protocol (the programme lead, 2026-11-23; never to change a conclusion or choose
+anything): host_aa (-log2 p(amino acid) from A's amino-acid counts over its other genes, plus 0.5 per amino acid, over the
+same cells) and the composition of the target itself, x_gc (its share of G and C) and x_aa_distance (the total
+variation between its amino-acid composition and A's), which the strata of Triples.exploratory read.
 
 Statistics (stat_rows): the primary statistic is the paired win rate inside a triple, P(implant > own) + 1/2 P(tie), per
 group of A, then the plain mean over the groups of a block that are readable; the pooled AUC per group (every implant
@@ -281,7 +285,27 @@ def controls(tables, meta):
         c = -np.log2(cnt[truth[keep] - 1] / tot[cls[truth[keep]]])
         host[t] = c.mean()
         host_rel[t] = (c / np.log2(deg[cls[truth[keep]]])).mean()
-    return {"best_similarity": best, "rows_on_target": on, "covered_share": cov, "coverage_shift": cshift, "host_codon": host, "host_codon_rel": host_rel}
+    host_aa, gc, aad = np.full(N, np.nan), np.full(N, np.nan), np.full(N, np.nan)
+    for t in range(N):
+        L = int(meta["target_len"][t])
+        truth = tok[t, 0, T0_:T0_ + L].astype(np.int64)
+        pos = np.arange(L)
+        keep = (truth >= 1) & (truth <= 64) & (pos > 0) & ~((pos == L - 1) & bool(meta["target_ends"][t]))
+        codons = truth[(truth >= 1) & (truth <= 64)] - 1
+        if len(codons):
+            bases = np.stack([codons // 16, (codons // 4) % 4, codons % 4])      # A C G T = 0 1 2 3
+            gc[t] = float(((bases == 1) | (bases == 2)).mean())
+        if not keep.any():
+            continue
+        cnt = meta["host_counts"][t].astype(np.float64)
+        per_aa = np.zeros(23)
+        np.add.at(per_aa, cls[1:65], cnt)
+        p_aa = (per_aa[1:22] + PSEUDO) / (per_aa[1:22] + PSEUDO).sum()           # 20 amino acids and the stops
+        host_aa[t] = float((-np.log2(p_aa[cls[truth[keep]] - 1])).mean())
+        own = np.bincount(cls[truth[keep]] - 1, minlength=21)[:21].astype(np.float64)
+        aad[t] = 0.5 * float(np.abs(own / own.sum() - per_aa[1:22] / max(per_aa[1:22].sum(), 1)).sum())
+    return {"best_similarity": best, "rows_on_target": on, "covered_share": cov, "coverage_shift": cshift, "host_codon": host, "host_codon_rel": host_rel,
+            "host_aa": host_aa, "x_gc": gc, "x_aa_distance": aad}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -341,6 +365,26 @@ class Triples:
         out[("phase", "matched")] = self.phase == 2
         for d in sorted(set(self.direction.tolist())):
             out[("direction", d)] = self.direction == d
+        return out
+
+    def exploratory(self, gc, aa_distance):
+        """{(kind, q): bool [triples]}, exploratory (outside the protocol): quartiles per block of the implant's G+C share
+        (x_implant_gc), of the implant's minus the own control's (x_gc_minus_own) and of the implant's amino-acid distance
+        to A (x_aa_distance)."""
+        gc = np.asarray(gc, dtype=np.float64)
+        values = {"x_implant_gc": gc[self.table[:, IMPLANT]], "x_gc_minus_own": gc[self.table[:, IMPLANT]] - gc[self.table[:, OWN]],
+                  "x_aa_distance": np.asarray(aa_distance, dtype=np.float64)[self.table[:, IMPLANT]]}
+        return {k: v for name, x in values.items() for k, v in self._quartiles(name, x).items()}
+
+    def _quartiles(self, kind, x):
+        out = {(kind, "q%d" % (q + 1)): np.zeros(len(self.ids), dtype=bool) for q in range(4)}
+        for block in SC.BLOCKS:
+            sel = (self.block == block) & np.isfinite(x)
+            if sel.sum() < 4:
+                continue
+            which = np.searchsorted(np.quantile(x[sel], [0.25, 0.5, 0.75]), x, side="right")
+            for q in range(4):
+                out[(kind, "q%d" % (q + 1))] |= sel & (which == q)
         return out
 
     def host_quartiles(self, host):

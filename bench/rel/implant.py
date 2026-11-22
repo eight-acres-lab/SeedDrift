@@ -34,6 +34,14 @@ Kinds and fields are those of tables of version 0 (v0_build.py), with these diff
 strand, replicon) of the target block are unknown (-1, 0, -1) in every row of all three tables; the meta field `gene` of
 the target block is -1 for an implant (w18 gene_j names it); `tier` stays -1 (the contract's tiers are not defined yet).
 W18's own meta (FIELDS; never a model input) is written beside the shards in one file.
+
+Two sources of homolog rows: Implanter reads stage pairs of the selfsup run (tables of version 0, the fields of version
+0); ImplanterV1 reads the uncapped search of package W12 (seeddrift/train/rel/tables/v1_hits.py) and writes the fields
+of version 1, as tables of version 1 do: a block a row's genome has no homolog of is KIND_ABSENT (it was searched), the
+rows are drawn tier by tier with the tiers taking turns (the distance tier to A, as version 1 draws them), and
+genome_of_row, row_gene, row_first and the contract's `tier` are filled. Unlike version 1, an implant table has no
+self-copy row and one row per genome (its first pair in stored order that reaches the block; the stored order carries no
+score): a row of A itself, or a second paralog, would differ between the three tables of a triple.
 """
 from __future__ import annotations
 
@@ -44,6 +52,8 @@ from seeddrift.train.rel.tables import v0_build as V
 from seeddrift.train.rel.tables import v0_census as C
 from seeddrift.train.rel.tables import v0_dist as DI
 from seeddrift.train.rel.tables import v0_io as IO
+
+put = V.Builder._put                                  # writes one cell of a row (uses no state of its builder)
 
 TABLE_VERSION = "w18-implant-2"
 VARIANTS = ("implant", "original", "own")
@@ -147,7 +157,7 @@ def split_units(metas):
 
 
 class Implanter:
-    """Triples of implant tables.
+    """Triples of implant tables (homolog rows of stage pairs; tables of version 0).
 
     pairs: selfsup.Pairs of the source run; genomes: {id: Genome} of the open splits; allowed: the training genomes (rows);
     ids: the genome list the meta field `genome` indexes; dist: [G, G] distances between the genomes of dist_ids (W2's
@@ -157,6 +167,7 @@ class Implanter:
     def __init__(self, pairs, genomes, allowed, ids, dist, dist_ids, edges, eligible, units, rows=16, min_codons=64, length_tol=0.15,
                  attempts=40, donor_cap=3, min_aligned=10, aligned_share=0.3):
         self.b = V.Builder(pairs, genomes, allowed, ids, rows)
+        self.version, self.no_row_kind = 0, A.KIND_NOT_SEARCHED
         self.pairs, self.g, self.rows = pairs, genomes, int(rows)
         self.order = self.b.order
         self.oix = self.b.oix
@@ -342,6 +353,8 @@ class Implanter:
             out["col"][t, 0, s0:s0 + len(c)] = np.arange(len(c))
             out["n"][t, 0, b] = len(c)
             out["kind"][t, 0, b] = A.KIND_PRESENT
+            if "row_gene" in out:
+                out["row_gene"][t, 0, b], out["row_first"][t, 0, b] = (out["gene"][t, b], 0) if b != TARGET or owner == gid_a else (-1, -1)
             if b == TARGET:
                 out["start"][t, 0, b], out["strand"][t, 0, b], out["replicon"][t, 0, b] = -1, 0, -1
             else:
@@ -349,6 +362,8 @@ class Implanter:
         out["frame_len"][t] = flen
         out["genome"][t, 0] = self.gix[gid_a]
         out["identity"][t, 0] = 1.0
+        if "genome_of_row" in out:
+            out["genome_of_row"][t, :len(rows) + 1] = np.arange(len(rows) + 1)                # one row per genome, no self copy
         ident, same, with_col = np.full((R, B), np.nan), np.zeros((R, B), dtype=np.int64), np.zeros((R, B), dtype=np.int64)
         covered = 0
         for q, ti in enumerate(rows, 1):
@@ -365,11 +380,13 @@ class Implanter:
                 if b == TARGET and cell is None:
                     raise AssertionError("a row of the triple without its target cell")
                 if not has:
-                    out["kind"][t, q, b] = A.KIND_NOT_SEARCHED
+                    out["kind"][t, q, b] = self.no_row_kind
                 elif cell is None:
                     out["kind"][t, q, b] = A.KIND_TRUNCATED
                 else:
-                    self.b._put(out, t, q, b, cell, own[b], partner, ident, same, with_col, census_misc)
+                    put(None, out, t, q, b, cell, own[b], partner, ident, same, with_col, census_misc)
+                    if "row_gene" in out:
+                        out["row_gene"][t, q, b], out["row_first"][t, q, b] = int(cell[3]), int(cell[2])
                     if b == TARGET:
                         covered += int((cell[1] >= 0).sum())
                         meta["row_gene"][t, q] = int(cell[3])
@@ -377,10 +394,16 @@ class Implanter:
             out["identity"][t, q] = ident[q, TARGET]
         rd = meta["row_dist"][t].astype(np.float64)
         meta["row_tier"][t] = np.where(np.isnan(rd), -1, DI.tier_of(np.where(np.isnan(rd), 0.0, rd), self.edges))
+        if self.version >= 1:
+            out["tier"][t] = meta["row_tier"][t]                    # the contract's tiers are defined from version 1
         meta["on_target"][t] = len(rows)
         meta["covered"][t] = covered
         meta["target_len"][t] = int(n)
         meta["target_ends"][t] = bool(meta["block_ends"][t, TARGET])
+
+    def order_rows(self, gid_a, cands, rng):
+        """Up to rows - 1 of the candidate rows (pairs indices), in random order (tables of version 0)."""
+        return [cands[int(x)] for x in rng.permutation(len(cands))[:self.rows - 1]]
 
     def allocation(self, metas, groups, seed, per_tier, cap):
         """[(group, tier, A)] of every triple to draw, and {(group, tier): eligible A with a candidate donor in the tier}."""
@@ -434,7 +457,7 @@ class Implanter:
             rel = [int(x) for x in draw if int(x) not in (got["i"], got["k"]) and int(x) not in near][:A.N_RELATION]
             genes = rel + [-1] * (A.N_RELATION - len(rel)) + near + [got["i"]]
             genes = [x if x >= 0 and lens[x] > 0 else -1 for x in genes]
-            rows = [got["rows"][int(x)] for x in rng.permutation(len(got["rows"]))[:self.rows - 1]]
+            rows = self.order_rows(a, got["rows"], rng)
             banned = {self.units[a], self.units[got["d"]]}
             if any(self.units[self.order[ti]] in banned for ti in rows):
                 raise AssertionError("a row of the split unit of A or D")
@@ -452,7 +475,7 @@ class Implanter:
                 if len(keep) < len(tr["rows"]):
                     drawn.append(dict(tr, rows=keep, scenario=1, context_homolog=self.context_flag(tr["a"], tr["d"], tr["j"], tr["genes"], keep)))
                     self.counts["copies"] += 1
-        out, meta = IO.alloc(3 * len(drawn), self.rows), alloc_meta(3 * len(drawn), self.rows)
+        out, meta = IO.alloc(3 * len(drawn), self.rows, self.version), alloc_meta(3 * len(drawn), self.rows)
         triples = []
         for s, tr in enumerate(drawn):
             a, d = tr["a"], tr["d"]
@@ -471,6 +494,159 @@ class Implanter:
                                 context_homolog=tr["context_homolog"]))
         self.counts.update({"misc_" + k: int(v) for k, v in misc.items()})
         return out, meta, triples, dict(self.counts), {"%s|%d" % k: v for k, v in sorted(capacity.items())}
+
+
+class ImplanterV1(Implanter):
+    """Triples of implant tables from the uncapped search of package W12 (tables of version 1; see the module).
+
+    search_genomes: the search's genome list (genomes.json: dicts with id, split, group), whose indices the search's
+    arrays use; rows_of(id) -> the search's arrays of a query genome (v1_hits.load); genomes, allowed, ids, dist, dist_ids,
+    edges, eligible, units as Implanter."""
+
+    def __init__(self, search_genomes, genomes, rows_of, allowed, ids, dist, dist_ids, edges, eligible, units, rows=32, min_codons=64,
+                 length_tol=0.15, attempts=40, donor_cap=3, min_aligned=10, aligned_share=0.3):
+        self.version, self.no_row_kind = 1, A.KIND_ABSENT
+        self.g, self.rows, self.rows_of = genomes, int(rows), rows_of
+        bad = sorted(x for x, gen in genomes.items() if gen.meta.get("split") not in V.OPEN_SPLITS)
+        if bad:
+            raise SystemExit("implant tables: genomes outside the train and held-out splits were loaded: %s" % bad[:5])
+        self.order = [x["id"] for x in search_genomes]
+        self.oix = {x: k for k, x in enumerate(self.order)}
+        if len(self.oix) != len(self.order):
+            raise SystemExit("implant tables: a genome twice in the search's list")
+        missing = [x for x in genomes if x not in self.oix]
+        if missing:
+            raise SystemExit("implant tables: genomes the search did not list: %s" % missing[:5])
+        self.gix = {x: k for k, x in enumerate(ids)}
+        self.dist = np.asarray(dist)
+        self.dix = {x: k for k, x in enumerate(dist_ids)}
+        missing = [x for x in genomes if x not in self.dix]
+        if missing:
+            raise SystemExit("implant tables: genomes without a distance: %s" % missing[:5])
+        notrain = [x for x in allowed if genomes[x].meta.get("split") != "train"]
+        if notrain:
+            raise SystemExit("implant tables: other rows may only be training genomes: %s" % notrain[:5])
+        self.edges = [float(x) for x in edges]
+        self.eligible, self.units = set(eligible), dict(units)
+        self.allowed_ix = {self.oix[x] for x in allowed}
+        self.min_codons, self.tol, self.attempts, self.donor_cap = int(min_codons), float(length_tol), int(attempts), int(donor_cap)
+        self.min_aligned, self.aligned_share = int(min_aligned), float(aligned_share)
+        self._rows, self._arrays = {}, {}
+        self.counts = dict(triples=0, copies=0, zero_rows=0, failed=0, attempts=0, duplicate_rows=0, phase1=0, phase2=0, phase3=0, context_homolog=0,
+                           no_donor_left=0, dropped_alignments=0)
+
+    def arrays(self, gid):
+        if gid not in self._arrays:
+            self._arrays[gid] = self.rows_of(gid)
+        return self._arrays[gid]
+
+    def release(self, gid):
+        self._arrays.pop(gid, None)
+        self._rows = {k: v for k, v in self._rows.items() if k[0] != gid}
+
+    def first_rows(self, gid, gene):
+        """{search index of a partner genome: its pairs with gene `gene` of genome gid, in stored order}; the genome's own
+        pairs (its other copies) left out."""
+        key = (gid, int(gene))
+        if key not in self._rows:
+            a, me = self.arrays(gid), self.oix[gid]
+            out = {}
+            for p in range(int(a["off"][gene]), int(a["off"][gene + 1])):
+                ti = int(a["tgenome"][p])
+                if ti != me:
+                    out.setdefault(ti, []).append(p)
+            self._rows[key] = out
+        return self._rows[key]
+
+    def _qmin(self, a, p):
+        return int(a["qs"][int(a["hsp_off"][p]):int(a["hsp_off"][p + 1])].min())
+
+    def starts_inside(self, gid, gene, n_codons):
+        a = self.arrays(gid)
+        return {ti for ti, ps in self.first_rows(gid, gene).items() if ti in self.allowed_ix and min(self._qmin(a, p) for p in ps) - 1 < n_codons}
+
+    def _cell(self, gid, p, ti, n_codons, slot):
+        from seeddrift.train.rel.tables import v1_build as V1
+        a = self.arrays(gid)
+        partner = self.g[self.order[ti]]
+        j = int(a["tgene"][p])
+        cb = partner.codons[partner.coff[j]:partner.coff[j + 1]]
+        q, t, dropped = V1.placement(V1.Builder.hits(None, a, p), int(n_codons), len(cb))
+        self.counts["dropped_alignments"] += int(dropped)
+        if not len(t):
+            return None
+        first = int(t[0])
+        keep = t < first + int(slot)
+        lost = int(len(t) - keep.sum())
+        q, t = q[keep], t[keep] - first
+        codons = cb[first:first + int(t[-1]) + 1]
+        col = np.full(len(codons), -1, dtype=np.int16)
+        col[t] = q
+        return codons, col, first, j, lost, int(len(t)), int(len(t))
+
+    def cell(self, gid, gene, ti, n_codons, slot):
+        """(the cell of the first pair in stored order that reaches the block, True), (None, True) when the genome has
+        pairs but none reaches it, (None, False) when it has none."""
+        ps = self.first_rows(gid, gene).get(int(ti))
+        if not ps:
+            return None, False
+        for p in ps:
+            c = self._cell(gid, p, int(ti), n_codons, slot)
+            if c is not None:
+                return c, True
+        return None, True
+
+    def partner_gene(self, gid, gene, ti):
+        ps = self.first_rows(gid, gene).get(int(ti))
+        return int(self.arrays(gid)["tgene"][ps[0]]) if ps else -1
+
+    def partner_genes(self, gid, gene, ti):
+        a = self.arrays(gid)
+        return {int(a["tgene"][p]) for p in self.first_rows(gid, gene).get(int(ti)) or []}
+
+    def context_flag(self, a, d, j, genes, rows):
+        """As Implanter.context_flag, over every pair of a gene (version 1 keeps a genome's paralogs)."""
+        ctx = [g for g in genes[:TARGET] if g >= 0]
+        flag = 0
+        if self.partner_genes(d, j, self.oix[a]) & set(ctx) or any(j in self.partner_genes(a, g, self.oix[d]) for g in ctx):
+            flag |= 1
+        for ti in rows:
+            pj = self.partner_genes(d, j, ti)
+            if pj and any(pj & self.partner_genes(a, g, ti) for g in ctx):
+                flag |= 2
+                break
+        return flag
+
+    def partner_sets(self, gid):
+        key = (gid, "sets")
+        if key not in self._rows:
+            a, gen, me = self.arrays(gid), self.g[gid], self.oix[gid]
+            off = np.asarray(a["off"], dtype=np.int64)
+            hoff = np.asarray(a["hsp_off"], dtype=np.int64)
+            qmin = np.minimum.reduceat(np.asarray(a["qs"], dtype=np.int64), hoff[:-1]) if len(hoff) > 1 and hoff[-1] > 0 else np.zeros(0, np.int64)
+            if len(qmin) != len(hoff) - 1:
+                qmin = np.array([self._qmin(a, p) for p in range(len(hoff) - 1)], dtype=np.int64)
+            gene = np.repeat(np.arange(len(off) - 1), np.diff(off))
+            tg = np.asarray(a["tgenome"], dtype=np.int64)
+            stored = np.minimum(np.diff(gen.coff), A.LEN_TARGET)
+            ok = np.isin(tg, np.fromiter(self.allowed_ix, dtype=np.int64)) & (tg != me) & (qmin - 1 < stored[gene])
+            self._rows[key] = [np.unique(tg[off[x]:off[x + 1]][ok[off[x]:off[x + 1]]]) for x in range(len(off) - 1)]
+        return self._rows[key]
+
+    def order_rows(self, gid_a, cands, rng):
+        """Up to rows - 1 of the candidate rows, drawn tier by tier (the distance tier to A), the tiers taking turns, at
+        random inside a tier: as tables of version 1 draw their rows."""
+        by = {}
+        for x in rng.permutation(len(cands)):
+            ti = cands[int(x)]
+            by.setdefault(self.tier(gid_a, self.order[ti]), []).append(ti)
+        queues = [by[t] for t in sorted(by)]
+        out = []
+        while len(out) < self.rows - 1 and any(queues):
+            for q in queues:
+                if q and len(out) < self.rows - 1:
+                    out.append(q.pop(0))
+        return out
 
 
 def verify(out, meta, eligible_ix, allowed_ix, unit_of=None):

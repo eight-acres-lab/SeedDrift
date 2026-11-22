@@ -34,8 +34,8 @@ else:
     pytestmark = pytest.mark.skip(reason="torch is not installed here; the model interpreter runs these tests")
 
 
-def _config(root, **over):
-    tables = D.write_tableset(root, [("t0", D.random_tables(24, rows=4, seed=1)), ("h0", D.random_tables(12, rows=4, seed=2, split=1))])
+def _config(root, kind=A.TABLE_SYNTHETIC, **over):
+    tables = D.write_tableset(root, [("t0", D.random_tables(24, rows=4, seed=1)), ("h0", D.random_tables(12, rows=4, seed=2, split=1))], kind=kind)
     cfg = dict(name="tiny", author="w6", model="axial", size=dict(layers=1, width=256), objective="mlm", lr=1e-3, seed=1, wall_s=900,
                train_tables=tables, train_root=root, train_split=0, heldout_tables=tables, heldout_root=root, heldout_split=1,
                out=os.path.join(root, "out"), probe=True, rows=[2, 4], per_step=2, micro=1, max_steps=6, eval_every_cells=8000, eval_per_group=1,
@@ -96,8 +96,7 @@ def test_real_tables_only_outside_probe_mode():
 def test_budget_ends_the_run_and_checkpoints_are_kept():
     import numpy as np
     root = tempfile.mkdtemp()
-    tables = D.write_tableset(root, [("t0", D.random_tables(24, rows=4, seed=1)), ("h0", D.random_tables(12, rows=4, seed=2, split=1))], kind=A.TABLE_REAL)
-    out = loop.fit(_config(root, train_tables=tables, heldout_tables=tables, probe=False, max_steps=None, budget_cells=30000, eval_every_cells=12000))
+    out = loop.fit(_config(root, kind=A.TABLE_REAL, probe=False, max_steps=None, budget_cells=30000, eval_every_cells=12000))
     assert out["ended_by"] == "budget" and out["cells_seen"] >= 30000 and out["status"] == "ok"
     assert os.path.exists(os.path.join(root, "out", "final.pt")) and out["best"] is not None
     ck = torch.load(os.path.join(root, "out", "final.pt"), map_location="cpu")

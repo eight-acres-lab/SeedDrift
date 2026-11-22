@@ -48,10 +48,10 @@ from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common, w6_tools
-from ci.stages.rel.w5_baselines import group_names, row_group_names
 from seeddrift.train.rel import api, handoff
 from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
+from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
 PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "max_steps")
@@ -118,7 +118,8 @@ def table_set(cfg, spec, verify) -> dict:
     bad = handoff.tableset_problems(doc, spec["run"] if verify else "")
     if bad:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))
-    return dict(doc=doc, groups=group_names(spec["run"], doc), row_groups=row_group_names(doc),
+    groups = shards.group_names(spec["run"], doc)                     # the names the group column carries, as the baselines' rows
+    return dict(doc=doc, groups=groups, row_groups=dict(enumerate(groups)),
                 sealed=(doc.get("sealed_check") or {}).get("passed"), files_verified=bool(verify))
 
 

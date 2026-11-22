@@ -242,6 +242,21 @@ def test_pad_cells_take_no_part():
     assert torch.isfinite(a).all() and torch.isfinite(b).all()
 
 
+def test_masked_blocks_stay_finite():
+    """A row whose first 600 cells are PAD (a whole block of keys masked, as in a one-row table of a genome with few
+    genes): outputs and gradients stay finite."""
+    torch.manual_seed(0)
+    model = Axial(1, 256)
+    grid = _random_grid(1, 10)
+    grid[0, :600] = A.PAD
+    row, col = torch.zeros(200, dtype=torch.long), torch.arange(800, 1000)
+    out = model(grid, [1], row, col)
+    loss = torch.nn.functional.cross_entropy(out, torch.zeros(200, dtype=torch.long))
+    loss.backward()
+    assert torch.isfinite(out).all() and torch.isfinite(loss)
+    assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+
+
 def test_backward():
     torch.manual_seed(0)
     model = Axial(2, 256)

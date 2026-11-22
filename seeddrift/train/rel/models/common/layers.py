@@ -7,7 +7,9 @@ round has used is not changed afterwards (new behaviour is a switch or a new mod
   table_layout      which rows of a micro-batch belong to which table, padded for the column attention
 
 Attention is torch's scaled_dot_product_attention. A key mask (cells that hold PAD) takes those cells out of both
-attentions as keys. On a GPU the row attention runs on the memory-efficient kernel, named explicitly (a mask rules out
+attentions as keys, through a finite additive bias (NEG): with -inf, a block of keys that are all masked turns the
+running maximum of a blockwise softmax into -inf - -inf = NaN (seen on the CPU kernel with a one-row table whose first
+half was PAD); a finite bias gives those keys a weight that underflows to exactly zero instead. On a GPU the row attention runs on the memory-efficient kernel, named explicitly (a mask rules out
 the flash kernel; no silent fall-back to the quadratic one: it fails instead); the column attention, over at most 17
 keys, takes whatever kernel torch picks. Nothing here knows a row's index: rows are a set.
 """
@@ -20,7 +22,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
-COMMON_VERSION = "2"
+COMMON_VERSION = "3"
+NEG = -1.0e4                                       # the additive bias of a masked key
+
+
+def bias_of(mask, dtype):
+    """bool mask (True: may be attended to) -> the additive bias SDPA takes, in the queries' dtype."""
+    return torch.zeros(mask.shape, dtype=dtype, device=mask.device).masked_fill_(~mask, NEG)
 
 
 def rotary_tables(positions, pairs, base=10000.0):
@@ -70,7 +78,7 @@ class RowAttention(nn.Module):
         N, C, d = x.shape
         q, k, v = self.qkv(x).view(N, C, 3, self.heads, self.head).permute(2, 0, 3, 1, 4)          # each [N, heads, C, head]
         q, k = rotate(q, cos, sin), rotate(k, cos, sin)
-        mask = None if key_mask is None else key_mask[:, None, None, :]
+        mask = None if key_mask is None else bias_of(key_mask, q.dtype)[:, None, None, :]
         if x.is_cuda:
             with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION] if mask is not None else [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
                 y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
@@ -105,7 +113,7 @@ class ColumnAttention(nn.Module):
             keys = (key_mask[index] & valid[:, :, None]).permute(0, 2, 1)                          # [T, C, R]: row j's cell at column c
             m = mask[:, None, :, :R] & keys[:, :, None, :]                                          # [T, C, R, R]
             m = torch.cat([m, torch.ones(T, C, R, 1, dtype=torch.bool, device=m.device)], dim=3).reshape(T * C, 1, R, R + 1)
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=m)                                   # [T * C, H, R, h]
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=bias_of(m, q.dtype))                  # [T * C, H, R, h]
         y = y.view(T, C, H, R, h).permute(0, 3, 1, 2, 4).reshape(T, R, C, d)
         return self.out(y[valid])
 

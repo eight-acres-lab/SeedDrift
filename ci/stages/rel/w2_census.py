@@ -9,6 +9,10 @@ Outputs under data/rel_w2/census/:
                identity of the nearest other row per block, and the share of cells that would hold codons if rows were
                drawn among the training genomes without looking at which of them have a homolog row; `headline` holds
                the four numbers of the first read-outs
+               `strata` holds, per table set, the nearest other row of every table at the target locus in the
+               evaluator's strata (seeddrift/train/rel/evalh/score.py: ten equal bins and none, and the trainer's six),
+               read from the metadata field identity through the evaluator's reader, and the share of tables whose
+               nearest row is at least 0.98 identical
   report.md    the same on one page
 Gate G4_rel_w2_census (gate()): the report covers every part of the table set with its number of tables, every share is
 a share, every group of the table set has its codon counts, and the page is there.
@@ -19,11 +23,14 @@ import json
 import math
 import os
 
+import numpy as np
+
 from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common
 from seeddrift.train.rel import handoff
+from seeddrift.train.rel.evalh import score as SC, shards as SH
 from seeddrift.train.rel.tables import v0_census as C
 
 OUT = os.path.join("data", "rel_w2", "census")
@@ -63,7 +70,41 @@ def tables(run_dir, cfg):
         return src, doc, json.load(f)
 
 
-def report(doc, counts) -> dict:
+HIGH = (0.98, 0.99, 1.0)                     # thresholds of the nearest identity reported on their own
+EPS = 1e-6                                   # identities are stored as float32
+
+
+def _counts(idx, labels, n):
+    c = np.bincount(np.asarray(idx, dtype=np.int64), minlength=len(labels))[:len(labels)]
+    return {lab: dict(tables=int(c[k]), share=float(c[k]) / n if n else None) for k, lab in enumerate(labels)}
+
+
+def strata(src, doc, groups) -> dict:
+    """Per table set (train, heldout): the nearest other row of every table at the target locus (the largest identity
+    of rows 1..) in the evaluator's strata, overall and per group, and the shares at or above HIGH."""
+    names = {int(p["split"]): name for name, p in doc["parts"].items()}
+    out = {}
+    for split, ts in sorted(SH.by_split(src, [doc]).items()):
+        m = ts.load(0, ts.tables, ("identity", "group"))
+        ident, grp, n = m["identity"], np.asarray(m["group"]).astype(np.int64), ts.tables
+        near = SC.nearest_identity(ident)
+        fine, coarse = SC.fine_stratum(ident), SC.coarse_stratum(ident)
+        has = ~np.isnan(near)
+        top = lambda x, sel: dict(tables=int((near[sel] >= x - EPS).sum()), share=float((near[sel] >= x - EPS).mean()) if sel.any() else None,
+                                  share_of_tables_with_rows=float((near[sel & has] >= x - EPS).mean()) if (sel & has).any() else None)
+        every = np.ones(n, dtype=bool)
+        d = dict(tables=n, with_other_rows=int(has.sum()), fine=_counts(fine, SC.FINE, n), coarse=_counts(coarse, SC.COARSE, n),
+                 high={"from_%.2f" % x: top(x, every) for x in HIGH}, per_group={})
+        for g, name in enumerate(groups):
+            sel = grp == g
+            if sel.any():
+                d["per_group"][name] = dict(tables=int(sel.sum()), fine=_counts(fine[sel], SC.FINE, int(sel.sum())),
+                                            high={"from_%.2f" % x: top(x, sel) for x in HIGH})
+        out[names[split]] = d
+    return out
+
+
+def report(doc, counts, src=None) -> dict:
     groups, rows = counts["groups"], int(counts["rows"])
     sets = {}
     for part, arrays in counts["parts"].items():
@@ -90,13 +131,21 @@ def report(doc, counts) -> dict:
                                          without_any_row=a["nearest_row_identity"]["relation"]["share_without_any_row"]),
             random_rows_filled=dict(not_target=a["random_rows_filled"]["not_target"]["share"], target=a["random_rows_filled"]["target"]["share"]),
             random_rows_filled_per_group={g: x["random_rows_filled"]["not_target"]["share"] for g, x in d["census"]["per_group"].items()})
+    if src is not None:
+        out["strata"] = strata(src, doc, groups)
+        out["strata_note"] = ("nearest other row of every table at the target locus: the largest identity of rows 1.. "
+                              "(meta field identity), in the strata of seeddrift/train/rel/evalh/score.py version %s" % SC.VERSION)
+        for part, d in out["strata"].items():
+            head.setdefault(part, {})
+            head[part]["nearest_fine"] = {lab: x["share"] for lab, x in d["fine"].items()}
+            head[part]["nearest_from_0_98"] = d["high"]["from_0.98"]
     out["headline"] = head
     return out
 
 
 def build(st, cfg, run_dir):
     src, doc, counts = tables(run_dir, cfg)
-    rep = report(doc, counts)
+    rep = report(doc, counts, src)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     page = os.path.join(folder, "report.md")
@@ -143,6 +192,16 @@ def gate(st, cfg, run_dir):
     for g in rep.get("groups") or []:
         if not ((rep.get("corpus") or {}).get("train", {}).get(g) or {}).get("codons"):
             problems.append(dict(group=g, error="no codons of training genomes"))
+    for part, d in doc["parts"].items():
+        x = (rep.get("strata") or {}).get(part) or {}
+        for key in ("fine", "coarse"):
+            if sum(v["tables"] for v in (x.get(key) or {}).values()) != d["tables"]:
+                problems.append(dict(part=part, strata=key, error="the strata do not hold every table of the set"))
+        if (x.get("high") or {}).get("from_0.98", {}).get("share") is None:
+            problems.append(dict(part=part, error="no share of nearest rows at or above 0.98"))
+    bad = [k for k, v in _shares(rep.get("strata")) if v is not None and not (math.isfinite(v) and -1e-9 <= v <= 1 + 1e-9)]
+    if bad:
+        problems.append(dict(error="strata values that are not shares", where=bad[:10]))
     page = os.path.join(run_dir, OUT, "report.md")
     if not os.path.exists(page) or os.path.getsize(page) < 200:
         problems.append(dict(error="the page is missing"))

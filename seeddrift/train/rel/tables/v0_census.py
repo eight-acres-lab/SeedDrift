@@ -223,5 +223,24 @@ def page(doc):
                   _pct(a["checks"]["codons_coding_their_aligned_residue"]), "{:,}".format(a["checks"]["aligned_codons_checked"]),
                   "{:,}".format(a["checks"]["cells_cut_at_block_length"]), "{:,}".format(a["checks"]["aligned_codons_lost_to_the_cut"]),
                   "{:,}".format(a["checks"]["candidate_rows_without_stored_codons"]), "{:,}".format(a["checks"]["duplicate_pair_rows"]))]
+    if doc.get("strata"):
+        st = doc["strata"]
+        parts = [p for p in ("train", "heldout") if p in st]
+        L += ["", "## Nearest other row on the target, per table (the strata of the evaluator)", "", doc.get("strata_note", ""), "",
+              "| stratum | " + " | ".join("%s tables | share" % p for p in parts) + " |", "|---|" + "---|---|" * len(parts)]
+        for key in ("fine", "coarse"):
+            for lab in st[parts[0]][key]:
+                L.append("| %s | " % lab + " | ".join("%s | %s" % ("{:,}".format(st[p][key][lab]["tables"]), _pct(st[p][key][lab]["share"])) for p in parts) + " |")
+            if key == "fine":
+                L.append("| | " + " | ".join("|" for _ in parts) + " |")
+        for p in parts:
+            h = st[p]["high"]
+            L += ["", "%s tables (%s of them with another row on the target): the nearest row is at least 0.98 identical in %s (%s tables; %s of "
+                  "the tables with another row), at least 0.99 in %s, identical in %s." % (
+                      p, "{:,}".format(st[p]["with_other_rows"]), _pct(h["from_0.98"]["share"]), "{:,}".format(h["from_0.98"]["tables"]),
+                      _pct(h["from_0.98"]["share_of_tables_with_rows"]), _pct(h["from_0.99"]["share"]), _pct(h["from_1.00"]["share"]))]
+        if "heldout" in st:
+            L += ["", "Held-out tables with the nearest row at least 0.98 identical, per group: " + "; ".join(
+                "%s %s" % (g, _pct(x["high"]["from_0.98"]["share"])) for g, x in st["heldout"]["per_group"].items()) + "."]
     L += ["", "## What these numbers are not", ""] + ["- " + x for x in doc["caveats"]] + [""]
     return "\n".join(L)

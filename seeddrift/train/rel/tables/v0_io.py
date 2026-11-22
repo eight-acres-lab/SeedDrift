@@ -1,6 +1,7 @@
-"""The shard files of a table set on disk: the one writer and reader (the contract, seeddrift/train/rel/api.py, names the
-arrays and leaves the file layout to this module). Numpy and the standard library only, so the CI environment and the
-model's Python read the same files the same way.
+"""The shard files of a table set on disk: the one writer (the contract, seeddrift/train/rel/api.py, names the arrays
+and leaves the file layout to the writer). Reading them and placing their rows belong to the evaluator's
+seeddrift/train/rel/evalh/shards.py and evalh/layout.py; nothing here reads a table set. Numpy and the standard library
+only.
 
 A part of a table set (the training tables, the held-out tables, a synthetic set) is a folder of shards:
   <folder>/<shard>.<field>.npy   one plain .npy file per field, uncompressed, so it can be memory-mapped; its first
@@ -14,20 +15,16 @@ Conventions the arrays follow (version 0 of the tables; the kinds are the contra
     never from a meta field.
   - a block that does not exist (frame_len 0) has kind KIND_NONE in every row.
   - a row's codons of a block are in the row's own coordinates, left-justified in the block's slice; `col` gives each
-    codon's column inside the block in the coordinates of row 0 (-1: no column there). The stored layout is
-    grid[row, block start + col[k]] = tok[k] for col[k] >= 0 (stored_grid below).
+    codon's column inside the block in the coordinates of row 0 (-1: no column there), strictly increasing over the
+    codons that have one. The stored layout puts codon k at block start + col[k] (evalh/layout.py place).
 
   fields(rows)                            {field: (dtype, shape of one table)}
   alloc(n, rows)                          blank arrays of n tables (every field at its "nothing" value)
   create(folder, tables, rows, shard_tables)   new shard files -> ([(shard, tables)], {(shard index, field): memmap})
   write(folder, arrays, shard_tables)     a whole part from {field: array [N, ...]} -> [(shard, tables)]
-  Part(folder, shards, rows)              a part on disk: field(name), shard(i, names), take(ids, names)
-  open_parts(run_dir, tableset)           the parts of a table set written by stage rel_w2_v0, from its manifest
-  stored_grid(tok, col, fill)             rows placed in the coordinates of row 0 by the stored columns
 """
 from __future__ import annotations
 
-import json
 import os
 
 import numpy as np
@@ -37,8 +34,6 @@ from seeddrift.train.rel import api as A
 KIND_NONE = getattr(A, "KIND_NONE", 0)
 FILL = dict(tok=A.PAD, n=0, col=-1, frame_row=0, frame_len=0, kind=KIND_NONE, start=-1, strand=0, replicon=-1,
             genome=-1, group=-1, split=-1, gene=-1, tier=-1, identity=np.nan)
-MODEL_FIELDS, META_FIELDS = tuple(A.SHARD_FIELDS), tuple(A.META_FIELDS)
-TABLESET = os.path.join("data", "rel_w2", "v0", "tableset.json")
 
 
 def fields(rows):
@@ -86,66 +81,3 @@ def write(folder, arrays, shard_tables):
         x[:] = np.asarray(arrays[name][s * int(shard_tables):s * int(shard_tables) + len(x)], dtype=want[name][0])
         x.flush()
     return shards
-
-
-class Part:
-    """A part of a table set on disk. shards: [(shard name, tables)] in order."""
-
-    def __init__(self, folder, shards, rows):
-        self.folder, self.shards, self.rows = folder, [(str(n), int(m)) for n, m in shards], int(rows)
-        self.tables = sum(m for _, m in self.shards)
-        self.starts = np.cumsum([0] + [m for _, m in self.shards])
-        self._open = {}
-
-    def _array(self, i, name):
-        if (i, name) not in self._open:
-            self._open[i, name] = np.load(shard_path(self.folder, self.shards[i][0], name), mmap_mode="r")
-        return self._open[i, name]
-
-    def shard(self, i, names=MODEL_FIELDS):
-        """{field: memory-mapped array} of shard i."""
-        return {name: self._array(i, name) for name in names}
-
-    def field(self, name):
-        """One field of every table of the part, in memory (meant for the small fields: kind, n, the meta fields)."""
-        return np.concatenate([np.asarray(self._array(i, name)) for i in range(len(self.shards))])
-
-    def take(self, ids, names=MODEL_FIELDS):
-        """{field: array} of the tables `ids` (indices into the part, any order), in memory."""
-        ids = np.asarray(ids, dtype=np.int64)
-        if len(ids) and (ids.min() < 0 or ids.max() >= self.tables):
-            raise IndexError("table ids outside the part (%d tables)" % self.tables)
-        which = np.searchsorted(self.starts, ids, side="right") - 1
-        want = fields(self.rows)
-        out = {name: np.empty((len(ids),) + want[name][1], dtype=want[name][0]) for name in names}
-        for i in np.unique(which):
-            m = which == i
-            at = ids[m] - self.starts[i]
-            order = np.argsort(at, kind="stable")
-            for name in names:
-                got = np.asarray(self._array(int(i), name)[at[order]])
-                out[name][np.flatnonzero(m)[order]] = got
-        return out
-
-
-def open_parts(run_dir, tableset=TABLESET):
-    """({part name: Part}, the manifest) of a table set written by stage rel_w2_v0 in the run directory run_dir."""
-    with open(os.path.join(run_dir, tableset)) as f:
-        doc = json.load(f)
-    if not isinstance(doc.get("parts"), dict) or not doc.get("rows"):
-        raise ValueError("%s is not a table-set manifest with parts" % tableset)
-    return {name: Part(os.path.join(run_dir, p["folder"]), [(x["name"], x["tables"]) for x in p["shards"]], doc["rows"]) for name, p in doc["parts"].items()}, doc
-
-
-def stored_grid(tok, col, fill=A.GAP):
-    """The rows of tables in the coordinates of row 0, by the stored columns: tok, col [..., R, ROW_LEN] -> grid of the
-    same shape with grid[..., row, block start + col] = tok where col >= 0, `fill` elsewhere. An upper-bound layout: the
-    columns come from the alignment anchored on the examined row."""
-    tok, col = np.asarray(tok), np.asarray(col)
-    grid = np.full(tok.shape, fill, dtype=tok.dtype)
-    for _, s0, s1 in A.block_slices():
-        c = col[..., s0:s1].astype(np.int64)
-        ok = c >= 0
-        idx = np.nonzero(ok)
-        grid[idx[:-1] + (s0 + c[ok],)] = tok[..., s0:s1][ok]
-    return grid

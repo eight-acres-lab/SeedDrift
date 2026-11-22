@@ -128,11 +128,22 @@ def collect(st, run_dir, s):
             if v["name"] in arms:
                 raise SystemExit("rel_w6_report: arm %s is in two of the runs reported" % v["name"])
             pre = read_json(os.path.join(f, v["info"]["folder"], "preflight.json")) or {}
-            arms[v["name"]] = dict(v, run=os.path.basename(f), variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"))
+            node_items = {}
+            try:                                                       # the digest of the cells the nodes scored (the same subset at every node)
+                with open(os.path.join(f, v["info"]["folder"], "evals.jsonl")) as fh:
+                    for line in fh:
+                        e = json.loads(line)
+                        if not e.get("final") and e.get("items"):
+                            node_items = e["items"]
+                            break
+            except (OSError, ValueError):
+                pass
+            arms[v["name"]] = dict(v, run=os.path.basename(f), variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"),
+                                   node_items=node_items)
         rows += SC.read_rows(os.path.join(f, FIT, "results.tsv"))
         groups = groups or list(doc.get("groups") or [])
         sources.append(dict(run=os.path.basename(f), models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
-    base, digests = [], {}
+    base, digests, sub = [], {}, dict(rows=[], digests={})
     for b in s["baselines"]:
         p = os.path.join(b["run"], b["path"])
         status = (read_json(os.path.join(b["run"], "record.json")) or {}).get("status")
@@ -140,10 +151,16 @@ def collect(st, run_dir, s):
             raise SystemExit("rel_w6_report: the baselines' run %s is %s, not passed" % (b["run"], status))
         got = SC.read_rows(p)
         base += got
-        items = (read_json(os.path.join(os.path.dirname(p), "results.json")) or {}).get("items") or {}
-        digests.update({c: x.get("sha256") for c, x in items.items() if isinstance(x, dict)})
-        sources.append(dict(run=os.path.basename(b["run"]), baselines=b["path"], sha256=sha256_file(p, use_sidecar=False), rows=len(got)))
-    return rows, arms, base, digests, sources, groups
+        res = read_json(os.path.join(os.path.dirname(p), "results.json")) or {}
+        digests.update({c: x.get("sha256") for c, x in (res.get("items") or {}).items() if isinstance(x, dict)})
+        # the baselines on the subset of tables the nodes score (rows_subset.tsv beside the rows; package W5)
+        q = os.path.join(os.path.dirname(p), "rows_subset.tsv")
+        if os.path.exists(q):
+            sub["rows"] += SC.read_rows(q)
+            sub["digests"].update({c: x.get("sha256") for c, x in ((res.get("subset") or {}).get("items") or {}).items() if isinstance(x, dict)})
+        sources.append(dict(run=os.path.basename(b["run"]), baselines=b["path"], sha256=sha256_file(p, use_sidecar=False), rows=len(got),
+                            subset_rows=os.path.exists(q)))
+    return rows, arms, base, digests, sources, groups, sub
 
 
 def point_of(r):
@@ -203,7 +220,7 @@ def diff(a, b):
 
 def build(st, cfg, run_dir):
     s = settings(cfg)
-    rows, arms, base, digests, sources, groups = collect(st, run_dir, s)
+    rows, arms, base, digests, sources, groups, sub = collect(st, run_dir, s)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     bits = index_rows(rows, arms, base)
@@ -219,6 +236,15 @@ def build(st, cfg, run_dir):
     reading = {a: (s["main"] if a in rel else s["main"] + NO_REL) for a in names}
     nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
     same = same_items(arms, digests)
+    same_subset = {}
+    for c in cond.CONDITIONS:                                         # the nodes against the baselines' subset
+        mine = {a["node_items"].get(c) for a in arms.values() if a["status"] == "ok"} - {None}
+        if mine and sub["digests"].get(c):
+            same_subset[c] = mine == {sub["digests"][c]}
+    lines = {}                                                        # {condition: {baseline: bits}} on the subset, over the groups
+    for r in sub["rows"]:
+        if r["group"] == SC.ALL and r["stratum"] == SC.ALL and number(r["bits"]) is not None:
+            lines.setdefault(r["condition"], {})[r["variant"]] = float(r["bits"])
 
     # arms
     arm_rows = []
@@ -308,6 +334,10 @@ def build(st, cfg, run_dir):
     head = ["tables_seen"] + ["%s (%s)" % (a, reading[a]) for a in names]
     grid = [[t] + [N(a, t, reading[a]) for a in names] for t in all_nodes]
     tsv(os.path.join(folder, "aligned.tsv"), head, grid)
+    lbase = sorted({v for d in lines.values() for v in d})
+    line_rows = [[c] + [lines[c].get(v) for v in lbase] for c in conds if c in lines]
+    with open(os.path.join(folder, "curves.svg"), "w") as f:
+        f.write(svg_curves({a: [(t, N(a, t, reading[a])) for t in nodes.get(a, []) if t > 0] for a in names}, reading, lines))
     fin = [["model" if v in arms else "baseline", v, c, g, x, bits[(v, p, t, c, g, x)]] for (v, p, t, c, g, x) in sorted(bits, key=str) if p == "final"]
     tsv(os.path.join(folder, "final.tsv"), ["kind", "variant", "condition", "group", "stratum", "bits"], fin)
 
@@ -355,7 +385,13 @@ def build(st, cfg, run_dir):
     md += md_table(["arm", "condition", "with relatives", "without", "difference"], check)
     md += ["", "## By group (final evaluation; condition %s, an arm without relatives under %s)" % (s["main"], s["main"] + NO_REL), ""]
     md += md_table(["group", "block"] + cols, by_group)
-    md += ["", "## Curves at equal tables seen (the first held-out tables of every group at every node)", ""] + (md_table(head, grid) if grid else ["no curve"])
+    md += ["", "## Curves at equal tables seen (the first held-out tables of every group at every node)", "", "![curves](curves.svg)", ""]
+    md += md_table(head, grid) if grid else ["no curve"]
+    if line_rows:
+        md += ["", "The classical baselines on the same tables (the horizontal lines of the figure; mean of the groups):", ""]
+        md += md_table(["condition"] + lbase, line_rows)
+        md += ["", "The nodes and the baselines scored the same cells: %s." % (", ".join("%s %s" % (c, "yes" if v else "NO") for c, v in same_subset.items())
+                                                                          or "not known (no digests of the subset)")]
     for a in names:
         if arms[a]["status"] != "ok":
             md += ["", "%s failed: `%s`" % (a, " ".join((arms[a].get("error") or "").split())[-600:])]
@@ -371,14 +407,68 @@ def build(st, cfg, run_dir):
                   blocks=dict(columns=["condition", "block"] + cols, rows=blocks),
                   relatives=relatives, scale=scale, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
-                  aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group))
-    for name in ("curves.tsv", "aligned.tsv", "final.tsv", "report.md"):
+                  aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset)
+    for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))
     p = os.path.join(folder, "report.json")
     write_json(p, report)                                                 # the rule's target last
     st.output("report", p)
     st.extra.update(arms=len(names), baselines=bnames, conditions=conds, same_items=same, scale=(scale or {}).get("verdict"))
     return report
+
+
+PALETTE = ("#2f6db5", "#c4512b", "#2e8b57", "#8a4fb0", "#b8860b", "#4a4a4a")
+LINE_BASELINES = ("own_freq", "row_average", "copy_nearest_binned", "switch_copy")
+
+
+def svg_curves(series, reading, lines, width=760, height=440):
+    """A figure of the curves: bits against tables seen (log scale) for every arm, and the baselines on the same tables
+    as horizontal lines (dashed) under the condition of the arms with relatives (and of the arm without, when it differs)."""
+    import math
+    pts = [(t, b) for xs in series.values() for t, b in xs if b is not None and t > 0]
+    hlines = [(c, v, x) for c in sorted({reading[a] for a in series}) for v, x in (lines.get(c) or {}).items() if v in LINE_BASELINES]
+    if not pts:
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="60"><text x="10" y="30">no curve</text></svg>\n' % width
+    left, right, top, bottom = 64, 230, 20, 46
+    lo_t, hi_t = min(t for t, _ in pts), max(t for t, _ in pts)
+    ys = [b for _, b in pts] + [x for _, _, x in hlines]
+    lo_b, hi_b = min(ys) - 0.05, max(ys) + 0.05
+    span_t = max(math.log2(hi_t) - math.log2(lo_t), 1.0)
+    X = lambda t: left + (math.log2(t) - math.log2(lo_t)) / span_t * (width - left - right)      # noqa: E731
+    Y = lambda b: top + (hi_b - b) / (hi_b - lo_b) * (height - top - bottom)                       # noqa: E731
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" font-family="sans-serif" font-size="11">' % (width, height),
+           '<rect width="100%" height="100%" fill="white"/>',
+           '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#888"/>' % (left, height - bottom, width - right, height - bottom),
+           '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#888"/>' % (left, top, left, height - bottom)]
+    t = 1000
+    while t <= hi_t * 1.0001:
+        if t >= lo_t / 1.0001:
+            out.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="#eee"/><text x="%.1f" y="%d" text-anchor="middle">%s</text>'
+                       % (X(t), top, X(t), height - bottom, X(t), height - bottom + 14, "{:,}".format(t)))
+        t *= 2
+    step = 0.1 if hi_b - lo_b < 1.5 else 0.25
+    b = math.ceil(lo_b / step) * step
+    while b <= hi_b:
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#eee"/><text x="%d" y="%.1f" text-anchor="end">%.2f</text>'
+                   % (left, Y(b), width - right, Y(b), left - 4, Y(b) + 4, b))
+        b += step
+    out.append('<text x="%d" y="%d" text-anchor="middle">tables seen</text>' % ((left + width - right) // 2, height - 8))
+    out.append('<text x="14" y="%d" transform="rotate(-90 14 %d)" text-anchor="middle">bits per codon (lower is better)</text>'
+               % ((top + height - bottom) // 2, (top + height - bottom) // 2))
+    for k, (c, v, x) in enumerate(hlines):
+        out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="#999" stroke-dasharray="5,4"/>' % (left, Y(x), width - right, Y(x)))
+        out.append('<text x="%d" y="%.1f" fill="#666">%s, %s %.3f</text>' % (width - right + 6, Y(x) + 4, v, c, x))
+    for k, a in enumerate(sorted(series)):
+        xs = [(t, b) for t, b in series[a] if b is not None and t > 0]
+        if not xs:
+            continue
+        colour = PALETTE[k % len(PALETTE)]
+        out.append('<polyline fill="none" stroke="%s" stroke-width="2" points="%s"/>' % (colour, " ".join("%.1f,%.1f" % (X(t), Y(b)) for t, b in xs)))
+        out += ['<circle cx="%.1f" cy="%.1f" r="2.5" fill="%s"/>' % (X(t), Y(b), colour) for t, b in xs]
+        out.append('<text x="%.1f" y="%.1f" fill="%s">%s</text>' % (min(X(xs[-1][0]) + 4, width - right - 4), Y(xs[-1][1]) - 4, colour, a))
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
 
 
 def gate(st, cfg, run_dir):
@@ -398,6 +488,8 @@ def gate(st, cfg, run_dir):
         problems.append(dict(error="the report does not state what it does not show"))
     if not all((rep.get("same_items") or {}).values()):
         problems.append(dict(error="arms and baselines were not scored on the same cells", same_items=rep.get("same_items")))
+    if not all((rep.get("same_subset") or {}).values()):
+        problems.append(dict(error="the nodes and the baselines' subset were not scored on the same cells", same_subset=rep.get("same_subset")))
     require(GateResult("G4_rel_w6_report", "fail" if problems else "pass",
                        dict(problems=problems[:20], arms={a: x["final"] for a, x in rep["arms"].items()}, baselines=sorted(rep["baselines"]),
                             same_items=rep.get("same_items"), scale=(rep.get("scale") or {}).get("verdict"))), run_dir)

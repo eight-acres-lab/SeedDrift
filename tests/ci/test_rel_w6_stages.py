@@ -157,6 +157,9 @@ def _finished_fit(tmp_path, statuses=("ok", "failed", "ok")):
                 json.dump(summ, f)
             with open(os.path.join(folder, "preflight.json"), "w") as f:
                 json.dump(dict(ok=True, train_tables=100800), f)
+            with open(os.path.join(folder, "evals.jsonl"), "w") as f:
+                for t, _, b in points:
+                    f.write(json.dumps(dict(tables_seen=t, bits={c: b for c in conds}, items={c: "subset-" + c for c in conds})) + "\n")
         variant = yaml.safe_load(open(os.path.join(ROOT, "configs", "rel", "variants", name[:-3] + ".yaml")))
         arms[name] = dict(arm=dict(name=name, file="configs/rel/variants/%s.yaml" % name[:-3], sha256="1" * 64, seed=1, budget_cells=None, lr=3e-4, variant=variant),
                           folder=folder, preflight=dict(ok=True, params=params, micro=4, peak_mb=9, reserved_mb=11, cells_per_s=20.0, flops_per_cell=1,
@@ -210,8 +213,10 @@ def _baselines(run_dir, digest=True):
             if r["weights"].endswith("@final"):
                 rows.append(dict(r, weights="", budget=0))
     SC.write_rows(os.path.join(folder, "rows.tsv"), rows)
+    SC.write_rows(os.path.join(folder, "rows_subset.tsv"), [dict(r, item_half="subset", bits=float(r["bits"]) + 0.01) for r in rows])
     with open(os.path.join(folder, "results.json"), "w") as f:
-        json.dump(dict(items={c: dict(sha256="digest-" + c if digest else "other", cells=10, tables=12) for c in cond.CONDITIONS}), f)
+        json.dump(dict(items={c: dict(sha256="digest-" + c if digest else "other", cells=10, tables=12) for c in cond.CONDITIONS},
+                       subset=dict(items={c: dict(sha256="subset-" + c, cells=5, tables=6) for c in cond.CONDITIONS})), f)
     return dict(run=base_run, path="data/rel_w5/baselines/rows.tsv")
 
 
@@ -241,6 +246,10 @@ def test_report_readings_beside_baselines(tmp_path):
     assert lead[("scattered", "eukaryotes")] == [5.6625, None, 5.5625, 5.9625, 6.4625] and lead[("whole_gene", "prokaryotes, plasmids, viruses")][2] == 6.0625
     assert rep["aligned"]["columns"] == ["tables_seen", "w6-ref10m-s1 (scattered)", "w6-ref30m-norel-s1 (scattered+no_relatives)", "w6-ref30m-s1 (scattered)"]
     assert rep["aligned"]["rows"][1] == [1000, 5.85, 5.85, 5.75] and rep["same_items"] == {c: True for c in cond.CONDITIONS}
+    assert rep["same_subset"] == {c: True for c in cond.CONDITIONS} and rep["lines"]["columns"] == ["condition", "copy_nearest", "own_freq"]
+    assert ["scattered", 5.66, 6.16] in rep["lines"]["rows"]
+    svg = open(os.path.join(run_dir, w6_report.OUT, "curves.svg")).read()
+    assert svg.startswith("<svg") and svg.count("<polyline") == 3 and "own_freq, scattered" in svg
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "upper bound" not in text and "optimistic" in text and "bigger is better" in text and "passes over the training tables" in text
     assert "copy_nearest" in text and " NO" not in text

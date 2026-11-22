@@ -102,11 +102,9 @@ def result_rows(results, group, identity, params, head, n_groups=12, group_names
     for condition, res in results.items():
         mask = cond.parse(condition)[0]
         agg = {n: score.aggregate(b, res["cell_table"], group, strata, n_groups, group_names) for n, b in res["bits"].items()}
-        ref = {(r["group"], r["stratum"]): r["bits"] for r in agg.get(REFERENCE, [])}
         for n, rws in agg.items():
             cells = int(res["cell_table"].shape[0])
             for r in rws:
-                key = (r["group"], r["stratum"])
                 rows.append(score.result_row(
                     run=head.get("run", ""), commit=head.get("commit", ""), variant=n, author=AUTHOR,
                     module="baselines." + ("switch" if n in switch.NAMES else "classical"), params=n_params(n),
@@ -114,16 +112,15 @@ def result_rows(results, group, identity, params, head, n_groups=12, group_names
                     items_sha256=head.get("items_sha256", ""), item_half=score.ALL, layout=api.LAYOUT_STORED, budget=0, weights="",
                     cells_seen=int(params[mask]["fit"]["cells"]), target_cells=r["target_cells"],
                     cells_per_s=round(cells / max(res["seconds"][n], 1e-9), 1), peak_mb="", condition=condition,
-                    group=r["group"], tier=score.ALL, stratum=r["stratum"], passes=1, bits=r["bits"], baseline=REFERENCE,
-                    bits_minus_baseline=(r["bits"] - ref[key]) if key in ref else "", n_items=r["n_items"], status="ok",
+                    group=r["group"], tier=score.TIER, stratum=r["stratum"], passes=1, bits=r["bits"], baseline="",
+                    bits_minus_baseline="", n_items=r["n_items"], status="ok",
                     versions=head.get("versions", ""),
                 ))
     return rows
 
 
 def summary(rows):
-    """{condition: {baseline: bits}} over all groups, and {condition: {stratum: {baseline: bits}}} (every stratum, the
-    coarse and the fine bins)."""
+    """{condition: {baseline: bits}} over all groups, and {condition: {stratum: {baseline: bits}}} (every stratum)."""
     main, strata = {}, {}
     for r in rows:
         if r["group"] != score.ALL:
@@ -145,24 +142,25 @@ def markdown(rows, title="Classical baselines: bits per codon", groups=None):
             cells[(r["condition"], r["stratum"])] = (r["target_cells"], r["n_items"])
     order = [n for n in names(True) if any(n in v for v in main.values())]
     conds = [c for c in cond.CONDITIONS if c in main]
-    out = ["# " + title, "", "Mean over the groups of the per-group bits per codon; row 0, target block, stored layout (an upper", "bound where the whole gene is hidden).", ""]
+    out = ["# " + title, "", "Mean over the groups of the per-group bits per codon; row 0, target block, stored layout (an upper",
+           "bound where the whole gene is hidden). In brackets: bits saved against %s under the same condition." % REFERENCE, ""]
     out += ["| baseline | " + " | ".join(conds) + " |", "|---|" + "---|" * len(conds)]
     for n in order:
-        out.append("| %s | " % n + " | ".join("%.3f" % main[c][n] if n in main[c] else "" for c in conds) + " |")
+        out.append("| %s | " % n + " | ".join(("%.3f" % main[c][n]) + (" (%+.3f)" % (main[c][REFERENCE] - main[c][n]) if REFERENCE in main[c] and n != REFERENCE else "")
+                                              if n in main[c] else "" for c in conds) + " |")
     out += ["", "| scored | " + " | ".join("%d cells, %d tables" % cells.get((c, score.ALL), (0, 0)) for c in conds) + " |", ""]
     for c in conds:
         if c not in strata or cond.parse(c)[1] == cond.NO_RELATIVES:      # without relatives: the own_freq column of the base condition
             continue
         mine = [n for n in order if n in main[c]]
-        for what, labels in (("ten bins", score.FINE), ("the bins of the models' rows", score.COARSE)):
-            out += ["## %s, by the identity of the nearest row at the target locus (%s)" % (c, what), "",
-                    "| nearest identity | cells | tables | " + " | ".join(mine) + " |", "|---|---|---|" + "---|" * len(mine)]
-            for s in labels:
-                if s not in strata[c]:
-                    continue
-                nc, nt = cells.get((c, s), (0, 0))
-                out.append("| %s | %d | %d | " % (s.split("=")[-1], nc, nt) + " | ".join("%.3f" % strata[c][s][n] if n in strata[c][s] else "" for n in mine) + " |")
-            out.append("")
+        out += ["## %s, by the identity of the nearest row at the target locus" % c, "",
+                "| nearest identity | cells | tables | " + " | ".join(mine) + " |", "|---|---|---|" + "---|" * len(mine)]
+        for s in score.FINE:
+            if s not in strata[c]:
+                continue
+            nc, nt = cells.get((c, s), (0, 0))
+            out.append("| %s | %d | %d | " % (s.split("=")[-1], nc, nt) + " | ".join("%.3f" % strata[c][s][n] if n in strata[c][s] else "" for n in mine) + " |")
+        out.append("")
     same = score.OTHER_ROWS[2]
     whole, repaired = cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED
     if repaired in main and same in strata.get(whole, {}):

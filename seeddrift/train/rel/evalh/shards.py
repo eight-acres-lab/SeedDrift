@@ -8,6 +8,7 @@ conditions.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 
 import numpy as np
@@ -104,6 +105,22 @@ def table_sets(run_dir, manifest):
     if not by:
         raise ValueError("the manifest lists no table files")
     return {folder: TableSet(run_dir, folder, files) for folder, files in sorted(by.items())}
+
+
+def group_names(run_dir, manifest):
+    """[the name of every group index of the meta field `group`]: from the table set's index file (role index,
+    index.json, its list `groups`), else the manifest's group_names, else []. Never the coverage list, which leaves out
+    groups the set has no genome of."""
+    for e in manifest.get("files") or []:
+        if e.get("role") == "index" and os.path.basename(str(e.get("path", ""))) == "index.json":
+            with open(os.path.join(run_dir, e["path"])) as f:
+                names = json.load(f).get("groups")
+            if isinstance(names, list) and names:
+                return [str(g.get("name")) if isinstance(g, dict) else str(g) for g in names]
+    names = manifest.get("group_names")
+    if isinstance(names, dict):
+        return [str(names[k]) for k in sorted(names, key=int)]
+    return [str(g) for g in names or []]
 
 
 def by_split(run_dir, manifests):

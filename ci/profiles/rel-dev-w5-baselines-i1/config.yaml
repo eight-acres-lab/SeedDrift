@@ -22,7 +22,8 @@ rel:
   machine: i1
   stages: [w5_baselines]
 rel_w5_baselines:
-  # the passed tables run and its table-set manifest (hand-off file), filled in by the coordinator
+  # the passed tables run of package W2 (tables of version 0, 100,800 training and 3,000 held-out tables) and the
+  # sha256 its table-set manifest carries (checked against that run's record before anything is read)
   tables_from: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1
   tablesets:
     - {path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a}

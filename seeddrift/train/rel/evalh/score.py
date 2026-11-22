@@ -1,12 +1,15 @@
-"""From per-cell bits to result rows: the strata and the averaging every arm and every baseline share.
+"""From per-cell bits to result rows: the strata, the averaging and the row writer every arm and every baseline share
+(the one implementation; the trainer's held-out evaluation writes its rows through here as well).
 
 - bits per codon of a set of cells = the sum of -log2 p(residue) over the cells / the number of cells;
-- per group first, then the plain mean of the groups that have cells (12 groups in a real table set);
-- strata of a table: the identity of the nearest row at the target locus (the largest stored identity of rows 1..).
-  Two sets of bins: COARSE, the six of the trainer's held-out rows (seeddrift/train/rel/trainer/rows.py; the same
-  labels, so model and baseline rows sit side by side), and FINE, ten equal bins and "none" (labels start with
-  nearest_identity=). And OTHER_ROWS: how many other rows the table has (0, 1, two or more); the tables with two or
-  more are the ones the re-paired condition scores. Reporting keys only, never given to a model.
+- per group first, then the plain mean of the groups that have cells (12 groups in a real table set, equal weight);
+- strata of a table (column `stratum`): the identity of the nearest row at the target locus, the largest stored
+  identity of rows 1.., in ten equal bins (nearest_identity=0.0-0.1 ... 0.9-1.0) and nearest_identity=none when no
+  other row has a cell there; the same stratum under every condition. And OTHER_ROWS: how many other rows the table
+  has (0, 1, two or more); the tables with two or more are the ones the re-paired condition scores, so the whole gene
+  can be read on the same tables. Reporting keys only, never given to a model.
+- rows (contract api.RESULT_ROW): n_items = the tables, target_cells = the scored cells; today tier is -1 and
+  baseline and bits_minus_baseline stay empty (the report puts models and baselines side by side).
 """
 from __future__ import annotations
 
@@ -16,10 +19,9 @@ import numpy as np
 
 from seeddrift.train.rel import api
 
-VERSION = 2
+VERSION = 3
 ALL = "all"
-COARSE = ("none", "<0.3", "0.3-0.5", "0.5-0.7", "0.7-0.9", ">=0.9")
-COARSE_EDGES = (0.3, 0.5, 0.7, 0.9)
+TIER = -1                               # distance tiers come after the census
 N_FINE = 10
 FINE_PREFIX = "nearest_identity="
 FINE = tuple("%s%.1f-%.1f" % (FINE_PREFIX, k / 10.0, (k + 1) / 10.0) for k in range(N_FINE)) + (FINE_PREFIX + "none",)
@@ -36,24 +38,17 @@ def nearest_identity(identity):
     return np.where(has.any(axis=1), best, np.nan)
 
 
-def coarse_stratum(identity):
-    """(N,) index into COARSE for every table, from the stored (N, R) identity of every row with row 0."""
-    near = nearest_identity(identity)
-    k = 1 + np.searchsorted(np.asarray(COARSE_EDGES), np.nan_to_num(near, nan=0.0), side="right")
-    return np.where(np.isnan(near), 0, k)
-
-
 def fine_stratum(identity):
-    """(N,) index into FINE for every table."""
+    """(N,) index into FINE for every table, from the stored (N, R) identity of every row with row 0."""
     near = nearest_identity(identity)
     k = np.minimum(np.floor(np.nan_to_num(near, nan=0.0) * N_FINE + 1e-9).astype(np.int64), N_FINE - 1)
     return np.where(np.isnan(near), N_FINE, np.maximum(k, 0))
 
 
 def strata_of(identity, other_rows=None):
-    """[(labels, index of every table)]: the coarse and the fine bins of the nearest identity and, given the number
-    of other rows of every table, OTHER_ROWS."""
-    out = [(COARSE, coarse_stratum(identity)), (FINE, fine_stratum(identity))]
+    """[(labels, index of every table)]: the bins of the nearest identity and, given the number of other rows of every
+    table (conditions.present_rows(kind)[:, 1:].sum(axis=1)), OTHER_ROWS."""
+    out = [(FINE, fine_stratum(identity))]
     if other_rows is not None:
         out.append((OTHER_ROWS, np.minimum(np.asarray(other_rows).astype(np.int64), 2)))
     return out

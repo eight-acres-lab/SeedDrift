@@ -25,5 +25,11 @@ held-out tables.
   genomes of a group taking turns, halves (screening, confirmation) by genus, every choice a 64-bit hash; read from the
   training-data arrays of the source run, the held-out split only, after the sealed check.
 
-Today's limits, written into the results: stored layout only (whole-gene numbers are an upper bound); the chain runs
-inside the target locus only; scored cells are the whole target block, not yet the 128-codon items of the evaluator.
+- Conditions only an evaluation uses (`conditions.EXTRA_CONDITIONS`, outside today's five): suffix (the second half
+  of the target gene hidden), the other rows' correspondence moved 1, 3 or 12 codons, and the whole gene hidden with
+  the other rows' relation blocks recoded by synonymous codons; the stage takes a list of conditions (profile
+  `rel-dev-w5-extra-i1`). Bits are also reported in two parts, the amino acid and the codon given the amino acid.
+
+Today's limits, written into the results (lower bits are better): stored layout only, so the whole-gene bits are too
+low (optimistic); the classical baselines are a lower bound on what the relatives are worth; the chain runs inside the
+target locus only; scored cells are the whole target block, not yet the 128-codon items of the evaluator.

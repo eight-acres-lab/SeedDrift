@@ -21,11 +21,17 @@ REFERENCE = "own_freq"                      # bits_minus_baseline of every row i
 MASKS = (cond.SCATTERED, cond.WHOLE_GENE)
 
 
-def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True, log=None):
+def masks_of(conditions):
+    """The kinds of mask the conditions use, in the order of conditions.MASKS."""
+    used = {cond.parse(c)[0] for c in conditions}
+    return tuple(m for m in cond.MASKS if m in used)
+
+
+def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True, log=None, masks=MASKS):
     """{mask: numbers of every baseline}, from training tables. The chain is fitted on the first chain_tables of them."""
     out = {}
     table_ids = np.asarray(table_ids)
-    for mask in MASKS:
+    for mask in masks:
         t0 = time.time()
         p = fitting.fit(tables, table_ids, mask, seed, base)
         if with_chain:
@@ -148,9 +154,37 @@ def markdown(rows, title="Classical baselines: bits per codon", groups=None):
         if r["group"] == score.ALL and r["variant"] == REFERENCE:
             cells[(r["condition"], r["stratum"])] = (r["target_cells"], r["n_items"])
     order = [n for n in names(True) if any(n in v for v in main.values())]
-    conds = [c for c in cond.CONDITIONS if c in main]
-    out = ["# " + title, "", "Mean over the groups of the per-group bits per codon; row 0, target block, stored layout (an upper",
-           "bound where the whole gene is hidden). In brackets: bits saved against %s under the same condition." % REFERENCE, ""]
+    conds = [c for c in cond.CONDITIONS + cond.EXTRA_CONDITIONS if c in main]
+    out = ["# " + title, "", "Bits per codon of the hidden residues of the examined row (row 0, target block), lower is better; the mean over",
+           "the groups of the per-group bits. Stored layout: it shows the relatives where the hidden residues align, so with the",
+           "whole gene hidden the bits are too low (optimistic); scattered only slightly (not measured); without relatives no leak.",
+           "The classical baselines are weak (no codon substitution model, no amino-acid model): their gain from the relatives",
+           "is a lower bound on what the relatives are worth, not an estimate.", ""]
+    by = {(r["condition"], r["variant"], r["group"], r["stratum"]): r for r in rows}
+    members = {}
+    for g in dict.fromkeys(r["group"] for r in rows):
+        if g != score.ALL:
+            members.setdefault(score.block_of(g), []).append(g)
+
+    def block_mean(c, n, s, b):
+        vals = [by[(c, n, g, s)]["bits"] for g in members.get(b, []) if (c, n, g, s) in by]
+        return ("%.3f" % (sum(vals) / len(vals))) if vals else ""
+
+    yes = score.RELATIVES[0]
+    heads = [c for c in (cond.SCATTERED, cond.WHOLE_GENE) if c in main]
+    present = [b for b in score.BLOCKS if b in members]
+    if heads and present:
+        out += ["## Headline: the tables with a relative on the target block, by block", "",
+                "Mean over the groups of each block (%s; the eukaryote genomes hold their first 1,500 genes only)."
+                % "; ".join("%s: %d groups" % (b, len(members[b])) for b in present), "",
+                "| baseline | " + " | ".join("%s, %s" % (c, b) for c in heads for b in present) + " |", "|---|" + "---|" * (len(present) * len(heads))]
+        for n in order:
+            if any((c, n, score.ALL, yes) in by for c in heads):
+                out.append("| %s | " % n + " | ".join(block_mean(c, n, yes, b) for c in heads for b in present) + " |")
+        out += ["", "| tables | " + " | ".join(str(sum(by[(c, REFERENCE, g, yes)]["n_items"] for g in members[b] if (c, REFERENCE, g, yes) in by))
+                                            for c in heads for b in present) + " |", ""]
+    out += ["## Every condition, all tables (the mean over all groups: not the headline)", "",
+            "In brackets: bits saved against %s under the same condition." % REFERENCE, ""]
     out += ["| baseline | " + " | ".join(conds) + " |", "|---|" + "---|" * len(conds)]
     for n in order:
         out.append("| %s | " % n + " | ".join(("%.3f" % main[c][n]) + (" (%+.3f)" % (main[c][REFERENCE] - main[c][n]) if REFERENCE in main[c] and n != REFERENCE else "")

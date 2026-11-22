@@ -34,8 +34,11 @@ BOUNDS = dict(eps=(1e-4, 0.9), tau=(1e-5, 1.0), nosrc=(1e-5, 0.999))
 
 
 def variants(mask):
-    """The variants that mean something under a kind of mask."""
-    return (NAME, PAST, AHEAD) if mask == cond.SCATTERED else (NAME, JOINT)
+    """The variants that mean something under a kind of mask (with a suffix hidden, the cells to its left are all the
+    chain can read, so the one variant is the plain one)."""
+    if mask == cond.SCATTERED:
+        return (NAME, PAST, AHEAD)
+    return (NAME, JOINT) if mask == cond.WHOLE_GENE else (NAME,)
 
 
 def _parts(view, params, chain, base):

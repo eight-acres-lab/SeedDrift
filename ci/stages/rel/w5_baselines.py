@@ -14,11 +14,14 @@ Profile block rel_w5_baselines:
   chain_tables     training tables the chain is fitted on (default 1500); chain: false leaves the chain out
   heldout_tables   score only the first tables of the held-out set (development; default: all)
   allow_kinds      table-set kinds accepted (default [real])
+  conditions       the conditions scored (default: today's five, conditions.CONDITIONS); more of
+                   conditions.EXTRA_CONDITIONS may be added, none of the five left out
 
-Coverage: the groups the table set covers (its manifest says which); development diagnosis only. Limits written into
-the results: the stored layout places the relatives by the hidden residues, so every number with the whole gene hidden
-is an upper bound; the rows of a table are drawn among the genomes that have a homolog row on the target gene, so what
-the relatives are worth is overestimated; one seed, no noise floor.
+Coverage: the groups the table set covers (its manifest says which); development diagnosis only. The limits written
+into the results (LIMITS) say which way each one pulls the bits (lower is better): under the stored layout the bits
+with the whole gene hidden are too low (optimistic), scattered cells only slightly (not measured), the conditions
+without relatives not at all; the classical baselines are a lower bound on what the relatives are worth, not an
+estimate; the choice of the rows biases that worth in a direction not known.
 
 Outputs under data/rel_w5/baselines/: rows.tsv (the result table, columns of the contract), params.json (the fitted
 numbers), report.md, results.json (written last: the headline numbers, the digests of what was scored, the inputs).
@@ -46,8 +49,18 @@ from seeddrift.train.rel.evalh import score, shards
 STAGE = "rel_w5_baselines"
 OUT = os.path.join("data", "rel_w5", "baselines")
 LIMITS = [
-    "stored layout: the relatives are placed by the hidden residues, so the numbers with the whole gene hidden are an upper bound",
-    "rows are drawn among genomes with a homolog row on the target gene (a similarity ranking decides that), so the worth of the relatives is overestimated",
+    "lower bits are better. The stored layout shows the relatives where the hidden residues align: with the whole gene hidden the bits are "
+    "too low (optimistic), the worth of the relatives there too high and the cost of re-pairing too small; with scattered cells hidden the "
+    "bits are only slightly too low (not measured); the two conditions without relatives have no leak",
+    "the classical baselines are weak (no codon substitution model, no amino-acid model): what they gain from the relatives is a lower bound "
+    "on what the relatives are worth, not an estimate",
+    "bias of unknown direction: rows drawn among genomes with a homolog row on the target gene (a similarity ranking decides that) make the "
+    "relatives worth more; held-out genomes have no close relative of their own cluster and the rows are drawn at random, which makes them "
+    "worth less; close relatives are not covered",
+    "the strata use the identity over the aligned part of the target block: a short and very similar fragment falls into the highest bin, so "
+    "a flat highest bin does not mean that close relatives are of no use",
+    "the five eukaryote groups hold only the first 1,500 genes of a genome: they are read apart from prokaryotes, plasmids and viruses, and "
+    "the headline is the tables with a relative on the target block, not the mean over all tables",
     "one seed, no noise floor: read large effects only",
     "development diagnosis, not a selection round",
 ]
@@ -116,6 +129,13 @@ def main():
         n_fit = min(int(c.get("fit_tables", 6000)), train.tables)
         n_held = min(int(c.get("heldout_tables") or held.tables), held.tables)
         with_chain = c.get("chain", True) is not False
+        conditions = list(c.get("conditions") or cond.CONDITIONS)
+        try:
+            [cond.parse(x) for x in conditions]
+        except ValueError as err:
+            raise SystemExit("%s: %s" % (STAGE, err))
+        if [x for x in cond.CONDITIONS if x not in conditions] or len(set(conditions)) != len(conditions):
+            raise SystemExit("%s: the conditions hold today's five (%s), each once" % (STAGE, ", ".join(cond.CONDITIONS)))
         log("training set %s: %d tables (fit on %d); held-out set %s: %d tables (scoring %d)" % (train.folder, train.tables, n_fit, held.folder, held.tables, n_held))
 
         fit_tables = train.load(0, n_fit, shards.MODEL_FIELDS)
@@ -123,7 +143,8 @@ def main():
         if (fit_split != shards.SPLIT_TRAIN).any():
             raise SystemExit("%s: a table to fit on is not a training table" % STAGE)
         # the fit uses another seed than the scoring, so no cell pattern of the held-out plan is reused
-        params = brun.fit_all(fit_tables, np.arange(n_fit), seed + 1, chain_tables=int(c.get("chain_tables", 1500)), with_chain=with_chain, log=log)
+        params = brun.fit_all(fit_tables, np.arange(n_fit), seed + 1, chain_tables=int(c.get("chain_tables", 1500)), with_chain=with_chain, log=log,
+                              masks=brun.masks_of(conditions))
         del fit_tables
 
         tables = held.load(0, n_held, shards.MODEL_FIELDS)
@@ -132,7 +153,7 @@ def main():
             raise SystemExit("%s: a table to score is not a held-out table" % STAGE)
         groups = shards.group_names(src, held.manifest)
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
-        results = brun.evaluate(tables, np.arange(n_held), params, seed=seed, with_chain=with_chain, log=log)
+        results = brun.evaluate(tables, np.arange(n_held), params, conditions=conditions, seed=seed, with_chain=with_chain, log=log)
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
@@ -186,6 +207,7 @@ def gate(st, cfg, run_dir):
     for c in cond.CONDITIONS:
         if c not in doc.get("conditions", []):
             problems.append(dict(condition=c, error="condition not evaluated"))
+    for c in list(dict.fromkeys(list(cond.CONDITIONS) + list(doc.get("conditions") or []))):
         for n in brun.names_under(c, bool(doc.get("chain"))):
             if (c, n) not in seen:
                 problems.append(dict(condition=c, baseline=n, error="no row over all groups"))

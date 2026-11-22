@@ -5,6 +5,7 @@ The tables here are tiny and random: rows copied from the examined row with know
 import itertools
 
 import numpy as np
+import pytest
 
 from seeddrift.train.rel import api
 from seeddrift.train.rel.baselines import classical as cl
@@ -141,7 +142,8 @@ def test_hash_is_pinned():
     src, has = cond.repair_rows(np.ones((3, 16, api.N_BLOCKS), np.uint8), [0, 1, 2999])
     assert has.all() and src[0].tolist() == [0, 5, 8, 2, 15, 3, 10, 13, 14, 7, 12, 6, 1, 4, 9, 11]
     assert src[2].tolist() == [0, 14, 5, 11, 6, 1, 3, 9, 13, 12, 15, 8, 2, 7, 10, 4]
-    assert cond.selfcheck() == cond.SELFCHECK == "6f6e8fa5ef91471bc5b3f312a89ec453fdc40acac09c0291f9cec0a3fee95625"
+    assert cond.selfcheck() == cond.SELFCHECK == "442d6c33b194d2a004d95ecaa18dc442850e29c05e31ada95d4b04790500373b"
+    assert cond.selfcheck(cond.EXTRA_CONDITIONS) == "3a0c0aad3a83b4da665cfa9002ba21d24c7aad3ccf05046f77df78c06aa33f05"
     pinned, cond.SELFCHECK = cond.SELFCHECK, "0" * 64                            # an interpreter that plans other cells is refused
     del cond._PORTABLE[:]
     try:
@@ -178,6 +180,40 @@ def test_plans_hide_row0_target_cells_only():
     assert np.array_equal(a["target"][:, :1], b["target"])                       # the same cells with and without relatives
     other = cond.materialise(tables, ids + 1, cond.SCATTERED)
     assert not np.array_equal(a["target"], other["target"])
+
+
+def test_conditions_only_an_evaluation_uses():
+    tables, _ = toy_tables(n_tables=10, rows=6, seed=37)
+    ids = np.arange(10)
+    tb = slice(cond.TARGET_START, cond.TARGET_STOP)
+    for bad in ("suffix+repaired", "scattered+synonymous", "scattered+offset2", "nothing", "whole_gene+offset3+repaired"):
+        with pytest.raises(ValueError):
+            cond.parse(bad)
+    assert [cond.parse(c) for c in cond.EXTRA_CONDITIONS][-1] == (cond.WHOLE_GENE, cond.SYNONYMOUS)
+    n0 = tables["n"][:, 0, -1]
+    suf = cond.materialise(tables, ids, cond.SUFFIX)                             # the second half hidden, the first visible
+    assert (suf["target"][:, 0, tb].sum(axis=1) == n0 - n0 // 2).all() and not suf["target"][:, 0, cond.TARGET_START:cond.TARGET_START + 1][n0 > 1].any()
+    base = cond.materialise(tables, ids, cond.SCATTERED)
+    for k in cond.OFFSETS:
+        m = cond.materialise(tables, ids, "%s+offset%d" % (cond.SCATTERED, k))
+        assert np.array_equal(m["target"], base["target"]) and np.array_equal(m["col"][:, 0], tables["col"][:, 0])
+        assert np.array_equal(m["col"][:, :, :cond.TARGET_START], tables["col"][:, :, :cond.TARGET_START])
+        old, new = tables["col"][:, 1:, tb].astype(int), m["col"][:, 1:, tb].astype(int)
+        keep = (old >= 0) & (old + k < n0[:, None, None])
+        assert np.array_equal(new[keep], old[keep] + k) and (new[~keep] == -1).all()
+        layout.masked_view(m)                                                    # still a valid stored layout
+    syn = cond.materialise(tables, ids, cond.WHOLE_GENE + "+" + cond.SYNONYMOUS)
+    whole = cond.materialise(tables, ids, cond.WHOLE_GENE)
+    assert np.array_equal(syn["target"], whole["target"]) and np.array_equal(syn["tok"][:, 0], tables["tok"][:, 0])
+    rel = cond.BLOCK_OF_SLOT < api.N_RELATION
+    assert np.array_equal(syn["tok"][:, :, ~rel], tables["tok"][:, :, ~rel])
+    cls = score.amino_acid_classes()
+    a, b = tables["tok"][:, 1:, rel].astype(int), syn["tok"][:, 1:, rel].astype(int)
+    codon = (a >= 1) & (a <= 64)
+    single = np.array([(cls[1:65] == cls[x]).sum() == 1 if 1 <= x <= 64 else True for x in range(66)])
+    assert np.array_equal(cls[a[codon]], cls[b[codon]]) and (a[codon & ~single[a]] != b[codon & ~single[a]]).all()
+    assert np.array_equal(a[~codon | single[a]], b[~codon | single[a]])       # Met, Trp, "other" and padding stay
+    assert np.array_equal(cond.materialise(tables, ids, cond.WHOLE_GENE + "+" + cond.SYNONYMOUS)["tok"], syn["tok"])
 
 
 def test_plan_depends_on_lengths_only():
@@ -462,7 +498,7 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     a, b = same[(cond.WHOLE_GENE, "row_average")], same[(cond.WHOLE_GENE + "+" + cond.REPAIRED, "row_average")]
     assert a["target_cells"] == b["target_cells"] and abs(a["bits"] - b["bits"]) < 1e-12 and a["n_items"] == b["n_items"] == 29
     assert {r["group"] for r in rows} == {"all", "zero", "one", "2"} and {r["tier"] for r in rows} == {-1} and {r["item_half"] for r in rows} == {"all"}
-    assert {r["stratum"] for r in rows} <= set(score.FINE + score.OTHER_ROWS + score.PARTS + ("all",)) and any(r["stratum"] in score.FINE for r in rows)
+    assert {r["stratum"] for r in rows} <= set(score.FINE + score.RELATIVES + score.OTHER_ROWS + score.PARTS + ("all",)) and any(r["stratum"] in score.FINE for r in rows)
     assert all(tuple(r) == api.RESULT_ROW for r in rows)
     top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["condition"] == cond.SCATTERED]
     assert sorted(r["variant"] for r in top) == sorted(brun.names_under(cond.SCATTERED))
@@ -479,13 +515,35 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     assert (cond.WHOLE_GENE, switch.JOINT, "all", score.PARTS[0]) not in whole
 
 
+def test_baselines_under_the_conditions_only_an_evaluation_uses():
+    rates = (0.04, 0.02, 0.3)
+    train, _ = toy_tables(n_tables=30, rows=5, seed=51, rates=rates, spread=(1.0, 1.0))
+    held, hmeta = toy_tables(n_tables=16, rows=5, seed=52, rates=rates, spread=(1.0, 1.0))
+    conditions = cond.CONDITIONS + cond.EXTRA_CONDITIONS
+    params = brun.fit_all(train, np.arange(30), seed=4, chain_tables=12, masks=brun.masks_of(conditions))
+    assert sorted(params) == sorted(cond.MASKS) and sorted(params[cond.SUFFIX]["chains"]) == [switch.NAME]
+    res = brun.evaluate(held, np.arange(16), params, conditions=conditions, seed=9)
+    mean = lambda c, n: float(res[c]["bits"][n].mean())                          # noqa: E731
+    sc = cond.SCATTERED
+    for n in ("copy_nearest", "row_average", switch.NAME):                       # moving the correspondence costs
+        assert mean(sc, n) < mean(sc + "+offset1", n) - 0.5 and mean(sc + "+offset12", n) > mean(sc, n) + 0.5, n
+    assert np.array_equal(res[sc + "+offset3"]["bits"]["own_freq"], res[sc]["bits"]["own_freq"])
+    wg, syn = cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.SYNONYMOUS
+    assert np.array_equal(res[syn]["bits"]["own_freq"], res[wg]["bits"]["own_freq"]) and np.array_equal(res[syn]["bits"][switch.JOINT], res[wg]["bits"][switch.JOINT])
+    assert mean(cond.SUFFIX, "copy_nearest") < mean(cond.SUFFIX, "own_freq") - 1 and switch.PAST not in res[cond.SUFFIX]["bits"]
+    assert set(res[cond.SUFFIX + "+" + cond.NO_RELATIVES]["bits"]) == {"uniform", "global_freq", "own_freq"}
+    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, dict(run="r", seed=9), n_groups=3)
+    assert {r["condition"] for r in rows} == set(conditions) and "suffix" in brun.markdown(rows)
+
+
 def test_aggregate_is_the_mean_of_the_group_means():
     bits = np.array([1.0, 3.0, 10.0, 20.0, 30.0, 7.0])
     cell_table = np.array([0, 0, 1, 1, 1, 2])
     group = np.array([0, 1, 1, 2])                                               # table 3 has no cell
     identity = np.array([[1.0, 0.25, np.nan], [1.0, np.nan, np.nan], [1.0, 0.31, 0.95], [1.0, 0.5, 0.5]])
     strata = score.strata_of(identity)
-    assert len(strata) == 1 and len(score.strata_of(identity, [1, 0, 2, 2])) == 2
+    assert len(strata) == 2 and len(score.strata_of(identity, [1, 0, 2, 2])) == 3
+    assert strata[1][1].tolist() == [0, 1, 0, 0] and score.block_of("eukaryota.fungi") == score.BLOCKS[0] and score.block_of("viruses.phage") == score.BLOCKS[1]
     assert [score.FINE[k] for k in strata[0][1]] == ["nearest_identity=0.2-0.3", "nearest_identity=none", "nearest_identity=0.9-1.0", "nearest_identity=0.5-0.6"]
     assert score.fine_stratum(np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.3], [1.0, np.nan]])).tolist() == [9, 0, 3, 10]
     rows = {(r["group"], r["stratum"]): r for r in score.aggregate(bits, cell_table, group, strata, n_groups=3, group_names={1: "one"})}

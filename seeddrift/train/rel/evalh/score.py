@@ -5,9 +5,12 @@
 - per group first, then the plain mean of the groups that have cells (12 groups in a real table set, equal weight);
 - strata of a table (column `stratum`): the identity of the nearest row at the target locus, the largest stored
   identity of rows 1.., in ten equal bins (nearest_identity=0.0-0.1 ... 0.9-1.0) and nearest_identity=none when no
-  other row has a cell there; the same stratum under every condition. And OTHER_ROWS: how many other rows the table
-  has (0, 1, two or more); the tables with two or more are the ones the re-paired condition scores, so the whole gene
-  can be read on the same tables. Reporting keys only, never given to a model.
+  other row has a cell there; the same stratum under every condition. RELATIVES: whether some other row has a cell
+  there (the headline is read on the tables that have one). OTHER_ROWS: how many other rows the table has (0, 1, two
+  or more); the tables with two or more are the ones the re-paired condition scores, so the whole gene can be read on
+  the same tables. Reporting keys only, never given to a model.
+- blocks of groups: the eukaryote groups (their genomes hold the first 1,500 genes only) and the prokaryotes,
+  plasmids and viruses, read apart (block_of).
 - rows (contract api.RESULT_ROW): n_items = the tables, target_cells = the scored cells; today tier is -1 and
   baseline and bits_minus_baseline stay empty (the report puts models and baselines side by side).
 - parts of the bits of a codon (reporting only, the genetic code never reaches a model): the bits of its amino acid
@@ -29,6 +32,13 @@ N_FINE = 10
 FINE_PREFIX = "nearest_identity="
 FINE = tuple("%s%.1f-%.1f" % (FINE_PREFIX, k / 10.0, (k + 1) / 10.0) for k in range(N_FINE)) + (FINE_PREFIX + "none",)
 OTHER_ROWS = ("other_rows=0", "other_rows=1", "other_rows>=2")
+RELATIVES = ("relatives_on_target=yes", "relatives_on_target=no")
+BLOCKS = ("eukaryotes", "prokaryotes, plasmids, viruses")
+
+
+def block_of(group):
+    """The block of a group name: the eukaryote groups (eukaryota.*) and all others."""
+    return BLOCKS[0] if str(group).startswith("eukaryota.") else BLOCKS[1]
 PARTS = ("part=amino_acid", "part=codon_given_amino_acid")
 _CLASSES = []
 
@@ -75,7 +85,7 @@ def fine_stratum(identity):
 def strata_of(identity, other_rows=None):
     """[(labels, index of every table)]: the bins of the nearest identity and, given the number of other rows of every
     table (conditions.present_rows(kind)[:, 1:].sum(axis=1)), OTHER_ROWS."""
-    out = [(FINE, fine_stratum(identity))]
+    out = [(FINE, fine_stratum(identity)), (RELATIVES, np.isnan(nearest_identity(identity)).astype(np.int64))]
     if other_rows is not None:
         out.append((OTHER_ROWS, np.minimum(np.asarray(other_rows).astype(np.int64), 2)))
     return out

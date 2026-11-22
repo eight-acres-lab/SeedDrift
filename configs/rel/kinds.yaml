@@ -266,4 +266,3 @@ kinds:
         module: ci.stages.rel.w15_registry
         gates: [G4_rel_w15_registry]
         side: data
-        stub: true

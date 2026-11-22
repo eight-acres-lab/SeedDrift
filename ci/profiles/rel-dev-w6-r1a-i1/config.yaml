@@ -42,6 +42,11 @@ rel_w6_report:
     - {name: 30 M, arms: [w6-ref30m-lr1.5e-4-s1, [w6-ref30m-s1, w6-ref30m-s2, "w6-ref30m-s1 @long"], w6-ref30m-lr6e-4-s1]}
     - {name: 100 M, arms: [w6-ref100m-lr1e-4-s1, w6-ref100m-s1, w6-ref100m-lr4e-4-s1]}
   passes: ["w6-ref30m-s1 @long", w6-ref30m-s2]
+  notes:
+    - >-
+      The three short arms of round 1a (30 M at 1.5e-4 and 6e-4, 100 M at 1e-4) trained at once on one GPU of i-1, beside
+      other users' processes: the 100 M arm saw only 20,748 tables, so the rates of 100 M are compared at the node of 16,000
+      tables, and that comparison is an early sign only (the programme lead's ruling).
   baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
 train:
   gpu_lease: false

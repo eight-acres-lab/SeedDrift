@@ -21,6 +21,7 @@ Profile block rel_w6_report (all optional):
              lower rate (low) and a small arm (small), at the last node all three reached and at the end, against the
              seeds' difference; one of three conclusions (caught up: the rate; better than the lower rate but not caught
              up: part; diverged or no better: not the rate); note is printed with it (the machines, say)
+  notes      [text, ...]: what these runs do not show, added to the report's caveats (the machines they ran on, say)
   baselines  [{run, path}]: result tables of passed runs (the classical baselines of package W5: path
              data/rel_w5/baselines/rows.tsv; its results.json beside it gives the digest of the cells it scored)
   main       the condition of the headline curve (default scattered; an arm trained without relatives is read under
@@ -95,7 +96,7 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     lr = sc.get("lr_check")
@@ -116,7 +117,7 @@ def settings(cfg) -> dict:
                 leak_pairs=[[str(a), str(b)] for a, b in sc.get("leak_pairs") or []],
                 lr_sweeps=[dict(name=str(w["name"]), arms=[[str(x) for x in e] if isinstance(e, list) else [str(e)] for e in w["arms"]])
                            for w in sc.get("lr_sweeps") or []],
-                passes=[str(a) for a in sc.get("passes") or []])
+                passes=[str(a) for a in sc.get("passes") or []], notes=[str(x) for x in sc.get("notes") or []])
 
 
 LR_CONCLUSIONS = {
@@ -455,7 +456,7 @@ def build(st, cfg, run_dir):
     n_of = {(r["stratum"]): int(r["n_items"]) for r in rows if r["weights"].endswith("@final") and r["condition"] == cond.WHOLE_GENE and r["group"] == SC.ALL}
     held_alone = n_of[WITHOUT_RELATIVES] / n_of[SC.ALL] if WITHOUT_RELATIVES in n_of and n_of.get(SC.ALL) else None
     trained_alone = {a: number(arms[a]["info"].get("alone_share_seen")) for a in rel}
-    caveats = list(CAVEATS)
+    caveats = list(CAVEATS) + list(s["notes"])                         # the profile's own notes on these runs
     if extra:                                                          # arms trained leak-free on scattered and span, stored on the whole gene
         caveats.append("Arms trained leak-free saw the whole gene in the stored layout: their %s rows are read leak-free on the frame relative, "
                        "a layout they were not trained on (trained stored, evaluated leak-free; a reference only), and the rows %s in the "

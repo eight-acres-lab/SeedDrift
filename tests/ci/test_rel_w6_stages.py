@@ -285,6 +285,45 @@ def test_scale_at_the_last_node_of_all_arms_and_of_every_two():
     assert w6_report.scale_readings(["s", "x"], {"s": 10, "x": 20}, dict(nodes, x=[0]), N) == (None, [])        # no node besides step 0 in common
 
 
+def test_learning_rate_check_has_three_conclusions():
+    def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
+        return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)
+    small, low = (4.15, 4.28), (4.25, 4.34)
+    assert reading(dict(s=small, l=low, h=(4.16, 4.30)))["conclusion"] == "caught up"                 # above the small arm by no more than 0.05
+    assert reading(dict(s=small, l=(4.30, 4.40), h=(4.21, 4.34)))["conclusion"] == "part"            # below the lower rate by more than 0.05
+    assert reading(dict(s=small, l=low, h=(4.26, 4.35)))["conclusion"] == "not the rate"
+    r = reading(dict(s=small, l=low, h=(4.16, 4.36)))                                                 # scattered caught up, whole_gene not the rate
+    assert r["conclusion"] is None and "disagree" in r["why"]
+    assert reading(dict(s=small, l=low, h=(4.16, 4.30)), diverged=True)["conclusion"] == "not the rate"
+    assert reading(dict(s=small, l=low, h=(4.16, 4.30)), noise=None)["conclusion"] == "part"           # threshold zero: 0.01 above the small arm
+    assert abs(reading(dict(s=small, l=low, h=(4.16, 4.30)))["by_condition"][cond.SCATTERED]["high_minus_small"] - 0.01) < 1e-9
+
+
+def test_report_reads_the_learning_rate_check(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")                 # the arm at the higher rate: 0.3 bits lower at every node
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) - 0.3) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
+    high = "w6-ref30m-s1 @lr"
+    check = dict(small="w6-ref10m-s1", low="w6-ref30m-s1", high=high, note="The two big arms trained on different machines.")
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="lr")], readings_exclude=[high], lr_check=check))
+    st = Stage(run_dir, "rel_w6_report")
+    rep = w6_report.build(st, cfg, run_dir)
+    lr = rep["lr_check"]
+    assert lr["at_node"]["node"] == 2000 and lr["at_node"]["conclusion"] == "caught up" and lr["conclusion"].startswith("the big arm at the higher rate caught up")
+    assert lr["at_end"]["conclusion"] == "caught up" and [r[0] for r in lr["curves"]] == [1000, 2000] and lr["final"][0][0] == "end"
+    assert abs(lr["curves"][1][3] - 5.15) < 1e-9 and rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1"]       # the excluded arm is not in the scale
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "## The learning rate" in text and "The two big arms trained on different machines." in text
+    w6_report.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
+    with pytest.raises(SystemExit):
+        w6_report.build(st, dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="lr")], lr_check=dict(check, high="nobody"))), run_dir)
+    with pytest.raises(SystemExit):
+        w6_report.settings(dict(rel_w6_report=dict(lr_check=dict(small="a", low="b"))))
+
+
 def _passed(run_dir, rel):
     """Record the hand-off file rel of a fixture run in a stage record and mark the run passed."""
     from ci.record import Record, stage_report

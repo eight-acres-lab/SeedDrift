@@ -13,8 +13,10 @@ Profile block rel_w6_report (all optional):
              a training run's, say). This run comes first when its own rel_w6_fit ran.
   readings_exclude  [arm, ...]: arms shown in the curves and tables but left out of the readings "relatives" and
              "scale" (an arm whose run was slowed, with another run of the same arm as the reading)
-  consistency [[arm, arm], ...]: pairs of arms of the same variant and seed from two runs, set side by side at their
-             common nodes
+  seeds      [[arm, arm, ...], ...]: arms of one variant with different seeds (or from different runs): their
+             difference at every node all of them reached is the noise estimate; a difference of scale or of what
+             relatives are worth no larger than it "cannot be read"; in the scale they are one level (their mean at a
+             node all of them reached, the one that reached it otherwise, named in the report)
   baselines  [{run, path}]: result tables of passed runs (the classical baselines of package W5: path
              data/rel_w5/baselines/rows.tsv; its results.json beside it gives the digest of the cells it scored)
   main       the condition of the headline curve (default scattered; an arm trained without relatives is read under
@@ -23,11 +25,13 @@ Readings (each also in report.json):
   arms          parameters, learning rate, steps, tables seen, passes over the training tables, throughput, memory
   headline      the final evaluation by the identity of the nearest row (ten bins, the bin without other rows left
                 out), every condition, arms and baselines; then the eukaryotic groups apart from the others
-  relatives     what relatives are worth, twice: an arm without relatives at its best node against the arm of the
-                same size with relatives at its end, on all held-out tables; and the two at the same nodes, on the
-                tables of the nodes
-  scale         the arms with relatives at the last node all of them reached: "bigger is better" when the bits fall
-                with the size under both scattered and whole_gene, else "cannot be read"
+  relatives     what relatives are worth, twice: an arm without relatives at the lower of its best node and its end
+                against the arm of the same size with relatives at its end, on all held-out tables; and the two at the
+                same nodes, on the tables of the nodes; each against the seeds' difference where seeds are named
+  scale         the arms with relatives at the last node all of them reached, and every two of them at the last node
+                both reached: "bigger is better" when the bits fall with the size under both scattered and whole_gene
+                (by more than the seeds' difference where it is known), else "cannot be read"
+  seeds         the difference of the seeds at every node they all reached
   re-pairing    whole_gene against whole_gene+repaired on the tables that can be re-paired (paired)
   check         on the tables without other rows an arm's scattered and scattered+no_relatives bits must agree, and
                 its whole_gene and whole_gene+no_relatives bits
@@ -87,9 +91,12 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "consistency"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
+    seeds = [[str(a) for a in g] for g in sc.get("seeds") or []]
+    if any(len(g) < 2 or len(set(g)) != len(g) for g in seeds):
+        raise SystemExit("rel_w6_report.seeds: groups of two or more different arms of one variant: %r" % (seeds,))
     base = [dict(run=str(b["run"]), path=str(b["path"])) for b in sc.get("baselines") or []]
     fits = []
     for x in sc.get("fits") or []:
@@ -97,9 +104,8 @@ def settings(cfg) -> dict:
         if set(x) - {"run", "folder", "label", "accept"} or not x.get("run") or x.get("folder", FIT) not in (FIT, EVAL):
             raise SystemExit("rel_w6_report.fits: a run directory or {run, folder (%s or %s), label, accept}: %r" % (FIT, EVAL, x))
         fits.append(dict(run=str(x["run"]), folder=str(x.get("folder", FIT)), label=str(x.get("label") or ""), accept=[str(a) for a in x.get("accept") or []]))
-    pairs = [[str(a), str(b)] for a, b in sc.get("consistency") or []]
     return dict(fits=fits, baselines=base, main=str(sc.get("main", cond.SCATTERED)), exclude=[str(a) for a in sc.get("readings_exclude") or []],
-                consistency=pairs)
+                seeds=seeds)
 
 
 def number(x):
@@ -261,11 +267,12 @@ def diff(a, b):
     return None if a is None or b is None else a - b
 
 
-def scale_readings(rel, params, nodes, N):
-    """(scale, pairs): the arms with relatives (ordered by parameters) at the last node all of them reached, with the verdict
-    'bigger is better' only when the bits fall with every step in size under both conditions, else 'cannot be read'
-    (None without two arms or such a node); and every two of them at the last node both reached, under the same rule.
-    nodes: {arm: [tables seen at its nodes]}; N(arm, tables, condition): the bits of the node, or None."""
+def scale_readings(rel, params, nodes, N, noise=None):
+    """(scale, pairs): the arms (or levels) with relatives, ordered by parameters, at the last node all of them reached,
+    with the verdict 'bigger is better' only when the bits fall with every step in size under both conditions by more
+    than the noise (where noise gives one), else 'cannot be read' (None without two arms or such a node); and every two
+    of them at the last node both reached, under the same rule. nodes: {arm: [tables seen at its nodes]};
+    N(arm, tables, condition): the bits of the node, or None; noise(tables, condition): None or {bits, node}."""
     both = (cond.SCATTERED, cond.WHOLE_GENE)
     order = sorted(rel, key=lambda a: params.get(a) or 0)
 
@@ -273,12 +280,23 @@ def scale_readings(rel, params, nodes, N):
         common = sorted(set.intersection(*[set(nodes.get(a, [])) for a in xs]) - {0})
         return common[-1] if common else None
 
-    def bigger_lower(big, small, t):
-        return all(N(big, t, c) is not None and N(small, t, c) is not None and N(big, t, c) < N(small, t, c) for c in both)
+    def step(big, small, t):
+        for c in both:
+            b, s = N(big, t, c), N(small, t, c)
+            if b is None or s is None:
+                return "a reading is missing"
+            if not b < s:
+                return "not lower"
+            n = noise(t, c) if noise else None
+            if n is not None and s - b <= n["bits"]:
+                return "lower by no more than the seeds' difference"
+        return "lower"
 
     def reading(xs, t):
-        falls = all(bigger_lower(xs[j + 1], xs[j], t) for j in range(len(xs) - 1))
-        return dict(node=t, arms=list(xs), bits={a: {c: N(a, t, c) for c in both} for a in xs}, verdict="bigger is better" if falls else "cannot be read")
+        steps = [step(xs[j + 1], xs[j], t) for j in range(len(xs) - 1)]
+        return dict(node=t, arms=list(xs), bits={a: {c: N(a, t, c) for c in both} for a in xs}, steps=steps,
+                    noise={c: noise(t, c) for c in both} if noise else None,
+                    verdict="bigger is better" if all(x == "lower" for x in steps) else "cannot be read")
     pairs = [reading([small, big], last([small, big])) for i, small in enumerate(order) for big in order[i + 1:] if last([small, big]) is not None]
     t = last(order) if len(order) >= 2 else None
     return (reading(order, t) if t is not None else None), pairs
@@ -312,6 +330,46 @@ def build(st, cfg, run_dir):
         if r["group"] == SC.ALL and r["stratum"] == SC.ALL and number(r["bits"]) is not None:
             lines.setdefault(r["condition"], {})[r["variant"]] = float(r["bits"])
 
+    # seeds: arms of one variant with different seeds (or runs); their difference at every node they all reached is the
+    # only noise estimate; a reading of scale or of what relatives are worth within it cannot be read
+    x0 = WITH_RELATIVES or SC.ALL                                      # the tables with a relative on the target block
+    both = (cond.SCATTERED, cond.WHOLE_GENE)
+    seed_groups, seeds_out, spread = [], [], {}
+    for g in s["seeds"]:
+        have = [a for a in g if a in arms and arms[a]["status"] == "ok"]
+        files = {arms[a]["variant_file"] for a in g if a in arms}
+        if len(files) > 1:
+            raise SystemExit("rel_w6_report.seeds: %s are not one variant (%s)" % (g, sorted(files)))
+        if len(have) < 2:
+            seeds_out.append(dict(arms=g, trained=have, rows=[], note="fewer than two of these arms trained"))
+            continue
+        seed_groups.append(have)
+        common = sorted(set.intersection(*[set(nodes.get(a, [])) for a in have]) - {0})
+        table = []
+        for t in common:
+            row = [t]
+            for c in both:
+                xs = [N(a, t, c) for a in have]
+                d = None if any(x is None for x in xs) else (xs[-1] - xs[0] if len(xs) == 2 else max(xs) - min(xs))
+                row += xs + [d]
+                for x in (SC.ALL, x0):
+                    ys = [N(a, t, c, SC.ALL, x) for a in have]
+                    if all(y is not None for y in ys):
+                        spread[(t, c, x)] = max(spread.get((t, c, x), 0.0), max(ys) - min(ys))
+            table.append(row)
+        seeds_out.append(dict(arms=have, seeds=[arms[a]["info"].get("seed") for a in have], runs=[arms[a]["run"] for a in have], rows=table))
+
+    def noise(t, c, x=SC.ALL):
+        """{bits, node}: the largest spread of the seeds under condition c at node t, on the stratum x of the nodes'
+        tables; at a node they did not all reach (or at the end, t None), at the last node they all reached."""
+        at = sorted(u for (u, cc, xx) in spread if cc == c and xx == x)
+        if not at:
+            return None
+        u = at[-1] if t is None or t > at[-1] else max([v for v in at if v <= t] or at[:1])
+        return dict(bits=spread[(u, c, x)], node=u)
+    beyond = lambda d, n: None if d is None or n is None else ("beyond the seeds' difference" if abs(d) > n["bits"] else "cannot be read")   # noqa: E731
+    fmt_noise = lambda n: "%.3f (at %s tables)" % (n["bits"], "{:,}".format(n["node"])) if n else "none"                                    # noqa: E731
+
     # arms
     arm_rows = []
     for a in names:
@@ -325,7 +383,11 @@ def build(st, cfg, run_dir):
     n_of = {(r["stratum"]): int(r["n_items"]) for r in rows if r["weights"].endswith("@final") and r["condition"] == cond.WHOLE_GENE and r["group"] == SC.ALL}
     held_alone = n_of[WITHOUT_RELATIVES] / n_of[SC.ALL] if WITHOUT_RELATIVES in n_of and n_of.get(SC.ALL) else None
     trained_alone = {a: number(arms[a]["info"].get("alone_share_seen")) for a in rel}
-    caveats = CAVEATS + ["The arms with relatives drew tables without other rows at most at 5%% of a group's draws (drawn: %s); %s of the held-out "
+    caveats = list(CAVEATS)
+    if seed_groups:                                                    # one arm has two seeds: their difference is the noise estimate
+        caveats[5] = caveats[5].replace("One seed per arm, no noise floor", "One seed per arm except %s, whose difference (seeds and machines at once) is "
+                                        "the only noise estimate" % "; ".join(" and ".join(g) for g in seed_groups))
+    caveats += ["The arms with relatives drew tables without other rows at most at 5%% of a group's draws (drawn: %s); %s of the held-out "
                          "tables have none. On the bin without other rows and under the two conditions without relatives these arms are therefore "
                          "read on inputs they saw little of; what relatives are worth is reported by bin, without that bin." % (
                              ", ".join("%s %s" % (a, "%.3f" % x if x is not None else "?") for a, x in trained_alone.items()) or "no arm",
@@ -353,7 +415,6 @@ def build(st, cfg, run_dir):
         partners = [a for a in rel if arms[a]["variant"]["size"] == size] or rel
         best = arms[b]["info"].get("best") or {}
         has_best = any(k[0] == b and k[1] == "best" for k in bits)
-        x0 = WITH_RELATIVES or SC.ALL                                  # the tables with a relative on the target block
         for a in partners:
             for c in (cond.SCATTERED, cond.WHOLE_GENE):
                 # the arm without relatives at its best on all tables: its best node, or its end where the end is lower
@@ -364,31 +425,42 @@ def build(st, cfg, run_dir):
                 without = at_best if use_best else at_end
                 common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
                 last = common_nodes[-1] if common_nodes else None
-                relatives.append(dict(with_relatives=a, without=b, condition=c, tables=x0,
+                worth_end = diff(without(x0), F(a, c, SC.ALL, x0))
+                worth_node = diff(N(b, last, c + NO_REL, SC.ALL, x0), N(a, last, c, SC.ALL, x0)) if last else None
+                n_end, n_node = noise(None, c, x0), (noise(last, c, x0) if last else None)
+                relatives.append(dict(with_relatives=a, without=b, condition=c, tables=x0, noise_end=n_end, reading_end=beyond(worth_end, n_end),
+                                      noise_at_node=n_node, reading_at_node=beyond(worth_node, n_node),
                                       without_at=("best node (tables %s)" % best.get("tables_seen")) if use_best else
                                       ("end (below its best node at tables %s)" % best.get("tables_seen") if has_best else "end"),
                                       bits_without_best_node=at_best(x0), bits_without_end=at_end(x0),
-                                      bits_without=without(x0), bits_with_end=F(a, c, SC.ALL, x0), worth=diff(without(x0), F(a, c, SC.ALL, x0)),
+                                      bits_without=without(x0), bits_with_end=F(a, c, SC.ALL, x0), worth=worth_end,
                                       same_model_rows_removed=diff(F(a, c + NO_REL, SC.ALL, x0), F(a, c, SC.ALL, x0)), node=last,
-                                      worth_at_node=diff(N(b, last, c + NO_REL, SC.ALL, x0), N(a, last, c, SC.ALL, x0)) if last else None,
+                                      worth_at_node=worth_node,
                                       per_node=[[t, N(b, t, c + NO_REL, SC.ALL, x0), N(a, t, c, SC.ALL, x0), diff(N(b, t, c + NO_REL, SC.ALL, x0), N(a, t, c, SC.ALL, x0))]
                                                 for t in common_nodes],
                                       by_bin=[[x.replace(SC.FINE_PREFIX, ""), without(x), F(a, c, SC.ALL, x), diff(without(x), F(a, c, SC.ALL, x))]
                                               for x in SC.FINE if x != NONE_BIN and (without(x) is not None or F(a, c, SC.ALL, x) is not None)]))
-    # scale: the arms with relatives at the last node all of them reached; every two of them at the last node both reached
-    scale, scale_pairs = scale_readings(rel, {a: arms[a]["info"].get("params") for a in rel}, nodes, N)
+    # scale: the arms with relatives at the last node all of them reached; every two of them at the last node both reached.
+    # The seeds of one variant are one level: their mean at a node all of them reached, the one that reached it otherwise.
+    level_of = {a: " + ".join(g) for g in seed_groups if all(x in rel for x in g) for a in g}
+    levels = {}
+    for a in rel:
+        levels.setdefault(level_of.get(a, a), []).append(a)
+
+    def NL(level, t, c, x=SC.ALL):
+        xs = [N(a, t, c, SC.ALL, x) for a in levels[level]]
+        xs = [y for y in xs if y is not None]
+        return sum(xs) / len(xs) if xs else None
+    scale, scale_pairs = scale_readings(list(levels), {k: arms[v[0]]["info"].get("params") for k, v in levels.items()},
+                                        {k: sorted(set().union(*[set(nodes.get(a, [])) for a in v])) for k, v in levels.items()}, NL,
+                                        noise if spread else None)
+    for r in ([scale] if scale else []) + scale_pairs:
+        r["seeds_read"] = {k: [a for a in levels[k] if N(a, r["node"], cond.SCATTERED) is not None] for k in r["arms"] if len(levels[k]) > 1}
     # re-pairing, on the tables that can be re-paired
     two = SC.OTHER_ROWS[2]
     repair = [[v, F(v, cond.WHOLE_GENE, SC.ALL, two), F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two),
                diff(F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two), F(v, cond.WHOLE_GENE, SC.ALL, two))] for v in rel + bnames
               if F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two) is not None]
-    # two runs of one arm at their common nodes
-    consistency = []
-    for a, b in s["consistency"]:
-        if a in arms and b in arms:
-            common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
-            consistency.append(dict(arms=[a, b], condition=reading[a], rows=[[t, N(a, t, reading[a]), N(b, t, reading[a]), diff(N(b, t, reading[a]), N(a, t, reading[a]))]
-                                                                           for t in common_nodes]))
     # the free check: tables without other rows
     zero = SC.OTHER_ROWS[0]
     check = [[a, c, F(a, c, SC.ALL, zero), F(a, c + NO_REL, SC.ALL, zero), diff(F(a, c, SC.ALL, zero), F(a, c + NO_REL, SC.ALL, zero))]
@@ -437,28 +509,52 @@ def build(st, cfg, run_dir):
                     "last common node", "worth at that node"],
                    [[r["with_relatives"], r["without"], r["condition"], r["without_at"], r["bits_without"], r["bits_with_end"], r["worth"],
                      r["same_model_rows_removed"], r["node"], r["worth_at_node"]] for r in relatives])
+    if spread:
+        md += ["", "Against the seeds' difference (on the same tables with a relative on the target block; at the end, the difference at the last "
+                   "node the seeds all reached):", ""]
+        md += md_table(["with", "without", "condition", "worth (end)", "seeds' difference", "reading", "worth at the node", "seeds' difference there", "reading"],
+                       [[r["with_relatives"], r["without"], r["condition"], r["worth"], fmt_noise(r["noise_end"]), r["reading_end"], r["worth_at_node"],
+                         fmt_noise(r["noise_at_node"]), r["reading_at_node"]] for r in relatives])
     for r in relatives:
         md += ["", "%s against %s, %s, by bin (end):" % (r["without"], r["with_relatives"], r["condition"]), ""]
         md += md_table(["nearest identity", "bits without", "bits with", "worth"], r["by_bin"])
     md += ["", "## Scale", ""]
+    read_by = lambda r: "; ".join("%s: %s" % (k, " + ".join(v) if len(v) == len(levels[k]) and len(v) > 1 else "only " + ", ".join(v))   # noqa: E731
+                                  for k, v in r["seeds_read"].items()) or ""
     if scale:
         md += ["At the last node every arm with relatives reached (%s tables seen): %s." % ("{:,}".format(scale["node"]), scale["verdict"]), ""]
-        md += md_table(["arm", "parameters", "scattered", "whole_gene"], [[a, arms[a]["info"].get("params"), scale["bits"][a][cond.SCATTERED],
+        md += md_table(["arm", "parameters", "scattered", "whole_gene"], [[a, arms[levels[a][0]]["info"].get("params"), scale["bits"][a][cond.SCATTERED],
                                                                             scale["bits"][a][cond.WHOLE_GENE]] for a in scale["arms"]])
-        md += ["", "The rule: bigger is better only when the bits fall with every step in size under both conditions; otherwise the scale cannot be read."]
+        md += ["", "Each step in size: %s." % "; ".join("%s to %s %s" % (scale["arms"][j], scale["arms"][j + 1], x) for j, x in enumerate(scale["steps"]))]
+        if scale["noise"]:
+            md += ["The seeds' difference there: %s." % "; ".join("%s %s" % (c, fmt_noise(n)) for c, n in scale["noise"].items())]
+        if scale["seeds_read"]:
+            md += ["Seeds read at that node (their mean where more than one): %s." % read_by(scale)]
+        md += ["", "The rule: bigger is better only when the bits fall with every step in size under both conditions, by more than the seeds' "
+                   "difference where it is known; otherwise the scale cannot be read."]
     else:
         md += ["Fewer than two arms with relatives, or no node all of them reached."]
     if scale_pairs:
         md += ["", "Every two arms with relatives at the last node both reached (the same rule):", ""]
-        md += md_table(["smaller", "bigger", "tables seen", "scattered, smaller", "scattered, bigger", "whole_gene, smaller", "whole_gene, bigger", "verdict"],
-                       [[p["arms"][0], p["arms"][1], p["node"]] + [p["bits"][a][c] for c in (cond.SCATTERED, cond.WHOLE_GENE) for a in p["arms"]] + [p["verdict"]]
-                        for p in scale_pairs])
+        md += md_table(["smaller", "bigger", "tables seen", "scattered, smaller", "scattered, bigger", "whole_gene, smaller", "whole_gene, bigger",
+                        "seeds' difference (scattered; whole_gene)", "seeds read", "verdict"],
+                       [[p["arms"][0], p["arms"][1], p["node"]] + [p["bits"][a][c] for c in both for a in p["arms"]]
+                        + ["; ".join(fmt_noise(p["noise"][c]) for c in both) if p["noise"] else "none", read_by(p), p["verdict"]] for p in scale_pairs])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]
-    for c in consistency:
-        md += ["", "## Two runs of one arm: %s and %s (%s, at their common nodes)" % (c["arms"][0], c["arms"][1], c["condition"]), ""]
-        md += md_table(["tables seen", c["arms"][0], c["arms"][1], "difference"], c["rows"])
+    for g in seeds_out:
+        if not g["rows"]:
+            md += ["", "## Seeds: %s" % ", ".join(g["arms"]), "", g.get("note") or "no node all of them reached"]
+            continue
+        title = "Two seeds" if len(set(g["seeds"])) == len(g["seeds"]) == 2 else ("Seeds" if len(set(g["seeds"])) == len(g["seeds"]) else "Runs of one seed")
+        md += ["", "## %s of one arm: %s" % (title, ", ".join("%s (seed %s, run %s)" % (a, sd, r) for a, sd, r in zip(g["arms"], g["seeds"], g["runs"]))), "",
+               "Their difference at every node all of them reached, on the nodes' tables (%s; more than two: the largest minus the smallest). "
+               "It is the only noise estimate of the day, and it holds two differences at once: that of the seeds and that of the machines "
+               "(the runs trained on different GPUs, which other processes shared). A difference of scale or of what relatives are worth that "
+               "is not larger than it cannot be read; at a node the seeds did not all reach, and at the end, the difference at the last node "
+               "they all reached stands in." % ("the second minus the first" if len(g["arms"]) == 2 else "spread"), ""]
+        md += md_table(["tables seen"] + ["%s, %s" % (c, a) for c in both for a in g["arms"] + ["difference"]], g["rows"])
     if s["exclude"]:
         md += ["", "Left out of the readings of relatives and scale (shown in the curves only): %s." % ", ".join(s["exclude"])]
     md += ["", "## A check: tables without other rows", "",
@@ -489,7 +585,8 @@ def build(st, cfg, run_dir):
                   relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
-                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, consistency=consistency, readings_exclude=s["exclude"])
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out,
+                  noise=[dict(node=t, condition=c, stratum=x, bits=v) for (t, c, x), v in sorted(spread.items())], readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))
     p = os.path.join(folder, "report.json")

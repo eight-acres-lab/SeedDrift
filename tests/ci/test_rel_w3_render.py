@@ -221,3 +221,61 @@ def test_without_hidden_cells_leak_free_is_stored_and_stored_is_the_readers():
                     assert np.array_equal(un[r, s:s + k], shown)
     with pytest.raises(ValueError):
         RD.render(tab, vis, hide, "sideways")
+
+
+def test_a_block_laid_on_another_frame_row():
+    """frame_row of the target block = 1: that row keeps its own columns, the examined row (hidden as a whole) is laid
+    from the first column, a third row by its pairs with the frame row."""
+    tab = blank(3)
+    put(tab, 0, TB, np.arange(1, 7))
+    put(tab, 1, TB, np.arange(21, 29))
+    put(tab, 2, TB, np.arange(41, 47), [1, 2, 3, 5, 6, 7])                    # aligned to row 1, a gap at its column 4
+    tab["col"][0, T0:T0 + 6] = np.arange(6)
+    tab["frame_row"] = np.zeros(A.N_BLOCKS, np.int8)
+    tab["frame_row"][TB], tab["frame_len"][TB] = 1, 8
+    vis, hide = plan(tab, hidden_frame=range(6))                                 # the examined row hidden as a whole
+    grid, truth, ext = RD.render(tab, vis, hide)
+    assert grid[1, T0:T0 + 8].tolist() == list(range(21, 29)) and not ext[1].any()
+    assert grid[0, T0:T0 + 8].tolist() == [A.MASK] * 6 + [A.PAD, A.PAD] and truth[0, T0:T0 + 6].tolist() == list(range(1, 7))
+    assert grid[2, T0:T0 + 8].tolist() == [A.PAD, 41, 42, 43, A.GAP, 44, 45, 46] and not ext[2].any()
+    assert all(np.array_equal(a, b) for a, b in zip(RD.placement(tab, vis), RD.placement_reference(tab, vis)))
+    gone = dict(tab, frame_row=np.full(A.N_BLOCKS, 9, np.int8))                  # a frame row that is not in the table: row 0
+    assert RD.frame_rows(gone).tolist() == [0] * A.N_BLOCKS
+
+
+def test_the_two_controls_and_the_reporting_helpers():
+    rng = np.random.default_rng(13)
+    tables, _ = toy_tables(n_tables=3, rows=6, seed=79)
+    tab = {k: tables[k][0] for k in ("tok", "n", "col", "kind")}
+    tab["frame_len"] = tables["n"][0, 0]
+    vis, hide = _plans(tab, rng)
+    grid, truth, ext = RD.render(tab, vis, hide)
+    sh, st, se = RD.render(tab, vis, hide, control="shuffle", key=7)
+    assert np.array_equal(sh[0], grid[0]) and np.array_equal(st[0], truth[0])  # the frame row as it was
+    for b, (_, s, e) in enumerate(SLICES):
+        f = int(tab["frame_len"][b])
+        if f < 3:
+            continue
+        for r in range(1, 6):                                                    # each row's cells moved, not changed
+            assert sorted(sh[r, s:s + f].tolist()) == sorted(grid[r, s:s + f].tolist())
+    moved = [b for b, (_, s, e) in enumerate(SLICES) if int(tab["frame_len"][b]) > 2 and not np.array_equal(sh[1:, s:e], grid[1:, s:e])]
+    assert moved and np.array_equal(RD.render(tab, vis, hide, control="shuffle", key=7)[0], sh)
+    assert not np.array_equal(RD.render(tab, vis, hide, control="shuffle", key=8)[0], sh)
+    s, f = T0, int(tab["frame_len"][TB])                                         # one permutation for every other row of a block
+    pairs = [(sh[1:, s + x], grid[1:, s:s + f]) for x in range(f)]
+    assert all(any(np.array_equal(col, g[:, y]) for y in range(f)) for col, g in pairs)
+    pr, ptruth, _ = RD.render(tab, vis, hide, control="presence")
+    codon = (grid >= A.TARGET_MIN) & (grid <= A.TARGET_MAX)
+    assert (pr[1:][codon[1:]] == A.MASK).all() and np.array_equal(pr[0], grid[0]) and np.array_equal(pr[~codon], grid[~codon])
+    with pytest.raises(ValueError):
+        RD.render(tab, vis, hide, control="sideways")
+    d = blank(2)                                                                 # anchors at columns 0..2 and 7..9: distances
+    put(d, 0, TB, np.arange(1, 11))
+    put(d, 1, TB, np.arange(21, 31))
+    vis, hide = plan(d, hidden_frame=range(3, 7))
+    assert RD.anchor_distance(d, vis)[T0:T0 + 10].tolist() == [0, 0, 0, 1, 2, 2, 1, 0, 0, 0] and RD.anchor_distance(d, vis)[0] == -1
+    rows = RD.causal_rows(tab, key=3)
+    assert rows[0] == 0 and len(rows) == 3 and len(set(rows)) == 3 and rows == RD.causal_rows(tab, key=3)
+    lone = blank(2)
+    put(lone, 0, TB, np.arange(1, 5))
+    assert RD.causal_rows(lone) == [0]

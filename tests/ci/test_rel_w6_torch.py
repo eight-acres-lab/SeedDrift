@@ -229,6 +229,56 @@ def test_saved_weights_read_on_a_ruler_set_and_never_trained_on():
         raise AssertionError("a training took a ruler set")
 
 
+def test_score_cells_gives_the_bits_amino_acid_bits_and_entropy_of_every_cell():
+    run = loop.Run(_config(tempfile.mkdtemp()))
+    ex = run.sampler.draw(0) + run.sampler.draw(1)
+    got = loop.E.score_cells(run.model, ex, run.device, max_rows=5)
+    n = [int((e["truth"] > 0).sum()) for e in ex]
+    assert got["example"].tolist() == [k for k, m in enumerate(n) for _ in range(m)]
+    from seeddrift.train.rel.data import sampler as S
+    b = loop.E.to_device(S.collate(ex), run.device)
+    with torch.no_grad():
+        lp = run.model.eval().logp(b["grid"], b["sizes"], b["row"], b["col"]).double()
+    bits = (-lp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0] / math.log(2)).numpy()
+    ent = (-(lp.exp() * lp).sum(1) / math.log(2)).numpy()
+    assert np.allclose(got["bits"], bits, atol=1e-5) and np.allclose(got["entropy"], ent, atol=1e-5)
+    assert (got["aa_bits"] <= got["bits"] + 1e-9).all() and (got["aa_bits"] >= 0).all() and (got["entropy"] <= math.log2(65) + 1e-6).all()
+
+
+def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None):
+    """A stand-in of a readout module (package W18's run_ruler): the whole target of row 0 hidden on every table of the
+    set, scored, written to ruler_cells.npz."""
+    from seeddrift.train.rel.data.masks import whole_gene
+    render = render or T.render
+    items = []
+    for i in range(len(tables)):
+        tab = T.take_rows(tables.table(i), T.present_rows(tables.table(i)))
+        vis, tgt = whole_gene.plan(dict(n=tab["n"], kind=tab["kind"]), np.random.default_rng(0))
+        r = render(tab, vis, tgt)
+        items.append(dict(grid=r[0], truth=r[1]) if len(r) == 2 else dict(grid=r[0], truth=r[1], ext=r[2]))
+    got = scorer(items)
+    np.savez(os.path.join(out_dir, "ruler_cells.npz"), **got)
+    return dict(cells=int(len(got["bits"])), tables=len(items), weights=info["weights"], presence=bool(presence), kind=tables.kind)
+
+
+def test_a_readout_reads_a_ruler_set_with_final_or_untrained_weights():
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, max_steps=3, eval_first=4)
+    out = loop.fit(cfg)
+    rroot = tempfile.mkdtemp()
+    ruler = D.write_tableset(rroot, [("heldout/s0000", D.random_tables(6, rows=4, seed=3, split=1))], kind="ruler", name="w6-ruler")
+    base = dict(cfg, heldout_tables=ruler, heldout_root=rroot, readout=dict(module="test_rel_w6_torch", presence=True, max_rows=8))
+    a = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-final"), final=os.path.join(root, "out", "final.pt"),
+                                       final_tables=out["tables_seen"], final_cells=out["cells_seen"], final_wall_s=out["wall_s"]))
+    b = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-untrained"), final="untrained"))
+    assert a["status"] == b["status"] == "ok" and a["weights"] == "final" and b["weights"] == "untrained" and a["ruler"]["kind"] == "ruler"
+    assert a["ruler"]["tables"] == 6 and a["ruler"]["cells"] > 0 and a["tables_seen"] == out["tables_seen"] and b["tables_seen"] == 0
+    za, zb = (np.load(os.path.join(root, d, "ruler_cells.npz")) for d in ("r-final", "r-untrained"))
+    assert za["bits"].shape == zb["bits"].shape and not np.allclose(za["bits"], zb["bits"])            # trained weights read differently
+    assert os.path.exists(os.path.join(root, "r-untrained", "untrained.pt")) and not os.path.exists(os.path.join(root, "r-final", "results.tsv"))
+    assert abs(zb["entropy"].mean() - math.log2(65)) < 0.3                                             # an untrained model is near uniform
+
+
 def test_split_and_gradient_checks():
     root = tempfile.mkdtemp()
     try:

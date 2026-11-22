@@ -474,9 +474,18 @@ def test_evaluation_again_settings_and_source():
     s = w6_eval.settings(good)
     assert s["source"] == "/x/runs/t" and s["best"] is True and s["final_per_group"] == 0 and s["heldout"]["split"] == 1
     for bad in ({}, {"from": "/x"}, dict(good["rel_w6_eval"], nonsense=1),
-                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split="one")}}):
+                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split="one")}},
+                dict(good["rel_w6_eval"], arms=[dict(name="w6-ref30m-s1", untrained=True)]),                 # untrained without a readout
+                dict(good["rel_w6_eval"], readout=dict(presence_arms=["w6-ref30m"])),                        # a readout without its module
+                dict(good["rel_w6_eval"], arms=["w6-ref30m-s1", "w6-ref30m-s1"])):
         with pytest.raises(SystemExit):
             w6_eval.settings(dict(rel_w6_eval=bad))
+    ro = w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **{"from": ["/x/runs/a", "/x/runs/b"]},
+                                                arms=["w6-ref30m-s1", dict(name="w6-ref30m-s1", untrained=True)],
+                                                readout=dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"]))))
+    assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True)
+    assert ro["readout"] == dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"], max_rows=32, layout="stored")
+    assert w6_eval.variant_of_arm("w6-ref100m-lr4e-4-s1") == "w6-ref100m-lr4e-4" and w6_eval.variant_of_arm("w6-ref30m-s12") == "w6-ref30m"
 
 
 def test_evaluation_again_reads_ruler_sets_and_training_never(tmp_path):

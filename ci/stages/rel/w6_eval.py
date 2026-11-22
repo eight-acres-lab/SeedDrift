@@ -5,7 +5,13 @@ RUN_DIR`. Nothing is trained; the weights are read, never changed.
 Profile block rel_w6_eval:
   from       the directory of the training run (stage rel_w6_fit) on this machine; it need not have passed (an arm
              stopped at its wall limit makes the run fail) but its stage rel_w6_fit must have written its model index
-  arms       the arms to evaluate again (default: every arm of that run with a final.pt)
+             (several runs as a list: their arms by name, each name once)
+  arms       the arms to evaluate again (default: every arm of those runs with a final.pt); an entry {name, untrained:
+             true} reads the arm's model as built with its seed and never trained (a readout's control; untrained.pt)
+  readout    {module, presence_arms, max_rows, layout} (with a ruler set only, and a ruler set only with it): instead
+             of rows, the passes of the module (package W18: seeddrift.train.rel.readouts.w18_passes, run_ruler) scored
+             by every arm, written to data/rel_w6/eval/<arm>/ruler_cells.npz (<arm>.untrained/ for an untrained arm);
+             presence_arms (arm or variant names) also run the presence passes; layout stored or leakfree
   tables     heldout: {run, path, sha256, split}: a real held-out set (split 1) or a ruler set of package W18 (the
              split its builder sets; this stage reads the kinds configs/rel/kinds.yaml gives it, read_tableset), as in
              rel_w6_fit otherwise: the held-out table set, a hand-off file of a
@@ -41,7 +47,10 @@ from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "eval")
 FIT = w6_fit.OUT
-KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files"}
+KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files", "readout"}
+READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout"}
+UNTRAINED = "untrained"
+RULER_CELLS = "ruler_cells.npz"
 
 
 def settings(cfg) -> dict:
@@ -52,10 +61,26 @@ def settings(cfg) -> dict:
     h = sc["tables"]["heldout"]
     if set(h) - {"run", "path", "sha256", "split"} or not h.get("run") or not h.get("path") or not isinstance(h.get("split", 1), int):
         raise SystemExit("rel_w6_eval.tables.heldout: run, path, optionally sha256 and split (1 for a real set): %r" % (h,))
-    return dict(source=str(sc["from"]), arms=[str(a) for a in sc.get("arms") or []],
+    arms = []
+    for a in sc.get("arms") or []:
+        a = dict(name=a) if isinstance(a, str) else dict(a)
+        if set(a) - {"name", "untrained"} or not a.get("name"):
+            raise SystemExit("rel_w6_eval.arms: an arm's name, or {name, untrained: true}: %r" % (a,))
+        arms.append(dict(name=str(a["name"]), untrained=bool(a.get("untrained", False))))
+    if len({(a["name"], a["untrained"]) for a in arms}) != len(arms):
+        raise SystemExit("rel_w6_eval.arms: an arm is listed twice")
+    ro = sc.get("readout")
+    if ro is not None and (set(ro) - READOUT_KEYS or not ro.get("module")):
+        raise SystemExit("rel_w6_eval.readout: {module, presence_arms, max_rows, layout}: %r" % (ro,))
+    if any(a["untrained"] for a in arms) and ro is None:
+        raise SystemExit("rel_w6_eval: an untrained arm is read by a readout only (rel_w6_eval.readout)")
+    sources = sc["from"] if isinstance(sc["from"], list) else [sc["from"]]
+    return dict(sources=[str(x) for x in sources], source=str(sources[0]), arms=arms,
                 heldout=dict(run=str(h["run"]), path=str(h["path"]), sha256=h.get("sha256"), split=int(h.get("split", 1))),
                 best=bool(sc.get("best", True)), final_per_group=int(sc.get("final_per_group", 0)), eval_max_rows=int(sc.get("eval_max_rows", 32)),
-                threads=int(sc.get("threads", 4)), wall_s=int(sc.get("wall_s", 7200)), verify_files=bool(sc.get("verify_files", True)))
+                threads=int(sc.get("threads", 4)), wall_s=int(sc.get("wall_s", 7200)), verify_files=bool(sc.get("verify_files", True)),
+                readout=None if ro is None else dict(module=str(ro["module"]), presence_arms=[str(x) for x in ro.get("presence_arms") or []],
+                                                     max_rows=int(ro.get("max_rows", 32)), layout=str(ro.get("layout") or "stored")))
 
 
 def source_index(source):
@@ -98,46 +123,72 @@ def link(src, dst):
     return dict(path=dst, sha256=sha256_file(dst, use_sidecar=False), bytes=os.path.getsize(dst))
 
 
+def variant_of_arm(name):
+    """The variant name of an arm (<variant>-s<seed>)."""
+    head, _, seed = name.rpartition("-s")
+    return head if head and seed.isdigit() else name
+
+
 def build(st, cfg, run_dir):
     s = settings(cfg)
     py, lock, have = w6_tools.interpreter(st, cfg)
-    doc, rec = source_index(s["source"])
     held = heldout_set(s["heldout"], s["verify_files"])
-    variants = {v["name"]: v for v in doc["variants"]}
-    wanted = s["arms"] or sorted(n for n in variants if os.path.exists(os.path.join(s["source"], variants[n]["info"]["folder"], "final.pt")))
-    missing = [a for a in wanted if a not in variants]
+    ro = s["readout"]
+    if (held["kind"] == "ruler") != (ro is not None):
+        raise SystemExit("rel_w6_eval: a ruler set is read through a readout (rel_w6_eval.readout) and a readout reads a ruler set (given a %s set%s)"
+                         % (held["kind"], " and a readout" if ro else ""))
+    variants, docs = {}, []
+    for source in s["sources"]:                                       # the arms of every training run named, by name
+        doc, rec = source_index(source)
+        docs.append(doc)
+        for v in doc["variants"]:
+            if v["name"] in variants:
+                raise SystemExit("rel_w6_eval: arm %s is an arm of two of the runs named in from" % v["name"])
+            variants[v["name"]] = (source, rec, v)
+    trained = lambda n: os.path.exists(os.path.join(variants[n][0], variants[n][2]["info"]["folder"], "final.pt"))    # noqa: E731
+    wanted = s["arms"] or [dict(name=n, untrained=False) for n in sorted(variants) if trained(n)]
+    missing = [a["name"] for a in wanted if a["name"] not in variants]
     if missing or not wanted:
-        raise SystemExit("rel_w6_eval: arms %s are not arms of %s (its arms: %s)" % (missing or wanted, s["source"], sorted(variants)))
+        raise SystemExit("rel_w6_eval: arms %s are not arms of %s (their arms: %s)" % (missing or wanted, s["sources"], sorted(variants)))
     root = os.path.join(run_dir, OUT)
     os.makedirs(root, exist_ok=True)
     env = w6_tools.environment(s["threads"], hide_gpu=(cfg.get("train") or {}).get("device") == "cpu")
     done = {}
-    for a in wanted:
-        v = variants[a]
-        src = os.path.join(s["source"], v["info"]["folder"])
-        folder = os.path.join(root, a)
+    for want in wanted:
+        a, untrained = want["name"], want["untrained"]
+        source, rec, v = variants[a]
+        key = a + ("." + UNTRAINED if untrained else "")
+        src = os.path.join(source, v["info"]["folder"])
+        folder = os.path.join(root, key)
         os.makedirs(folder, exist_ok=True)
         summ = w6_fit.read_json(os.path.join(src, "summary.json")) or {}
         conf = w6_fit.read_json(os.path.join(src, "conf.json")) or {}
         final = os.path.join(src, "final.pt")
         cks, error = [], None
         try:
-            if not os.path.exists(final) or not summ.get("tables_seen"):
+            if not conf:
+                raise RuntimeError("no conf.json of the arm in %s" % src)
+            if not untrained and (not os.path.exists(final) or not summ.get("tables_seen")):
                 raise RuntimeError("no final.pt or no record of the tables the training saw")
-            cks.append(dict(which="final", budget=None, **link(final, os.path.join(folder, "final.pt"))))
+            if not untrained:
+                cks.append(dict(which="final", budget=None, **link(final, os.path.join(folder, "final.pt"))))
             best = summ.get("best") or {}
             best_path = os.path.join(src, "best.pt")
-            with_best = s["best"] and not conf.get("relatives", True) and best.get("tables_seen") and best["tables_seen"] < summ["tables_seen"] \
-                and os.path.exists(best_path)
+            with_best = ro is None and s["best"] and not conf.get("relatives", True) and best.get("tables_seen") and \
+                best["tables_seen"] < summ["tables_seen"] and os.path.exists(best_path)
             if with_best:
                 cks.append(dict(which="best", budget=None, **link(best_path, os.path.join(folder, "best.pt"))))
-            ec = dict(conf, out=folder, final=os.path.join(folder, "final.pt"), best=os.path.join(folder, "best.pt") if with_best else None,
-                      final_tables=summ["tables_seen"], final_cells=summ.get("cells_seen", 0),
+            ec = dict(conf, out=folder, final=UNTRAINED if untrained else os.path.join(folder, "final.pt"),
+                      best=os.path.join(folder, "best.pt") if with_best else None,
+                      final_tables=summ.get("tables_seen", 0), final_cells=summ.get("cells_seen", 0),
                       final_wall_s=float(summ.get("train_s", 0)) + float(summ.get("eval_s", 0)),
                       best_tables=best.get("tables_seen", 0), best_cells=best.get("cells_seen", 0), best_wall_s=best.get("wall_s", 0),
                       heldout_tables=os.path.join(s["heldout"]["run"], s["heldout"]["path"]), heldout_root=s["heldout"]["run"], heldout_split=s["heldout"]["split"],
                       final_per_group=s["final_per_group"], eval_max_rows=s["eval_max_rows"], threads=s["threads"], run=os.path.basename(run_dir),
                       commit=cfg["git"]["sha"])
+            if ro is not None:                                         # the passes of the readout: no rows, a per-cell file
+                ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"],
+                                     presence=not untrained and (a in ro["presence_arms"] or variant_of_arm(a) in ro["presence_arms"]))
             cp = os.path.join(folder, "conf.json")
             write_json(cp, ec)
             proc, lg = w6_tools.start(py, "evaluate", cp, os.path.join(folder, "eval.log"), env)
@@ -149,31 +200,49 @@ def build(st, cfg, run_dir):
             got = w6_fit.read_json(os.path.join(folder, "summary.json")) or {}
             if code != 0 or got.get("status") != "ok":
                 raise RuntimeError("evaluation (%s, state %s): %s" % (code, got.get("status"), w6_tools.tail(os.path.join(folder, "eval.log"))))
+            if ro is not None:
+                if not os.path.exists(os.path.join(folder, RULER_CELLS)):
+                    raise RuntimeError("the readout wrote no %s" % RULER_CELLS)
+                if untrained:
+                    cks.append(dict(which="ema", budget=None, path=os.path.join(folder, "untrained.pt"),
+                                    sha256=sha256_file(os.path.join(folder, "untrained.pt"), use_sidecar=False),
+                                    bytes=os.path.getsize(os.path.join(folder, "untrained.pt"))))
         except RuntimeError as err:
             error = str(err)[-1500:]
             got = {}
         info = dict(v["info"], final=got.get("final"), final_items=got.get("final_items"), eval_final=got.get("eval_final"),
-                    tables_seen=summ.get("tables_seen", v["info"].get("tables_seen")), steps=summ.get("steps", v["info"].get("steps")),
-                    cells_seen=summ.get("cells_seen", v["info"].get("cells_seen")), final_best=got.get("final_best"), evaluated_again=dict(
-                        source_run=os.path.basename(s["source"]), source_status=rec.get("status"), source_arm_status=v["status"],
-                        final_eval_s=got.get("final_eval_s"), checkpoints={c["which"]: c["sha256"] for c in cks}),
+                    tables_seen=summ.get("tables_seen", v["info"].get("tables_seen")) if not untrained else 0,
+                    steps=summ.get("steps", v["info"].get("steps")) if not untrained else 0,
+                    cells_seen=summ.get("cells_seen", v["info"].get("cells_seen")) if not untrained else 0, final_best=got.get("final_best"),
+                    evaluated_again=dict(source_run=os.path.basename(source), source_status=rec.get("status"), source_arm_status=v["status"],
+                                         final_eval_s=got.get("final_eval_s"), checkpoints={c["which"]: c["sha256"] for c in cks}),
                     folder=os.path.relpath(folder, run_dir))
-        done[a] = dict(name=a, variant_file=v["variant_file"], variant_sha256=v["variant_sha256"], api_version=v["api_version"],
-                       status="ok" if error is None else "failed", error=error, info=info,
-                       checkpoints=[dict(which=c["which"], budget=None, path=os.path.relpath(c["path"], run_dir), sha256=c["sha256"], bytes=c["bytes"])
-                                    for c in cks] if error is None else [])
+        if ro is not None:
+            info.update(final=None, final_items=None, eval_final=None, weights_read=UNTRAINED if untrained else "ema",
+                        readout=dict(module=ro["module"], layout=ro["layout"], presence=(ec.get("readout") or {}).get("presence") if error is None else None,
+                                     cells=os.path.relpath(os.path.join(folder, RULER_CELLS), run_dir), head=got.get("ruler")))
+        done[key] = dict(name=key, variant_file=v["variant_file"], variant_sha256=v["variant_sha256"], api_version=v["api_version"],
+                         status="ok" if error is None else "failed", error=error, info=info,
+                         checkpoints=[dict(which=c["which"], budget=None, path=os.path.relpath(c["path"], run_dir), sha256=c["sha256"], bytes=c["bytes"])
+                                      for c in cks] if error is None else [])
+        if ro is not None and error is None:
+            st.output("ruler_cells_" + key, os.path.join(folder, RULER_CELLS))
     results = os.path.join(root, "results.tsv")
     SC.write_rows(results, [r for a in done if os.path.exists(os.path.join(root, a, "results.tsv")) for r in SC.read_rows(os.path.join(root, a, "results.tsv"))])
-    index = handoff.finish(dict(format="rel-models", format_version=1, tablesets=doc["tablesets"], variants=list(done.values()), probe=False,
-                                groups=doc.get("groups") or held["groups"], row_groups=doc.get("row_groups") or {}, evaluated_again_from=os.path.basename(s["source"]),
-                                model_env=dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)),
+    tablesets = list({t["sha256"]: t for d in docs for t in d["tablesets"]}.values())
+    index = handoff.finish(dict(format="rel-models", format_version=1, tablesets=tablesets, variants=list(done.values()), probe=False,
+                                groups=docs[0].get("groups") or held["groups"], row_groups=docs[0].get("row_groups") or {},
+                                evaluated_again_from=", ".join(os.path.basename(x) for x in s["sources"]),
+                                evaluated_on=dict(run_id=os.path.basename(s["heldout"]["run"]), name=held["doc"].get("name"), sha256=held["doc"].get("sha256"),
+                                                  kind=held["kind"], split=s["heldout"]["split"]),
+                                readout=ro, model_env=dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)),
                                 producer=dict(stage="w6_eval", package="W6", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     st.output("results", results)
     p = os.path.join(root, "models.json")
     write_json(p, index)                                              # the rule's target last
     st.output("models", p)
-    st.extra.update(source=os.path.basename(s["source"]), arms={a: d["status"] for a, d in done.items()},
-                    failed={a: d["error"] for a, d in done.items() if d["status"] != "ok"})
+    st.extra.update(source=", ".join(os.path.basename(x) for x in s["sources"]), arms={a: d["status"] for a, d in done.items()},
+                    failed={a: d["error"] for a, d in done.items() if d["status"] != "ok"}, readout=(ro or {}).get("module"))
     return index
 
 
@@ -186,14 +255,19 @@ def gate(st, cfg, run_dir):
     if not ok:
         problems.append(dict(error="no arm was evaluated"))
     final = {}
-    for r in SC.read_rows(os.path.join(run_dir, OUT, "results.tsv")):
-        if r["weights"] == "ema@final" and r["group"] == SC.ALL and r["stratum"] == SC.ALL:
-            final.setdefault(r["variant"], {})[r["condition"]] = float(r["bits"])
-    for v in ok:
-        want = (w6_fit.read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)
-        lack = [c for c in want if not 0 < final.get(v["name"], {}).get(c, 0) < 20]
-        if lack:
-            problems.append(dict(arm=v["name"], error="no final row under %s" % ", ".join(lack)))
+    if doc.get("readout"):                                            # a ruler set through a readout: a per-cell file per arm, no rows
+        for v in ok:
+            if not os.path.exists(os.path.join(run_dir, v["info"]["folder"], RULER_CELLS)):
+                problems.append(dict(arm=v["name"], error="no %s" % RULER_CELLS))
+    else:
+        for r in SC.read_rows(os.path.join(run_dir, OUT, "results.tsv")):
+            if r["weights"] == "ema@final" and r["group"] == SC.ALL and r["stratum"] == SC.ALL:
+                final.setdefault(r["variant"], {})[r["condition"]] = float(r["bits"])
+        for v in ok:
+            want = (w6_fit.read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)
+            lack = [c for c in want if not 0 < final.get(v["name"], {}).get(c, 0) < 20]
+            if lack:
+                problems.append(dict(arm=v["name"], error="no final row under %s" % ", ".join(lack)))
     require(GateResult("G4_rel_w6_eval", "fail" if problems else "pass", dict(problems=problems[:20], evaluated=[v["name"] for v in ok], final=final,
                                                                           failed={v["name"]: (v.get("error") or "")[-600:] for v in doc.get("variants") or []
                                                                                   if v.get("status") != "ok"})), run_dir)

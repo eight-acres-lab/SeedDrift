@@ -42,6 +42,47 @@ def ext_of(batch):
     return {"ext": batch["ext"]} if "ext" in batch else {}
 
 
+@torch.no_grad()
+def score_cells(model, examples, device, max_rows=32):
+    """The target cells of grids rendered elsewhere (the passes of package W18's readouts): examples [dict(grid uint8
+    [R, ROW_LEN], truth uint8 [R, ROW_LEN] (0: not scored), ext optional)], scored in micro-batches of at most max_rows
+    rows. Returns dict of numpy arrays, one entry per scored cell in the order of numpy.nonzero(truth) of every example,
+    examples in order: bits (-log2 p(truth)), aa_bits (-log2 of the probability of the truth's class: the evaluator's
+    20 amino acids, the stops, OTHER), entropy (of the distribution over the residues 1..65, in bits), example."""
+    classes = torch.from_numpy(SC.amino_acid_classes()[1:66]).to(device)
+    onehot = torch.nn.functional.one_hot(classes, int(classes.max()) + 1).double()
+    out = dict(bits=[], aa_bits=[], entropy=[], example=[])
+    was_training = model.training
+    model.eval()
+    rows, pending = 0, []
+
+    def flush():
+        nonlocal pending, rows
+        if pending:
+            b = to_device(S.collate([examples[k] for k in pending]), device)
+            if len(b["row"]):
+                logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b)).double()
+                idx = (b["token"] - A.TARGET_MIN)[:, None]
+                out["bits"].append((-logp.gather(1, idx)[:, 0] / math.log(2.0)).cpu().numpy())
+                p_class = logp.exp() @ onehot
+                out["aa_bits"].append((-torch.log2(p_class.gather(1, classes[idx[:, 0]][:, None])[:, 0])).cpu().numpy())
+                out["entropy"].append((-(logp.exp() * logp).sum(dim=1) / math.log(2.0)).cpu().numpy())
+                out["example"].append(np.asarray(pending, dtype=np.int64)[b["example"].cpu().numpy()])
+        pending, rows = [], 0
+
+    for k, e in enumerate(examples):
+        r = int(np.asarray(e["grid"]).shape[0])
+        if pending and rows + r > max_rows:
+            flush()
+        pending.append(k)
+        rows += r
+    flush()
+    model.train(was_training)
+    cat = lambda parts, dtype: np.concatenate(parts) if parts else np.zeros(0, dtype=dtype)      # noqa: E731
+    return dict(bits=cat(out["bits"], np.float64), aa_bits=cat(out["aa_bits"], np.float64), entropy=cat(out["entropy"], np.float64),
+                example=cat(out["example"], np.int64))
+
+
 def subset(tables, per_group):
     """The evaluator's subset (conditions.subset): the first per_group tables of every group, in storage order; 0: all
     tables. Positions in the table set."""

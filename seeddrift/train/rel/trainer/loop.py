@@ -361,6 +361,8 @@ def evaluate_checkpoints(cfg):
     began = time.time()
     run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
+    if cfg.get("readout"):
+        return read_ruler(run, cfg, began)
     out_dir = cfg["out"]
     os.makedirs(out_dir, exist_ok=True)
     for name in ("results.tsv", "summary.json"):
@@ -391,6 +393,57 @@ def evaluate_checkpoints(cfg):
             state["final_best"] = dict(tables_seen=int(cfg["best_tables"]), bits=main, items=digests, eval_s=round(time.time() - t, 1))
         write_json(summary, state)
     state.update(status="ok", wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
+    write_json(summary, state)
+    return state
+
+
+UNTRAINED = "untrained"
+
+
+def read_ruler(run, cfg, began):
+    """The passes of a readout module (cfg["readout"]: module, presence, max_rows, layout; package W18's
+    readouts/w18_passes.run_ruler) on the ruler set held as run.held, scored by the moving average of final.pt, or by
+    the arm's model as built with its seed and never trained (cfg["final"] == "untrained"). The module writes its
+    per-cell file into cfg["out"] (no result rows: a ruler set is no item of a round); summary.json beside it."""
+    import importlib
+    ro = dict(cfg["readout"])
+    out_dir = cfg["out"]
+    os.makedirs(out_dir, exist_ok=True)
+    summary = os.path.join(out_dir, "summary.json")
+    if os.path.exists(summary):
+        raise SystemExit("summary.json exists in %s: a readout starts in an empty folder" % out_dir)
+    reader = run.reader()
+    untrained = cfg.get("final") == UNTRAINED
+    ck = None
+    if not untrained:
+        ck = torch.load(cfg["final"], map_location=run.device, weights_only=True)
+        reader.load_state_dict(ck["ema"])
+    else:                                                             # the weights read are kept, as a checkpoint of the index
+        body = dict(name=cfg["name"], size=run.size, module=cfg["model"], step=0, tables_seen=0, cells_seen=0, commit=cfg["commit"], ema=reader.state_dict())
+        torch.save(body, os.path.join(out_dir, "untrained.pt.part"))
+        os.replace(os.path.join(out_dir, "untrained.pt.part"), os.path.join(out_dir, "untrained.pt"))
+    layout = str(ro.get("layout") or A.LAYOUT_STORED)
+    if layout == A.LAYOUT_STORED:
+        render, version = None, T.RENDER_VERSION
+    else:
+        from seeddrift.train.rel.tables import render as RD
+        with_ext = getattr(reader, "ext", None) is not None            # an arm trained on stored tables reads no ext cells
+
+        def render(tab, visible, target):
+            grid, truth, ext = RD.render(tab, visible, target, layout=layout)
+            return (grid, truth, ext) if with_ext else (grid, truth)
+        version = "w3-%s" % RD.VERSION
+    max_rows = int(ro.get("max_rows", 32))
+    info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else "final", relatives=bool(cfg["relatives"]), layout=layout, render_version=version,
+                run=cfg["run"], commit=cfg["commit"], root=cfg["heldout_root"])
+    head = importlib.import_module(str(ro["module"])).run_ruler(lambda examples: E.score_cells(reader, examples, run.device, max_rows=max_rows),
+                                                                run.held, info, out_dir, render=render, presence=bool(ro.get("presence")),
+                                                                max_rows=max_rows)
+    state = dict(name=cfg["name"], status="ok", readout=str(ro["module"]), weights=info["weights"], layout=layout, presence=bool(ro.get("presence")),
+                 tables=len(run.held), table_set=run.held.name, table_kind=run.held.kind, versions=versions(), params=run.params,
+                 step=int(ck["step"]) if ck else 0, tables_seen=int(ck["tables_seen"]) if ck else 0, cells_seen=int(ck["cells_seen"]) if ck else 0,
+                 ruler={k: v for k, v in (head or {}).items() if isinstance(v, (str, int, float, bool)) or v is None},
+                 wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
     write_json(summary, state)
     return state
 

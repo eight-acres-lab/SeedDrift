@@ -524,6 +524,21 @@ def test_evaluation_again_reads_ruler_sets_and_training_never(tmp_path):
         w6_eval.heldout_set(dict(sets["real"], split=0), verify=True)
     with pytest.raises(SystemExit):                                     # the training stage never reads a ruler set
         w6_fit.table_set(cfg, dict(sets["ruler"], split=1), verify=True)
+    # a real set marked not for training (package W12's development sets): read by the evaluation, never by the training
+    run_dir = sets["real"]["run"]
+    p = os.path.join(run_dir, sets["real"]["path"])
+    with open(p) as f:
+        doc = json.load(f)
+    doc = handoff.finish(dict({k: v for k, v in doc.items() if k != "sha256"}, not_for_training=True))
+    with open(p, "w") as f:
+        json.dump(doc, f)
+    stage_report(run_dir, "rel_w2_v0", "", 0.0, [dict(name="tableset", path=sets["real"]["path"], sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+    assert w6_eval.heldout_set(dict(sets["real"], sha256=doc["sha256"], split=1), verify=True)["kind"] == "real"
+    with pytest.raises(SystemExit):
+        w6_fit.table_set(cfg, dict(sets["real"], sha256=doc["sha256"], split=1), verify=True)
 
 
 def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):

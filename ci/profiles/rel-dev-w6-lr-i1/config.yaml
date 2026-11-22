@@ -1,0 +1,47 @@
+# Machine i-1: the evening's ladder of the relational-model line's reference trunk with the learning-rate check (stage
+# w6_report of package W6, alone; ci/stages/rel/w6_report.py). The arms of rel-dev-w6-ladder-i1 (the three of run
+# 20261122T071504-exp-rel-3382ed5e-rel-d1-i1 on i-1; the 100 M arm at peak rate 2e-4 of run
+# 20261122T071650-exp-rel-3382ed5e-rel-d1-i2 and the 30 M arm's seed 2 of run
+# 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, both trained on i-2 and copied to i-1) and the 100 M arm at peak rate
+# 4e-4, the 10 M arm's rate (run 20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1 on i-1, the code of 3382ed5 with a
+# variant that changes the name and the rate only). The learning-rate check sets that arm against the 100 M arm at 2e-4
+# and the 10 M arm, with the two seeds' difference as the threshold (the programme lead's ruling of the evening); the
+# arm at 4e-4 is left out of the readings of scale and of what relatives are worth, which compare arms at the rates
+# of the protocol. Beside the classical baselines of package W5 (run
+# 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1). Reads result rows, model indexes and preflight records
+# only; CPU only. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T071650-exp-rel-3382ed5e-rel-d1-i2
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2
+    - /hy-tmp/seeddrift-ci/runs/20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1
+  seeds: [[w6-ref30m-s1, w6-ref30m-s2]]
+  readings_exclude: [w6-ref100m-lr4e-4-s1]
+  lr_check:
+    small: w6-ref10m-s1
+    low: w6-ref100m-s1
+    high: w6-ref100m-lr4e-4-s1
+    note: >-
+      The two 100 M arms trained on different machines: the one at 2e-4 on i-2 (an A100, the only training there,
+      beside the vLLM service), the one at 4e-4 on i-1 (an A800 that other users' processes shared); the 10 M arm on
+      i-1 beside two other arms. Their curves are read at equal tables seen, not at equal compute.
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

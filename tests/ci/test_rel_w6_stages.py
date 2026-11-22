@@ -289,7 +289,11 @@ def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)
     small, low = (4.15, 4.28), (4.25, 4.34)
-    assert reading(dict(s=small, l=low, h=(4.16, 4.30)))["conclusion"] == "caught up"                 # above the small arm by no more than 0.05
+    r = reading(dict(s=small, l=low, h=(4.16, 4.30)))                                                 # above the small arm by no more than 0.05
+    assert r["conclusion"] == "caught up" and r["passed"] is False
+    r = reading(dict(s=small, l=low, h=(4.05, 4.20)))                                                 # below it by more than 0.05 under both
+    assert r["conclusion"] == "caught up" and r["passed"] is True
+    assert reading(dict(s=small, l=low, h=(4.05, 4.25)))["passed"] is False                           # whole_gene only 0.03 below
     assert reading(dict(s=small, l=(4.30, 4.40), h=(4.21, 4.34)))["conclusion"] == "part"            # below the lower rate by more than 0.05
     assert reading(dict(s=small, l=low, h=(4.26, 4.35)))["conclusion"] == "not the rate"
     r = reading(dict(s=small, l=low, h=(4.16, 4.36)))                                                 # scattered caught up, whole_gene not the rate
@@ -316,6 +320,9 @@ def test_report_reads_the_learning_rate_check(tmp_path):
     assert abs(lr["curves"][1][3] - 5.15) < 1e-9 and rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1"]       # the excluded arm is not in the scale
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "## The learning rate" in text and "The two big arms trained on different machines." in text
+    assert lr["passed"] is True and lr["sign"] == w6_report.SCALING_SIGN
+    head = text.split("What the numbers do not show")[0]
+    assert "Key points:" in head and w6_report.SCALING_SIGN in head and "Scale, at the last node" in head
     w6_report.gate(st, cfg, run_dir)
     assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
     with pytest.raises(SystemExit):

@@ -56,7 +56,8 @@ def n_params(name):
 
 def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SEED, base=4, with_chain=True, log=None):
     """Per condition: dict(items_sha256, cell_table (C,) index of the table of every scored cell, bits {name: (C,)},
-    seconds {name}, tables)."""
+    amino_acid_bits {name: (C,)} (not for the joint reading, which gives no distribution per cell), seconds {name},
+    tables)."""
     table_ids = np.asarray(table_ids)
     out = {}
     for condition in conditions:
@@ -64,6 +65,7 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
         digest = cond.ItemsDigest(condition, seed)
         which = names_under(condition, with_chain)
         bits = {n: [] for n in which}
+        aa = {n: [] for n in which if n != switch.JOINT}
         seconds = {n: 0.0 for n in which}
         cell_table = []
         for a, _, m, bt, truth in fitting.batches(tables, table_ids, condition, seed, base):
@@ -77,11 +79,13 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
                     P = switch.predict(bt, p, n) if n in switch.NAMES else cl.predict(n, bt, p)
                     cl.check_normalised(P)
                     bits[n].append(cl.bits_of(P, truth))
+                    aa[n].append(score.amino_acid_bits(P, truth))
                 seconds[n] += time.time() - t0
         out[condition] = dict(
             items_sha256=digest.hexdigest(), tables=int(table_ids.shape[0]), seconds=seconds,
             cell_table=np.concatenate(cell_table) if cell_table else np.zeros(0, dtype=np.int64),
             bits={n: (np.concatenate(v) if v else np.zeros(0)) for n, v in bits.items()},
+            amino_acid_bits={n: (np.concatenate(v) if v else np.zeros(0)) for n, v in aa.items()},
         )
         if log:
             log("%s: %d cells of %d tables" % (condition, out[condition]["cell_table"].shape[0], table_ids.shape[0]))
@@ -102,6 +106,9 @@ def result_rows(results, group, identity, params, head, n_groups=12, group_names
     for condition, res in results.items():
         mask = cond.parse(condition)[0]
         agg = {n: score.aggregate(b, res["cell_table"], group, strata, n_groups, group_names) for n, b in res["bits"].items()}
+        for n, a in (res.get("amino_acid_bits") or {}).items():                 # the two parts, per group and over the groups
+            for part, b in ((score.PARTS[0], a), (score.PARTS[1], res["bits"][n] - a)):
+                agg[n] += [dict(r, stratum=part) for r in score.aggregate(b, res["cell_table"], group, [], n_groups, group_names) if r["stratum"] == score.ALL]
         for n, rws in agg.items():
             cells = int(res["cell_table"].shape[0])
             for r in rws:
@@ -149,6 +156,13 @@ def markdown(rows, title="Classical baselines: bits per codon", groups=None):
         out.append("| %s | " % n + " | ".join(("%.3f" % main[c][n]) + (" (%+.3f)" % (main[c][REFERENCE] - main[c][n]) if REFERENCE in main[c] and n != REFERENCE else "")
                                               if n in main[c] else "" for c in conds) + " |")
     out += ["", "| scored | " + " | ".join("%d cells, %d tables" % cells.get((c, score.ALL), (0, 0)) for c in conds) + " |", ""]
+    parts = [(c, n) for c in conds for n in order if all(n in strata.get(c, {}).get(p, {}) for p in score.PARTS)]
+    if parts:
+        out += ["## The bits of a codon in two parts: its amino acid, and the codon given the amino acid", "",
+                "| condition | baseline | codon | amino acid | codon given amino acid |", "|---|---|---|---|---|"]
+        for c, n in parts:
+            out.append("| %s | %s | %.3f | %.3f | %.3f |" % (c, n, main[c][n], strata[c][score.PARTS[0]][n], strata[c][score.PARTS[1]][n]))
+        out.append("")
     for c in conds:
         if c not in strata or cond.parse(c)[1] == cond.NO_RELATIVES:      # without relatives: the own_freq column of the base condition
             continue

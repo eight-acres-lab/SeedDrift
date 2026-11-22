@@ -462,7 +462,7 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     a, b = same[(cond.WHOLE_GENE, "row_average")], same[(cond.WHOLE_GENE + "+" + cond.REPAIRED, "row_average")]
     assert a["target_cells"] == b["target_cells"] and abs(a["bits"] - b["bits"]) < 1e-12 and a["n_items"] == b["n_items"] == 29
     assert {r["group"] for r in rows} == {"all", "zero", "one", "2"} and {r["tier"] for r in rows} == {-1} and {r["item_half"] for r in rows} == {"all"}
-    assert {r["stratum"] for r in rows} <= set(score.FINE + score.OTHER_ROWS + ("all",)) and any(r["stratum"] in score.FINE for r in rows)
+    assert {r["stratum"] for r in rows} <= set(score.FINE + score.OTHER_ROWS + score.PARTS + ("all",)) and any(r["stratum"] in score.FINE for r in rows)
     assert all(tuple(r) == api.RESULT_ROW for r in rows)
     top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["condition"] == cond.SCATTERED]
     assert sorted(r["variant"] for r in top) == sorted(brun.names_under(cond.SCATTERED))
@@ -471,7 +471,12 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     assert own["baseline"] == own["bits_minus_baseline"] == "" == cn["bits_minus_baseline"] and cn["bits"] < own["bits"] - 1
     assert cn["target_cells"] == sc["cell_table"].shape[0] and cn["items_sha256"] == "5" * 64 and cn["n_items"] == 30
     text = brun.markdown(rows)
-    assert "| copy_nearest |" in text and "by the identity of the nearest row" in text and "on the same tables" in text
+    assert "| copy_nearest |" in text and "by the identity of the nearest row" in text and "on the same tables" in text and "two parts" in text
+    whole = {(r["condition"], r["variant"], r["group"], r["stratum"]): r["bits"] for r in rows}
+    for (c, n, g, s), b in whole.items():                                        # the two parts add up to the codon
+        if s == score.PARTS[0]:
+            assert abs(b + whole[(c, n, g, score.PARTS[1])] - whole[(c, n, g, "all")]) < 1e-9 and 0 <= b <= whole[(c, n, g, "all")] + 1e-9
+    assert (cond.WHOLE_GENE, switch.JOINT, "all", score.PARTS[0]) not in whole
 
 
 def test_aggregate_is_the_mean_of_the_group_means():
@@ -495,6 +500,19 @@ def test_aggregate_is_the_mean_of_the_group_means():
         raise AssertionError("a column outside the contract must be refused")
     except KeyError:
         pass
+
+
+def test_amino_acid_bits():
+    cls = score.amino_acid_classes()
+    met, leu = 1 + 0 * 16 + 3 * 4 + 2, 1 + 1 * 16 + 3 * 4 + 0                 # ATG, CTA
+    assert cls[met] == 11 and (cls[1:65] == cls[leu]).sum() == 6 and cls[api.OTHER] == 22 and (cls[1:65] == 21).sum() == 3
+    P = np.full((3, 65), 1.0 / 65)
+    got = score.amino_acid_bits(P, np.array([met, leu, api.OTHER]))
+    assert np.allclose(got, [np.log2(65), np.log2(65 / 6), np.log2(65)])
+    sure = np.zeros((1, 65))
+    sure[0, leu - 1] = 0.5
+    sure[0, leu] = 0.5                                                           # CTA and CTC: both leucine
+    assert abs(score.amino_acid_bits(sure, np.array([leu]))[0]) < 1e-12
 
 
 def test_result_rows_round_trip(tmp_path):

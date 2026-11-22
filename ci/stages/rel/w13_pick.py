@@ -14,8 +14,13 @@ their sequence answers HTTP 500); a pick that fails is replaced by the next cand
 selection's snapshots. A relative goes with its anchor's split; it carries no near-relative cluster, so stage
 train_data puts it in its anchor's unit by genus (or species) and the units of the corpus genomes do not change.
 
-Checks: the counts of every group equal the census run's (rel_w13_pick.census_from) where no lookup replaced a pick;
-the new ids pass the sealed check and the exclusions by lineage (gate G2's rules); no new id or assembly is a corpus
+Candidates are taken in a random order fixed by rel_w13_pick.seed (ordered(); no score decides), so the counts can
+differ a little from the census's proposals (which take them by accession); every replaced candidate is listed with
+its reason (relatives.json, replacements). A lookup or a probe that meets a server error or no connection is tried
+again after 10, 30 and 90 seconds; a record still not given is replaced. rel_w13_pick.avoid_from names fetch runs whose
+unavailable sources are replaced too. Checks: the census made again equals the census run's (rel_w13_pick.census_from);
+no group has more relatives than k per anchor; the records ENA could not give are at most max_unavailable (default
+5%) of those looked up, else the stage fails; the new ids pass the sealed check and the exclusions by lineage (gate G2's rules); no new id or assembly is a corpus
 genome's. Outputs under data/rel_w13/pick/: relatives.json (per relative: id, group, split, anchors, relation,
 accession, taxid), corpus.yaml (the corpus spec rel_w13_pick.name: the sources of the corpus spec and the relatives),
 report.json (written last) and report.md. Gate G4_rel_w13_pick.
@@ -40,7 +45,9 @@ from ci.stages.rel import w2_v0 as W
 from ci.stages.rel import w13_catalog, w13_census as WC
 
 OUT = os.path.join("data", "rel_w13", "pick")
-KEYS = {"select_from", "source", "expect", "catalog_from", "census_from", "k", "name", "max_genes_euk", "max_lookups", "threads"}
+KEYS = {"select_from", "source", "expect", "catalog_from", "census_from", "k", "name", "max_genes_euk", "max_lookups", "threads", "seed", "avoid_from",
+        "max_unavailable"}
+RETRY_S = (10, 30, 90)                       # the waits between tries of a lookup or a probe after a server error or no connection
 NEEDS = {"bacteria": "Chromosome", "archaea": "Chromosome", "mobile.plasmid": "Plasmid"}       # viruses: any replicon
 
 
@@ -53,7 +60,9 @@ def settings(cfg) -> dict:
     k = int(c.get("k", 3))
     return dict(select_from=str(c["select_from"]), source=str(c["source"]), expect={str(a): int(b) for a, b in (c.get("expect") or {}).items()},
                 catalog_from=str(c["catalog_from"]), census_from=str(c["census_from"]), k=k, per_anchor=[k], propose=k, name=str(c["name"]),
-                max_genes_euk=int(c.get("max_genes_euk", 1500)), max_lookups=int(c.get("max_lookups", 40)), threads=int(c.get("threads", 8)), max_left_out=20)
+                max_genes_euk=int(c.get("max_genes_euk", 1500)), max_lookups=int(c.get("max_lookups", 40)), threads=int(c.get("threads", 8)),
+                seed=int(c.get("seed", 1)), avoid_from=[str(x) for x in c.get("avoid_from") or []], max_unavailable=float(c.get("max_unavailable", 0.05)),
+                max_left_out=20)
 
 
 def replicons(accession):
@@ -63,18 +72,32 @@ def replicons(accession):
     return rep(accession)
 
 
-def lookup(accs, threads, get=None):
-    """{accession: [(sequence, type)] or None (no record, or the lookup failed after retries)}."""
+def retrying(fn, waits=RETRY_S):
+    """fn() tried again after the waits when it raises (a server error or no connection); None when every try failed.
+    fn may return a value or raise Refused for an answer that asking again would not change."""
+    for k in range(len(waits) + 1):
+        try:
+            return fn()
+        except Refused:
+            return None
+        except Exception:  # noqa: BLE001 - a server error or a failed connection: tried again
+            if k < len(waits):
+                time.sleep(waits[k])
+    return None
+
+
+class Refused(Exception):
+    """A definite answer (a client error other than a timeout or a rate limit): not asked again."""
+
+
+def lookup(accs, threads, get=None, waits=RETRY_S):
+    """{accession: [(sequence, type)] or None (no record, or every try failed)}."""
     from concurrent.futures import ThreadPoolExecutor
     get = get or replicons
 
     def one(a):
-        for k in range(3):
-            try:
-                return a, list(get(a))
-            except Exception:  # noqa: BLE001 - a network failure: tried again, then counted as no record
-                time.sleep(2 * (k + 1))
-        return a, None
+        got = retrying(lambda: list(get(a)), waits)
+        return a, got
     with ThreadPoolExecutor(max(1, threads)) as pool:
         return dict(pool.map(one, sorted(set(accs))))
 
@@ -98,21 +121,28 @@ def passes(row, reps):
     return bool(wanted(reps, need_of(row)))
 
 
-def served(accs, tries=2):
+def served(accs, waits=RETRY_S):
     """Whether ENA serves the FASTA of these sequences: the URL stage fetch requests answers 200 and starts a FASTA (or
-    gzip) stream (only its first bytes are read). Some records exist but are never served (HTTP 500)."""
+    gzip) stream (only its first bytes are read); a server error (some records are listed but answer HTTP 500) or no
+    connection is tried again after the waits."""
+    import urllib.error
     import urllib.request
     from ci.stages import fetch
     url = fetch.ENA_FASTA % ",".join(accs)
-    for k in range(tries):
+
+    def one():
+        req = urllib.request.Request(url, headers={"User-Agent": "python-urllib"})
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "python-urllib"})
             with urllib.request.urlopen(req, timeout=300) as r:
                 head = r.read(64)
-                return r.status == 200 and (head[:2] == b"\x1f\x8b" or head[:1] == b">")
-        except Exception:  # noqa: BLE001 - a server error or a failed connection: tried again, then not served
-            time.sleep(3 * (k + 1))
-    return False
+                if r.status == 200 and (head[:2] == b"\x1f\x8b" or head[:1] == b">"):
+                    return True
+                raise Refused("not a FASTA stream")
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500 and e.code not in (408, 429):
+                raise Refused(str(e))
+            raise
+    return bool(retrying(one, waits))
 
 
 def probe_all(pairs, threads, serve=None):
@@ -131,26 +161,52 @@ def needs_lookup(row):
     return row.get("catalogue") in ("bacteria", "archaea", "viruses")          # a record of the ENA snapshot
 
 
-def choose(anchors, k, max_lookups, threads, get=None, serve=None):
-    """Per anchor of the open splits its picks [(row, relation)] and the candidates it examined, the snapshot's picks
-    looked up in their ENA records (the replicons the group needs) and their FASTA probed at ENA, each replaced by the
-    next candidate when it fails; and the lookups {accession: replicons} and the probes {(accession, need): served}."""
-    lists, picks, pos, by_id = {}, {}, {}, {}
+def ordered(rows, seed, anchor):
+    """The candidates of one anchor in a random order fixed by the seed and the anchor (no score decides)."""
+    import hashlib
+    import random
+    rng = random.Random(int(hashlib.sha256(("%d:%s" % (seed, anchor)).encode()).hexdigest()[:16], 16))
+    out = sorted(rows, key=lambda r: r["id"])
+    rng.shuffle(out)
+    return out
+
+
+def choose(anchors, k, max_lookups, threads, get=None, serve=None, seed=1, avoid=frozenset()):
+    """Per anchor of the open splits its picks [(row, relation)], the candidates it examined and the ones it skipped
+    with the reason: the same species first, then the same genus, each in a random order (ordered()); the snapshot's
+    picks looked up in their ENA records (the replicons the group needs) and their FASTA probed at ENA; a candidate
+    that fails, or that `avoid` names (accessions a fetch run could not get), is replaced by the next one. Also the
+    lookups {accession: replicons} and the probes {(accession, need): served}."""
+    lists, picks, pos, by_id, skipped = {}, {}, {}, {}, {}
     for a in anchors:
         if a["split"] in WC.OPEN:
-            lists[a["id"]] = [(r, "same species") for r in a["new_same_species"]] + [(r, "same genus") for r in a["new_same_genus"]]
-            picks[a["id"]], pos[a["id"]], by_id[a["id"]] = [], 0, a
+            lists[a["id"]] = ([(r, "same species") for r in ordered(a["new_same_species"], seed, a["id"] + ":species")]
+                              + [(r, "same genus") for r in ordered(a["new_same_genus"], seed, a["id"] + ":genus")])
+            picks[a["id"]], pos[a["id"]], by_id[a["id"]], skipped[a["id"]] = [], 0, a, []
     seen, ok = {}, {}
+
+    def why_not(r):
+        acc = ena_accession(r)
+        if acc in avoid:
+            return "a fetch run could not get it"
+        if seen[acc] is None:
+            return "no ENA record"
+        if not passes(r, seen[acc]):
+            return "the ENA record lists no %s" % ("replicon" if need_of(r) == "any" else need_of(r).lower())
+        return None if ok[(acc, need_of(r))] else "ENA does not serve its FASTA"
     while True:
         for aid, lst in lists.items():                           # take what the lookups so far decide, in order
             while len(picks[aid]) < k and pos[aid] < min(len(lst), max_lookups):
                 r, rel = lst[pos[aid]]
                 if needs_lookup(r):
                     acc = ena_accession(r)
-                    if acc not in seen or (passes(r, seen[acc]) and (acc, need_of(r)) not in ok):
+                    if acc not in avoid and (acc not in seen or (passes(r, seen[acc]) and (acc, need_of(r)) not in ok)):
                         break
                     pos[aid] += 1
-                    if passes(r, seen[acc]) and ok[(acc, need_of(r))]:
+                    why = why_not(r)
+                    if why:
+                        skipped[aid].append(dict(candidate=acc, relation=rel, reason=why))
+                    else:
                         picks[aid].append((r, rel))
                 else:
                     pos[aid] += 1
@@ -161,7 +217,7 @@ def choose(anchors, k, max_lookups, threads, get=None, serve=None):
             for r, _ in lst[pos[aid]:max_lookups]:
                 if short <= 0:
                     break
-                if needs_lookup(r):
+                if needs_lookup(r) and ena_accession(r) not in avoid:
                     acc = ena_accession(r)
                     if acc not in seen:
                         want.add(acc)
@@ -174,7 +230,23 @@ def choose(anchors, k, max_lookups, threads, get=None, serve=None):
             seen.update(lookup(want, threads, get))
         if probe:
             ok.update(probe_all(probe, threads, serve))
-    return {aid: dict(anchor=by_id[aid], picks=p, looked=pos[aid]) for aid, p in picks.items()}, seen, ok
+    return {aid: dict(anchor=by_id[aid], picks=p, looked=pos[aid], skipped=skipped[aid]) for aid, p in picks.items()}, seen, ok
+
+
+def avoided(runs):
+    """The ENA accessions of the sources the fetch stage of these runs listed as unavailable."""
+    out = set()
+    for run in runs:
+        with open(os.path.join(run, "data", "fetch", "manifest.json")) as f:
+            man = json.load(f)
+        for m in (man.get("meta") or {}).get("unavailable") or []:
+            acc = (m.get("source") or {}).get("ena_assembly") or ""
+            if not acc:
+                head, _, rest = m["id"].rpartition("GCA_")
+                acc = "GCA_" + rest if head else ""
+            if acc:
+                out.add(acc)
+    return out
 
 
 def ensembl_fields(cands_by_id, snaps):
@@ -238,7 +310,8 @@ def build(st, cfg, run_dir):
     host_recs, host_snap = WC.host_records(s["select_from"])
     extra = [st.repo(x) for x in (cfg.get("extra_exclusions") or [])]
     counts, _, _, anchors = WC.census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, extra)
-    chosen, seen, ok = choose(anchors, s["k"], s["max_lookups"], s["threads"])
+    avoid = avoided(s["avoid_from"])
+    chosen, seen, ok = choose(anchors, s["k"], s["max_lookups"], s["threads"], seed=s["seed"], avoid=avoid)
     ens_snaps, ens_used = WC.selection_snapshots(s["select_from"], "ensembl_species")
     wanted = {r["id"] for c in chosen.values() for r, _ in c["picks"] if r["group"].startswith("eukaryota.")}
     ens = ensembl_fields({r["id"]: r for r in cands if r["id"] in wanted}, ens_snaps)
@@ -288,9 +361,9 @@ def build(st, cfg, run_dir):
     for x in rel.values():
         got[x["split"]][x["group"]] = got[x["split"]].get(x["group"], 0) + 1
         got[x["split"]]["all"] = got[x["split"]].get("all", 0) + 1
-    replaced = {aid: c["looked"] - len(c["picks"]) for aid, c in chosen.items() if c["looked"] > len(c["picks"])}
+    replaced = {aid: len(c["skipped"]) for aid, c in chosen.items() if c["skipped"]}
     groups = sorted({g for by in want.values() for g in by})
-    table = {sp: {g: dict(census=reported.get(sp, {}).get(g), recomputed=want[sp].get(g), picked=got[sp].get(g, 0),
+    table = {sp: {g: dict(census=reported.get(sp, {}).get(g), recomputed=want[sp].get(g), picked=got[sp].get(g, 0), anchors=counts[sp][g]["anchors"],
                           anchors_with_a_replacement=sum(1 for aid in replaced if chosen[aid]["anchor"]["split"] == sp and (g == "all" or chosen[aid]["anchor"]["group"] == g)))
                   for g in groups} for sp in WC.OPEN}
     if want != reported:
@@ -309,14 +382,24 @@ def build(st, cfg, run_dir):
         f.write(yaml.safe_dump(new_spec, sort_keys=False, width=160))
     st.output("pick_corpus_spec", cp)
     rp = os.path.join(folder, "relatives.json")
-    write_json(rp, dict(relatives=[rel[i] for i in ids]))
+    replacements = [dict(anchor=aid, split=c["anchor"]["split"], group=c["anchor"]["group"], skipped=c["skipped"],
+                         picked=[source_of(r, relation, ens, s["max_genes_euk"])["id"] for r, relation in c["picks"]]) for aid, c in sorted(chosen.items()) if c["skipped"]]
+    write_json(rp, dict(relatives=[rel[i] for i in ids], replacements=replacements))
     st.output("pick_relatives", rp)
     n_look = len(seen)
+    gone = {a for a, v in seen.items() if v is None} | {a for (a, _), v in ok.items() if not v} | (avoid & set(seen))
+    reasons = {}
+    for x in replacements:
+        for y in x["skipped"]:
+            reasons[y["reason"]] = reasons.get(y["reason"], 0) + 1
     rep = dict(format="rel-w13-pick", version=1, note=__doc__.strip().splitlines()[0], k=s["k"], name=s["name"], corpus_spec=cfg["corpus_spec"],
                selection=prov, source=src["provenance"], catalogue=cprov, host_snapshots=host_snap, ensembl_snapshots=ens_used, census=os.path.basename(s["census_from"]),
                relatives=len(ids), by_split=table, lookups=dict(records=n_look, without_record=sum(1 for v in seen.values() if v is None),
                                                                without_any_replicon=sum(1 for v in seen.values() if v is not None and not v),
-                                                               fasta_probed=len(ok), fasta_not_served=sorted(a for (a, _), v in ok.items() if not v)),
+                                                               fasta_probed=len(ok), fasta_not_served=sorted(a for (a, _), v in ok.items() if not v),
+                                                               unavailable=len(gone), unavailable_share=round(len(gone) / max(1, n_look), 4),
+                                                               max_unavailable=s["max_unavailable"], avoided=sorted(avoid)),
+               replaced_by_reason=reasons, seed=s["seed"],
                anchors_with_a_replacement=len(replaced), bases=sum(x["bases"] for x in rel.values()), proteins_estimate=sum(min(x["proteins"], s["max_genes_euk"]) if x["group"].startswith("eukaryota.") else x["proteins"]
                                                         for x in rel.values() if x["group"] != "mobile.plasmid"),
                sealed_ids=ev_ids, lineage=lin, files=dict(corpus=dict(path=os.path.relpath(cp, run_dir), sha256=sha256_file(cp, use_sidecar=False)),
@@ -344,7 +427,10 @@ def page_of(rep):
     lk = rep["lookups"]
     L += ["ENA assembly records looked up: %s (%s without a record, %s listing no replicon); FASTA probed at ENA for %s picks, not served: %s." % (
         "{:,}".format(lk["records"]), lk["without_record"], lk.get("without_any_replicon", 0), "{:,}".format(lk.get("fasta_probed", 0)),
-        ", ".join(lk.get("fasta_not_served") or []) or "none"), ""]
+        ", ".join(lk.get("fasta_not_served") or []) or "none"),
+          "Records ENA could not give: %s of %s looked up (%.1f%%; the stage fails above %.0f%%). Candidates replaced, by reason: %s." % (
+              lk.get("unavailable", 0), lk["records"], 100 * lk.get("unavailable_share", 0), 100 * lk.get("max_unavailable", 0.05),
+              "; ".join("%s %d" % kv for kv in sorted((rep.get("replaced_by_reason") or {}).items())) or "none"), ""]
     return "\n".join(L)
 
 
@@ -365,8 +451,11 @@ def gate(st, cfg, run_dir):
         problems.append(dict(error="a relative outside the train and held-out splits"))
     for sp, by in (rep.get("by_split") or {}).items():
         for g, d in by.items():
-            if g != "mobile.plasmid" and d["picked"] > (d["census"] or 0):
-                problems.append(dict(split=sp, group=g, error="more relatives than the census proposed"))
+            if d["picked"] > rep["k"] * int(d.get("anchors") or 0):
+                problems.append(dict(split=sp, group=g, error="more than k relatives per anchor"))
+    lk = rep.get("lookups") or {}
+    if lk.get("unavailable_share", 0) > lk.get("max_unavailable", 0.05):
+        problems.append(dict(error="ENA could not give %s of %s records looked up (more than %s)" % (lk.get("unavailable"), lk.get("records"), lk.get("max_unavailable"))))
     with open(os.path.join(run_dir, OUT, "corpus.yaml")) as f:
         spec = yaml.safe_load(f)
     ids = [x["id"] for x in spec["sources"]]

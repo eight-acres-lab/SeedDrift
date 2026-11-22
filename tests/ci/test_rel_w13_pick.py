@@ -45,14 +45,85 @@ def test_picks_are_looked_up_and_replaced_in_order():
         probed.append(tuple(accs))
         return accs != ["CP4"]                                         # ENA lists GCA_4's chromosome but does not serve it
     chosen, seen, ok = WP.choose(anchors, 3, 40, 2, get, serve)
-    assert [r["accession"] for r, _ in chosen["b1"]["picks"]] == ["GCA_1", "GCA_5"] and chosen["b1"]["looked"] == 4   # GCA_3 lists nothing, GCA_4 is not served
+    assert [r["accession"] for r, _ in chosen["b1"]["picks"]] == ["GCA_1", "GCA_5"] and chosen["b1"]["looked"] == 4   # the species first, whatever the order
+    assert sorted((x["candidate"], x["reason"]) for x in chosen["b1"]["skipped"]) == [("GCA_3.1", "the ENA record lists no chromosome"),
+                                                                                    ("GCA_4.1", "ENA does not serve its FASTA")]
     assert ok[("GCA_4.1", "Chromosome")] is False and ("CP3",) in probed and ("CP1",) in probed and len(probed) == len(set(probed))
     assert [rel for _, rel in chosen["b1"]["picks"]] == ["same species", "same genus"]
     assert [r["accession"] for r, _ in chosen["p1"]["picks"]] == ["GCA_2", "GCA_6"]           # only assemblies that list a plasmid
+    assert chosen["p1"]["skipped"] == [dict(candidate="GCA_1.1", relation="same species", reason="the ENA record lists no plasmid")] \
+        or [x["candidate"] for x in chosen["p1"]["skipped"]] == ["GCA_1.1"]
     assert [r["id"] for r, _ in chosen["f1"]["picks"]] == ["fungi_x"] and "t1" not in chosen  # no lookup for a eukaryote; no test anchor
     assert len(asked) == len(set(asked)) and "GCA_5.1" in seen
     capped, _, _ = WP.choose(anchors[:1], 3, 2, 1, get, serve)
     assert [r["accession"] for r, _ in capped["b1"]["picks"]] == ["GCA_1"]                    # at most max_lookups candidates examined
+    avoid, _, _ = WP.choose(anchors[:1], 3, 40, 1, get, serve, avoid={"GCA_5.1"})          # a source a fetch run could not get
+    assert [r["accession"] for r, _ in avoid["b1"]["picks"]] == ["GCA_1"]
+    assert ("GCA_5.1", "a fetch run could not get it") in [(x["candidate"], x["reason"]) for x in avoid["b1"]["skipped"]]
+
+
+def test_the_order_is_random_and_fixed_by_the_seed():
+    rows = [dict(id="r%02d" % k) for k in range(20)]
+    one, two, other = WP.ordered(rows, 1, "a"), WP.ordered(list(reversed(rows)), 1, "a"), WP.ordered(rows, 2, "a")
+    assert [r["id"] for r in one] == [r["id"] for r in two] != [r["id"] for r in other] and sorted(r["id"] for r in one) == [r["id"] for r in rows]
+    assert [r["id"] for r in one] != [r["id"] for r in rows]
+
+
+def test_server_errors_are_tried_again_then_counted_unavailable(monkeypatch, tmp_path):
+    import urllib.error
+    import urllib.request
+    from ci.stages import fetch
+    calls = []
+
+    class Body:
+        status = 200
+
+        def __init__(self, data):
+            self.data = data
+
+        def read(self, n=-1):
+            return self.data if n < 0 else self.data[:n]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def opener(codes):
+        def urlopen(req, timeout=0):
+            calls.append(req.full_url)
+            code = codes.pop(0) if codes else 200
+            if code == 0:
+                raise OSError("connection reset")
+            if code != 200:
+                raise urllib.error.HTTPError(req.full_url, code, "x", {}, None)
+            return Body(b">s1\nACGT\n")
+        return urlopen
+    monkeypatch.setattr(urllib.request, "urlopen", opener([500, 0, 500]))
+    assert WP.served(["X1.1"], waits=(0, 0, 0)) is True and len(calls) == 4          # three failures, then served
+    calls.clear()
+    monkeypatch.setattr(urllib.request, "urlopen", opener([500] * 9))
+    assert WP.served(["X1.1"], waits=(0, 0, 0)) is False and len(calls) == 4
+    calls.clear()
+    monkeypatch.setattr(urllib.request, "urlopen", opener([400]))
+    assert WP.served(["X1.1"], waits=(0, 0, 0)) is False and len(calls) == 1          # a definite answer is not asked again
+    assert WP.retrying(lambda: 1 / 0, waits=(0, 0)) is None
+    monkeypatch.setattr(fetch, "RETRY_S", [0, 0, 0])
+    monkeypatch.setattr(fetch, "SERVER_ERRORS_UNAVAILABLE", True)
+    calls.clear()
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", opener([500] * 9))
+    with pytest.raises(fetch.NoRecord, match="after 4 tries"):
+        fetch.get("https://example.invalid/a")
+    assert len(calls) == 4
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", opener([400]))
+    with pytest.raises(RuntimeError):                                  # not a server error: still a failure of the stage
+        fetch.get("https://example.invalid/b")
+    run = tmp_path / "f"
+    (run / "data" / "fetch").mkdir(parents=True)
+    json.dump(dict(entries=[], meta=dict(unavailable=[dict(id="archaea_GCA_000000009.2", reason="x", source=dict(ena_assembly="GCA_000000009.2")),
+                                                      dict(id="plasmid_GCA_000000008.1", reason="y")])), open(run / "data" / "fetch" / "manifest.json", "w"))
+    assert WP.avoided([str(run)]) == {"GCA_000000009.2", "GCA_000000008.1"}
 
 
 def test_sources_have_the_fields_of_the_corpus_spec():
@@ -125,7 +196,7 @@ def test_the_pick_names_the_census_relatives_and_writes_the_corpus_spec(picked, 
     crep = json.load(open(os.path.join(picked["census"], WC.OUT, "report.json")))
     for sp in WC.OPEN:                                                     # the census's first batch, k = 3, by group
         for grp, d in crep["wide"]["counts"][sp].items():
-            assert rep["by_split"][sp][grp]["picked"] == d["proposals"]["3"]["genomes"] == rep["by_split"][sp][grp]["census"]
+            assert rep["by_split"][sp][grp]["picked"] <= 3 * d["anchors"] and rep["by_split"][sp][grp]["census"] == d["proposals"]["3"]["genomes"]
     rel = json.load(open(os.path.join(run, WP.OUT, "relatives.json")))["relatives"]
     assert rel and len(rel) == rep["relatives"] and all(x["split"] in WC.OPEN for x in rel)
     split = {m["id"]: m["split"] for m in picked["metas"]}
@@ -144,6 +215,18 @@ def test_the_pick_names_the_census_relatives_and_writes_the_corpus_spec(picked, 
     with Stage(run, "gates_rel_w13_pick") as st:
         WP.gate(st, picked["cfg"], run)
     assert json.load(open(os.path.join(run, "gates", "G4_rel_w13_pick.json")))["status"] == "pass"
+    assert "replacements" in json.load(open(os.path.join(run, WP.OUT, "relatives.json"))) and rep["seed"] == 1
+    p = os.path.join(run, WP.OUT, "report.json")
+    keep = open(p).read()
+    bad = json.loads(keep)
+    bad["lookups"].update(unavailable=10, records=100, unavailable_share=0.1)
+    try:
+        open(p, "w").write(json.dumps(bad))
+        with pytest.raises(GateFailure):                                 # more than 5% of the records not given: the stage fails
+            with Stage(run, "gates_rel_w13_pick") as st:
+                WP.gate(st, picked["cfg"], run)
+    finally:
+        open(p, "w").write(keep)
 
 
 def test_a_census_that_differs_is_refused(picked, monkeypatch, tmp_path):
@@ -209,7 +292,7 @@ def test_the_build_reports_a_fetch_part(picked, monkeypatch, tmp_path):
     rel = json.load(open(os.path.join(picked["run"], WP.OUT, "relatives.json")))["relatives"]
     spec = os.path.join(picked["run"], WP.OUT, "corpus.yaml")
     run_dir, cfg = RF.rel_run(tmp_path, kind="rel_corpus", stages=("w13_build",), run_id="20261124T000005-build", corpus_spec=spec, data_root=str(tmp_path),
-                              rel_w13_build=dict(pick_from=picked["run"], upto="fetch"))
+                              rel_w13_build=dict(pick_from=picked["run"], upto="fetch", max_unavailable=0.1))
     os.makedirs(os.path.join(run_dir, "data", "fetch"))
     entries = [dict(id=x["id"], files=[dict(path="aa/x", sha256="0" * 64, bytes=1000)]) for x in rel[1:]]
     json.dump(dict(entries=entries, meta=dict(unavailable=[dict(id=rel[0]["id"], reason="HTTP 404")])), open(os.path.join(run_dir, "data", "fetch", "manifest.json"), "w"))
@@ -220,6 +303,9 @@ def test_the_build_reports_a_fetch_part(picked, monkeypatch, tmp_path):
     with Stage(run_dir, "gates_rel_w13_build") as st:
         WB.gate(st, cfg, run_dir)
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w13_build.json")))["status"] == "pass"
+    with pytest.raises(SystemExit, match="more than 5%"):                # 1 of the relatives unavailable is more than 5% of them
+        with Stage(run_dir, "rel_w13_build") as st:
+            WB.build(st, dict(cfg, rel_w13_build=dict(pick_from=picked["run"], upto="fetch")), run_dir)
     json.dump(dict(entries=entries, meta={}), open(os.path.join(run_dir, "data", "fetch", "manifest.json"), "w"))
     with pytest.raises(SystemExit, match="neither fetched"):
         with Stage(run_dir, "rel_w13_build") as st:

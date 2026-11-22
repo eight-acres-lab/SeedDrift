@@ -25,8 +25,10 @@ scenario:
   table: tests/ci/fixtures/tiny/scenario.tsv
   truth: tests/ci/fixtures/tiny/scenario_truth.tsv
 fetch:
-  allow_missing: 0.01
+  allow_missing: 0.05
   threads: 8
+  retry_s: [10, 30, 90]
+  server_errors_unavailable: true
 search:
   sensitivity: sensitive
   max_target_seqs: 1000

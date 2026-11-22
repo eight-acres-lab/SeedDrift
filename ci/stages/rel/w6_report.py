@@ -124,6 +124,9 @@ LR_CONCLUSIONS = {
 }
 
 
+SCALING_SIGN = "At the same learning rate the bigger arm is better: the only sign of scaling today."
+
+
 def lr_reading(small, low, high, t, N, noise=None, diverged=False):
     """The learning-rate check at tables seen t (None: no node of all three): a big arm at a higher peak rate (high) against
     the same arm at the lower rate (low) and a small arm (small). Under each of scattered and whole_gene: 'caught up' when
@@ -132,7 +135,7 @@ def lr_reading(small, low, high, t, N, noise=None, diverged=False):
     {bits, node}; diverged: the high arm diverged or stopped at its preflight (then 'not the rate')."""
     both = (cond.SCATTERED, cond.WHOLE_GENE)
     if diverged:
-        return dict(node=t, by_condition={}, conclusion="not the rate", why="the arm at the higher rate diverged")
+        return dict(node=t, by_condition={}, conclusion="not the rate", why="the arm at the higher rate diverged", passed=False)
     by = {}
     for c in both:
         h, lo, s = (N(a, t, c) if t is not None else None for a in (high, low, small))
@@ -142,13 +145,15 @@ def lr_reading(small, low, high, t, N, noise=None, diverged=False):
             by[c] = dict(kind=None, noise=n)
             continue
         kind = "caught up" if h - s <= thr else ("part" if lo - h > thr else "not the rate")
-        by[c] = dict(kind=kind, high=h, low=lo, small=s, high_minus_small=h - s, low_minus_high=lo - h, noise=n)
+        by[c] = dict(kind=kind, high=h, low=lo, small=s, high_minus_small=h - s, low_minus_high=lo - h, noise=n, passed=s - h > thr)
     kinds = {x["kind"] for x in by.values()}
     if None in kinds or not by:
-        return dict(node=t, by_condition=by, conclusion=None, why="a reading is missing")
+        return dict(node=t, by_condition=by, conclusion=None, why="a reading is missing", passed=False)
     if len(kinds) > 1:
-        return dict(node=t, by_condition=by, conclusion=None, why="the two conditions disagree: cannot be read")
-    return dict(node=t, by_condition=by, conclusion=kinds.pop(), why=None)
+        return dict(node=t, by_condition=by, conclusion=None, why="the two conditions disagree: cannot be read", passed=False)
+    kind = kinds.pop()
+    # passed: below the small arm by more than the noise under both conditions, the only sign of scaling of the day
+    return dict(node=t, by_condition=by, conclusion=kind, why=None, passed=kind == "caught up" and all(x["passed"] for x in by.values()))
 
 
 def number(x):
@@ -523,6 +528,7 @@ def build(st, cfg, run_dir):
                         runs={a: arms[a]["run"] for a in trio}, tables_seen={a: arms[a]["info"].get("tables_seen") for a in trio},
                         note=s["lr_check"].get("note"), at_node=at_node, at_end=at_end,
                         conclusion=LR_CONCLUSIONS.get(at_node["conclusion"]) if at_node["conclusion"] else None,
+                        passed=bool(at_node.get("passed")), sign=SCALING_SIGN if at_node.get("passed") else None,
                         curves=[[t] + [N(a, t, c) for c in both for a in trio] for t in sorted(set().union(*[set(nodes.get(a, [])) for a in trio]) - {0})],
                         final=[["end"] + [F(a, c) for c in both for a in trio]])
     # re-pairing, on the tables that can be re-paired
@@ -551,9 +557,19 @@ def build(st, cfg, run_dir):
     fin = [["model" if v in arms else "baseline", v, c, g, x, bits[(v, p, t, c, g, x)]] for (v, p, t, c, g, x) in sorted(bits, key=str) if p == "final"]
     tsv(os.path.join(folder, "final.tsv"), ["kind", "variant", "condition", "group", "stratum", "bits"], fin)
 
-    md = ["# Relational line: the reference trunk's first curves", "",
-          "Bits per codon of the hidden residues of the examined row's target block, on held-out tables (lower is better). "
-          "Development diagnosis. What the numbers do not show:", ""] + ["- " + c for c in caveats]
+    key = []                                                           # the key points, first
+    if scale:
+        key.append("Scale, at the last node every arm with relatives reached (%s tables seen): %s." % ("{:,}".format(scale["node"]), scale["verdict"]))
+    if lr_check:
+        key.append("The learning rate: %s." % (lr_check["conclusion"] or "no conclusion: " + (lr_check["at_node"]["why"] or "")))
+        if lr_check["sign"]:
+            key.append("%s (%s below %s at %s tables seen under both conditions, by more than the seeds' difference)" % (
+                lr_check["sign"], lr_check["arms"]["high"], lr_check["arms"]["small"], "{:,}".format(lr_check["at_node"]["node"])))
+    md = ["# Relational line: the reference trunk's first curves", ""]
+    if key:
+        md += ["Key points:", ""] + ["- " + x for x in key] + [""]
+    md += ["Bits per codon of the hidden residues of the examined row's target block, on held-out tables (lower is better). "
+           "Development diagnosis. What the numbers do not show:", ""] + ["- " + c for c in caveats]
     md += ["", "## Arms", ""] + md_table(["arm", "run", "status", "relatives", "parameters", "peak lr", "lr reduced by the preflight", "steps", "tables seen",
                                          "passes over the training tables", "cells/s", "tables/s", "GPU MB reserved", "tables per micro-batch",
                                          "evaluation share of training time", "ended by", "masked row attention",
@@ -617,8 +633,9 @@ def build(st, cfg, run_dir):
         if lr_check["note"]:
             md += [lr_check["note"], ""]
         a = lr_check["at_node"]
-        md += ["At the last node all three reached (%s tables seen): %s." % ("{:,}".format(a["node"]) if isinstance(a["node"], int) else "none",
-                                                                            lr_check["conclusion"] or ("no conclusion: " + (a["why"] or ""))),
+        md += ["At the last node all three reached (%s tables seen): %s.%s" % ("{:,}".format(a["node"]) if isinstance(a["node"], int) else "none",
+                                                                              lr_check["conclusion"] or ("no conclusion: " + (a["why"] or "")),
+                                                                              " " + lr_check["sign"] if lr_check["sign"] else ""),
                "At the end (all held-out tables; the arms saw %s tables): %s." % (
                    ", ".join("{:,}".format(lr_check["tables_seen"][x] or 0) for x in trio),
                    LR_CONCLUSIONS.get(lr_check["at_end"]["conclusion"]) or "no conclusion: " + (lr_check["at_end"]["why"] or "")), "",
@@ -771,7 +788,7 @@ def summary(run_dir):
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
     small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), scale_pairs=rep.get("scale_pairs"),
-                 lr_check=(rep.get("lr_check") or {}).get("conclusion"), lead=rep.get("lead"),
+                 lr_check={k: (rep.get("lr_check") or {}).get(k) for k in ("conclusion", "sign")}, lead=rep.get("lead"),
                  headline=rep["headline"],
                  relatives=[{k: r[k] for k in r if k not in ("per_node", "by_bin")} for r in rep["relatives"]],
                  arms={a: dict(status=x["status"], final=x["final"], tables_seen=x["info"].get("tables_seen"), cells_seen=x["info"].get("cells_seen"),

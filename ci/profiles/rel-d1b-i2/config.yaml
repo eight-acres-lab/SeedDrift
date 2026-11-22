@@ -1,13 +1,12 @@
-# Machine i-2, the evening of 2026-11-22: the arm of about 30 M parameters with relatives (w6-ref30m, seed 1) again,
+# Machine i-2, the evening of 2026-11-22: the arm of about 30 M parameters with relatives (w6-ref30m) with seed 2,
 # from the beginning, on the code of commit 3382ed5 (this branch adds this profile only), with the tables of version 0
 # copied to i-2 (run 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, checked by sha256 on arrival). The same arm on
-# i-1 (run 20261122T071504) was starved of CPU by another user's processes from about 17:20, so this run is the 30 M step
-# of the evening's ladder (the programme lead's decision); the first tables of both curves check the two machines
-# against each other. One training at a time beside the vLLM service, which is never stopped; no GPU lease. Wall limit
+# i-1 (run 20261122T071504) was starved of CPU by another user's processes from about 17:20, and i-1 recovered later; this run with a
+# second seed gives the day's one estimate of the noise between seeds of one arm (the programme lead's decision). One training at a time beside the vLLM service, which is never stopped; no GPU lease. Wall limit
 # 4.5 h, its final evaluation on all 3,000 held-out tables included. Development diagnosis only.
 pipeline: rel_traineval
 tier: medium
-seed: 1
+seed: 2
 cores: 4
 blas_threads: 2
 disk_gb: 10
@@ -28,7 +27,7 @@ rel_w6_fit:
     train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
     heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
   arms:
-    - {variant: configs/rel/variants/w6-ref30m.yaml, seed: 1}
+    - {variant: configs/rel/variants/w6-ref30m.yaml, seed: 2}
   wall_s: 16200                  # one training, its final evaluation on all 3,000 held-out tables included
   eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
   eval_max_rows: 32

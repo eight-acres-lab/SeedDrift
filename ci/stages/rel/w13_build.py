@@ -23,6 +23,9 @@ parts of a few hours; files fetched before are taken from the content store, hit
           search.reuse_from has); with the corpus specs of parts 1..i of n (`python -m ci.stages.rel.w13_build part
           I N ...`) the search of the new genomes takes n runs, each reusing the earlier ones per genome
   all     up to train_data, with the checks above (the default)
+Sources the fetch stage could not get (a 404, or a server error or no connection through every try with the profile's
+fetch.retry_s and fetch.server_errors_unavailable) are listed; more than max_unavailable (default 5%) of the relatives
+in the spec fails the stage. Their places are refilled by a new pick with rel_w13_pick.avoid_from.
 Outside `all` the corpus spec may be the pick's restricted to some of its relatives (parts 1..i); in `all` it is the
 pick's corpus.yaml byte for byte.
 """
@@ -41,7 +44,7 @@ from ci.stages.rel import common
 from ci.stages.rel import w13_pick
 
 OUT = os.path.join("data", "rel_w13", "build")
-KEYS = {"pick_from", "pinned_from", "pinned_index_sha256", "upto"}
+KEYS = {"pick_from", "pinned_from", "pinned_index_sha256", "upto", "max_unavailable"}
 UPTO = ("fetch", "search", "all")
 
 
@@ -52,7 +55,7 @@ def settings(cfg) -> dict:
     need = {"pick_from"} | ({"pinned_from", "pinned_index_sha256"} if upto == "all" else set())
     if unknown or need - set(c) or upto not in UPTO:
         raise SystemExit("rel_w13_build: needs %s, upto one of %s; unknown keys %s" % (sorted(need), UPTO, sorted(unknown)))
-    return dict({k: str(c[k]) for k in KEYS if k in c}, upto=upto)
+    return dict({k: str(c[k]) for k in KEYS if k in c}, upto=upto, max_unavailable=float(c.get("max_unavailable", 0.05)))
 
 
 def estimate(x):
@@ -230,6 +233,10 @@ def build(st, cfg, run_dir):
     scope = spec_scope(st.repo(cfg["corpus_spec"]), pick_spec, rel, s["upto"])
     by_fetch, unavailable, not_fetched = fetch_report(run_dir, scope)
     problems = [dict(check="fetch", error="relatives neither fetched nor listed as unavailable", examples=not_fetched[:5])] if not_fetched else []
+    gone = sorted(set(unavailable) & {x["id"] for x in scope})
+    if scope and len(gone) > s["max_unavailable"] * len(scope):          # an empty pass is no pass (the programme lead, 2026-11-23)
+        problems.append(dict(check="fetch", error="%d of %d relatives unavailable, more than %.0f%%" % (len(gone), len(scope), 100 * s["max_unavailable"]),
+                             examples=gone[:5]))
     search, counts, totals = None, {}, dict(relatives=len(scope), unavailable=sorted(set(unavailable) & {x["id"] for x in scope}))
     if s["upto"] in ("search", "all"):
         search, no_hits = search_report(run_dir, [x for x in scope if x["id"] not in unavailable])

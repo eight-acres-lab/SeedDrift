@@ -253,7 +253,7 @@ def test_report_readings_beside_baselines(tmp_path):
     assert svg.startswith("<svg") and svg.count("<polyline") == 3 and "own_freq, scattered" in svg
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "upper bound" not in text and "optimistic" in text and "bigger is better" in text and "passes over the training tables" in text
-    assert "Every two arms with relatives at the last node both reached" in text
+    assert "Every two arms with relatives at the last node both reached" in text and "a slight selection on the test set" in text
     assert "copy_nearest" in text and " NO" not in text
     curves = open(os.path.join(run_dir, w6_report.OUT, "curves.tsv")).read().splitlines()
     assert curves[0].split("\t")[:3] == ["arm", "point", "tables_seen"] and any(line.split("\t")[1:3] == ["final", "4000"] for line in curves)

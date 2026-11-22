@@ -17,6 +17,10 @@ Profile block rel_w6_report (all optional):
              difference at every node all of them reached is the noise estimate; a difference of scale or of what
              relatives are worth no larger than it "cannot be read"; in the scale they are one level (their mean at a
              node all of them reached, the one that reached it otherwise, named in the report)
+  lr_check   {small, low, high, note}: a big arm at a higher peak learning rate (high) against the same arm at the
+             lower rate (low) and a small arm (small), at the last node all three reached and at the end, against the
+             seeds' difference; one of three conclusions (caught up: the rate; better than the lower rate but not caught
+             up: part; diverged or no better: not the rate); note is printed with it (the machines, say)
   baselines  [{run, path}]: result tables of passed runs (the classical baselines of package W5: path
              data/rel_w5/baselines/rows.tsv; its results.json beside it gives the digest of the cells it scored)
   main       the condition of the headline curve (default scattered; an arm trained without relatives is read under
@@ -91,9 +95,12 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
+    lr = sc.get("lr_check")
+    if lr is not None and (set(lr) - {"small", "low", "high", "note"} or not all(lr.get(k) for k in ("small", "low", "high"))):
+        raise SystemExit("rel_w6_report.lr_check: {small, low, high: arms; note: text}: %r" % (lr,))
     seeds = [[str(a) for a in g] for g in sc.get("seeds") or []]
     if any(len(g) < 2 or len(set(g)) != len(g) for g in seeds):
         raise SystemExit("rel_w6_report.seeds: groups of two or more different arms of one variant: %r" % (seeds,))
@@ -105,7 +112,43 @@ def settings(cfg) -> dict:
             raise SystemExit("rel_w6_report.fits: a run directory or {run, folder (%s or %s), label, accept}: %r" % (FIT, EVAL, x))
         fits.append(dict(run=str(x["run"]), folder=str(x.get("folder", FIT)), label=str(x.get("label") or ""), accept=[str(a) for a in x.get("accept") or []]))
     return dict(fits=fits, baselines=base, main=str(sc.get("main", cond.SCATTERED)), exclude=[str(a) for a in sc.get("readings_exclude") or []],
-                seeds=seeds)
+                seeds=seeds, lr_check={k: str(v) for k, v in lr.items()} if lr else None)
+
+
+LR_CONCLUSIONS = {
+    "caught up": "the big arm at the higher rate caught up with or passed the small arm: tonight's 'smaller is better' comes mainly from the "
+                 "learning rate",
+    "part": "the big arm at the higher rate is better than at the lower rate but still worse than the small arm: the learning rate is part of "
+            "the cause, and scale still cannot be read",
+    "not the rate": "the big arm at the higher rate diverged or is no better than at the lower rate: the learning rate is not the cause",
+}
+
+
+def lr_reading(small, low, high, t, N, noise=None, diverged=False):
+    """The learning-rate check at tables seen t (None: no node of all three): a big arm at a higher peak rate (high) against
+    the same arm at the lower rate (low) and a small arm (small). Under each of scattered and whole_gene: 'caught up' when
+    high is above small by no more than the noise; else 'part' when high is below low by more than the noise; else 'not
+    the rate'. The conclusion stands only when both conditions agree. N(arm, t, condition); noise(t, condition): None or
+    {bits, node}; diverged: the high arm diverged or stopped at its preflight (then 'not the rate')."""
+    both = (cond.SCATTERED, cond.WHOLE_GENE)
+    if diverged:
+        return dict(node=t, by_condition={}, conclusion="not the rate", why="the arm at the higher rate diverged")
+    by = {}
+    for c in both:
+        h, lo, s = (N(a, t, c) if t is not None else None for a in (high, low, small))
+        n = noise(t, c) if noise else None
+        thr = n["bits"] if n else 0.0
+        if h is None or lo is None or s is None:
+            by[c] = dict(kind=None, noise=n)
+            continue
+        kind = "caught up" if h - s <= thr else ("part" if lo - h > thr else "not the rate")
+        by[c] = dict(kind=kind, high=h, low=lo, small=s, high_minus_small=h - s, low_minus_high=lo - h, noise=n)
+    kinds = {x["kind"] for x in by.values()}
+    if None in kinds or not by:
+        return dict(node=t, by_condition=by, conclusion=None, why="a reading is missing")
+    if len(kinds) > 1:
+        return dict(node=t, by_condition=by, conclusion=None, why="the two conditions disagree: cannot be read")
+    return dict(node=t, by_condition=by, conclusion=kinds.pop(), why=None)
 
 
 def number(x):
@@ -456,6 +499,32 @@ def build(st, cfg, run_dir):
                                         noise if spread else None)
     for r in ([scale] if scale else []) + scale_pairs:
         r["seeds_read"] = {k: [a for a in levels[k] if N(a, r["node"], cond.SCATTERED) is not None] for k in r["arms"] if len(levels[k]) > 1}
+    # the learning-rate check: a big arm at a higher peak rate against the same arm at the lower rate and a small arm
+    lr_check = None
+    if s["lr_check"]:
+        trio = [s["lr_check"][k] for k in ("small", "low", "high")]
+        lack = [a for a in trio if a not in arms]
+        if lack:
+            raise SystemExit("rel_w6_report.lr_check: %s are no arms of the report (its arms: %s)" % (lack, names))
+        small_arm, low_arm, high_arm = trio
+        trained = [a for a in trio if arms[a]["status"] == "ok"]
+        err = " ".join((arms[high_arm].get("error") or "").split()).lower()
+        # diverged in training, or stopped by the preflight's guard (a loss that was not finite or did not fall)
+        diverged = arms[high_arm]["status"] != "ok" and ("diverg" in err or "did not train" in err
+                                                          or bool((arms[high_arm]["info"].get("guard") or {}).get("failed")))
+        common = sorted(set.intersection(*[set(nodes.get(a, [])) for a in trained]) - {0}) if len(trained) == 3 else []
+        last_t = common[-1] if common else None
+        at_node = lr_reading(small_arm, low_arm, high_arm, last_t, N, noise if spread else None, diverged)
+        at_end = lr_reading(small_arm, low_arm, high_arm, "end", lambda v, t, c: F(v, c), (lambda t, c: noise(None, c)) if spread else None, diverged)
+        if arms[high_arm]["status"] != "ok" and not diverged:
+            at_node = dict(at_node, conclusion=None, why="the arm at the higher rate did not train (%s)" % err[-200:])
+            at_end = dict(at_end, conclusion=None, why=at_node["why"])
+        lr_check = dict(arms=dict(small=small_arm, low=low_arm, high=high_arm), lr={a: arms[a]["info"].get("lr") for a in trio},
+                        runs={a: arms[a]["run"] for a in trio}, tables_seen={a: arms[a]["info"].get("tables_seen") for a in trio},
+                        note=s["lr_check"].get("note"), at_node=at_node, at_end=at_end,
+                        conclusion=LR_CONCLUSIONS.get(at_node["conclusion"]) if at_node["conclusion"] else None,
+                        curves=[[t] + [N(a, t, c) for c in both for a in trio] for t in sorted(set().union(*[set(nodes.get(a, [])) for a in trio]) - {0})],
+                        final=[["end"] + [F(a, c) for c in both for a in trio]])
     # re-pairing, on the tables that can be re-paired
     two = SC.OTHER_ROWS[2]
     repair = [[v, F(v, cond.WHOLE_GENE, SC.ALL, two), F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two),
@@ -540,6 +609,26 @@ def build(st, cfg, run_dir):
                         "seeds' difference (scattered; whole_gene)", "seeds read", "verdict"],
                        [[p["arms"][0], p["arms"][1], p["node"]] + [p["bits"][a][c] for c in both for a in p["arms"]]
                         + ["; ".join(fmt_noise(p["noise"][c]) for c in both) if p["noise"] else "none", read_by(p), p["verdict"]] for p in scale_pairs])
+    if lr_check:
+        k = lr_check["arms"]
+        trio = [k["small"], k["low"], k["high"]]
+        md += ["", "## The learning rate: %s at peak rate %s against itself at %s and %s at %s" % (
+            k["high"], lr_check["lr"][k["high"]], lr_check["lr"][k["low"]], k["small"], lr_check["lr"][k["small"]]), ""]
+        if lr_check["note"]:
+            md += [lr_check["note"], ""]
+        a = lr_check["at_node"]
+        md += ["At the last node all three reached (%s tables seen): %s." % ("{:,}".format(a["node"]) if isinstance(a["node"], int) else "none",
+                                                                            lr_check["conclusion"] or ("no conclusion: " + (a["why"] or ""))),
+               "At the end (all held-out tables; the arms saw %s tables): %s." % (
+                   ", ".join("{:,}".format(lr_check["tables_seen"][x] or 0) for x in trio),
+                   LR_CONCLUSIONS.get(lr_check["at_end"]["conclusion"]) or "no conclusion: " + (lr_check["at_end"]["why"] or "")), "",
+               "The rule, under each of scattered and whole_gene (both must agree): caught up when the higher rate is above the small arm by no "
+               "more than the seeds' difference; else part of the cause when the higher rate is below the lower rate by more than it; else not "
+               "the cause. Without a seeds' difference the threshold is zero.", ""]
+        md += md_table(["tables seen"] + ["%s, %s" % (c, x) for c in both for x in trio], lr_check["curves"] + lr_check["final"])
+        md += ["", "By condition at that node:", ""]
+        md += md_table(["condition", "higher rate minus small arm", "lower rate minus higher rate", "seeds' difference", "reading"],
+                       [[c, x.get("high_minus_small"), x.get("low_minus_high"), fmt_noise(x.get("noise")), x.get("kind")] for c, x in a["by_condition"].items()])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]
@@ -587,7 +676,7 @@ def build(st, cfg, run_dir):
                   relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
-                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out,
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out, lr_check=lr_check,
                   noise=[dict(node=t, condition=c, stratum=x, bits=v) for (t, c, x), v in sorted(spread.items())], readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))
@@ -681,7 +770,8 @@ def summary(run_dir):
         rep = json.load(f)
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
-    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), scale_pairs=rep.get("scale_pairs"), lead=rep.get("lead"),
+    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), scale_pairs=rep.get("scale_pairs"),
+                 lr_check=(rep.get("lr_check") or {}).get("conclusion"), lead=rep.get("lead"),
                  headline=rep["headline"],
                  relatives=[{k: r[k] for k in r if k not in ("per_node", "by_bin")} for r in rep["relatives"]],
                  arms={a: dict(status=x["status"], final=x["final"], tables_seen=x["info"].get("tables_seen"), cells_seen=x["info"].get("cells_seen"),

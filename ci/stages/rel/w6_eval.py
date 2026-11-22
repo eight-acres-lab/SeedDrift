@@ -11,7 +11,8 @@ Profile block rel_w6_eval:
   readout    {module, presence_arms, max_rows, layout} (with a ruler set only, and a ruler set only with it): instead
              of rows, the passes of the module (package W18: seeddrift.train.rel.readouts.w18_passes, run_ruler) scored
              by every arm, written to data/rel_w6/eval/<arm>/ruler_cells.npz (<arm>.untrained/ for an untrained arm);
-             presence_arms (arm or variant names) also run the presence passes; layout stored or leakfree
+             presence_arms (arm or variant names) also run the presence passes; layout stored or leakfree;
+             in_place_only (false): the untrained arms, and the presence passes, on the in-place implants only
   tables     heldout: {run, path, sha256, split}: a real held-out set (split 1) or a ruler set of package W18 (the
              split its builder sets; this stage reads the kinds configs/rel/kinds.yaml gives it, read_tableset), as in
              rel_w6_fit otherwise: the held-out table set, a hand-off file of a
@@ -48,7 +49,7 @@ from seeddrift.train.rel.evalh import shards
 OUT = os.path.join("data", "rel_w6", "eval")
 FIT = w6_fit.OUT
 KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files", "readout"}
-READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout"}
+READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only"}
 UNTRAINED = "untrained"
 RULER_CELLS = "ruler_cells.npz"
 
@@ -71,7 +72,7 @@ def settings(cfg) -> dict:
         raise SystemExit("rel_w6_eval.arms: an arm is listed twice")
     ro = sc.get("readout")
     if ro is not None and (set(ro) - READOUT_KEYS or not ro.get("module")):
-        raise SystemExit("rel_w6_eval.readout: {module, presence_arms, max_rows, layout}: %r" % (ro,))
+        raise SystemExit("rel_w6_eval.readout: {module, presence_arms, max_rows, layout, in_place_only}: %r" % (ro,))
     if any(a["untrained"] for a in arms) and ro is None:
         raise SystemExit("rel_w6_eval: an untrained arm is read by a readout only (rel_w6_eval.readout)")
     sources = sc["from"] if isinstance(sc["from"], list) else [sc["from"]]
@@ -80,7 +81,8 @@ def settings(cfg) -> dict:
                 best=bool(sc.get("best", True)), final_per_group=int(sc.get("final_per_group", 0)), eval_max_rows=int(sc.get("eval_max_rows", 32)),
                 threads=int(sc.get("threads", 4)), wall_s=int(sc.get("wall_s", 7200)), verify_files=bool(sc.get("verify_files", True)),
                 readout=None if ro is None else dict(module=str(ro["module"]), presence_arms=[str(x) for x in ro.get("presence_arms") or []],
-                                                     max_rows=int(ro.get("max_rows", 32)), layout=str(ro.get("layout") or "stored")))
+                                                     max_rows=int(ro.get("max_rows", 32)), layout=str(ro.get("layout") or "stored"),
+                                                     in_place_only=bool(ro.get("in_place_only", False))))
 
 
 def source_index(source):
@@ -187,7 +189,7 @@ def build(st, cfg, run_dir):
                       final_per_group=s["final_per_group"], eval_max_rows=s["eval_max_rows"], threads=s["threads"], run=os.path.basename(run_dir),
                       commit=cfg["git"]["sha"])
             if ro is not None:                                         # the passes of the readout: no rows, a per-cell file
-                ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"],
+                ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"], in_place_only=ro["in_place_only"], untrained=untrained,
                                      presence=not untrained and (a in ro["presence_arms"] or variant_of_arm(a) in ro["presence_arms"]))
             cp = os.path.join(folder, "conf.json")
             write_json(cp, ec)

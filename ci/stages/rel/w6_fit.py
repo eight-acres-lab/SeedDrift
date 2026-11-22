@@ -87,8 +87,12 @@ def settings(st, cfg) -> dict:
     out = dict(wall_s=int(sc.get("wall_s", 16200)), probe=bool(sc.get("probe", False)), threads=int(sc.get("threads", 4)),
                preflight_wall_s=int(sc.get("preflight_wall_s", 900)), verify_files=bool(sc.get("verify_files", True)),
                passed_on={k: sc[k] for k in PASS_ON if sc.get(k) is not None}, tables={}, arms=[])
-    for which in ("train", "heldout"):
+    if set(sc["tables"]) - {"train", "heldout", "heldout_offline"}:
+        raise SystemExit("rel_w6_fit.tables: train, heldout and optionally heldout_offline: %r" % sorted(sc["tables"]))
+    for which in ("train", "heldout", "heldout_offline"):
         t = sc["tables"].get(which) or {}
+        if which == "heldout_offline" and not t:
+            continue                                                  # package W3's strict offline rendering: leak-free arms only
         if set(t) - {"run", "path", "sha256", "split"} or not t.get("run") or not t.get("path") or t.get("split") not in (None, 0, 1):
             raise SystemExit("rel_w6_fit.tables.%s: run, path, and optionally sha256 and split (0 or 1): %r" % (which, t))
         out["tables"][which] = dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256"), split=t.get("split"))
@@ -139,6 +143,9 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     for which in ("train", "heldout"):
         conf.update({which + "_tables": os.path.join(s["tables"][which]["run"], s["tables"][which]["path"]), which + "_root": s["tables"][which]["run"],
                      which + "_split": s["tables"][which]["split"]})
+    off = s["tables"].get("heldout_offline")
+    if off and v["layout"] != api.LAYOUT_STORED:                      # a leak-free arm is scored on the strict offline rendering
+        conf.update(heldout_offline_tables=os.path.join(off["run"], off["path"]), heldout_offline_root=off["run"])
     conf.update(s["passed_on"])
     return conf
 
@@ -163,6 +170,15 @@ def build(st, cfg, run_dir):
                              % (which, t["doc"]["kind"]))
     if any(v["variant"]["tables"] != sets["train"]["doc"]["kind"] for v in s["arms"]):
         raise SystemExit("rel_w6_fit: a variant is written for another kind of tables than %s" % sets["train"]["doc"]["kind"])
+    leakfree = [a["name"] for a in s["arms"] if a["variant"]["layout"] != api.LAYOUT_STORED]
+    if s["tables"].get("heldout_offline"):
+        off = table_set(cfg, s["tables"]["heldout_offline"], s["verify_files"])
+        if off["doc"].get("layout") != api.LAYOUT_LEAKFREE or set(off["doc"].get("parts") or {}) < {"scattered", "whole_gene"}:
+            raise SystemExit("rel_w6_fit.tables.heldout_offline: the strict offline rendering (layout leakfree, parts scattered and whole_gene), "
+                             "not %s with parts %s" % (off["doc"].get("layout"), sorted(off["doc"].get("parts") or {})))
+        st.extra.update(heldout_offline=dict(name=off["doc"]["name"], sha256=off["doc"]["sha256"], run=os.path.basename(s["tables"]["heldout_offline"]["run"])))
+    elif leakfree and not s["probe"]:
+        raise SystemExit("rel_w6_fit: the leak-free arms %s are scored on the strict offline rendering: tables.heldout_offline" % leakfree)
     st.extra.update(sealed_record={k: t["sealed"] for k, t in sets.items()}, tablesets={k: dict(name=t["doc"]["name"], sha256=t["doc"]["sha256"],
                     kind=t["doc"]["kind"], tables=t["doc"]["tables"], run=os.path.basename(s["tables"][k]["run"])) for k, t in sets.items()},
                     model_env=py, parallel=parallel, device="cpu" if cpu else "auto")

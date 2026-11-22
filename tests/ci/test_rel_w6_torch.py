@@ -135,15 +135,27 @@ def test_leakfree_layout_trains():
     """Leak-free scattered and span samples, stored whole genes: the model is built with the ext vector (one more
     width of parameters), trains, and its checkpoint records the size it was built with."""
     root = tempfile.mkdtemp()
-    cfg = _config(root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
+    cfg = _config(root, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
     axial = loop.registry.load("model", "axial")
     pre = loop.preflight(cfg)
     assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256
     out = loop.fit(cfg)
     assert out["status"] == "ok" and out["steps"] == 3
-    ck = torch.load(os.path.join(cfg["out"], "final.pt"), map_location="cpu", weights_only=True)
-    assert ck["size"] == dict(layers=1, width=256, ext=True) and "ext.weight" in ck["ema"]
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))         # probe mode: the leak-free conditions rendered online
+    lay = {r["condition"]: r["layout"] for r in rows if r["weights"] == "ema@final"}
+    assert lay == {"scattered": "leakfree", "whole_gene": "leakfree", "whole_gene+repaired": "leakfree", "scattered+no_relatives": "stored",
+                   "whole_gene+no_relatives": "stored"}
+    for c in cond.CONDITIONS:                                     # the cells scored stay the evaluator's whatever the layout
+        assert out["final_items"][c] == _digest(cfg, root, c), c
+    real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
+    try:
+        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))
+    except SystemExit as err:
+        assert "offline" in str(err)
+    else:
+        raise AssertionError("a leak-free arm was scored without the strict offline rendering")
     run = loop.Run(dict(cfg, out=os.path.join(root, "other")))
+    assert run.size == dict(layers=1, width=256, ext=True) and run.model.ext is not None
     assert loop.layouts_of(run.cfg) == {"scattered": "leakfree", "span": "leakfree", "whole_gene": "stored"}
     assert sorted({run.sampler.layouts[e["scheme"]] for s in range(8) for e in run.sampler.draw(s)}) == ["leakfree", "stored"]
     try:
@@ -245,7 +257,7 @@ def test_score_cells_gives_the_bits_amino_acid_bits_and_entropy_of_every_cell():
     assert (got["aa_bits"] <= got["bits"] + 1e-9).all() and (got["aa_bits"] >= 0).all() and (got["entropy"] <= math.log2(65) + 1e-6).all()
 
 
-def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None):
+def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None, scenarios=None, presence_scenarios=None):
     """A stand-in of a readout module (package W18's run_ruler): the whole target of row 0 hidden on every table of the
     set, scored, written to ruler_cells.npz."""
     from seeddrift.train.rel.data.masks import whole_gene
@@ -258,7 +270,8 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
         items.append(dict(grid=r[0], truth=r[1]) if len(r) == 2 else dict(grid=r[0], truth=r[1], ext=r[2]))
     got = scorer(items)
     np.savez(os.path.join(out_dir, "ruler_cells.npz"), **got)
-    return dict(cells=int(len(got["bits"])), tables=len(items), weights=info["weights"], presence=bool(presence), kind=tables.kind)
+    return dict(cells=int(len(got["bits"])), tables=len(items), weights=info["weights"], presence=bool(presence), kind=tables.kind,
+                scenarios=str(scenarios), presence_scenarios=str(presence_scenarios))
 
 
 def test_a_readout_reads_a_ruler_set_with_final_or_untrained_weights():
@@ -270,9 +283,10 @@ def test_a_readout_reads_a_ruler_set_with_final_or_untrained_weights():
     base = dict(cfg, heldout_tables=ruler, heldout_root=rroot, readout=dict(module="test_rel_w6_torch", presence=True, max_rows=8))
     a = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-final"), final=os.path.join(root, "out", "final.pt"),
                                        final_tables=out["tables_seen"], final_cells=out["cells_seen"], final_wall_s=out["wall_s"]))
-    b = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-untrained"), final="untrained"))
+    b = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-untrained"), final="untrained", readout=dict(base["readout"], in_place_only=True)))
     assert a["status"] == b["status"] == "ok" and a["weights"] == "final" and b["weights"] == "untrained" and a["ruler"]["kind"] == "ruler"
     assert a["ruler"]["tables"] == 6 and a["ruler"]["cells"] > 0 and a["tables_seen"] == out["tables_seen"] and b["tables_seen"] == 0
+    assert b["ruler"]["scenarios"] == "[0]" and a["ruler"]["scenarios"] == "None" and a["ruler"]["presence_scenarios"] == "None"
     za, zb = (np.load(os.path.join(root, d, "ruler_cells.npz")) for d in ("r-final", "r-untrained"))
     assert za["bits"].shape == zb["bits"].shape and not np.allclose(za["bits"], zb["bits"])            # trained weights read differently
     assert os.path.exists(os.path.join(root, "r-untrained", "untrained.pt")) and not os.path.exists(os.path.join(root, "r-final", "results.tsv"))

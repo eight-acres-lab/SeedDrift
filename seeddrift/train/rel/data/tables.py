@@ -46,7 +46,7 @@ WITH_CODONS = (A.KIND_PRESENT, A.KIND_SELF_COPY)
 FILL = np.full(256, A.PAD, dtype=np.uint8)          # the token of a block without codons, by its kind
 FILL[A.KIND_ABSENT], FILL[A.KIND_NOT_SEARCHED], FILL[A.KIND_TRUNCATED] = A.ABSENT, A.NOT_SEARCHED, A.TRUNCATED
 
-MODEL_FIELDS = ("tok", "n", "col", "kind", "frame_len")
+MODEL_FIELDS = ("tok", "n", "col", "kind", "frame_len", "frame_row")
 
 
 class Tables:
@@ -99,8 +99,14 @@ def present_rows(tab):
 
 
 def take_rows(tab, rows):
+    """The table with the rows `rows` (in that order); frame_row, where the table has it, renumbered to the rows kept
+    (-1 where a block's frame row was left out: the renderer then frames the block on row 0)."""
     rows = np.asarray(rows, dtype=np.int64)
-    return dict(tok=tab["tok"][rows], n=tab["n"][rows], col=tab["col"][rows], kind=tab["kind"][rows], frame_len=tab["frame_len"])
+    out = dict(tok=tab["tok"][rows], n=tab["n"][rows], col=tab["col"][rows], kind=tab["kind"][rows], frame_len=tab["frame_len"])
+    if "frame_row" in tab:
+        where = {int(r): k for k, r in enumerate(rows.tolist())}
+        out["frame_row"] = np.asarray([where.get(int(f), -1) for f in np.asarray(tab["frame_row"]).reshape(-1)], dtype=np.int64)
+    return out
 
 
 def inside(tab):

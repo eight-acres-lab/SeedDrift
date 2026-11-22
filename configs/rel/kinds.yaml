@@ -126,34 +126,10 @@ kinds:
         stub: true
   rel_traineval:
     purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
-      (W5) of the arms of a round; today's slice of W4 and W6 runs as the stages of package W6
+      (W5) of the arms of a round
     lock: gpu
     target: rel_all
     stages:
-      w6_selftest:
-        package: W6
-        rule: rel_w6_selftest
-        output: data/rel_w6/selftest/report.json
-        module: ci.stages.rel.w6_selftest
-        gates: [G4_rel_w6_selftest]
-        side: train
-      w6_fit:
-        package: W6
-        rule: rel_w6_fit
-        output: data/rel_w6/fit/models.json
-        module: ci.stages.rel.w6_fit
-        gates: [G4_rel_w6_fit]
-        side: train
-        produces: models
-        resumable: true
-        tolerance: true
-      w6_report:
-        package: W6
-        rule: rel_w6_report
-        output: data/rel_w6/report/report.json
-        module: ci.stages.rel.w6_report
-        gates: [G4_rel_w6_report]
-        side: eval
       w4_train:
         package: W4
         rule: rel_w4_train

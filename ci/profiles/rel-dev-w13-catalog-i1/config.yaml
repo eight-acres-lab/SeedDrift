@@ -1,0 +1,33 @@
+# Machine i-1: W13 step 1, the census of close relatives counted twice, side by side: on the catalogue snapshots of the
+# medium corpus's selection (as profile rel-dev-w13-census-i1) and on a fresh, wider snapshot of assembly metadata that
+# this run takes first (stage w13_catalog: the ENA portal's assembly records of bacteria and archaea at the levels
+# complete genome and chromosome, and of viruses at complete genome; locked with date and sha256 in
+# data/rel_w13/catalog/lock.yaml). Metadata only: no sequence is downloaded and no rule is added; the sealed test
+# genomes are not read. CPU only (the select lock), about 15 minutes, network to the ENA portal. Development diagnosis
+# only. This profile includes the census of rel-dev-w13-census-i1.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w13_catalog, w13_census]
+rel_w13_catalog: {}
+rel_w13_census:
+  select_from: /hy-tmp/seeddrift-ci/runs/20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  per_anchor: [1, 2, 3, 5]
+  propose: 3
+  max_genes_euk: 1500
+  catalog_from: this run
+train:
+  gpu_lease: false
+  device: cpu

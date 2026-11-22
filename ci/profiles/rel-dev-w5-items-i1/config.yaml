@@ -1,0 +1,29 @@
+# Machine i-1: the evaluation items of the relational-model line (stage w5_items, ci/stages/rel/w5_items.py; package
+# W5): per group 100 stretches of at most 128 codons in genes of the held-out genomes, in a screening and a confirmation
+# half split by genus. Genomes and genes come from the training-data arrays of round R3's run of this machine (the
+# source of the tables of version 0), every file checked against that run's records; only the held-out split is opened,
+# after the sealed check, and only gene lengths, coordinates and each genome's genus are read. The context rows and
+# relation loci of the items are added by package W2. numpy only: the select lock, no GPU. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w5_items]
+rel_w5_items:
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  seed: 20261122
+  per_group: 100
+  max_codons: 128
+  min_codons: 16
+train:
+  gpu_lease: false
+  device: cpu

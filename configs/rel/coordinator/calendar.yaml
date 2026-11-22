@@ -1,5 +1,5 @@
 # The lock calendar of the relational-model line, 2026-11-23 to 2026-11-29 (task breakdown 8.3; written by the
-# coordinator C0, version 4 of 2026-11-22, 22:30). Times UTC+8, approximate; dates are targets, a day late is better than
+# coordinator C0, version 5 of 2026-11-23, 03:00). Times UTC+8, approximate; dates are targets, a day late is better than
 # rushed. Every machine has two locks: gpu (profiles without the line `needs_gpu: false`) and select (profiles with it).
 # A second launch on a held lock is refused, never queued.
 #
@@ -22,27 +22,29 @@
 # - Version 4 (the programme lead, 2026-11-22 evening): W12's search first; the hierarchical output head is no longer a
 #   run of its own (it becomes a short arm of round 1b); W18's first reading (4 to 5 h of GPU) after W12's search parts
 #   and before round 1b's short arms; the 100 M arm at 2e-4 is read on i-2 after round 1a's long arm.
-version: 4
+# - Version 5 (the programme lead, 2026-11-23 night): W18's first reading on i-1 does not wait for W12's search parts; it
+#   starts when round 1a's short arms free the GPU and runs beside W12's trial and parts (W18 at most 4 CPU threads, W12
+#   12; W18 lowered to 2 if W12's parts slow by more than 20 %, never stopped). The user's k = 3 (task breakdown 8.11):
+#   W13's download F on i-1 tonight; its corpus build in three runs S1, S2, B (12 threads, about 2.2-2.6 h each, i-1
+#   only), before or after W12's version 1 by the programme lead's choice after the trial.
+version: 5
 days:
   "2026-11-23":
     i1:
       gpu:
-        - {from: "01:15", to: "05:30", what: "round 1a, the short arms (three at once, wall_s 14,400 each, final evaluation included): w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4 and the 100 M arm at the other learning rate (w6-ref100m-lr8e-4 or -lr1e-4 by the evening's learning-rate check); on the code of 3382ed5 (profiles rel-r1ashort8e4-i1, rel-r1ashort1e4-i1 on branch exp/rel-r1a)", packages: [W6], status: planned}
-        - {from: "after W12's search parts", hours: "4 to 5", what: "W18's first reading: stage w6_eval in ruler mode and stage w18_readout over the evening's arms trained on i-1 (w6-ref30m, w6-ref30m-norel, w6-ref10m, w6-ref100m-lr4e-4) and the untrained arm; the readout also reads the i-2 evaluation run of the 100 M arm at 2e-4 once it is back on i-1 (until then the readout names that arm as missing)", packages: [W18, W6], status: planned}
+        - {from: "00:43", to: "00:47", what: "W6's suffix evaluation of the evening's 10 M and 30 M arms (run 20261122T164333)", packages: [W6], status: done}
+        - {from: "00:47", to: "about 05:00", what: "round 1a, the short arms (run 20261122T164736: w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4, w6-ref100m-lr1e-4, wall_s 14,400 each)", packages: [W6], status: running}
+        - {from: "when the short arms end", hours: "2.5 to 3", what: "W18's first reading (profile rel-w18v0-i1: stage w6_eval in ruler mode and w18_readout over w6-ref30m, w6-ref30m-norel, w6-ref10m, w6-ref100m-lr4e-4 and the untrained arm; 4 CPU threads), beside W12's trial and parts", packages: [W18, W6], status: planned}
       select:
-        - {from: "00:45", to: "01:15", what: "W6's ladder report (both 30 M seeds) and, after the 4e-4 run, the learning-rate report; minutes each", packages: [W6], status: planned}
-        - {from: "as soon as fixed", to: "05:30", what: "W18's ruler tables again (profile rel-dev-w18-rulers-i1; the run of 22:17 stopped at W18's own check of a pass's cells), then W13's census on a fresh catalogue snapshot (profile rel-dev-w13-catalog-i1; 2 threads, about 15 minutes, network to the ENA portal); each under 15 minutes, beside the short arms (2 threads)", packages: [W18, W13], status: planned}
-        - {from: "05:35", to: "06:15", what: "W12's 1 % trial of the uncapped search (profile rel-dev-w12-trial-i1; 12 threads, 10 to 20 minutes): database the 711 training genomes, queries 1 % of the 989 training and held-out genomes, stratified over the 12 groups; wall time, rows, bytes per row, disk extrapolated", packages: [W2], status: planned}
-        - {from: "06:30", what: "W12's uncapped search in parts of at most 3 h (plus the 24 development chromosomes of the island set as extra queries; the 17 sealed never); the number of parts set by the trial; i-1 trains nothing until W18's reading", packages: [W12], status: tentative}
+        - {from: "00:21", to: "02:42", what: "done: W6's ladder report (20261122T162205) and learning-rate report (20261122T164415); W13's pick (20261122T161536), download F (20261122T164430, failed on a record the archive does not serve), scaffold count (20261122T164959) and the pick again by the new rule (20261122T183639); W15's registry, second run passed (20261122T153204), third failed (20261122T175251)", packages: [W6, W13, W15], status: done}
+        - {from: "when W2's corpus spec of the new pick passes", to: "05:30", what: "W13's download F (profile rel-dev-w13-fetch-i1; 2 cores, 8 network threads, about 1.5-2 GB, 0.5-1.5 h); started only before 04:00, else in a gap of W12's parts", packages: [W13], status: planned}
+        - {from: "not before 05:30, when the short arms end", what: "W12's 1 % trial of the uncapped search (profile rel-dev-w12-trial-i1; 12 threads, 10 to 20 minutes): wall time, rows, bytes per row, disk extrapolated; then, with rel-w2, the estimate for the programme lead's choice (task breakdown 8.11)", packages: [W12], status: planned}
+        - {from: "after the trial", what: "by the programme lead's choice: either W13's build S1, S2, B (about 7 h in three runs) and then W12's merged uncapped search, or W12's search of version 1 in parts of at most 3 h and W13's build after it; W15's fourth registry run (1 to 1.5 h, 1 thread) in a gap", packages: [W12, W13, W15], status: tentative}
     i2:
       gpu:
-        - {from: "00:40", to: "11:45", what: "round 1a, the long arm (wall_s 39,600): w6-ref100m-lr4e-4 or w6-ref30m (3e-4), by the evening's learning-rate check (profiles rel-r1along100m-i2, rel-r1along30m-i2 on branch exp/rel-r1a)", packages: [W6], status: planned}
-        - {from: "12:00", hours: "1 to 2", what: "W18's reading of the 100 M arm at 2e-4 (stage w6_eval in ruler mode on its checkpoint of run 20261122T071650-exp-rel-3382ed5e-rel-d1-i2); the ruler tables copied to i-2 over R2 before, every file checked by sha256; the evaluation run copied back to i-1 without checkpoints", packages: [W18, C0], status: planned}
-        - {from: "after W18's reading", hours: "10 to 12", what: "round 1b, the long arm on the leak-free placement: the best configuration of round 1a", packages: [W6, W3], status: tentative}
-      select:
-        - {from: "after the ruler tables", what: "the ruler tables copied to i-2 over R2 (the coordinator), checked by sha256", packages: [C0], status: planned}
-        - {from: "06:30", what: "W12's search, a part beside round 1a's long arm, only if the trial's extrapolation does not fit i-1's free hours: at most 8 threads; the long arm's tables per second measured in its first hour and again with the part running, the threads halved if it falls by more than 20 %; the long arm is never stopped", packages: [W12], status: tentative}
-        - {from: "12:00", to: "15:00", what: "fallback window of W12's 1 % trial (the medium corpus proteins are on i-2 already: run 20261120T172756-exp-truth-labels-1c99f934-selfsup-medium-r3-i2, checked by sha256 on 2026-11-22; no copy needed)", packages: [W2], status: fallback}
+        - {from: "00:22", to: "about 11:40", what: "round 1a, the long arm (run 20261122T162214: w6-ref30m at 3e-4, the programme lead's verdict B, wall_s 39,600)", packages: [W6], status: running}
+        - {from: "after the long arm", hours: "about 1", what: "W18's reading of the 100 M arm at 2e-4 (profile rel-w18v0-i2) on its checkpoint of run 20261122T071650-exp-rel-3382ed5e-rel-d1-i2; the ruler tables are on i-2 since 11-22 23:54 (copied over R2, every file checked by sha256); the evaluation run copied back to i-1 without checkpoints; then W18's readout-only profile over both evaluation runs", packages: [W18, C0], status: planned}
+        - {from: "after W18's reading", hours: "10 to 12", what: "round 1b, the long arm on the leak-free placement: the best configuration of round 1a (W3's offline run copied to i-2 first)", packages: [W6, W3], status: tentative}
   "2026-11-24":
     i1:
       gpu:

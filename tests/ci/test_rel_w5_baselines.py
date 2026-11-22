@@ -243,7 +243,7 @@ def _params(base):
     prior = np.arange(1, V + 1, dtype=float)
     return dict(prior=(prior / prior.sum()).tolist(), alpha=3.0, beta=0.7, eps=[0.05, 0.02, 0.3], rho=0.01,
                 eps_binned=[[0.02 * (k + 1), 0.01, 0.03 * (k + 1)] for k in range(cl.N_SHARE_BINS + 1)],
-                chain=dict(eps=[0.04, 0.03, 0.2], tau=0.1, nosrc=0.2))
+                chains={n: dict(eps=[0.04, 0.03, 0.2], tau=0.1, nosrc=0.2) for n in switch.NAMES})
 
 
 def test_view_holds_nothing_of_the_hidden_residues():
@@ -263,7 +263,8 @@ def test_view_holds_nothing_of_the_hidden_residues():
             ba, bb = cl.Batch(va, ca, base), cl.Batch(vb, cb, base)
             for name in cl.NAMES:
                 assert np.array_equal(cl.predict(name, ba, _params(base)), cl.predict(name, bb, _params(base)))
-            assert np.array_equal(switch.predict(ba, _params(base)), switch.predict(bb, _params(base)))
+            for name in (switch.NAME, switch.PAST, switch.AHEAD):
+                assert np.array_equal(switch.predict(ba, _params(base), name), switch.predict(bb, _params(base), name))
 
 
 def test_every_baseline_sums_to_one_over_every_residue():
@@ -277,10 +278,10 @@ def test_every_baseline_sums_to_one_over_every_residue():
         view, cells, truth = layout.masked_view(m)
         bt = cl.Batch(view, cells, base)
         assert truth.shape[0] > 0
-        for name in brun.names(True):
+        for name in cl.NAMES + (switch.NAME, switch.PAST, switch.AHEAD):
             total = np.zeros(truth.shape[0])
             for x in range(1, V + 1):
-                P = switch.predict(bt, _params(base)) if name == switch.NAME else cl.predict(name, bt, _params(base))
+                P = switch.predict(bt, _params(base), name) if name in switch.NAMES else cl.predict(name, bt, _params(base))
                 cl.check_normalised(P)
                 assert P.shape == (truth.shape[0], V)
                 total += 2.0 ** -cl.bits_of(P, np.full(truth.shape[0], x))
@@ -343,7 +344,9 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
         p = params[mask]
         assert p["fit"]["cells"] > 0 and abs(sum(p["prior"]) - 1) < 1e-9 and len(p["eps_binned"]) == cl.N_SHARE_BINS + 1
         assert max(abs(a - b) for a, b in zip(p["eps"], rates)) < 0.02, p["eps"]
-        assert p["chain"]["fit"]["trace"][-1]["bits"] <= p["chain"]["fit"]["trace"][0]["bits"]
+        assert sorted(p["chains"]) == sorted(switch.variants(mask))
+        for ch in p["chains"].values():
+            assert ch["fit"]["trace"][-1]["bits"] <= ch["fit"]["trace"][0]["bits"] and ch["fit"]["cells"] > 0
     held, hmeta = toy_tables(n_tables=30, rows=5, seed=22, rates=rates, spread=(1.0, 1.0))
     res = brun.evaluate(held, np.arange(30), params, seed=9)
     assert sorted(res) == sorted(cond.CONDITIONS)
@@ -352,13 +355,16 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     assert abs(mean(sc, "uniform") - np.log2(65)) < 1e-12
     assert max(mean(sc, "copy_nearest"), mean(sc, "row_average")) < mean(sc, "own_freq") - 1.0 and mean(sc, "own_freq") <= mean(sc, "uniform") + 0.05
     assert mean(sc, switch.NAME) < mean(sc, "own_freq") - 1.0 and mean(wg, "copy_nearest") < mean(wg, "own_freq") - 1.0
+    assert mean(sc, switch.NAME) < mean(sc, switch.AHEAD) + 0.02 < mean(sc, switch.PAST) + 0.04      # seeing less never helps
+    assert mean(wg, switch.JOINT) < mean(wg, switch.NAME) - 0.2                    # the stretch as a whole finds its source
+    assert switch.JOINT not in sc["bits"] and switch.PAST not in wg["bits"]
     assert "copy_nearest" not in res[cond.WHOLE_GENE + "+" + cond.NO_RELATIVES]["bits"]
     assert np.array_equal(res[cond.SCATTERED + "+" + cond.NO_RELATIVES]["bits"]["own_freq"], sc["bits"]["own_freq"])
     assert np.array_equal(res[cond.WHOLE_GENE + "+" + cond.REPAIRED]["bits"]["row_average"], wg["bits"]["row_average"])
     rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, dict(run="r", commit="c", seed=9, table_set="toy", table_kind=api.TABLE_SYNTHETIC, versions="v"), n_groups=3)
     assert all(tuple(r) == api.RESULT_ROW for r in rows)
     top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["condition"] == cond.SCATTERED]
-    assert sorted(r["variant"] for r in top) == sorted(brun.names(True))
+    assert sorted(r["variant"] for r in top) == sorted(brun.names_under(cond.SCATTERED))
     own = [r for r in top if r["variant"] == "own_freq"][0]
     cn = [r for r in top if r["variant"] == "copy_nearest"][0]
     assert own["bits_minus_baseline"] == 0 and abs(cn["bits_minus_baseline"] - (cn["bits"] - own["bits"])) < 1e-12 and cn["bits_minus_baseline"] < -1
@@ -395,6 +401,45 @@ def test_result_rows_round_trip(tmp_path):
     score.write_rows(path, rows)
     back = score.read_rows(path)
     assert len(back) == 1 and tuple(back[0]) == api.RESULT_ROW and float(back[0]["bits"]) == 4.25 and back[0]["variant"] == "own_freq"
+
+
+def test_joint_reading_sums_to_one_over_every_stretch():
+    """The whole gene hidden and read as one stretch: over every possible stretch of three residues (nine tokens) the
+    probabilities add up to one, through the same path the scorer takes."""
+    base, length = 2, 3
+    nc, V = cl.sizes(base)
+    tables, _ = toy_tables(n_tables=3, rows=4, base=base, seed=8)
+    s = cond.TARGET_START
+    for name in ("tok", "col"):                                                  # cut the target block to three columns
+        a = tables[name]
+        fill = 0 if name == "tok" else -1
+        for t in range(3):
+            for r in range(4):
+                n = int(tables["n"][t, r, -1])
+                keep = np.flatnonzero((tables["col"][t, r, s:s + n] >= 0) & (tables["col"][t, r, s:s + n] < length)) if name == "tok" else None
+                if name == "tok":
+                    tables.setdefault("_keep", {})[(t, r)] = keep
+                keep = tables["_keep"][(t, r)]
+                vals = a[t, r, s:s + n][keep].copy()
+                a[t, r, s:] = fill
+                a[t, r, s:s + len(vals)] = vals
+    for (t, r), keep in tables.pop("_keep").items():
+        tables["n"][t, r, -1] = len(keep)
+    assert (tables["n"][:, 0, -1] == length).all()
+    p = _params(base)
+    total = np.zeros(3)
+    for seq in itertools.product(range(1, V + 1), repeat=length):
+        tables["tok"][:, 0, s:s + length] = seq
+        view, cells, truth = layout.masked_view(cond.materialise(tables, np.arange(3), cond.WHOLE_GENE))
+        bits = switch.joint_bits(cl.Batch(view, cells, base), truth, p)
+        total += 2.0 ** -np.bincount(cells[0], weights=bits, minlength=3)
+    assert np.abs(total - 1.0).max() < 1e-12
+    try:                                                                         # scattered cells are not a stretch
+        view, cells, truth = layout.masked_view(cond.materialise(tables, np.arange(3), cond.SCATTERED, rate=0.5))
+        switch.joint_bits(cl.Batch(view, cells, base), truth, p)
+        raise AssertionError("the joint reading must refuse a stretch with visible cells")
+    except ValueError:
+        pass
 
 
 def _chain_case(base=2, C=4, K=2, seed=0):
@@ -439,6 +484,8 @@ def test_chain_equals_enumeration_and_is_normalised():
     seqs = np.array(list(itertools.product(range(1, V + 1), repeat=3)), dtype=np.uint8)   # every stretch of three residues
     lj = sw.log_joint(seqs, np.repeat(Y[:, :, :3], seqs.shape[0], axis=0), np.repeat(q, seqs.shape[0], axis=0), kernel, tau, nosrc, base)
     assert seqs.shape[0] == V ** 3 and abs(np.exp(lj).sum() - 1.0) < 1e-12
+    terms = sw.log_joint(seqs, np.repeat(Y[:, :, :3], seqs.shape[0], axis=0), np.repeat(q, seqs.shape[0], axis=0), kernel, tau, nosrc, base, per_column=True)
+    assert terms.shape == (V ** 3, 3) and np.allclose(terms.sum(axis=1), lj, atol=1e-13)   # the chain-rule terms of the stretch
     # a hidden cell: its distribution = the joint with every residue in its place, renormalised; other hidden cells summed out
     X = rng.integers(1, V + 1, (1, C)).astype(np.uint8)
     for hidden in ([1], [0, 2], [C - 1]):

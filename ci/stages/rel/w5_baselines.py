@@ -156,7 +156,8 @@ def main():
         with open(report_path, "w") as f:
             f.write(brun.markdown(rows, title, groups) + "\nLimits:\n" + "".join("- %s\n" % x for x in LIMITS))
         doc = dict(
-            stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), reference=brun.REFERENCE,
+            stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), chain=with_chain,
+            reference=brun.REFERENCE,
             headline=headline(rows), groups=groups, n_groups=n_groups, limits=LIMITS,
             items={k: dict(sha256=r["items_sha256"], cells=int(r["cell_table"].shape[0]), tables=r["tables"]) for k, r in results.items()},
             selfcheck=cond.selfcheck(), numpy=np.__version__,
@@ -196,9 +197,8 @@ def gate(st, cfg, run_dir):
     for c in cond.CONDITIONS:
         if c not in doc.get("conditions", []):
             problems.append(dict(condition=c, error="condition not evaluated"))
-        relatives = cond.parse(c)[1] != cond.NO_RELATIVES
-        for n in doc.get("baselines", []):
-            if (relatives or n not in ("row_average", "copy_nearest", "copy_nearest_binned", "switch_copy")) and (c, n) not in seen:
+        for n in brun.names_under(c, bool(doc.get("chain"))):
+            if (c, n) not in seen:
                 problems.append(dict(condition=c, baseline=n, error="no row over all groups"))
         it = (doc.get("items") or {}).get(c) or {}
         if not it.get("sha256") or not it.get("cells"):

@@ -30,7 +30,7 @@ def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True,
         p = fitting.fit(tables, table_ids, mask, seed, base)
         if with_chain:
             k = min(int(chain_tables), table_ids.shape[0])
-            p["chain"] = switch.fit(fitting.take(tables, 0, k), table_ids[:k], mask, seed, p, base)
+            p["chains"] = switch.fit(fitting.take(tables, 0, k), table_ids[:k], mask, seed, p, base)
         p["fit"]["seconds"] = round(time.time() - t0, 1)
         out[mask] = p
         if log:
@@ -39,11 +39,19 @@ def fit_all(tables, table_ids, seed, base=4, chain_tables=1500, with_chain=True,
 
 
 def names(with_chain=True):
-    return cl.NAMES + ((switch.NAME,) if with_chain else ())
+    return cl.NAMES + (switch.NAMES if with_chain else ())
+
+
+def names_under(condition, with_chain=True):
+    """The baselines that mean something under a condition: without relatives only those that use none."""
+    mask, rows_mode = cond.parse(condition)
+    if rows_mode == cond.NO_RELATIVES:
+        return tuple(n for n in cl.NAMES if n not in cl.USES_RELATIVES)
+    return cl.NAMES + (switch.variants(mask) if with_chain else ())
 
 
 def n_params(name):
-    return switch.N_PARAMS if name == switch.NAME else fitting.N_PARAMS[name]
+    return switch.N_PARAMS if name in switch.NAMES else fitting.N_PARAMS[name]
 
 
 def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SEED, base=4, with_chain=True, log=None):
@@ -52,10 +60,9 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
     table_ids = np.asarray(table_ids)
     out = {}
     for condition in conditions:
-        mask, rows_mode = cond.parse(condition)
-        p = params[mask]
+        p = params[cond.parse(condition)[0]]
         digest = cond.ItemsDigest(condition, seed)
-        which = [n for n in names(with_chain) if rows_mode != cond.NO_RELATIVES or n not in cl.USES_RELATIVES + (switch.NAME,)]
+        which = names_under(condition, with_chain)
         bits = {n: [] for n in which}
         seconds = {n: 0.0 for n in which}
         cell_table = []
@@ -64,9 +71,12 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
             cell_table.append(a + bt.cells[0])
             for n in which:
                 t0 = time.time()
-                P = switch.predict(bt, p) if n == switch.NAME else cl.predict(n, bt, p)
-                cl.check_normalised(P)
-                bits[n].append(cl.bits_of(P, truth))
+                if n == switch.JOINT:                      # a stretch as a whole: chain-rule terms, not one distribution per cell
+                    bits[n].append(switch.joint_bits(bt, truth, p))
+                else:
+                    P = switch.predict(bt, p, n) if n in switch.NAMES else cl.predict(n, bt, p)
+                    cl.check_normalised(P)
+                    bits[n].append(cl.bits_of(P, truth))
                 seconds[n] += time.time() - t0
         out[condition] = dict(
             items_sha256=digest.hexdigest(), tables=int(table_ids.shape[0]), seconds=seconds,
@@ -93,7 +103,7 @@ def result_rows(results, group, identity, params, head, n_groups=12):
                 key = (r["group"], r["stratum"])
                 rows.append(score.result_row(
                     run=head.get("run", ""), commit=head.get("commit", ""), variant=n, author=AUTHOR,
-                    module="baselines." + ("switch" if n == switch.NAME else "classical"), params=n_params(n),
+                    module="baselines." + ("switch" if n in switch.NAMES else "classical"), params=n_params(n),
                     seed=head.get("seed", ""), table_set=head.get("table_set", ""), table_kind=head.get("table_kind", ""),
                     items_sha256=res["items_sha256"], item_half="", layout=api.LAYOUT_STORED, budget=0, weights="",
                     cells_seen=int(params[mask]["fit"]["cells"]), target_cells=r["target_cells"],

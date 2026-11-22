@@ -46,13 +46,14 @@ def emissions(X, Y, q, kernel, base=4):
     return np.where(seen[:, None, :], e, 1.0).transpose(0, 2, 1)
 
 
-def forward(e, prior, tau, valid):
+def forward(e, prior, tau, valid, per_column=False):
     """Scaled forward pass. Returns before (N, C, S): the distribution of the source of column c given the visible
-    cells to its left; after (N, C, S): the same with column c itself; logz (N,): log probability of the visible cells.
+    cells to its left; after (N, C, S): the same with column c itself; logz (N,): log probability of the visible cells
+    (with per_column, (N, C): the log probability of the cell of every column given the visible cells to its left).
     valid (N, C): the columns of the row (a prefix)."""
     N, C, S = e.shape
     before, after = np.empty((N, C, S)), np.empty((N, C, S))
-    logz = np.zeros(N)
+    logz = np.zeros((N, C))
     cur = prior
     for c in range(C):
         v = valid[:, c][:, None]
@@ -60,9 +61,9 @@ def forward(e, prior, tau, valid):
         w = np.where(v, pred * e[:, c], pred)
         z = w.sum(axis=1, keepdims=True)
         cur = w / z
-        logz += np.log(z[:, 0])
+        logz[:, c] = np.log(z[:, 0])
         before[:, c], after[:, c] = pred, cur
-    return before, after, logz
+    return before, after, (logz if per_column else logz.sum(axis=1))
 
 
 def backward(e, prior, tau, valid, ahead=None):
@@ -127,12 +128,13 @@ def truth_probability(gamma, Yc, qc_truth, kernel, truth, base=4):
     return (w * kernel[y, (truth - 1)[:, None]]).sum(axis=1) + (1.0 - w.sum(axis=1)) * qc_truth
 
 
-def log_joint(X, Y, q, kernel, tau, nosrc, base=4):
-    """(N,): log probability of the examined row's residues X (N, C) as one stretch, every one of them visible."""
+def log_joint(X, Y, q, kernel, tau, nosrc, base=4, per_column=False):
+    """(N,): log probability of the examined row's residues X (N, C) as one stretch, every one of them visible. With
+    per_column, (N, C): its chain-rule terms, log p(residue of column c | the residues to its left)."""
     V = cl.sizes(base)[1]
     valid = (X >= 1) & (X <= V)
     e = emissions(X, Y, q, kernel, base)
-    return forward(e, source_prior(Y, nosrc, base), tau, valid)[2]
+    return forward(e, source_prior(Y, nosrc, base), tau, valid, per_column)[2]
 
 
 def locus(view, block_start, block_stop):

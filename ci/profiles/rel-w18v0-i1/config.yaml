@@ -1,0 +1,40 @@
+# Machine i-1: the first reading of the HGT capability check (protocol w18-v0, package W18). The final weights of four
+# arms of the evening's runs (30 M with and without relatives, 10 M, and 100 M at peak rate 4e-4 as the learning-rate
+# control) and the untrained 30 M model are scored on the implant tables (a ruler set, construct only) by the passes of
+# the readouts (stage w6_eval in its ruler mode); then the readouts and their statistics (stage w18_readout). Tables of
+# version 0, the stored layout: a preliminary reading. Nothing is trained. The 100 M arm at the width rule (2e-4) is
+# scored on i-2 (profile rel-w18v0-i2): this run's report lacks it, and a readout-only run on i-1 reads both
+# evaluations afterwards. The implant tables: run 20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1 (sealed record
+# in its manifest).
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_eval, w18_readout]
+  parallel: 1
+rel_w6_eval:
+  from: [/hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1, /hy-tmp/seeddrift-ci/runs/20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1]
+  arms: [w6-ref30m-s1, w6-ref30m-norel-s1, w6-ref10m-s1, w6-ref100m-lr4e-4-s1, {name: w6-ref30m-s1, untrained: true}]
+  tables:
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1, path: data/rel_w18/rulers/tableset.json, split: 1}
+  readout: {module: seeddrift.train.rel.readouts.w18_passes, presence_arms: [w6-ref30m-s1], max_rows: 32, layout: stored, in_place_only: false}
+  best: false                    # the final weights only (protocol w18-v0)
+  threads: 4
+  wall_s: 14400                  # one arm's scoring
+rel_w18_readout:
+  tables: {run: /hy-tmp/seeddrift-ci/runs/20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1, path: data/rel_w18/rulers/tableset.json}
+  reps: 2000
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

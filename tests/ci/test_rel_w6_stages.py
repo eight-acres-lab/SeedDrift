@@ -157,6 +157,9 @@ def _finished_fit(tmp_path, statuses=("ok", "failed", "ok")):
                 json.dump(summ, f)
             with open(os.path.join(folder, "preflight.json"), "w") as f:
                 json.dump(dict(ok=True, train_tables=100800), f)
+            with open(os.path.join(folder, "evals.jsonl"), "w") as f:
+                for t, _, b in points:
+                    f.write(json.dumps(dict(tables_seen=t, bits={c: b for c in conds}, items={c: "subset-" + c for c in conds})) + "\n")
         variant = yaml.safe_load(open(os.path.join(ROOT, "configs", "rel", "variants", name[:-3] + ".yaml")))
         arms[name] = dict(arm=dict(name=name, file="configs/rel/variants/%s.yaml" % name[:-3], sha256="1" * 64, seed=1, budget_cells=None, lr=3e-4, variant=variant),
                           folder=folder, preflight=dict(ok=True, params=params, micro=4, peak_mb=9, reserved_mb=11, cells_per_s=20.0, flops_per_cell=1,
@@ -210,8 +213,10 @@ def _baselines(run_dir, digest=True):
             if r["weights"].endswith("@final"):
                 rows.append(dict(r, weights="", budget=0))
     SC.write_rows(os.path.join(folder, "rows.tsv"), rows)
+    SC.write_rows(os.path.join(folder, "rows_subset.tsv"), [dict(r, item_half="subset", bits=float(r["bits"]) + 0.01) for r in rows])
     with open(os.path.join(folder, "results.json"), "w") as f:
-        json.dump(dict(items={c: dict(sha256="digest-" + c if digest else "other", cells=10, tables=12) for c in cond.CONDITIONS}), f)
+        json.dump(dict(items={c: dict(sha256="digest-" + c if digest else "other", cells=10, tables=12) for c in cond.CONDITIONS},
+                       subset=dict(items={c: dict(sha256="subset-" + c, cells=5, tables=6) for c in cond.CONDITIONS})), f)
     return dict(run=base_run, path="data/rel_w5/baselines/rows.tsv")
 
 
@@ -241,6 +246,10 @@ def test_report_readings_beside_baselines(tmp_path):
     assert lead[("scattered", "eukaryotes")] == [5.6625, None, 5.5625, 5.9625, 6.4625] and lead[("whole_gene", "prokaryotes, plasmids, viruses")][2] == 6.0625
     assert rep["aligned"]["columns"] == ["tables_seen", "w6-ref10m-s1 (scattered)", "w6-ref30m-norel-s1 (scattered+no_relatives)", "w6-ref30m-s1 (scattered)"]
     assert rep["aligned"]["rows"][1] == [1000, 5.85, 5.85, 5.75] and rep["same_items"] == {c: True for c in cond.CONDITIONS}
+    assert rep["same_subset"] == {c: True for c in cond.CONDITIONS} and rep["lines"]["columns"] == ["condition", "copy_nearest", "own_freq"]
+    assert ["scattered", 5.66, 6.16] in rep["lines"]["rows"]
+    svg = open(os.path.join(run_dir, w6_report.OUT, "curves.svg")).read()
+    assert svg.startswith("<svg") and svg.count("<polyline") == 3 and "own_freq, scattered" in svg
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "upper bound" not in text and "optimistic" in text and "bigger is better" in text and "passes over the training tables" in text
     assert "copy_nearest" in text and " NO" not in text
@@ -250,6 +259,54 @@ def test_report_readings_beside_baselines(tmp_path):
     assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
     part = w6_report.summary(run_dir)
     assert len(json.dumps(part["json"])) < 20000 and part["json"]["baselines"]["copy_nearest"]["scattered"] == 5.65
+
+
+def _passed(run_dir, rel):
+    """Record the hand-off file rel of a fixture run in a stage record and mark the run passed."""
+    from ci.record import Record, stage_report
+    p = os.path.join(run_dir, rel)
+    stage_report(run_dir, "rel_w6_fit" if "/fit/" in rel else "rel_w6_eval", "", 0.0, [dict(name="models", path=rel, sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+
+
+def test_report_of_two_runs_with_labels_exclusions_and_a_consistency_pair(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], readings_exclude=["w6-ref30m-s1"],
+                                       consistency=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]]))
+    st = Stage(run_dir, "rel_w6_report")
+    rep = w6_report.build(st, cfg, run_dir)
+    assert {"w6-ref30m-s1", "w6-ref30m-s1 @i2", "w6-ref10m-s1 @i2"} <= set(rep["arms"]) and rep["arms"]["w6-ref10m-s1 @i2"]["status"] == "failed"
+    assert rep["consistency"][0]["rows"] == [[1000, 5.75, 5.75, 0.0], [2000, 5.45, 5.45, 0.0]]
+    assert rep["scale"]["arms"] == ["w6-ref10m-s1", "w6-ref30m-s1 @i2"] and rep["scale"]["verdict"] == "bigger is better"
+    assert [r["with_relatives"] for r in rep["relatives"]] == ["w6-ref30m-s1 @i2", "w6-ref30m-s1 @i2"]
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "Two runs of one arm" in text and "Left out of the readings" in text
+    w6_report.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
+
+
+def test_report_takes_the_final_evaluation_of_an_evaluation_run(tmp_path):
+    from ci.stages.common import write_json
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    folder = os.path.join(run_dir, "data", "rel_w6", "eval")
+    os.makedirs(os.path.join(folder, "w6-ref30m-s1"))
+    rows = [dict(r, bits=float(r["bits"]) - 1.0) for r in _rows(os.path.basename(run_dir), "w6-ref30m-s1", [(0, 0, 6.0)], 5.0, list(cond.CONDITIONS))
+            if r["weights"] == "ema@final"]
+    SC.write_rows(os.path.join(folder, "results.tsv"), rows)
+    v = dict(next(x for x in doc["variants"] if x["name"] == "w6-ref30m-s1"))
+    v["info"] = dict(v["info"], folder=os.path.relpath(os.path.join(folder, "w6-ref30m-s1"), run_dir), final_items={c: "again-" + c for c in cond.CONDITIONS})
+    index = handoff.finish(dict(format="rel-models", format_version=1, tablesets=doc["tablesets"], variants=[v], probe=False, groups=list(GROUPS),
+                                producer=dict(stage="w6_eval", package="W6", run_id=os.path.basename(run_dir), commit="c")))
+    write_json(os.path.join(folder, "models.json"), index)
+    _passed(run_dir, os.path.join("data", "rel_w6", "eval", "models.json"))
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=run_dir, folder="data/rel_w6/eval")]))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    assert rep["arms"]["w6-ref30m-s1"]["final"]["scattered"] == 4.25 and rep["arms"]["w6-ref10m-s1"]["final"]["scattered"] == 5.35
+    assert rep["arms"]["w6-ref30m-s1"]["info"]["final_items"]["scattered"] == "again-scattered" and rep["arms"]["w6-ref30m-s1"]["evaluations"] == 4
 
 
 def test_report_without_baselines_passes(tmp_path):
@@ -277,6 +334,36 @@ def test_report_gate_fails_on_a_curve_of_one_point_or_other_cells(tmp_path):
     assert not any(w6_report.build(st, cfg, run_dir)["same_items"].values())
     with pytest.raises(GateFailure):
         w6_report.gate(st, cfg, run_dir)
+
+
+def test_evaluation_again_settings_and_source():
+    from ci.stages.rel import w6_eval
+    good = dict(rel_w6_eval={"from": "/x/runs/t", "tables": {"heldout": dict(run="/x/runs/tables", path="data/rel_w2/v0/tableset.json", split=1)}})
+    s = w6_eval.settings(good)
+    assert s["source"] == "/x/runs/t" and s["best"] is True and s["final_per_group"] == 0 and s["heldout"]["split"] == 1
+    for bad in ({}, {"from": "/x"}, dict(good["rel_w6_eval"], nonsense=1),
+                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split=0)}}):
+        with pytest.raises(SystemExit):
+            w6_eval.settings(dict(rel_w6_eval=bad))
+
+
+def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):
+    from ci.record import Record, stage_report
+    from ci.stages.rel import w6_eval
+    run_dir, cfg, doc, st = _finished_fit(tmp_path, statuses=("ok", "failed", "ok"))
+    with pytest.raises(SystemExit):                                     # the stage record does not list it yet
+        w6_eval.source_index(run_dir)
+    p = os.path.join(run_dir, w6_fit.OUT, "models.json")
+    stage_report(run_dir, "rel_w6_fit", "", 0.0, [dict(name="models", path=os.path.join(w6_fit.OUT, "models.json"), sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="gate_failed")                                    # a run that failed still serves its index
+    got, record = w6_eval.source_index(run_dir)
+    assert got["sha256"] == doc["sha256"] and record["status"] == "gate_failed"
+    with open(p, "a") as f:
+        f.write(" ")
+    with pytest.raises(SystemExit):                                     # changed after its stage recorded it
+        w6_eval.source_index(run_dir)
 
 
 def test_selftest_verdict():

@@ -19,8 +19,9 @@ from seeddrift.train.rel import api as A
 from seeddrift.train.rel.data import sampler as S
 from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
 
-EVAL_VERSION = "3"
+EVAL_VERSION = "4"
 PLAN_FIELDS = ("tok", "n", "col", "kind", "frame_len")
 
 
@@ -28,6 +29,8 @@ def to_device(batch, device):
     out = dict(sizes=batch["sizes"])
     for k in ("grid", "row", "col", "token", "example"):
         out[k] = torch.from_numpy(batch[k]).to(device, non_blocking=True).long()
+    if "weight" in batch:
+        out["weight"] = torch.from_numpy(batch["weight"]).to(device, non_blocking=True).float()
     return out
 
 
@@ -53,10 +56,13 @@ def other_rows(kind):
 def score(model, data, ids, condition, device, max_rows=64, chunk=32):
     """The tables ids (positions in the held-out set; data: their arrays PLAN_FIELDS, in the same order) under one
     condition. Returns bits (float64 [C], one per scored cell), cell_table (int64 [C], the index into ids of the
-    cell's table) and the digest of what was scored."""
+    cell's table), the digest of what was scored, and the bits of the amino acid of every scored cell (the first of the
+    two parts of the evaluator's score.amino_acid_bits; reporting only, the genetic code never reaches the model)."""
     digest = cond.ItemsDigest(condition)
-    bits, cell_table = [], []
+    bits, cell_table, aa_bits = [], [], []
     pending, rows = [], 0
+    classes = torch.from_numpy(SC.amino_acid_classes()[1:66]).to(device)                      # class of every token 1..65
+    onehot = torch.nn.functional.one_hot(classes, int(classes.max()) + 1).double()
 
     def flush():
         nonlocal pending, rows
@@ -65,6 +71,8 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32):
             logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"])
             per = -logp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0].double() / math.log(2.0)
             bits.append(per.cpu().numpy())
+            p_class = logp.double().exp() @ onehot
+            aa_bits.append((-torch.log2(p_class.gather(1, classes[b["token"] - A.TARGET_MIN][:, None])[:, 0])).cpu().numpy())
             cell_table.append(np.array([k for k, _, _ in pending], dtype=np.int64)[b["example"].cpu().numpy()])
         pending, rows = [], 0
 
@@ -93,4 +101,4 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32):
     flush()
     model.train(was_training)
     cat = lambda parts, dtype: np.concatenate(parts) if parts else np.zeros(0, dtype=dtype)      # noqa: E731
-    return cat(bits, np.float64), cat(cell_table, np.int64), digest.hexdigest()
+    return cat(bits, np.float64), cat(cell_table, np.int64), digest.hexdigest(), cat(aa_bits, np.float64)

@@ -76,7 +76,11 @@ def test_tiny_fit():
     assert all(r["layout"] == A.LAYOUT_STORED and r["table_kind"] == A.TABLE_SYNTHETIC and r["variant"] == "tiny" and r["run"] == "run-x" for r in rows)
     top = [r for r in final if r["group"] == "all" and r["stratum"] == "all"]
     assert len(top) == 5 and all(0 < float(r["bits"]) < 8 and int(r["cells_seen"]) == out["cells_seen"] for r in top)
-    assert {r["group"] for r in final} >= {"all", "bacteria", "11"} and {r["stratum"] for r in final} >= {"all", "other_rows>=2"}
+    assert {r["group"] for r in final} >= {"all", "bacteria", "11"} and {r["stratum"] for r in final} >= {"all", "other_rows>=2"} | set(SC.PARTS)
+    for c in cond.CONDITIONS:                                     # the two parts add up to the bits of the codon
+        whole, aa, rest = (float(next(r["bits"] for r in final if r["condition"] == c and r["group"] == "all" and r["stratum"] == x))
+                           for x in ("all",) + tuple(SC.PARTS))
+        assert abs(aa + rest - whole) < 1e-4 and 0 < aa < whole, c
     for c in cond.CONDITIONS:                                     # the cells scored are the evaluator's, table for table
         assert out["final_items"][c] == _digest(cfg, root, c), c
     with open(os.path.join(cfg["out"], "steps.csv")) as f:
@@ -106,6 +110,12 @@ def test_preflight_guard_stops_by_default():
         raise AssertionError("a preflight whose loss did not fall passed")
     with open(os.path.join(root, "out", "preflight.json")) as f:
         assert json.load(f)["ok"] is False
+
+
+def test_anyorder_fill_in_trains():
+    root = tempfile.mkdtemp()
+    out = loop.fit(_config(root, masks=["anyorder"], max_steps=3))
+    assert out["status"] == "ok" and out["steps"] == 3 and all(math.isfinite(v) for v in out["final"].values() if v is not None)
 
 
 def test_moving_average():
@@ -143,6 +153,24 @@ def test_the_best_node_of_an_arm_without_relatives_is_read_on_every_table():
         assert out["final_best"]["items"] == out["final_items"]                                  # the same cells as the end
     else:
         assert "final_best" not in out and not any(r["weights"] == "ema@best" for r in rows)
+
+
+def test_saved_weights_evaluated_again():
+    """An arm's final.pt evaluated again gives the bits and the digests of the training's own final evaluation; best.pt
+    gives rows ema@best."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, relatives=False, max_steps=4, per_step=4, micro=4, eval_first=4)
+    out = loop.fit(cfg)
+    folder = os.path.join(root, "again")
+    best = out["best"]
+    again = loop.evaluate_checkpoints(dict(cfg, out=folder, final=os.path.join(root, "out", "final.pt"), best=os.path.join(root, "out", "best.pt"),
+                                           final_tables=out["tables_seen"], final_cells=out["cells_seen"], final_wall_s=out["wall_s"],
+                                           best_tables=best["tables_seen"], best_cells=best["cells_seen"], best_wall_s=best["wall_s"]))
+    assert again["status"] == "ok" and again["final_items"] == out["final_items"] and again["tables_seen"] == out["tables_seen"]
+    assert all(abs(again["final"][c] - out["final"][c]) < 1e-5 for c in out["final"]) and "final_best" in again
+    rows = SC.read_rows(os.path.join(folder, "results.tsv"))
+    assert {r["weights"] for r in rows} == {"ema@final", "ema@best"} and {r["item_half"] for r in rows} == {"all"}
+    assert {r["budget"].split(";")[0] for r in rows if r["weights"] == "ema@final"} == {"tables=%d" % out["tables_seen"]}
 
 
 def test_split_and_gradient_checks():

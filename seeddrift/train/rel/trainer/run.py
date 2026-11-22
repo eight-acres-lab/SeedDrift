@@ -3,6 +3,7 @@
   python -m seeddrift.train.rel.trainer.run selftest  CONFIG_JSON   every test_ function of the modules listed
   python -m seeddrift.train.rel.trainer.run preflight CONFIG_JSON   a variant before its training (loop.preflight)
   python -m seeddrift.train.rel.trainer.run fit       CONFIG_JSON   the training with its held-out evaluation (loop.fit)
+  python -m seeddrift.train.rel.trainer.run evaluate  CONFIG_JSON   saved weights evaluated again (loop.evaluate_checkpoints)
 
 selftest: CONFIG_JSON holds modules (dotted names, or paths of files ending in .py), out (the report it writes) and
 threads. The GPUs are hidden by whoever starts it (CUDA_VISIBLE_DEVICES empty); a visible GPU fails the self-test.
@@ -61,14 +62,14 @@ def selftest(cfg):
 
 
 def main(argv):
-    if len(argv) != 3 or argv[1] not in ("selftest", "preflight", "fit"):
+    if len(argv) != 3 or argv[1] not in ("selftest", "preflight", "fit", "evaluate"):
         raise SystemExit(__doc__)
     with open(argv[2]) as f:
         cfg = json.load(f)
     if argv[1] == "selftest":
         return selftest(cfg)
     from seeddrift.train.rel.trainer import loop
-    out = loop.preflight(cfg) if argv[1] == "preflight" else loop.fit(cfg)
+    out = dict(preflight=loop.preflight, fit=loop.fit, evaluate=loop.evaluate_checkpoints)[argv[1]](cfg)
     print(json.dumps({k: out[k] for k in sorted(out) if k not in ("evals", "memory")}, sort_keys=True), flush=True)
     return 0
 

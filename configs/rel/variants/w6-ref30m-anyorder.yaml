@@ -1,0 +1,18 @@
+# Any-order fill-in: the reference arm with one change, its masks: for each table a ratio drawn uniformly in [0.02, 1]
+# and every codon of every row hidden with that probability, the table's cells weighted by the inverse of the ratio
+# (mask scheme anyorder; the loss is a bound on the joint probability). Relatives given; otherwise w6-ref30m.
+name: w6-ref30m-anyorder
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [anyorder]
+layout: stored
+rows: [4, 16]
+columns: 1024
+size: 30m
+relatives: true
+optimizer: {lr: 3.0e-4}                   # today's rule: 3e-4 at width 384, scaled by the inverse square root of the width
+gpu_mb: 26000
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws
+tables: real

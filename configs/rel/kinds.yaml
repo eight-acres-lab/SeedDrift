@@ -246,6 +246,13 @@ kinds:
         module: ci.stages.rel.w13_catalog
         gates: [G4_rel_w13_catalog]
         side: data
+      w13_scaffold:
+        package: W13
+        rule: rel_w13_scaffold
+        output: data/rel_w13/scaffold/manifest.json
+        module: ci.stages.rel.w13_scaffold
+        gates: [G4_rel_w13_scaffold]
+        side: data
       w13_census:
         package: W13
         rule: rel_w13_census

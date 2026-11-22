@@ -1,0 +1,7 @@
+package: W2
+kind: to_package
+to: C0
+what: drop `stub: true` of stages w2_v0 and w2_census in configs/rel/kinds.yaml (their rules in ci/rules/rel_w2.smk now run ci/stages/rel/w2_v0.py and ci/stages/rel/w2_census.py), then start profile rel-dev-w2-v0-i1 on machine i1 (select lock)
+why: the tables of version 0 and the census are today's first read-out; the baselines and the trainings read these tables
+size: {hours: 0.7, threads: 8, disk_gb: 7, gpu_mem_gb: 0}
+by: 2026-11-22

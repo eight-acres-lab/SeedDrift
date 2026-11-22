@@ -1,0 +1,19 @@
+package: W6
+kind: to_package
+to: C0
+what: >
+  register three stages of package W6 in kind rel_traineval of configs/rel/kinds.yaml (not stubs; the rules are in
+  ci/rules/rel_w6.smk on this branch):
+  w6_selftest (rule rel_w6_selftest, module ci.stages.rel.w6_selftest, output data/rel_w6/selftest/report.json,
+  gate G4_rel_w6_selftest, side train);
+  w6_fit (rule rel_w6_fit, module ci.stages.rel.w6_fit, output data/rel_w6/fit/models.json, gate G4_rel_w6_fit,
+  side train, produces models, tolerance true);
+  w6_report (rule rel_w6_report, module ci.stages.rel.w6_report, output data/rel_w6/report/report.json,
+  gate G4_rel_w6_report, side eval).
+why: >
+  today's slice trains the reference trunk with the minimal trainer of W4 under package W6; the profiles
+  rel-dev-w6-selftest-i1 and -i2 of this branch list w6_selftest, so the static check of the branch passes only once
+  the stages are registered. In probe mode the stage keeps no checkpoint, which the model index check of the kind gate
+  (checkpoints of an ok variant) does not allow yet; probe profiles wait for that.
+size: {hours: 0.1, threads: 1, disk_gb: 0, gpu_mem_gb: 0}
+by: 2026-11-22

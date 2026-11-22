@@ -1,0 +1,15 @@
+# Control of the reference arm: the same trunk and protocol with every other row removed (the examined row alone).
+name: w6-ref30m-norel
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: stored
+rows: [4, 16]
+columns: 1024
+size: 30m
+relatives: false
+optimizer: {lr: 3.0e-4}
+gpu_mb: 6000
+tables: real

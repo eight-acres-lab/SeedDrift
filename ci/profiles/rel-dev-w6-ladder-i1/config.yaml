@@ -1,0 +1,37 @@
+# Machine i-1: the evening's ladder of the relational-model line's reference trunk with two seeds of the 30 M arm
+# (stage w6_report of package W6, alone; ci/stages/rel/w6_report.py). The arms: the three trained on i-1 (run
+# 20261122T071504-exp-rel-3382ed5e-rel-d1-i1: 10 M, 30 M with relatives seed 1, 30 M without relatives), the arm of
+# about 100 M parameters trained on i-2 (run 20261122T071650-exp-rel-3382ed5e-rel-d1-i2) and the 30 M arm with
+# relatives, seed 2, trained on i-2 on the code of 3382ed5 (run 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2); the
+# two i-2 runs copied to i-1 with their record, stage records and data/rel_w6/fit/ without checkpoints. Beside the
+# classical baselines of package W5 (run 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1) on the same 3,000
+# held-out tables. The two seeds of the 30 M arm (different seeds on different machines): their difference at every
+# node both reached is the noise estimate; the 30 M step of the scale is their mean where both reached a node;
+# readings of scale and of what relatives are worth no larger than that difference cannot be read (the programme
+# lead's ruling of the evening). Reads result rows, model indexes and preflight records only; CPU only. Development
+# diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T071650-exp-rel-3382ed5e-rel-d1-i2
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2
+  seeds: [[w6-ref30m-s1, w6-ref30m-s2]]
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

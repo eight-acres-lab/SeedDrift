@@ -89,13 +89,24 @@ class RowAttention(nn.Module):
         self.qkv = nn.Linear(width, 3 * width)
         self.out = nn.Linear(width, width)
 
-    def forward(self, x, cos, sin, key_mask=None):
-        """key_mask: bool [N, C], the cells that may be attended to (None: all)."""
+    def forward(self, x, cos, sin, key_mask=None, gate=None):
+        """key_mask: bool [N, C], the cells that may be attended to (None: all). gate: None, or the number g of leading
+        columns (the relation blocks) whose cells attend only to each other; the other columns attend to every column."""
         N, C, d = x.shape
         q, k, v = self.qkv(x).view(N, C, 3, self.heads, self.head).permute(2, 0, 3, 1, 4)          # each [N, heads, C, head]
         q, k = rotate(q, cos, sin), rotate(k, cos, sin)
+        if gate is None:
+            y = self.attend(q, k, v, key_mask, x.is_cuda)
+        else:
+            g = int(gate)
+            y = torch.cat([self.attend(q[:, :, :g], k[:, :, :g], v[:, :, :g], None if key_mask is None else key_mask[:, :g], x.is_cuda),
+                           self.attend(q[:, :, g:], k, v, key_mask, x.is_cuda)], dim=2)
+        return self.out(y.transpose(1, 2).reshape(N, C, d))
+
+    @staticmethod
+    def attend(q, k, v, key_mask, cuda):
         mask = None if key_mask is None else bias_of(key_mask, q.dtype)[:, None, None, :]
-        if not x.is_cuda:
+        if not cuda:
             y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
         elif mask is not None and ROW_MASK["state"] is not False:
             try:
@@ -111,7 +122,7 @@ class RowAttention(nn.Module):
         else:
             with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
                 y = F.scaled_dot_product_attention(q, k, v)
-        return self.out(y.transpose(1, 2).reshape(N, C, d))
+        return y
 
 
 class ColumnAttention(nn.Module):
@@ -153,8 +164,8 @@ class AxialBlock(nn.Module):
         self.column = ColumnAttention(width, column_head)
         self.ff_in, self.ff_out = nn.Linear(width, ratio * width), nn.Linear(ratio * width, width)
 
-    def forward(self, x, cos, sin, layout, key_mask=None):
-        x = x + self.row(self.norm_row(x), cos, sin, key_mask)
+    def forward(self, x, cos, sin, layout, key_mask=None, gate=None):
+        x = x + self.row(self.norm_row(x), cos, sin, key_mask, gate)
         x = x + self.column(self.norm_column(x), layout, key_mask)
         return x + self.ff_out(F.gelu(self.ff_in(self.norm_ff(x))))
 

@@ -1,0 +1,30 @@
+# Machine i-1: the report of today's four arms of the relational-model line's reference trunk side by side (stage
+# w6_report of package W6, alone; ci/stages/rel/w6_report.py): the three arms trained on i-1 (run
+# 20261122T071504-exp-rel-3382ed5e-rel-d1-i1) and the arm of about 100 M parameters trained on i-2 (run
+# 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, copied to i-1 over R2 with its record, its stage records and
+# data/rel_w6/fit/ without checkpoints), beside the classical baselines of package W5 (run
+# 20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1) on the same 3,000 held-out tables. It reads result rows,
+# model indexes and preflight records only; CPU only. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T071650-exp-rel-3382ed5e-rel-d1-i2
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

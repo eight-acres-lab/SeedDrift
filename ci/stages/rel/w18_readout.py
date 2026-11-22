@@ -161,13 +161,15 @@ def build(st, cfg, run_dir):
         say("%s (%s): %d cells read" % (arm, head["weights"], info["cells"]))
     ctl = R.controls(fields, meta)
     for k, v in ctl.items():
-        scores[("control", k)] = v
+        if not k.startswith("x_"):                                    # x_gc, x_aa_distance: strata, not scores
+            scores[("control", k)] = v
     has_rows = tr.phase != 3
     rule9 = tr.context == 0
     pops = {("in_place", "on"): (tr.scenario == 0) & rule9, ("in_place", "off"): tr.scenario == 0,
             ("donor_unsampled", "on"): (tr.scenario == 1) & rule9, ("donor_unsampled", "off"): tr.scenario == 1}
     full = tr.strata()
     full.update(tr.host_quartiles(ctl["host_codon"]))
+    full.update(tr.exploratory(ctl["x_gc"], ctl["x_aa_distance"]))      # exploratory strata (kinds x_...), outside the protocol
     short = {k: v for k, v in full.items() if k[0] in ("all", "donor_tier")}
     expected = tuple("tier=%s" % t for t, e in (index.get("tier_expectation") or {}).items() if e == "expected too few")
     rows, defined = [], []
@@ -182,6 +184,8 @@ def build(st, cfg, run_dir):
                 ref["coverage_shift"] = ctl["coverage_shift"]
             if name.startswith("composition"):
                 ref["host_codon"] = ctl["host_codon_rel" if name.endswith("_rel") else "host_codon"]
+            if name.startswith("gain") and name.endswith("_aa"):
+                ref["host_aa"] = ctl["host_aa"]                             # exploratory: is gain_aa only "unlike A's amino acids"?
             for other in ("untrained:" + base, "presence:" + base):
                 if (other, name) in scores and other != label:
                     ref[other.split(":")[0]] = scores[(other, name)]
@@ -311,6 +315,25 @@ def page_of(rep, rows):
         md += ["## %s: the donor's lineage unsampled, rule 9 on" % block, ""] + _table(rows, block, "donor_unsampled", "on", "win", "own", tiers, exp,
                                                                                          scores=("source_shift_aa", "gain_aa", "gain_rel_aa", "composition",
                                                                                                  "best_similarity")) + [""]
+    md += ["## Exploratory, outside the pre-registered protocol", "",
+           "The programme lead's additions of 2026-11-23, never to change a conclusion or choose anything: the host amino-acid "
+           "model (control host_aa) and the strata by the implant's own composition (x_implant_gc, x_gc_minus_own, x_aa_distance; "
+           "quartiles per block), read here for the 30 M arm's gain_aa, the untrained model's gain_aa and host_aa (win rate against own, "
+           "in place, rule 9 on). Every stratum and arm is in stats.tsv.", ""]
+    for block in SC.BLOCKS:
+        md += ["### %s" % block, "", "| stratum | " + " | ".join("%s q%d" % (k[2:], q) for k in ("x_implant_gc", "x_gc_minus_own", "x_aa_distance") for q in range(1, 5)) + " |",
+               "|---|" + "---|" * 12]
+        by = {}
+        for r in rows:
+            if r["block"] == block and r.get("scenario") == "in_place" and r.get("rule9") == "on" and r["statistic"] == "win" and r["comparison"] == "own" \
+                    and r["stratum_kind"].startswith("x_"):
+                by.setdefault((r["label"], r["score"]), {})[(r["stratum_kind"], r["stratum"])] = r
+        for (label, score), cells in sorted(by.items()):
+            if score not in ("gain_aa", "host_aa") or label.startswith("presence:"):
+                continue
+            md.append("| %s %s | %s |" % (label, score, " | ".join(_cell(cells.get((k, "q%d" % q))) for k in ("x_implant_gc", "x_gc_minus_own", "x_aa_distance")
+                                                                    for q in range(1, 5))))
+        md.append("")
     md += ["## Rule 9 off (viruses and plasmids read both ways)", "",
            "The same readings with the triples whose donor gene has a homolog in A's context kept: stats.tsv, rows with rule9 = off.", "",
            "## Abstention, defined share of the source shift, calibration", "",

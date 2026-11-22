@@ -261,7 +261,9 @@ def test_readout_stage_reads_every_arm_and_writes_the_aucs(built, evaluated, mon
     assert len(cover) == 7 * 12 and {c["mark"] for c in cover} <= {"construct only", "not evaluated"}
     with open(os.path.join(ev, w18_readout.OUT, "scores.tsv")) as f:
         assert len(f.read().strip().splitlines()) == built["doc"]["tables"] + 1
-    assert "Coverage (charter rule 7)" in open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
+    page = open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
+    assert "Coverage (charter rule 7)" in page and "Exploratory, outside the pre-registered protocol" in page
+    assert {r["stratum_kind"] for r in rows} >= {"x_implant_gc", "x_gc_minus_own", "x_aa_distance"} and ("control", "host_aa") in labels
     with Stage(ev, "gates_rel_w18_readout") as st:
         w18_readout.gate(st, cfg, ev)
     assert _gate(ev, "G4_rel_w18_readout")["status"] == "pass"

@@ -187,6 +187,13 @@ def test_controls():
     keep = (tok <= 64) & (pos > 0) & ~((pos == L - 1) & bool(meta["target_ends"][t])) & (deg[cls[tok]] >= 2)
     tot = np.bincount(cls[1:65], weights=cnt, minlength=23)
     assert np.isclose(ctl["host_codon"][t], (-np.log2(cnt[tok[keep] - 1] / tot[cls[tok[keep]]])).mean())
+    # exploratory: the host amino-acid model and the target's own composition
+    keep_aa = (tok <= 64) & (pos > 0) & ~((pos == L - 1) & bool(meta["target_ends"][t]))
+    per_aa = np.bincount(cls[1:65], weights=meta["host_counts"][t], minlength=23)[1:22] + 0.5
+    assert np.isclose(ctl["host_aa"][t], (-np.log2(per_aa[cls[tok[keep_aa]] - 1] / per_aa.sum())).mean())
+    c = tok[tok <= 64] - 1
+    gc = np.mean([(x // 16 in (1, 2)) + ((x // 4) % 4 in (1, 2)) + (x % 4 in (1, 2)) for x in c]) / 3
+    assert np.isclose(ctl["x_gc"][t], gc) and (0 <= ctl["x_aa_distance"]).all() and (ctl["x_aa_distance"] <= 1).all()
 
 
 def _triples(n_tr=40, groups=("bacteria", "eukaryota.fungi", "eukaryota.mammals", "eukaryota.protists")):
@@ -227,6 +234,8 @@ def test_paired_win_rate_bootstrap_and_differences():
     assert np.allclose(reps, a) and np.isclose(a, R.auc(noisy[tr.table[sel, 0]], noisy[tr.table[sel, 2]]))
     d = R.defined_share_rows(np.where(meta["variant"] == 0, np.nan, 1.0), tr, pop, boot)
     assert [x["value"] for x in d if x["block"] == "eukaryotes"] == [-1.0]
+    x = R.Triples.exploratory(tr, np.linspace(0, 1, len(score)), np.linspace(1, 0, len(score)))
+    assert {k[0] for k in x} == {"x_implant_gc", "x_gc_minus_own", "x_aa_distance"} and all(v.sum() > 0 for k, v in x.items() if k[0] != "x_gc_minus_own")
     cov = R.coverage_table(tr, pop)
     assert {(c["direction"], c["recipient"]): c["mark"] for c in cov}[("prokaryote <-> prokaryote", "bacteria")] == "construct only"
     assert {(c["direction"], c["recipient"]): c["triples"] for c in cov}[("prokaryote -> eukaryote", "eukaryota.fungi")] == 10

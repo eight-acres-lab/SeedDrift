@@ -250,7 +250,8 @@ def worst_case(examples, rows):
     out = []
     for e in examples:
         k = -(-rows // e["grid"].shape[0])
-        out.append(dict(e, grid=np.concatenate([e["grid"]] * k)[:rows], truth=np.concatenate([e["truth"]] * k)[:rows]))
+        grown = {f: np.concatenate([e[f]] * k)[:rows] for f in ("grid", "truth", "ext") if f in e}   # every per-row array of the example
+        out.append(dict(e, **grown))
     return out
 
 

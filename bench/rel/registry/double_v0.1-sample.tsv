@@ -1,0 +1,51 @@
+# Double registration of the rules-0.1 sample: the first registration as compiled, before any reconciliation, against a second
+# registrar who saw only RULES.md and the primary papers. Records drawn by sha256('w15-double-v0.1:' + event_id), lowest 8 of 20.
+event_id	field	first	second	note
+EV001	grade_transfer	A	A	
+EV001	grade_donor	A	A	
+EV001	status	replicated	replicated	
+EV001	discovery	?	S	second: the abstract says host genomes were searched for Wolbachia-derived sequences; first had not read the route
+EV001	exclusion_taxon	Drosophila (genus)	Drosophila (genus)	
+EV001	truth_class	transfer	transfer	
+EV002	grade_transfer	A	A	
+EV002	grade_donor	B	B	
+EV002	status	standing	standing	second notes an independent enzyme study that takes the acquisition as given (rules: does that count as replication?)
+EV002	discovery	S	S	
+EV002	exclusion_taxon	Acyrthosiphon (genus)	Acyrthosiphon (genus)	
+EV002	truth_class	transfer	transfer	
+EV003	grade_transfer	A	C	first misread the 2010 abstract (it reports no genetic mapping); the draft is corrected to C
+EV003	grade_donor	C	C	
+EV003	status	standing	replicated	second found an independent phylogeny in 23 aphid genomes (10.1016/j.ibmb.2025.104433); added to the draft
+EV003	discovery	?	S	second assumed a homology screen; neither read the route
+EV003	exclusion_taxon	Aphidomorpha (infraorder)	Aphidoidea (superfamily)	adelgids share the transfer and sit outside Aphidoidea, so the lowest common taxon is Aphidomorpha (to be checked against NCBI on the server)
+EV003	truth_class	transfer	transfer	
+EV006	grade_transfer	A	A	
+EV006	grade_donor	B	B	
+EV006	status	standing	standing	
+EV006	discovery	S	S	
+EV006	exclusion_taxon	Alloteropsis (genus)	Alloteropsis (genus)	
+EV006	truth_class	transfer	transfer	
+EV007	grade_transfer	A	A	
+EV007	grade_donor	A	A	both provisional: T-DNA gene set, borders not read
+EV007	status	standing	standing	
+EV007	discovery	N	S	found in siRNA assemblies by similarity to T-DNA genes: a mixed route
+EV007	exclusion_taxon	Ipomoea (genus)	Ipomoea (genus)	
+EV007	truth_class	transfer	transfer	
+EV009	grade_transfer	A	A	second: A rests on the 2004 follow-up; on the 2000 abstract alone it would not reach A
+EV009	grade_donor	A	-	retroviral origin: the donor's own structure (first) or no donor lineage claimed (second)
+EV009	status	replicated	replicated	
+EV009	discovery	N	N	
+EV009	exclusion_taxon	Hominoidea (superfamily)	Hominoidea (superfamily)	
+EV009	truth_class	transfer	transfer	second registered the category as endogenous_viral_element, first as protein_coding
+EV012	grade_transfer	A	C	virus_chimera rule: the Rep-capsid junction in one PCR-confirmed circle counts as position evidence (first), or a breakpoint analysis is needed (second)
+EV012	grade_donor	C	C	
+EV012	status	replicated	replicated	
+EV012	discovery	S	N	a best hit came first, the chimera from assembly: a mixed route
+EV012	exclusion_taxon	cruciviruses (no rank)	BSL RDHV (no rank)	no ICTV taxon either way; the group (first) or the single virus (second)
+EV012	truth_class	transfer	transfer	
+EV014	grade_transfer	C	C	
+EV014	grade_donor	C	C	
+EV014	status	standing	standing	
+EV014	discovery	?	N	a pathway-targeted phylogeny: neither route as defined
+EV014	exclusion_taxon	Methanosarcina (genus)	Methanosarcina (genus)	
+EV014	truth_class	transfer	transfer	second used position_rule none, first integration

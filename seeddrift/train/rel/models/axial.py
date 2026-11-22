@@ -7,6 +7,8 @@ loci), the base arm every other arm is compared with.
     never neighbours; the other half of the dimensions carries no position, so a row can pick among loci by content.
   - Column attention is among the rows of a table at the same column, with a learned "no source" key; a row does not
     attend to itself. No row index is given anywhere: permuting the rows of a table permutes the output.
+  - Cells that hold PAD (beyond a segment, outside a relative's aligned span, a block that does not exist) take no part
+    in either attention as keys, so nothing a model computes for any other cell depends on them.
   - The number of rows varies from table to table; a micro-batch stacks the rows of its tables.
   - Output: a plain linear layer over the residues 1..65, computed in float32 for the target cells only; the trunk
     runs in bfloat16 on a GPU.
@@ -69,9 +71,11 @@ class Axial(nn.Module):
         if grid.shape[0] != sum(sizes) or grid.shape[1] != self.role_of_column.shape[0]:
             raise ValueError("grid %s does not fit %d rows of %d columns" % (tuple(grid.shape), sum(sizes), self.role_of_column.shape[0]))
         layout = C.table_layout(sizes, grid.device)
+        keys = grid != A.PAD                                          # PAD cells take no part in attention
+        keys = keys | ~keys.any(dim=1, keepdim=True)                  # (a row of PAD only would have no key at all)
         x = self.token(grid) + self.role(self.role_of_column)[None]
         for block in self.blocks:
-            x = block(x, self.cos, self.sin, layout)
+            x = block(x, self.cos, self.sin, layout, keys)
         return x
 
     def forward(self, grid, sizes, row, col):
@@ -216,6 +220,59 @@ def test_hidden_content_does_not_leak():
         grid3, _ = T.render(seen, cells & ~hide, hide)
         c = model(torch.from_numpy(grid3.astype(np.int64)), [rows], row, col_)
     assert torch.equal(a, b) and not torch.allclose(a, c, atol=1e-5)
+
+
+def test_pad_cells_take_no_part():
+    """The output of every cell that is not PAD is the same whatever the embedding of PAD is: PAD cells are never keys."""
+    model = _small()
+    grid = _random_grid(5, 9)
+    grid[:, 100:140] = A.PAD
+    grid[1, 700:] = A.PAD
+    grid[3] = A.PAD                                                   # a row of PAD only
+    grid[3, 0] = 5
+    sizes = [3, 2]
+    row, col = _all_cells(5)
+    with torch.no_grad():
+        a = model(grid, sizes, row, col).view(5, A.ROW_LEN, N_OUT)
+        model.token.weight[A.PAD] += torch.randn(model.width)
+        b = model(grid, sizes, row, col).view(5, A.ROW_LEN, N_OUT)
+    real = grid != A.PAD
+    assert torch.allclose(a[real], b[real], atol=2e-4), float((a[real] - b[real]).abs().max())
+    assert not torch.allclose(a[~real], b[~real], atol=1e-3)
+    assert torch.isfinite(a).all() and torch.isfinite(b).all()
+
+
+def test_masked_blocks_stay_finite():
+    """A row whose first 600 cells are PAD (a whole block of keys masked, as in a one-row table of a genome with few
+    genes): outputs and gradients stay finite."""
+    torch.manual_seed(0)
+    model = Axial(1, 256)
+    grid = _random_grid(1, 10)
+    grid[0, :600] = A.PAD
+    row, col = torch.zeros(200, dtype=torch.long), torch.arange(800, 1000)
+    out = model(grid, [1], row, col)
+    loss = torch.nn.functional.cross_entropy(out, torch.zeros(200, dtype=torch.long))
+    loss.backward()
+    assert torch.isfinite(out).all() and torch.isfinite(loss)
+    assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+
+
+def test_column_attention_in_chunks():
+    """The column attention in chunks of sequences (the GPU's grid limit) gives what it gives in one call."""
+    model = _small()
+    grid = torch.cat([_random_grid(1, 20 + k) for k in range(5)])
+    grid[:, :100] = A.PAD
+    sizes = [1, 1, 1, 1, 1]
+    row, col = _all_cells(5)
+    with torch.no_grad():
+        whole = model(grid, sizes, row, col)
+        keep = C.COLUMN_CHUNK
+        try:
+            C.COLUMN_CHUNK = 1000                                     # 5 x 1,024 sequences in six calls
+            parts = model(grid, sizes, row, col)
+        finally:
+            C.COLUMN_CHUNK = keep
+    assert torch.allclose(whole, parts, atol=1e-5), float((whole - parts).abs().max())
 
 
 def test_backward():

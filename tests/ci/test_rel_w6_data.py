@@ -1,7 +1,8 @@
-"""The reader, the mask schemes, the sampler and the held-out plan of the relational line's trainer (package W6), on a
-small random table set written here in the shard format of the contract. numpy only.
+"""The reader, the grid, the mask schemes and the sampler of the relational line's trainer (package W6), on small random
+tables written here in the shard format of the contract with a table-set manifest of the hand-off format. numpy only.
 
 The model interpreter has no pytest: `python tests/ci/test_rel_w6_data.py` runs every test."""
+import hashlib
 import json
 import os
 import sys
@@ -14,16 +15,17 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from seeddrift.train.rel import api as A  # noqa: E402
-from seeddrift.train.rel.data import heldout_plan as H  # noqa: E402
 from seeddrift.train.rel.data import sampler as S  # noqa: E402
 from seeddrift.train.rel.data import tables as T  # noqa: E402
+from seeddrift.train.rel.evalh import conditions as cond  # noqa: E402
 
 DTYPES = {k: v[0] for k, v in list(A.SHARD_FIELDS.items()) + list(A.META_FIELDS.items())}
 
 
 def random_tables(n_tables, rows=16, seed=0, split=0):
     """Arrays of n_tables random tables (shard and metadata fields). Row 0 has a segment in every block; another row
-    is a noisy copy of row 0 with residues dropped and inserted; the last tables have few or no other rows."""
+    is a noisy copy of row 0 over a part of it (its aligned span), with residues dropped and two inserted; the last
+    three tables have 0, 1 and 2 other rows. The rows that do not exist are KIND_NONE everywhere."""
     rng = np.random.default_rng(seed)
     out = dict(tok=np.zeros((n_tables, rows, A.ROW_LEN), np.uint8), n=np.zeros((n_tables, rows, A.N_BLOCKS), np.int16),
                col=np.full((n_tables, rows, A.ROW_LEN), -1, np.int16), frame_row=np.zeros((n_tables, A.N_BLOCKS), np.int8),
@@ -43,14 +45,18 @@ def random_tables(n_tables, rows=16, seed=0, split=0):
             out["col"][t, 0, s:s + n0], out["frame_len"][t, b] = np.arange(n0), n0
             for r in range(1, others + 1):
                 if role != A.ROLE_TARGET and rng.random() < 0.4:
-                    out["kind"][t, r, b] = A.KIND_NOT_SEARCHED
+                    out["kind"][t, r, b] = A.KIND_NOT_SEARCHED if rng.random() < 0.8 else A.KIND_TRUNCATED
                     continue
-                keep = np.flatnonzero(rng.random(n0) > 0.1)                  # frame columns this row has a residue at
+                a = int(rng.integers(0, n0 // 4 + 1))                       # the aligned span: frame columns a .. z - 1
+                z = int(rng.integers(max(a + 1, 3 * n0 // 4), n0 + 1))
+                keep = a + np.flatnonzero(rng.random(z - a) > 0.1)          # frame columns this row has a residue at
+                if not len(keep):
+                    keep = np.array([a])
                 seq = own[keep].copy()
                 change = rng.random(len(seq)) < rng.uniform(0.0, 0.6)
                 seq[change] = rng.integers(1, 65, size=int(change.sum()))
                 col = keep.astype(np.int16)
-                at = int(rng.integers(0, len(seq) + 1))                      # two residues of its own with no column
+                at = int(rng.integers(1, len(seq) + 1))                     # two residues of its own with no column
                 seq = np.concatenate([seq[:at], rng.integers(1, 65, size=2).astype(np.uint8), seq[at:]])[:e - s]
                 col = np.concatenate([col[:at], np.full(2, -1, np.int16), col[at:]])[:e - s]
                 m = len(seq)
@@ -61,53 +67,37 @@ def random_tables(n_tables, rows=16, seed=0, split=0):
     return out
 
 
+def _sha(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def write_tableset(root, sets, kind=A.TABLE_SYNTHETIC, name="w6-test", sub="tables"):
-    """sets: [(shard name, arrays)]. Writes <root>/<sub>/<shard>.<field>.npy and the manifest <root>/<sub>/tableset.json
-    with the file list of the hand-off format (paths relative to root); returns the manifest path."""
+    """sets: [(shard, arrays)], a shard named <part>/<name> lying in the folder <sub>/<part> (one split per part).
+    Writes the files <shard>.<field>.npy, an index with the group names and the manifest <root>/<sub>/tableset.json
+    in the hand-off format (files relative to root, with their hashes); returns the manifest path."""
     os.makedirs(os.path.join(root, sub), exist_ok=True)
     files = []
     for shard, arrays in sets:
+        os.makedirs(os.path.dirname(os.path.join(root, sub, shard)), exist_ok=True)
         for f, a in arrays.items():
             rel = os.path.join(sub, "%s.%s.npy" % (shard, f))
             np.save(os.path.join(root, rel), a.astype(DTYPES[f]))
             files.append(dict(path=rel, role="shard" if f in A.SHARD_FIELDS else "meta"))
+    with open(os.path.join(root, sub, "index.json"), "w") as f:
+        json.dump(dict(groups=["g%02d" % g for g in range(12)]), f)
+    files.append(dict(path=os.path.join(sub, "index.json"), role="index"))
+    for e in files:
+        e.update(sha256=_sha(os.path.join(root, e["path"])), bytes=os.path.getsize(os.path.join(root, e["path"])))
     path = os.path.join(root, sub, "tableset.json")
     with open(path, "w") as f:
-        json.dump(dict(name=name, kind=kind, files=files, sha256="0" * 64, group_names=["g%02d" % g for g in range(12)]), f)
+        json.dump(dict(format="rel-tableset", format_version=1, name=name, kind=kind, api_version=T.API_VERSION, files=files, sha256="0" * 64), f)
     return path
 
 
-def _set(n=30, seed=0, split=None):
+def _set(n=30, seed=0):
     d = tempfile.mkdtemp()
-    return T.open_tableset(write_tableset(d, [("s0", random_tables(n, seed=seed))]), d, split)
-
-
-def test_open_tableset():
-    d = tempfile.mkdtemp()
-    a, b = random_tables(10, seed=1), random_tables(8, seed=2, split=1)
-    b["split"][:3] = 0
-    man = write_tableset(d, [("s1", b), ("s0", a)])
-    every, train, held = T.open_tableset(man, d), T.open_tableset(man, d, 0), T.open_tableset(man, d, 1)
-    assert (len(every), len(train), len(held)) == (18, 13, 5) and every.rows == 16 and held.group_names[3] == "g03"
-    assert (every.table(0)["tok"] == a["tok"][0]).all() and (every.table(10)["tok"] == b["tok"][0]).all()        # shards in name order
-    assert (held.table(0)["tok"] == b["tok"][3]).all() and (train.table(12)["tok"] == b["tok"][2]).all()
-    assert list(held.group) == list(b["group"][3:]) and np.isnan(held.meta(4)["identity"]).any()
-    for split in (2,):
-        try:
-            T.open_tableset(man, d, split)
-        except ValueError:
-            continue
-        raise AssertionError("a split without tables was accepted")
-    with open(man) as f:
-        doc = json.load(f)
-    doc["files"] = [e for e in doc["files"] if not e["path"].endswith("s1.identity.npy")]
-    with open(man, "w") as f:
-        json.dump(doc, f)
-    try:
-        T.open_tableset(man, d)
-    except ValueError:
-        return
-    raise AssertionError("a shard without its identity file was accepted")
+    return T.open_split(d, write_tableset(d, [("train/s0000", random_tables(n, seed=seed))]), 0)
 
 
 def test_layout_arrays():
@@ -116,27 +106,57 @@ def test_layout_arrays():
     assert list(np.bincount(T.ROLE)) == [512, 128, 128, 256]
 
 
+def test_open_split():
+    d = tempfile.mkdtemp()
+    a, b, c = random_tables(10, seed=1), random_tables(8, seed=2, split=1), random_tables(5, seed=3, split=1)
+    man = write_tableset(d, [("train/s0000", a), ("heldout/s0001", c), ("heldout/s0000", b)])
+    train, held = T.open_split(d, man, 0), T.open_split(d, man, 1)
+    assert (len(train), len(held)) == (10, 13) and held.rows == 16 and held.name == "w6-test"
+    assert (held.table(0)["tok"] == b["tok"][0]).all() and (held.table(8)["tok"] == c["tok"][0]).all()           # shards in name order
+    assert (train.table(9)["col"] == a["col"][9]).all() and set(held.table(3)) == set(T.MODEL_FIELDS)
+    assert list(held.group) == list(b["group"]) + list(c["group"]) and np.isnan(held.load(("identity",))["identity"][7]).any()
+    try:
+        T.open_split(d, man, 2)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a split without tables was accepted")
+    b2 = dict(b, split=b["split"].copy())
+    b2["split"][3] = 0
+    mixed = write_tableset(d, [("heldout/s0000", b2)], sub="mixed")
+    try:
+        T.open_split(d, mixed, 1)
+    except ValueError:
+        return
+    raise AssertionError("a folder of two splits was accepted")
+
+
 def test_render_all_visible():
     ts = _set()
-    tab = ts.table(0)
-    cells = T.inside(tab)
-    grid, truth = T.render(tab, cells, np.zeros_like(cells))
-    assert not truth.any()
-    assert (grid[0][cells[0]] == tab["tok"][0][cells[0]]).all()                    # row 0 is its own frame
-    assert (grid[:, T.POS >= tab["frame_len"][T.BLOCK_OF]] == A.PAD).all()         # beyond the frame: padding
-    for r in range(1, grid.shape[0]):
-        for b, (_, s, e) in enumerate(T.SLICES):
-            g = grid[r, s:s + tab["frame_len"][b]]
-            if tab["kind"][r, b] == A.KIND_NOT_SEARCHED:
-                assert (g == A.NOT_SEARCHED).all()
-                continue
-            n = tab["n"][r, b]
-            col, tok = tab["col"][r, s:s + n], tab["tok"][r, s:s + n]
-            assert (g[col[col >= 0]] == tok[col >= 0]).all()
-            rest = np.ones(len(g), bool)
-            rest[col[col >= 0]] = False
-            assert (g[rest] == A.GAP).all()
-    assert ((grid >= 1) & (grid <= A.NOT_SEARCHED)).sum() + (grid == A.PAD).sum() == grid.size
+    for i in (0, 1, 27):
+        tab = ts.table(i)
+        tab = T.take_rows(tab, T.present_rows(tab))
+        cells = T.inside(tab)
+        grid, truth = T.render(tab, cells, np.zeros_like(cells))
+        assert not truth.any() and (grid != A.MASK).all()
+        assert (grid[0][cells[0]] == tab["tok"][0][cells[0]]).all()                    # row 0 is its own frame: no GAP, no PAD inside
+        assert (grid[:, T.POS >= tab["frame_len"][T.BLOCK_OF]] == A.PAD).all()          # beyond the frame: PAD
+        for r in range(1, grid.shape[0]):
+            for b, (_, s, e) in enumerate(T.SLICES):
+                g = grid[r, s:s + tab["frame_len"][b]]
+                if tab["kind"][r, b] in (A.KIND_NOT_SEARCHED, A.KIND_TRUNCATED):
+                    assert (g == (A.NOT_SEARCHED if tab["kind"][r, b] == A.KIND_NOT_SEARCHED else A.TRUNCATED)).all()
+                    continue
+                n = tab["n"][r, b]
+                col, tok = tab["col"][r, s:s + n], tab["tok"][r, s:s + n]
+                placed = col[col >= 0]
+                assert (g[placed] == tok[col >= 0]).all()
+                lo, hi = placed.min(), placed.max()
+                rest = np.ones(len(g), bool)
+                rest[placed] = False
+                inner = rest.copy()
+                inner[:lo], inner[hi + 1:] = False, False
+                assert (g[inner] == A.GAP).all() and (g[rest & ~inner] == A.PAD).all()     # GAP inside the span, PAD outside
 
 
 def test_render_hides_and_scores():
@@ -151,8 +171,7 @@ def test_render_hides_and_scores():
         assert (truth[0][hide[0]] == tab["tok"][0][hide[0]]).all() and not truth[0][~hide[0]].any()
         placed = hide & (tab["col"] >= 0)
         assert (truth > 0).sum() == placed.sum() and (grid == A.MASK).sum() == placed.sum()
-        # the content of the hidden cells does not reach the grid
-        other = dict(tab, tok=np.where(hide, (tab["tok"] % 64) + 1, tab["tok"]).astype(np.uint8))
+        other = dict(tab, tok=np.where(hide, (tab["tok"] % 64) + 1, tab["tok"]).astype(np.uint8))      # the content of hidden cells
         grid2, truth2 = T.render(other, cells & ~hide, hide)
         assert (grid2 == grid).all() and (truth2 != truth).any()
 
@@ -174,6 +193,9 @@ def test_rows():
     assert list(T.present_rows(ts.table(27))) == [0] and list(T.present_rows(ts.table(29))) == [0, 1, 2]
     one = T.take_rows(ts.table(0), [0])
     assert one["tok"].shape == (1, A.ROW_LEN) and one["kind"].shape == (1, A.N_BLOCKS)
+    tab = ts.table(29)
+    grid, _ = T.render(tab, T.inside(tab), np.zeros((16, A.ROW_LEN), bool))
+    assert (grid[3:] == A.PAD).all()                                              # rows that do not exist: PAD only
 
 
 def test_mask_schemes():
@@ -226,35 +248,29 @@ def test_collate():
     assert ((c["row"] >= first[c["example"]]) & (c["row"] < first[c["example"] + 1])).all()
 
 
-def test_heldout_plan():
+def test_evaluator_plan_renders():
+    """The evaluator's plan (seeddrift/train/rel/evalh, the one every arm and baseline shares) through the model's grid:
+    the grid scores exactly the planned cells, and their content does not reach it."""
     ts = _set(30)
-    for i in (0, 3):
-        tab = ts.table(i)
-        tab = T.take_rows(tab, T.present_rows(tab))
-        cells = T.inside(tab)
-        t, visible, target = H.condition(tab, H.SCATTERED, i)
-        assert (target[0, T.T0:T.T1] == (cells[0, T.T0:T.T1] & H.scattered_cells(i))).all() and target.sum() == target[0, T.T0:T.T1].sum()
-        assert (H.scattered_cells(i) == H.scattered_cells(i)).all() and (H.scattered_cells(0) != H.scattered_cells(3)).any()
-        t, visible, target = H.condition(tab, H.WHOLE, i)
-        assert (target[0, T.T0:T.T1] == cells[0, T.T0:T.T1]).all() and (visible | target == cells).all()
-        t, visible, target = H.condition(tab, H.WHOLE + "+" + H.NO_REL, i)
-        assert t["tok"].shape[0] == 1 and target.shape[0] == 1
-        t, visible, target = H.condition(tab, H.WHOLE + "+" + H.REPAIRED, i)
-        k = tab["tok"].shape[0] - 1
-        s = H.repair_shift(i, k)
-        assert 1 <= s < k
-        assert (t["tok"][:, T.T0:T.T1] == tab["tok"][:, T.T0:T.T1]).all() and (t["n"][:, -1] == tab["n"][:, -1]).all()
-        assert (t["tok"][0] == tab["tok"][0]).all()
-        for r in range(1, k + 1):
-            src = (r - 1 + s) % k + 1
-            assert src != r and (t["tok"][r, :T.T0] == tab["tok"][src, :T.T0]).all() and (t["kind"][r, :-1] == tab["kind"][src, :-1]).all()
-            assert (t["col"][r, :T.T0] == tab["col"][src, :T.T0]).all() and (t["n"][r, :-1] == tab["n"][src, :-1]).all()
-        T.render(t, visible, target)
-    lone = T.take_rows(ts.table(27), [0])
-    assert H.condition(lone, H.WHOLE + "+" + H.REPAIRED, 27) is None and H.condition(lone, H.SCATTERED, 27) is not None
-    assert H.stratum([1.0, np.nan]) == "none" and H.stratum([1.0, 0.29, np.nan]) == "<0.3" and H.stratum([1.0, 0.3]) == "0.3-0.5"
-    assert H.stratum([1.0, 0.95, 0.2]) == ">=0.9" and H.stratum([1.0, 0.9]) == ">=0.9" and H.stratum([1.0, 0.69]) == "0.5-0.7"
-    assert len(H.CONDITIONS) == 5 and len(set(H.CONDITIONS)) == 5
+    ids = np.array([0, 3, 27, 28, 29])
+    data = ts.load(T.MODEL_FIELDS)
+    batch = {f: v[ids] for f, v in data.items()}
+    for c in cond.CONDITIONS:
+        plan = cond.materialise(batch, ids, c)
+        for k in range(len(ids)):
+            if not plan["has"][k]:
+                assert c.endswith(cond.REPAIRED) and ids[k] in (27, 28)
+                continue
+            planned = dict(tok=plan["tok"][k], n=plan["n"][k], col=plan["col"][k], kind=plan["kind"][k], frame_len=plan["frame_len"][k])
+            keep = T.present_rows(planned)
+            grid, truth = T.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep])
+            assert (truth > 0).sum() == plan["target"][k].sum() > 0 and not truth[1:].any() and not truth[0, :T.T0].any()
+            assert (truth[0, T.T0:T.T1] > 0).sum() == (grid[0] == A.MASK).sum() and (grid[1:] != A.MASK).all()
+            if cond.parse(c)[1] == cond.NO_RELATIVES:
+                assert grid.shape[0] == 1
+            changed = dict(planned, tok=np.where(plan["target"][k], (planned["tok"] % 64) + 1, planned["tok"]).astype(np.uint8))
+            grid2, _ = T.render(T.take_rows(changed, keep), plan["visible"][k][keep], plan["target"][k][keep])
+            assert (grid2 == grid).all()
 
 
 if __name__ == "__main__":

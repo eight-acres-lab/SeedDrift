@@ -7,20 +7,25 @@ Profile block rel_w6_fit:
   tables     train and heldout, each {run, path, sha256, split}: a table-set manifest (path, relative) of a passed run
              of this machine (run, its directory), the manifest's sha256 when it is to be pinned, and the metadata
              split to take (0 train, 1 held out; omitted: every table). Both may name the same manifest.
-  arms       [{variant, seed, budget_cells}]: a variant file (configs/rel/variants/<author>-<name>.yaml), a seed, and
-             optionally a budget in cells seen (without it the wall limit is the budget). The arm is <name>-s<seed>.
+  arms       [{variant, seed, budget_cells, lr}]: a variant file (configs/rel/variants/<author>-<name>.yaml), a seed, and
+             optionally a budget in cells seen (without it the wall limit is the budget) and a peak learning rate that
+             replaces the variant's. The arm is <name>-s<seed>.
   wall_s     wall-clock limit of one training, its evaluations included (default 16200); a training ends in the
              normal way at its budget or at this limit, whichever comes first
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
-  optional   eval_per_group, eval_points, eval_every_cells, final_per_group, eval_max_rows, max_steps, threads,
-             preflight_wall_s, verify_files (default true: every file of the table sets is hashed against its manifest)
+  optional   eval_per_group (50), eval_first (1000 tables), final_per_group (0: all), eval_max_rows, warmup_steps (1000),
+             ema (true), preflight_steps (200), max_steps, threads, preflight_wall_s, verify_files (default true: every
+             file of the table sets is hashed against its manifest before any training starts)
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
 What the stage does:
-  1. the model interpreter's packages equal their lock; the table sets are complete and pass the sealed check;
+  1. the model interpreter's packages equal their lock; the table sets are hand-off files of passed runs (which for
+     a real table set includes the record of its passed sealed check, seeddrift/train/rel/handoff.py from_run) and
+     every file they list has its recorded hash;
   2. every arm is preflighted alone, one after the other: the model built on the real tables, parameters counted, the
      largest micro-batch run (with fewer tables per micro-batch when it does not fit the arm's memory allowance, the
-     variant's gpu_mb), a few steps timed, two held-out tables scored;
+     variant's gpu_mb), then 200 steps on a fresh model as the divergence guard (a loss that is not finite or does not
+     fall: the arm trains at 0.3 times its peak learning rate, recorded), two held-out tables scored;
   3. the arms that passed are trained, largest declared memory first, at most rel.parallel at once and only while the
      memory their preflights measured fits beside what was free at the start;
   4. an arm that fails (preflight, training, its wall limit) is recorded with the end of its log and does not stop
@@ -44,13 +49,16 @@ from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common, w6_tools
 from seeddrift.train.rel import api, handoff
+from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
+from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
-BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "eval_per_group", "eval_points", "eval_every_cells", "final_per_group", "eval_max_rows", "max_steps",
-              "threads", "preflight_wall_s", "verify_files"}
+PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "max_steps")
+BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
+GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
 VARIANT_MAY = ("mask_weights", "micro", "note")
-PASS_ON = ("eval_per_group", "eval_points", "eval_every_cells", "final_per_group", "eval_max_rows", "max_steps")
 API_VERSION = getattr(api, "API", None) or getattr(api, "API_VERSION", None)
 NAME_RX = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -84,11 +92,14 @@ def settings(st, cfg) -> dict:
             raise SystemExit("rel_w6_fit.tables.%s: run, path, and optionally sha256 and split (0 or 1): %r" % (which, t))
         out["tables"][which] = dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256"), split=t.get("split"))
     for a in sc["arms"]:
-        if set(a) - {"variant", "seed", "budget_cells"} or not a.get("variant") or "seed" not in a:
-            raise SystemExit("rel_w6_fit.arms: each has a variant file and a seed, and optionally budget_cells: %r" % (a,))
+        if set(a) - {"variant", "seed", "budget_cells", "lr"} or not a.get("variant") or "seed" not in a:
+            raise SystemExit("rel_w6_fit.arms: each has a variant file and a seed, and optionally budget_cells and lr: %r" % (a,))
         v = load_variant(st, a["variant"])
+        lr = float(a["lr"]) if a.get("lr") is not None else float(v["optimizer"]["lr"])
+        if not 0 < lr < 0.1:
+            raise SystemExit("rel_w6_fit.arms: a peak learning rate in (0, 0.1): %r" % (a,))
         out["arms"].append(dict(name="%s-s%d" % (v["name"], int(a["seed"])), file=str(a["variant"]), sha256=sha256_file(st.repo(a["variant"]), use_sidecar=False),
-                                seed=int(a["seed"]), budget_cells=int(a["budget_cells"]) if a.get("budget_cells") else None, variant=v))
+                                seed=int(a["seed"]), budget_cells=int(a["budget_cells"]) if a.get("budget_cells") else None, lr=lr, variant=v))
     names = [a["name"] for a in out["arms"]]
     if len(set(names)) != len(names):
         raise SystemExit("rel_w6_fit.arms: an arm (variant and seed) is listed twice: %s" % names)
@@ -96,9 +107,10 @@ def settings(st, cfg) -> dict:
 
 
 def table_set(cfg, spec, verify) -> dict:
-    """The manifest of a table set of another run (of this machine, or copied to it), complete, with the record of the
-    sealed check made where the tables were built: handoff.from_run refuses a real set without it, and the check itself
-    needs the sealed registry, which only the machine that builds tables has."""
+    """The manifest of a table set of another run (of this machine, or copied to it): a hand-off file of a passed run,
+    with the record of the sealed check made where the tables were built (handoff.from_run refuses a real set without
+    it; the check itself needs the sealed registry, which only the machine that builds tables has), every file it
+    lists with its recorded hash."""
     try:
         doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"])
     except (handoff.HandoffError, OSError, ValueError) as err:
@@ -106,9 +118,9 @@ def table_set(cfg, spec, verify) -> dict:
     bad = handoff.tableset_problems(doc, spec["run"] if verify else "")
     if bad:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))
-    genomes = list(doc.get("genomes") or [])
-    seal = doc.get("sealed_check") or {}
-    return dict(doc=doc, sealed=dict(genomes=len(genomes), ids=seal.get("ids"), lineage=seal.get("lineage"), recorded_by=doc["producer"]["run_id"]))
+    groups = shards.group_names(spec["run"], doc)                     # the names the group column carries, as the baselines' rows
+    return dict(doc=doc, groups=groups, row_groups=dict(enumerate(groups)),
+                sealed=(doc.get("sealed_check") or {}).get("passed"), files_verified=bool(verify))
 
 
 def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
@@ -116,9 +128,10 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     tc = cfg.get("train") or {}
     conf = dict(name=arm["name"], author=v["author"], api=v["api"], model=v["model"], size=v["size"], objective=v["objective"], masks=v["masks"],
                 mask_weights=v.get("mask_weights"), layout=v["layout"], rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
-                lr=float(v["optimizer"]["lr"]), gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), seed=arm["seed"], budget_cells=arm["budget_cells"],
+                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), seed=arm["seed"], budget_cells=arm["budget_cells"],
                 wall_s=s["wall_s"], probe=s["probe"], threads=s["threads"], device="cpu" if tc.get("device") == "cpu" else "auto",
-                out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"])
+                out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
+                group_names={str(k): v for k, v in ((sets or {}).get("heldout") or {}).get("row_groups", {}).items()})
     for which in ("train", "heldout"):
         conf.update({which + "_tables": os.path.join(s["tables"][which]["run"], s["tables"][which]["path"]), which + "_root": s["tables"][which]["run"],
                      which + "_split": s["tables"][which]["split"]})
@@ -146,7 +159,7 @@ def build(st, cfg, run_dir):
                              % (which, t["doc"]["kind"]))
     if any(v["variant"]["tables"] != sets["train"]["doc"]["kind"] for v in s["arms"]):
         raise SystemExit("rel_w6_fit: a variant is written for another kind of tables than %s" % sets["train"]["doc"]["kind"])
-    st.extra.update(sealed_check={k: t["sealed"] for k, t in sets.items()}, tablesets={k: dict(name=t["doc"]["name"], sha256=t["doc"]["sha256"],
+    st.extra.update(sealed_record={k: t["sealed"] for k, t in sets.items()}, tablesets={k: dict(name=t["doc"]["name"], sha256=t["doc"]["sha256"],
                     kind=t["doc"]["kind"], tables=t["doc"]["tables"], run=os.path.basename(s["tables"][k]["run"])) for k, t in sets.items()},
                     model_env=py, parallel=parallel, device="cpu" if cpu else "auto")
     root = os.path.join(run_dir, OUT)
@@ -201,7 +214,7 @@ def build(st, cfg, run_dir):
                 continue
             pending.pop(0)
             x = arms[n]
-            conf = dict(read_json(x["conf"]), micro=int(x["preflight"]["micro"]))
+            conf = dict(read_json(x["conf"]), micro=int(x["preflight"]["micro"]), lr=float(x["preflight"]["lr"]))
             write_json(x["conf"], conf)
             proc, lg = w6_tools.start(py, "fit", x["conf"], os.path.join(x["folder"], "fit.log"), env)
             running[n] = (proc, lg, time.time() + s["wall_s"] + GRACE_S, time.time())
@@ -210,28 +223,25 @@ def build(st, cfg, run_dir):
     return finish(st, cfg, run_dir, s, sets, arms, schedule, free0, dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)))
 
 
-GRACE_S, POLL_S = 900, 5
-
-
 def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
     root = os.path.join(run_dir, OUT)
     results = os.path.join(root, "results.tsv")
-    with open(results + ".part", "w") as out:
-        out.write("\t".join(api.RESULT_ROW) + "\n")
-        for n, x in arms.items():
-            p = os.path.join(x["folder"], "results.tsv")
-            if os.path.exists(p):
-                with open(p) as f:
-                    out.writelines(f.readlines()[1:])
-    os.replace(results + ".part", results)
+    SC.write_rows(results, [r for x in arms.values() if os.path.exists(os.path.join(x["folder"], "results.tsv"))
+                            for r in SC.read_rows(os.path.join(x["folder"], "results.tsv"))])
     variants = []
     for n, x in arms.items():
         a, pre, summ = x["arm"], x["preflight"], x.get("summary") or {}
         info = dict(seed=a["seed"], budget_cells=a["budget_cells"], params=pre.get("params"), flops_per_cell=pre.get("flops_per_cell"), micro=pre.get("micro"),
-                    preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory")),
-                    steps=summ.get("steps"), cells_seen=summ.get("cells_seen"), target_cells=summ.get("target_cells"), cells_per_s=summ.get("cells_per_s"),
-                    peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"), final=summ.get("final"),
-                    best=summ.get("best"), versions=summ.get("versions"), wall_s=x.get("wall_s"), folder=os.path.relpath(x["folder"], run_dir))
+                    lr_peak=a["lr"], lr=pre.get("lr"), lr_reduced=pre.get("lr_reduced"),
+                    preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory"),
+                                   guard=pre.get("guard")),
+                    steps=summ.get("steps"), tables_seen=summ.get("tables_seen"), cells_seen=summ.get("cells_seen"), target_cells=summ.get("target_cells"),
+                    cells_per_s=summ.get("cells_per_s"), tables_per_s=summ.get("tables_per_s"), train_s=summ.get("train_s"), eval_s=summ.get("eval_s"),
+                    eval_overhead=summ.get("eval_overhead"), peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"),
+                    weights_read=summ.get("weights_read"), eval_subset=summ.get("eval_subset"), eval_final=summ.get("eval_final"),
+                    row_key_mask=summ.get("row_key_mask") or pre.get("row_key_mask"),
+                    final=summ.get("final"), final_items=summ.get("final_items"), best=summ.get("best"),
+                    versions=summ.get("versions"), wall_s=x.get("wall_s"), folder=os.path.relpath(x["folder"], run_dir))
         cks = []
         for which in ("final", "best"):
             p = os.path.join(x["folder"], which + ".pt")
@@ -243,6 +253,7 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
                               tablesets=[dict(run_id=os.path.basename(s["tables"][k]["run"]), name=t["doc"]["name"], sha256=t["doc"]["sha256"], use=k,
                                               split=s["tables"][k]["split"]) for k, t in sets.items()],
                               variants=variants, probe=s["probe"], wall_s=s["wall_s"], schedule=schedule, gpu_free_mb_at_start=free0, model_env=env_info,
+                              groups=sets["heldout"].get("groups") or [], row_groups={str(k): v for k, v in (sets["heldout"].get("row_groups") or {}).items()},
                               producer=dict(stage="w6_fit", package="W6", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     st.output("results", results)
     for v in variants:
@@ -259,14 +270,11 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
 
 
 def final_rows(run_dir):
-    """{arm: {condition: bits}} of the rows (final weights, all groups, all strata) of the stage's result table."""
+    """{arm: {condition: bits}} of the rows of the final evaluation (all groups, all strata) of the stage's result table."""
     out = {}
-    with open(os.path.join(run_dir, OUT, "results.tsv")) as f:
-        head = f.readline().rstrip("\n").split("\t")
-        for line in f:
-            r = dict(zip(head, line.rstrip("\n").split("\t")))
-            if r["weights"] == "final" and r["group"] == "all" and r["stratum"] == "all":
-                out.setdefault(r["variant"], {})[r["condition"]] = float(r["bits"])
+    for r in SC.read_rows(os.path.join(run_dir, OUT, "results.tsv")):
+        if r["weights"].endswith("@final") and r["group"] == SC.ALL and r["stratum"] == SC.ALL:
+            out.setdefault(r["variant"], {})[r["condition"]] = float(r["bits"])
     return out
 
 
@@ -281,11 +289,9 @@ def gate(st, cfg, run_dir):
         problems.append(dict(error="no arm was trained"))
     final = final_rows(run_dir)
     for v in ok:
-        want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or ["?"]
+        want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)
         have = final.get(v["name"], {})
         lack = [c for c in want if c not in have or not 0 < have[c] < 20]
-        # a table set without two other rows anywhere has no "repaired" condition: its row is then absent, not wrong
-        lack = [c for c in lack if not (c.endswith(api.COND_REPAIRED) and (v["info"].get("final") or {}).get(c, 0) is None)]
         if lack:
             problems.append(dict(arm=v["name"], error="no final row under %s" % ", ".join(lack)))
     failed = {v["name"]: (v.get("error") or "")[-600:] for v in doc.get("variants") or [] if v.get("status") != "ok"}
@@ -296,15 +302,20 @@ def gate(st, cfg, run_dir):
 def summary(run_dir):
     with open(os.path.join(run_dir, OUT, "models.json")) as f:
         doc = json.load(f)
-    arms, md = {}, ["| arm | status | parameters | steps | cells seen | cells/s | GPU MB (reserved) | tables per micro-batch | ended by |", "|---|---|---|---|---|---|---|---|---|"]
-    fmt = lambda x: "-" if x is None else ("{:,}".format(x) if isinstance(x, int) else str(x))
+    head = ["arm", "status", "parameters", "peak lr (used)", "steps", "tables seen", "cells seen", "cells/s", "GPU MB reserved", "tables per micro-batch",
+            "evaluation share", "ended by"]
+    arms, md = {}, ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    fmt = lambda x: "-" if x is None else ("{:,}".format(x) if isinstance(x, int) else str(x))        # noqa: E731
     for v in doc["variants"]:
         i = v["info"]
-        arms[v["name"]] = dict(status=v["status"], params=i["params"], steps=i["steps"], cells_seen=i["cells_seen"], target_cells=i["target_cells"],
-                               cells_per_s=i["cells_per_s"], peak_mb=i["peak_mb"], reserved_mb=i["reserved_mb"], micro=i["micro"], ended_by=i["ended_by"],
-                               final=i["final"], best=i["best"], preflight_cells_per_s=i["preflight"]["cells_per_s"], error=(v.get("error") or "")[-800:] or None)
-        md.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (v["name"], v["status"], fmt(i["params"]), fmt(i["steps"]), fmt(i["cells_seen"]), fmt(i["cells_per_s"]),
-                                                                 fmt(i["reserved_mb"]), fmt(i["micro"]), fmt(i["ended_by"])))
+        arms[v["name"]] = dict(status=v["status"], params=i["params"], lr=i.get("lr"), lr_reduced=i.get("lr_reduced"), steps=i["steps"],
+                               tables_seen=i.get("tables_seen"), cells_seen=i["cells_seen"], target_cells=i["target_cells"], cells_per_s=i["cells_per_s"],
+                               tables_per_s=i.get("tables_per_s"), peak_mb=i["peak_mb"], reserved_mb=i["reserved_mb"], micro=i["micro"],
+                               eval_overhead=i.get("eval_overhead"), ended_by=i["ended_by"], final=i["final"], best=i["best"],
+                               preflight_cells_per_s=i["preflight"]["cells_per_s"], error=(v.get("error") or "")[-800:] or None)
+        md.append("| " + " | ".join(fmt(x) for x in (v["name"], v["status"], i["params"], "%s%s" % (i.get("lr"), " (reduced)" if i.get("lr_reduced") else ""),
+                                                         i["steps"], i.get("tables_seen"), i["cells_seen"], i["cells_per_s"], i["reserved_mb"], i["micro"],
+                                                         i.get("eval_overhead"), i["ended_by"])) + " |")
     for v in doc["variants"]:
         if v["status"] != "ok":
             md += ["", "%s failed: `%s`" % (v["name"], " ".join((v.get("error") or "").split())[-600:])]

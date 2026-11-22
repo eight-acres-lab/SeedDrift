@@ -6,7 +6,15 @@ round has used is not changed afterwards (new behaviour is a switch or a new mod
   AxialBlock        row attention, column attention, feed-forward (pre-norm, residual)
   table_layout      which rows of a micro-batch belong to which table, padded for the column attention
 
-Attention is torch's scaled_dot_product_attention. Nothing here knows a row's index: rows are a set.
+Attention is torch's scaled_dot_product_attention. A key mask (cells that hold PAD) takes those cells out of both
+attentions as keys, through a finite additive bias (NEG): with -inf, a block of keys that are all masked turns the
+running maximum of a blockwise softmax into -inf - -inf = NaN (seen on the CPU kernel with a one-row table whose first
+half was PAD); a finite bias gives those keys a weight that underflows to exactly zero instead. The column attention
+is one short sequence per (table, column); the CUDA kernels take the number of sequences as a grid dimension, which
+may not exceed 65,535 (64 one-row tables of 1,024 columns are 65,536: "invalid configuration argument"), so it runs
+in chunks of COLUMN_CHUNK sequences. On a GPU the row attention runs on the memory-efficient kernel, named explicitly (a mask rules out
+the flash kernel; no silent fall-back to the quadratic one: it fails instead); the column attention, over at most 17
+keys, takes whatever kernel torch picks. Nothing here knows a row's index: rows are a set.
 """
 from __future__ import annotations
 
@@ -15,8 +23,28 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
-COMMON_VERSION = "1"
+COMMON_VERSION = "3"
+NEG = -1.0e4                                       # the additive bias of a masked key
+COLUMN_CHUNK = 32768                               # sequences per call of the column attention
+# The row attention with its key mask on a GPU: the memory-efficient kernel, decided at the first call of a process.
+# If that kernel refuses the call, the process falls back to the flash kernel without the mask (PAD cells are then keys
+# of the row attention) and says so here; the trainer writes this into preflight.json and summary.json.
+ROW_MASK = dict(state=None, error=None)
+
+
+def attention_chunked(q, k, v, bias, chunk):
+    """scaled_dot_product_attention over the leading (batch) axis in chunks of at most `chunk`."""
+    if q.shape[0] <= chunk:
+        return F.scaled_dot_product_attention(q, k, v, attn_mask=bias)
+    return torch.cat([F.scaled_dot_product_attention(q[i:i + chunk], k[i:i + chunk], v[i:i + chunk], attn_mask=bias[i:i + chunk])
+                      for i in range(0, q.shape[0], chunk)])
+
+
+def bias_of(mask, dtype):
+    """bool mask (True: may be attended to) -> the additive bias SDPA takes, in the queries' dtype."""
+    return torch.zeros(mask.shape, dtype=dtype, device=mask.device).masked_fill_(~mask, NEG)
 
 
 def rotary_tables(positions, pairs, base=10000.0):
@@ -61,10 +89,28 @@ class RowAttention(nn.Module):
         self.qkv = nn.Linear(width, 3 * width)
         self.out = nn.Linear(width, width)
 
-    def forward(self, x, cos, sin):
+    def forward(self, x, cos, sin, key_mask=None):
+        """key_mask: bool [N, C], the cells that may be attended to (None: all)."""
         N, C, d = x.shape
         q, k, v = self.qkv(x).view(N, C, 3, self.heads, self.head).permute(2, 0, 3, 1, 4)          # each [N, heads, C, head]
-        y = F.scaled_dot_product_attention(rotate(q, cos, sin), rotate(k, cos, sin), v)
+        q, k = rotate(q, cos, sin), rotate(k, cos, sin)
+        mask = None if key_mask is None else bias_of(key_mask, q.dtype)[:, None, None, :]
+        if not x.is_cuda:
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+        elif mask is not None and ROW_MASK["state"] is not False:
+            try:
+                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
+                    y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+                ROW_MASK["state"] = True
+            except RuntimeError as err:
+                if ROW_MASK["state"] is True or isinstance(err, torch.cuda.OutOfMemoryError):     # not a refusal of the kernel
+                    raise
+                ROW_MASK.update(state=False, error=str(err)[:500])
+                with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
+                    y = F.scaled_dot_product_attention(q, k, v)
+        else:
+            with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
+                y = F.scaled_dot_product_attention(q, k, v)
         return self.out(y.transpose(1, 2).reshape(N, C, d))
 
 
@@ -79,7 +125,8 @@ class ColumnAttention(nn.Module):
         self.no_source_key = nn.Parameter(torch.zeros(width))
         self.no_source_value = nn.Parameter(torch.zeros(width))
 
-    def forward(self, x, layout):
+    def forward(self, x, layout, key_mask=None):
+        """key_mask: bool [N, C], the cells that may be attended to (None: all)."""
         index, valid, mask = layout
         N, C, d = x.shape
         T, R = index.shape
@@ -87,8 +134,13 @@ class ColumnAttention(nn.Module):
         q, k, v = self.qkv(x)[index].view(T, R, C, 3, H, h).permute(3, 0, 2, 4, 1, 5).reshape(3, T * C, H, R, h)
         k = torch.cat([k, self.no_source_key.to(k.dtype).view(1, H, 1, h).expand(T * C, H, 1, h)], dim=2)
         v = torch.cat([v, self.no_source_value.to(v.dtype).view(1, H, 1, h).expand(T * C, H, 1, h)], dim=2)
-        m = mask[:, None, None].expand(T, C, 1, R, R + 1).reshape(T * C, 1, R, R + 1)
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=m)                                   # [T * C, H, R, h]
+        if key_mask is None:
+            m = mask[:, None, None].expand(T, C, 1, R, R + 1).reshape(T * C, 1, R, R + 1)
+        else:
+            keys = (key_mask[index] & valid[:, :, None]).permute(0, 2, 1)                          # [T, C, R]: row j's cell at column c
+            m = mask[:, None, :, :R] & keys[:, :, None, :]                                          # [T, C, R, R]
+            m = torch.cat([m, torch.ones(T, C, R, 1, dtype=torch.bool, device=m.device)], dim=3).reshape(T * C, 1, R, R + 1)
+        y = attention_chunked(q, k, v, bias_of(m, q.dtype), COLUMN_CHUNK)                          # [T * C, H, R, h]
         y = y.view(T, C, H, R, h).permute(0, 3, 1, 2, 4).reshape(T, R, C, d)
         return self.out(y[valid])
 
@@ -101,9 +153,9 @@ class AxialBlock(nn.Module):
         self.column = ColumnAttention(width, column_head)
         self.ff_in, self.ff_out = nn.Linear(width, ratio * width), nn.Linear(ratio * width, width)
 
-    def forward(self, x, cos, sin, layout):
-        x = x + self.row(self.norm_row(x), cos, sin)
-        x = x + self.column(self.norm_column(x), layout)
+    def forward(self, x, cos, sin, layout, key_mask=None):
+        x = x + self.row(self.norm_row(x), cos, sin, key_mask)
+        x = x + self.column(self.norm_column(x), layout, key_mask)
         return x + self.ff_out(F.gelu(self.ff_in(self.norm_ff(x))))
 
     def residual_outputs(self):

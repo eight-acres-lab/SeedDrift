@@ -1,46 +1,74 @@
-"""Stage rel_w6_report (package W6; pipeline rel_traineval): the learning curves of the arms set side by side, aligned
-by cells seen, next to the classical baselines scored on the same held-out tables. `python -m ci.stages.rel.w6_report
-RUN_DIR`. CPU only, numpy and the standard library; it reads result rows (api.RESULT_ROW) and nothing else of a model.
+"""Stage rel_w6_report (package W6; pipeline rel_traineval): the learning curves of the arms on the axis of tables seen,
+the readings today's ruling asks for, and the classical baselines on the same held-out tables. `python -m
+ci.stages.rel.w6_report RUN_DIR`. CPU only, numpy and the standard library; it reads result rows (the columns of the
+contract), the model index and each arm's preflight record, nothing of a model.
 
 Profile block rel_w6_report (all optional):
-  fits       [run directory, ...]: passed runs of this machine whose stage rel_w6_fit trained arms; their rows are set
-             beside those of this run (which comes first when its own rel_w6_fit ran)
-  baselines  [{run, path}]: result tables (the same columns; one `variant` per baseline, cells_seen 0) of runs of this
-             machine, e.g. the classical baselines of package W5
-  main       the condition of the headline curve (default scattered)
-Outputs under data/rel_w6/report/:
-  curves.tsv    every evaluation of every arm: cells seen, target cells, bits under each condition (all groups, all strata)
-  aligned.tsv   the curves of the main condition on one grid of cells seen (linear interpolation between an arm's
-                evaluations; empty beyond its last one), one column per arm
-  final.tsv     the final weights of every arm and every baseline: bits by condition, group and stratum
-  report.md     the tables a reader starts from; report.json the same as data, written last
-Every number is a development diagnosis under the stored placement: a hidden whole gene still has its relatives placed
-by the hidden residues, so "whole_gene" rows are upper bounds; rows were chosen among genomes that have a cell on the
-target gene, which favours relatives; one seed per arm, no noise floor.
-Gate G4_rel_w6_report: every trained arm has a curve of at least two evaluations and final bits under its conditions.
+  fits       [run directory, ...]: passed runs whose stage rel_w6_fit trained arms (of this machine, or copied to it
+             with record.json, stages/ and data/rel_w6/fit/); their rows are set beside those of this run (which comes
+             first when its own rel_w6_fit ran)
+  baselines  [{run, path}]: result tables of passed runs (the classical baselines of package W5: path
+             data/rel_w5/baselines/rows.tsv; its results.json beside it gives the digest of the cells it scored)
+  main       the condition of the headline curve (default scattered; an arm trained without relatives is read under
+             the same condition without relatives)
+Readings (each also in report.json):
+  arms          parameters, learning rate, steps, tables seen, passes over the training tables, throughput, memory
+  headline      the final evaluation by the identity of the nearest row (ten bins, the bin without other rows left
+                out), every condition, arms and baselines; then the eukaryotic groups apart from the others
+  relatives     what relatives are worth, twice: an arm without relatives at its best node against the arm of the
+                same size with relatives at its end, on all held-out tables; and the two at the same nodes, on the
+                tables of the nodes
+  scale         the arms with relatives at the last node all of them reached: "bigger is better" when the bits fall
+                with the size under both scattered and whole_gene, else "cannot be read"
+  re-pairing    whole_gene against whole_gene+repaired on the tables that can be re-paired (paired)
+  check         on the tables without other rows an arm's scattered and scattered+no_relatives bits must agree, and
+                its whole_gene and whole_gene+no_relatives bits
+  curves        every evaluation of every arm at the nodes of tables seen (the same nodes for every arm)
+Outputs under data/rel_w6/report/: curves.tsv, aligned.tsv, final.tsv, report.md and, written last, report.json.
+Gate G4_rel_w6_report: every trained arm has a curve of at least two evaluations and final bits under its conditions,
+the report states its caveats, and no digest comparison with the baselines failed.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 
-import numpy as np
+import yaml
 
 from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common
-from seeddrift.train.rel import api, handoff
-from seeddrift.train.rel.data import heldout_plan as H
-from seeddrift.train.rel.trainer import rows as W
+from seeddrift.train.rel import handoff
+from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
 
 OUT = os.path.join("data", "rel_w6", "report")
 FIT = os.path.join("data", "rel_w6", "fit")
+NODE_RX = re.compile(r"^(ema|raw)@tables=(\d+)$")
+NO_REL = "+" + cond.NO_RELATIVES
+EUKARYOTE_PREFIX = "eukaryota."
+NONE_BIN = SC.FINE[-1]
 CAVEATS = [
-    "stored placement: a hidden whole gene keeps its relatives placed by the hidden residues, so whole_gene rows are upper bounds; scattered is the main reading",
-    "rows were drawn among training genomes that have a cell on the target gene, which similarity decided: what relatives are worth is overestimated",
-    "one seed per arm and no noise floor: only large effects (relatives or not, the trend over sizes) are read",
-    "development diagnosis, not a round of the selection; curves end where the learning rate reaches zero, so their last stretch is shaped by the schedule",
+    "Lower bits are better. Under the stored placement the relatives of a hidden whole gene are placed by its hidden residues, so "
+    "the whole_gene bits are biased low (optimistic), the value of relatives under that condition is overestimated and the cost of "
+    "re-pairing underestimated; the scattered bits are biased low only slightly (not measured); the two conditions without "
+    "relatives have no such leak.",
+    "The direction of the remaining bias is unknown: rows were drawn by similarity, which raises what relatives are worth; whole "
+    "held-out clusters have no close relatives and the 15 other rows are drawn at random, which lowers it; close relatives are not "
+    "covered at all.",
+    "The strata are the identity of the nearest row over the aligned part of the target block: short, very similar fragments enter "
+    "the top bins, so a flat top bin does not show that close relatives are of no use.",
+    "The classical baselines are weak (no codon substitution model, no amino-acid model): they are a lower bound on what relatives "
+    "are worth, not an estimate of it.",
+    "Training masks: the three schemes (scattered 15% on every row, one span of one row, the whole target gene of row 0) are drawn "
+    "with equal chances; the loss is the mean over every hidden cell of the four tables of a step. About half of the loss of the arm "
+    "without relatives falls on whole genes and about a sixth of that of the arms with relatives: they optimise different mixtures.",
+    "One seed per arm, no noise floor, learning rates set by width and not tuned (a warm-up over 1,000 steps, then constant): only "
+    "large effects in one direction count. Throughput and memory were measured on GPUs that other users' processes shared.",
+    "The eukaryotic groups hold only the first 1,500 genes of each genome; they are reported apart from the prokaryotes, plasmids "
+    "and viruses, and the mean over all groups is not the headline.",
 ]
 
 
@@ -50,7 +78,7 @@ def settings(cfg) -> dict:
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     base = [dict(run=str(b["run"]), path=str(b["path"])) for b in sc.get("baselines") or []]
-    return dict(fits=[str(x) for x in sc.get("fits") or []], baselines=base, main=str(sc.get("main", H.SCATTERED)))
+    return dict(fits=[str(x) for x in sc.get("fits") or []], baselines=base, main=str(sc.get("main", cond.SCATTERED)))
 
 
 def number(x):
@@ -60,16 +88,33 @@ def number(x):
         return None
 
 
-def collect(run_dir, cfg, s):
-    """Rows and model indexes of this run's fit stage and of the other runs named; baseline rows."""
+def read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def variant_of(st, path):
+    """relatives and size of an arm's variant file (from this commit; the model index names it and its hash)."""
+    try:
+        with open(st.repo(path)) as f:
+            v = yaml.safe_load(f)
+        return dict(relatives=bool(v.get("relatives", True)), size=v.get("size"))
+    except (OSError, ValueError, AttributeError):
+        return dict(relatives=True, size=None)
+
+
+def collect(st, run_dir, s):
+    """Rows, arms (model index entries with their run and variant), baseline rows and digests, sources, group names."""
     fits = ([run_dir] if os.path.exists(os.path.join(run_dir, FIT, "models.json")) else []) + [f for f in s["fits"] if os.path.realpath(f) != os.path.realpath(run_dir)]
     if not fits:
         raise SystemExit("rel_w6_report: no fit to report (this run trained nothing and rel_w6_report.fits names no run)")
-    rows, arms, sources = [], {}, []
+    rows, arms, sources, groups = [], {}, [], []
     for f in fits:
         if f == run_dir:
-            with open(os.path.join(f, FIT, "models.json")) as fh:
-                doc = json.load(fh)
+            doc = read_json(os.path.join(f, FIT, "models.json"))
         else:
             try:
                 doc = handoff.from_run(f, os.path.join(FIT, "models.json"))
@@ -78,77 +123,61 @@ def collect(run_dir, cfg, s):
         for v in doc["variants"]:
             if v["name"] in arms:
                 raise SystemExit("rel_w6_report: arm %s is in two of the runs reported" % v["name"])
-            arms[v["name"]] = dict(v, run=os.path.basename(f))
-        rows += W.read_rows(os.path.join(f, FIT, "results.tsv"))
+            pre = read_json(os.path.join(f, v["info"]["folder"], "preflight.json")) or {}
+            arms[v["name"]] = dict(v, run=os.path.basename(f), variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"))
+        rows += SC.read_rows(os.path.join(f, FIT, "results.tsv"))
+        groups = groups or list(doc.get("groups") or [])
         sources.append(dict(run=os.path.basename(f), models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
-    base = []
+    base, digests = [], {}
     for b in s["baselines"]:
         p = os.path.join(b["run"], b["path"])
-        rec = os.path.join(b["run"], "record.json")
-        status = json.load(open(rec)).get("status") if os.path.exists(rec) else None
+        status = (read_json(os.path.join(b["run"], "record.json")) or {}).get("status")
         if status != "passed":
             raise SystemExit("rel_w6_report: the baselines' run %s is %s, not passed" % (b["run"], status))
-        got = W.read_rows(p)
+        got = SC.read_rows(p)
         base += got
+        items = (read_json(os.path.join(os.path.dirname(p), "results.json")) or {}).get("items") or {}
+        digests.update({c: x.get("sha256") for c, x in items.items() if isinstance(x, dict)})
         sources.append(dict(run=os.path.basename(b["run"]), baselines=b["path"], sha256=sha256_file(p, use_sidecar=False), rows=len(got)))
-    return rows, arms, base, sources
+    return rows, arms, base, digests, sources, groups
 
 
-def curves(rows, arms):
-    """{arm: [{cells_seen, target_cells, weights, condition: bits}]} over the evaluations (all groups, all strata), by cells seen."""
+def point_of(r):
+    """('node', tables) / ('final', None) / ('best', tables) of a result row of an arm; None for another row."""
+    m = NODE_RX.match(r["weights"])
+    if m:
+        return "node", int(m.group(2))
+    if r["weights"].endswith("@final"):
+        return "final", None
+    if r["weights"].endswith("@best"):
+        t = re.match(r"^tables=(\d+)", r.get("budget") or "")
+        return "best", int(t.group(1)) if t else None
+    return None
+
+
+def index_rows(rows, arms, base):
+    """{(arm, point, tables, condition, group, stratum): bits}; baselines under point 'final'."""
     out = {}
     for r in rows:
-        if r["group"] == W.ALL and r["stratum"] == W.ALL and r["variant"] in arms:
-            key = (int(r["cells_seen"]), r["weights"] == "final")
-            point = out.setdefault(r["variant"], {}).setdefault(key, dict(cells_seen=int(r["cells_seen"]), target_cells=int(r["target_cells"]),
-                                                                       weights=r["weights"], item_half=r["item_half"], n_items={}))
-            point[r["condition"]] = float(r["bits"])
-            point["n_items"][r["condition"]] = int(r["n_items"])
-    return {a: [pts[k] for k in sorted(pts)] for a, pts in out.items()}
-
-
-def without_relatives(main):
-    """The main condition without relatives (api.condition joins names in the contract's fixed order)."""
-    return api.condition(main, api.COND_NO_RELATIVES)
-
-
-def aligned(cv, main):
-    """The main condition of every arm on one grid of cells seen. The subset points make the curve (the final point is
-    scored on all tables, another set of items, and is listed in final.tsv). An arm without relatives is scored under
-    the conditions without relatives only, so its curve is the main condition without relatives."""
-    def cond(pts):
-        alt = without_relatives(main)
-        return main if any(main in p for p in pts) else alt
-    series = {}
-    for a, pts in cv.items():
-        c = cond(pts)
-        series[a] = [(p["cells_seen"], p[c]) for p in pts if p["weights"] != "final" and c in p]
-    series = {a: x for a, x in series.items() if len(x) >= 2}
-    if not series:
-        return [], []
-    steps = [np.median(np.diff([c for c, _ in x])) for x in series.values()]
-    step = float(max(steps))
-    top = max(x[-1][0] for x in series.values())
-    grid = np.arange(0, top + step / 2, step)
-    table = []
-    for g in grid:
-        row = [int(g)]
-        for a in sorted(series):
-            xs, ys = zip(*series[a])
-            row.append(float(np.interp(g, xs, ys)) if g <= xs[-1] else None)
-        table.append(row)
-    return ["cells_seen"] + sorted(series), table
-
-
-def final_table(rows, base, arms):
-    """[(kind, variant, condition, group, stratum, bits, n_items)] of the final weights and of the baselines."""
-    out = []
-    for r in rows:
-        if r["weights"] == "final" and r["variant"] in arms:
-            out.append(("model", r["variant"], r["condition"], r["group"], r["stratum"], float(r["bits"]), int(r["n_items"])))
+        if r["variant"] not in arms:
+            continue
+        p = point_of(r)
+        if p is not None:
+            out[(r["variant"], p[0], p[1], r["condition"], r["group"], r["stratum"])] = float(r["bits"])
     for r in base:
         if number(r["bits"]) is not None:
-            out.append(("baseline", r["variant"], r["condition"], r["group"], r["stratum"], float(r["bits"]), int(number(r["n_items"]) or 0)))
+            out[(r["variant"], "final", None, r["condition"], r["group"], r["stratum"])] = float(r["bits"])
+    return out
+
+
+def same_items(arms, digests):
+    """{condition: whether every trained arm scored, in its final evaluation, the cells the baselines scored}; only
+    conditions for which both digests are known."""
+    out = {}
+    for c in cond.CONDITIONS:
+        mine = {(a["info"].get("final_items") or {}).get(c) for a in arms.values() if a["status"] == "ok"} - {None}
+        if mine and digests.get(c):
+            out[c] = mine == {digests[c]}
     return out
 
 
@@ -160,61 +189,165 @@ def tsv(path, header, table):
 
 
 def md_table(header, table):
-    fmt = lambda x: "" if x is None else ("%.3f" % x if isinstance(x, float) else ("{:,}".format(x) if isinstance(x, int) else str(x)))
+    fmt = lambda x: "" if x is None else ("%.3f" % x if isinstance(x, float) else ("{:,}".format(x) if isinstance(x, int) else str(x)))      # noqa: E731
     return ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + ["| " + " | ".join(fmt(x) for x in row) + " |" for row in table]
+
+
+def diff(a, b):
+    return None if a is None or b is None else a - b
 
 
 def build(st, cfg, run_dir):
     s = settings(cfg)
-    rows, arms, base, sources = collect(run_dir, cfg, s)
+    rows, arms, base, digests, sources, groups = collect(st, run_dir, s)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
-    cv = curves(rows, arms)
-    conds = [c for c in H.CONDITIONS if any(c in p for pts in cv.values() for p in pts)]
-    tsv(os.path.join(folder, "curves.tsv"), ["arm", "weights", "items", "cells_seen", "target_cells"] + conds,
-        [[a, p["weights"], p["item_half"], p["cells_seen"], p["target_cells"]] + [p.get(c) for c in conds] for a in sorted(cv) for p in cv[a]])
-    head, grid = aligned(cv, s["main"])
-    tsv(os.path.join(folder, "aligned.tsv"), head or ["cells_seen"], grid)
-    fin = final_table(rows, base, arms)
-    tsv(os.path.join(folder, "final.tsv"), ["kind", "variant", "condition", "group", "stratum", "bits", "n_items"], fin)
+    bits = index_rows(rows, arms, base)
+    ok = sorted(a for a in arms if arms[a]["status"] == "ok")
+    rel = [a for a in ok if arms[a]["variant"]["relatives"]]
+    norel = [a for a in ok if not arms[a]["variant"]["relatives"]]
+    bnames = sorted({r["variant"] for r in base if number(r["bits"]) is not None})
     names = sorted(arms)
-    bnames = sorted({r[1] for r in fin if r[0] == "baseline"})
-    cell = {(r[1], r[2], r[3], r[4]): r[5] for r in fin}
+    cols = names + bnames
+    F = lambda v, c, g=SC.ALL, x=SC.ALL: bits.get((v, "final", None, c, g, x))                     # noqa: E731
+    N = lambda v, t, c, g=SC.ALL, x=SC.ALL: bits.get((v, "node", t, c, g, x))                       # noqa: E731
+    conds = [c for c in cond.CONDITIONS if any(F(v, c) is not None for v in cols)]
+    reading = {a: (s["main"] if a in rel else s["main"] + NO_REL) for a in names}
+    nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
+    same = same_items(arms, digests)
+
+    # arms
     arm_rows = []
     for a in names:
         i = arms[a]["info"]
-        arm_rows.append([a, arms[a]["status"], i.get("params"), i.get("steps"), i.get("cells_seen"), i.get("target_cells"), number(i.get("cells_per_s")),
-                         number((i.get("preflight") or {}).get("cells_per_s")), i.get("reserved_mb"), i.get("peak_mb"), i.get("micro"), i.get("ended_by"), i.get("wall_s")])
-    by_cond = [[c] + [cell.get((v, c, W.ALL, W.ALL)) for v in names + bnames] for c in conds]
-    strata = [[c, x] + [cell.get((v, c, W.ALL, x)) for v in names + bnames] for c in conds for x in H.STRATA
-              if any((v, c, W.ALL, x) in cell for v in names + bnames)]
-    groups = sorted({r[3] for r in fin if r[3] != W.ALL})
-    by_group = [[g] + [cell.get((v, s["main"], g, W.ALL)) for v in names + bnames] for g in groups]
-    md = ["# Relational line: learning curves of the reference trunk", "", "Bits per codon of the examined row's target block on held-out tables. " +
-          "Development diagnosis:", ""] + ["- " + c for c in CAVEATS] + ["", "## Arms: throughput and memory as measured", ""]
-    md += md_table(["arm", "status", "parameters", "steps", "cells seen", "target cells", "cells/s (training)", "cells/s (preflight, alone)", "GPU MB reserved",
-                    "GPU MB allocated", "tables per micro-batch", "ended by", "wall s"], arm_rows)
-    md += ["", "## Final weights, all held-out tables: bits per codon by condition (mean of the groups)", ""] + md_table(["condition"] + names + bnames, by_cond)
-    md += ["", "## By the identity of the nearest row (target block)", ""] + md_table(["condition", "nearest identity"] + names + bnames, strata)
-    md += ["", "## By group, condition %s" % s["main"], ""] + md_table(["group"] + names + bnames, by_group)
-    md += ["", "## Curves of condition %s, aligned by cells seen (the subset of held-out tables scored on the way)" % s["main"], ""] + (md_table(head, grid) if head else ["no curve"])
+        passes = (i.get("tables_seen") or 0) / arms[a]["train_tables"] if arms[a]["train_tables"] else None
+        arm_rows.append([a, arms[a]["run"], arms[a]["status"], "yes" if arms[a]["variant"]["relatives"] else "no", i.get("params"), i.get("lr"),
+                         "yes" if i.get("lr_reduced") else "no", i.get("steps"), i.get("tables_seen"), passes, number(i.get("cells_per_s")),
+                         number(i.get("tables_per_s")), i.get("reserved_mb"), i.get("micro"), number(i.get("eval_overhead")), i.get("ended_by"),
+                         (i.get("row_key_mask") or {}).get("state")])
+    # headline: by stratum (ten bins, without the bin of tables without other rows), then the eukaryotic groups apart
+    headline = [[c, x.replace(SC.FINE_PREFIX, "")] + [F(v, c, SC.ALL, x) for v in cols] for c in conds for x in SC.FINE
+                if x != NONE_BIN and any(F(v, c, SC.ALL, x) is not None for v in cols)]
+    group_set = sorted({k[4] for k in bits if k[4] != SC.ALL})
+    euk = [g for g in group_set if g.startswith(EUKARYOTE_PREFIX)]
+    rest = [g for g in group_set if not g.startswith(EUKARYOTE_PREFIX)]
+
+    def mean_of(v, c, gs):
+        xs = [F(v, c, g) for g in gs]
+        xs = [x for x in xs if x is not None]
+        return sum(xs) / len(xs) if xs else None
+    blocks = [[c, label] + [mean_of(v, c, gs) for v in cols] for c in conds for label, gs in (("eukaryotes (%d groups)" % len(euk), euk),
+                                                                                                ("prokaryotes, plasmids, viruses (%d groups)" % len(rest), rest)) if gs]
+    by_group = [[g, "eukaryote" if g in euk else "other"] + [F(v, s["main"] if v not in norel else s["main"] + NO_REL, g) for v in cols] for g in group_set]
+
+    # what relatives are worth, twice
+    relatives = []
+    for b in norel:
+        size = arms[b]["variant"]["size"]
+        partners = [a for a in rel if arms[a]["variant"]["size"] == size] or rel
+        best = arms[b]["info"].get("best") or {}
+        has_best = any(k[0] == b and k[1] == "best" for k in bits)
+        for a in partners:
+            for c in (cond.SCATTERED, cond.WHOLE_GENE):
+                b_end = bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, SC.ALL)) if has_best else None
+                b_end = b_end if b_end is not None else F(b, c + NO_REL)
+                common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
+                last = common_nodes[-1] if common_nodes else None
+                relatives.append(dict(with_relatives=a, without=b, condition=c, without_at="best node (tables %s)" % best.get("tables_seen") if has_best else "end",
+                                      bits_without=b_end, bits_with_end=F(a, c), worth_all_tables=diff(b_end, F(a, c)),
+                                      same_model_rows_removed=diff(F(a, c + NO_REL), F(a, c)), node=last,
+                                      worth_at_node=diff(N(b, last, c + NO_REL), N(a, last, c)) if last else None,
+                                      per_node=[[t, N(b, t, c + NO_REL), N(a, t, c), diff(N(b, t, c + NO_REL), N(a, t, c))] for t in common_nodes]))
+    # scale: the arms with relatives at the last node all of them reached
+    scale = None
+    if len(rel) >= 2:
+        common_nodes = sorted(set.intersection(*[set(nodes.get(a, [])) for a in rel]) - {0})
+        if common_nodes:
+            t = common_nodes[-1]
+            order = sorted(rel, key=lambda a: arms[a]["info"].get("params") or 0)
+            falls = all(all(N(order[j + 1], t, c) is not None and N(order[j], t, c) is not None and N(order[j + 1], t, c) < N(order[j], t, c)
+                            for j in range(len(order) - 1)) for c in (cond.SCATTERED, cond.WHOLE_GENE))
+            scale = dict(node=t, arms=order, bits={a: {c: N(a, t, c) for c in (cond.SCATTERED, cond.WHOLE_GENE)} for a in order},
+                         verdict="bigger is better" if falls else "cannot be read")
+    # re-pairing, on the tables that can be re-paired
+    two = SC.OTHER_ROWS[2]
+    repair = [[v, F(v, cond.WHOLE_GENE, SC.ALL, two), F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two),
+               diff(F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two), F(v, cond.WHOLE_GENE, SC.ALL, two))] for v in rel + bnames
+              if F(v, cond.WHOLE_GENE + "+" + cond.REPAIRED, SC.ALL, two) is not None]
+    # the free check: tables without other rows
+    zero = SC.OTHER_ROWS[0]
+    check = [[a, c, F(a, c, SC.ALL, zero), F(a, c + NO_REL, SC.ALL, zero), diff(F(a, c, SC.ALL, zero), F(a, c + NO_REL, SC.ALL, zero))]
+             for a in rel for c in (cond.SCATTERED, cond.WHOLE_GENE)]
+    # curves
+    curve_rows, all_nodes = [], sorted({t for a in names for t in nodes.get(a, [])})
+    for a in names:
+        for t in nodes.get(a, []):
+            curve_rows.append([a, "node", t] + [N(a, t, c) for c in conds])
+        curve_rows.append([a, "final", arms[a]["info"].get("tables_seen")] + [F(a, c) for c in conds])
+    tsv(os.path.join(folder, "curves.tsv"), ["arm", "point", "tables_seen"] + conds, curve_rows)
+    head = ["tables_seen"] + ["%s (%s)" % (a, reading[a]) for a in names]
+    grid = [[t] + [N(a, t, reading[a]) for a in names] for t in all_nodes]
+    tsv(os.path.join(folder, "aligned.tsv"), head, grid)
+    fin = [["model" if v in arms else "baseline", v, c, g, x, bits[(v, p, t, c, g, x)]] for (v, p, t, c, g, x) in sorted(bits, key=str) if p == "final"]
+    tsv(os.path.join(folder, "final.tsv"), ["kind", "variant", "condition", "group", "stratum", "bits"], fin)
+
+    md = ["# Relational line: the reference trunk's first curves", "",
+          "Bits per codon of the hidden residues of the examined row's target block, on held-out tables (lower is better). "
+          "Development diagnosis. What the numbers do not show:", ""] + ["- " + c for c in CAVEATS]
+    md += ["", "## Arms", ""] + md_table(["arm", "run", "status", "relatives", "parameters", "peak lr", "lr reduced by the preflight", "steps", "tables seen",
+                                         "passes over the training tables", "cells/s", "tables/s", "GPU MB reserved", "tables per micro-batch",
+                                         "evaluation share of training time", "ended by", "masked row attention"], arm_rows)
+    md += ["", "## Headline: final evaluation on all held-out tables, by the identity of the nearest row (mean of the groups)", ""]
+    md += md_table(["condition", "nearest identity"] + cols, headline)
+    if bnames:
+        md += ["", "Arms and baselines scored the same cells (digests of the scored cells): %s." % (
+            ", ".join("%s %s" % (c, "yes" if v else "NO") for c, v in same.items()) or "not known (no digests beside the baseline rows)")]
+    md += ["", "### Eukaryotic groups apart from the others (mean of the groups, all strata)", ""] + md_table(["condition", "groups"] + cols, blocks)
+    md += ["", "## What relatives are worth", "",
+           "Bits without relatives minus bits with them (positive: relatives help). First on all held-out tables: the arm without relatives at "
+           "its best node against the arm of the same size with relatives at its end (conservative while the curve with relatives still falls); "
+           "then at the same node, on the tables of the nodes. The column 'same model' removes the rows from the arm with relatives at evaluation.", ""]
+    md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth, all tables", "same model, rows removed",
+                    "last common node", "worth at that node"],
+                   [[r["with_relatives"], r["without"], r["condition"], r["without_at"], r["bits_without"], r["bits_with_end"], r["worth_all_tables"],
+                     r["same_model_rows_removed"], r["node"], r["worth_at_node"]] for r in relatives])
+    md += ["", "## Scale", ""]
+    if scale:
+        md += ["At the last node every arm with relatives reached (%s tables seen): %s." % ("{:,}".format(scale["node"]), scale["verdict"]), ""]
+        md += md_table(["arm", "parameters", "scattered", "whole_gene"], [[a, arms[a]["info"].get("params"), scale["bits"][a][cond.SCATTERED],
+                                                                            scale["bits"][a][cond.WHOLE_GENE]] for a in scale["arms"]])
+        md += ["", "The rule: bigger is better only when the bits fall with every step in size under both conditions; otherwise the scale cannot be read."]
+    else:
+        md += ["Fewer than two arms with relatives, or no node all of them reached."]
+    md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
+    md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
+    md += ["", "No difference would not show that the relation blocks go unused."]
+    md += ["", "## A check: tables without other rows", "",
+           "There an arm reads the same table with and without relatives, so the two columns must agree (up to rounding).", ""]
+    md += md_table(["arm", "condition", "with relatives", "without", "difference"], check)
+    md += ["", "## By group (final evaluation; condition %s, an arm without relatives under %s)" % (s["main"], s["main"] + NO_REL), ""]
+    md += md_table(["group", "block"] + cols, by_group)
+    md += ["", "## Curves at equal tables seen (the first held-out tables of every group at every node)", ""] + (md_table(head, grid) if grid else ["no curve"])
     for a in names:
         if arms[a]["status"] != "ok":
             md += ["", "%s failed: `%s`" % (a, " ".join((arms[a].get("error") or "").split())[-600:])]
     with open(os.path.join(folder, "report.md"), "w") as f:
         f.write("\n".join(md) + "\n")
-    report = dict(main=s["main"], caveats=CAVEATS, sources=sources, conditions=conds,
-                  arms={a: dict(status=arms[a]["status"], run=arms[a]["run"], info=arms[a]["info"], evaluations=len(cv.get(a, [])),
-                                final={c: cell.get((a, c, W.ALL, W.ALL)) for c in conds}) for a in names},
-                  baselines={b: {c: cell.get((b, c, W.ALL, W.ALL)) for c in conds} for b in bnames},
-                  aligned=dict(columns=head, rows=grid), by_condition=dict(columns=["condition"] + names + bnames, rows=by_cond),
-                  by_stratum=dict(columns=["condition", "stratum"] + names + bnames, rows=strata), by_group=dict(columns=["group"] + names + bnames, rows=by_group))
+    report = dict(main=s["main"], caveats=CAVEATS, sources=sources, conditions=conds, groups=groups, same_items=same,
+                  arms={a: dict(status=arms[a]["status"], run=arms[a]["run"], relatives=arms[a]["variant"]["relatives"], info=arms[a]["info"],
+                                evaluations=len(nodes.get(a, [])) + (1 if any(F(a, c) is not None for c in conds) else 0),
+                                final={c: F(a, c) for c in conds}) for a in names},
+                  baselines={b: {c: F(b, c) for c in conds} for b in bnames},
+                  headline=dict(columns=["condition", "stratum"] + cols, rows=headline), blocks=dict(columns=["condition", "groups"] + cols, rows=blocks),
+                  relatives=relatives, scale=scale, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
+                  check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
+                  aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group))
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))
     p = os.path.join(folder, "report.json")
     write_json(p, report)                                                 # the rule's target last
     st.output("report", p)
-    st.extra.update(arms=len(names), baselines=bnames, conditions=conds)
+    st.extra.update(arms=len(names), baselines=bnames, conditions=conds, same_items=same, scale=(scale or {}).get("verdict"))
     return report
 
 
@@ -231,10 +364,13 @@ def gate(st, cfg, run_dir):
             problems.append(dict(arm=a, error="a curve of %d evaluations" % x["evaluations"]))
         if not any(v is not None for v in x["final"].values()):
             problems.append(dict(arm=a, error="no final bits"))
-    if len(rep.get("caveats") or []) < 4:
+    if len(rep.get("caveats") or []) < 5:
         problems.append(dict(error="the report does not state what it does not show"))
+    if not all((rep.get("same_items") or {}).values()):
+        problems.append(dict(error="arms and baselines were not scored on the same cells", same_items=rep.get("same_items")))
     require(GateResult("G4_rel_w6_report", "fail" if problems else "pass",
-                       dict(problems=problems[:20], arms={a: x["final"] for a, x in rep["arms"].items()}, baselines=sorted(rep["baselines"]))), run_dir)
+                       dict(problems=problems[:20], arms={a: x["final"] for a, x in rep["arms"].items()}, baselines=sorted(rep["baselines"]),
+                            same_items=rep.get("same_items"), scale=(rep.get("scale") or {}).get("verdict"))), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False)])
 
 
@@ -243,10 +379,14 @@ def summary(run_dir):
         rep = json.load(f)
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
-    small = dict(main=rep["main"], caveats=rep["caveats"], by_condition=rep["by_condition"], by_stratum=rep["by_stratum"], aligned=rep["aligned"],
-                 arms={a: dict(status=x["status"], final=x["final"], cells_seen=x["info"].get("cells_seen"), cells_per_s=x["info"].get("cells_per_s"),
-                               reserved_mb=x["info"].get("reserved_mb"), params=x["info"].get("params")) for a, x in rep["arms"].items()},
+    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), headline=rep["headline"],
+                 relatives=[{k: r[k] for k in r if k != "per_node"} for r in rep["relatives"]],
+                 arms={a: dict(status=x["status"], final=x["final"], tables_seen=x["info"].get("tables_seen"), cells_seen=x["info"].get("cells_seen"),
+                               cells_per_s=x["info"].get("cells_per_s"), reserved_mb=x["info"].get("reserved_mb"), params=x["info"].get("params"),
+                               lr=x["info"].get("lr")) for a, x in rep["arms"].items()},
                  baselines=rep["baselines"])
+    if len(json.dumps(small, default=str)) > 18000:
+        small.pop("headline")
     return dict(json=small, md=["####" + line[2:] if line.startswith("## ") else line for line in md[1:]])
 
 

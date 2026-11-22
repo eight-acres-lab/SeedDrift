@@ -1,0 +1,87 @@
+# The lock calendar of the relational-model line, 2026-11-23 to 2026-11-29 (task breakdown 8.3; written by the
+# coordinator C0, version 1 of 2026-11-22). Times UTC+8, approximate; dates are targets, a day late is better than
+# rushed. Every machine has two locks: gpu (profiles without the line `needs_gpu: false`) and select (profiles with it).
+# A second launch on a held lock is refused, never queued.
+#
+# Rules this calendar follows
+# - Round rhythm (8.6, the user: "10 个小时到 12 个小时均可。最好是训练一个长一些的，多验证几个短的"): one long training
+#   (10 to 12 h) alone on i-2's A100 (one training at a time beside the vLLM service, which is never stopped), and the
+#   short ones (3 to 5 h each, three at once) on i-1.
+# - Long CPU runs go on a machine that is not training at the time; they come in parts of at most 3 hours. i-1's CPU
+#   quota is shared with other users' processes (on 2026-11-22 from about 17:20 to 18:30 it was full), so a CPU run there
+#   may be slow; i-2 has 8 CPUs.
+# - All select runs of one machine on one day go into one combined profile (rel-dev-c0-day<MMDD>-<machine>) unless a
+#   run is long or depends on another's output; runs under 15 minutes may run whenever the lock is free.
+# - Besides a training, a CPU run uses at most 2 threads.
+# - A package asks for a slot with a request file (configs/rel/requests/); the coordinator moves slots and records it here.
+version: 1
+days:
+  "2026-11-23":
+    i1:
+      gpu:
+        - {from: "01:15", to: "05:45", what: "round 1a, the short arms (three at once, wall_s 14,400 each): w6-ref30m at 1.5e-4 and 6e-4, the hierarchical output head; the 100 M arm at the other learning rate replaces the head when the three do not fit", packages: [W6], status: planned}
+        - {from: "06:00", to: "24:00", what: "open: a re-check the programme lead asks for after round 1a", status: open}
+      select:
+        - {from: "00:45", to: "01:15", what: "W6's ladder report (both 30 M seeds) and, after the 4e-4 run, the learning-rate report; minutes each", packages: [W6], status: planned}
+        - {from: "06:00", to: "09:00", what: "W12's 1 % trial of the uncapped search (database the 711 training genomes; queries 1 % of the 989 training and held-out genomes, stratified over the 12 groups; the thread count of the full run); wall time, rows, bytes per row, disk extrapolated", packages: [W2], status: planned}
+        - {from: "09:30", to: "10:30", what: "combined CPU profile of the day (rel-dev-c0-day1123-i1), whatever packages ask for", status: open}
+    i2:
+      gpu:
+        - {from: "00:40", to: "11:45", what: "round 1a, the long arm (wall_s 39,600): w6-ref100m-lr4e-4 or w6-ref30m (3e-4), by the evening's learning-rate check (profiles rel-r1along100m-i2, rel-r1along30m-i2 on branch exp/rel-r1a)", packages: [W6], status: planned}
+      select:
+        - {from: "12:00", to: "15:00", what: "fallback window of W12's 1 % trial (the medium corpus proteins are on i-2 already: run 20261120T172756-exp-truth-labels-1c99f934-selfsup-medium-r3-i2, checked by sha256 on 2026-11-22; no copy needed)", packages: [W2], status: fallback}
+  "2026-11-24":
+    i1:
+      select:
+        - {from: "08:00", to: "09:30", what: "combined CPU profile (rel-dev-c0-day1124-i1): W13 step 1, the census of close relatives per group (no download); the CPU smoke runs of W6's evaluation-only stage and hierarchical head", packages: [W13, W6], status: planned}
+        - {from: "10:00", to: "13:00", what: "W12's uncapped search, part 1 (parts and their count set by the 11-23 trial)", packages: [W12], status: tentative}
+        - {from: "14:00", to: "17:00", what: "W12's uncapped search, part 2", packages: [W12], status: tentative}
+      gpu:
+        - {what: "open: re-checks of round 1a", status: open}
+    i2:
+      gpu:
+        - {what: "open", status: open}
+      select:
+        - {from: "09:00", to: "12:00", what: "W12's uncapped search, a part, if the trial shows i-2's 8 CPUs are enough", packages: [W12], status: tentative}
+  "2026-11-25":
+    i1:
+      select:
+        - {from: "08:00", to: "11:00", what: "combined CPU profile (rel-dev-c0-day1125-i1): W3 step 1, the strict offline rendering of the held-out items of tables v0; W18's tables (generator, held-out A only, kind ruler)", packages: [W3, W18], status: planned}
+        - {from: "11:00", to: "14:00", what: "W12's uncapped search, part 3", packages: [W12], status: tentative}
+      gpu:
+        - {from: "15:00", to: "19:30", what: "round 1b, the short arms on the leak-free placement (wall_s 14,400): 10 M and 30 M with relatives (the leak's size against the evening's arms), one or two re-checks of round 1a", packages: [W6, W3], status: planned}
+    i2:
+      gpu:
+        - {from: "14:00", to: "01:00 (11-26)", what: "round 1b, the long arm on the leak-free placement: the best configuration of round 1a", packages: [W6, W3], status: planned}
+  "2026-11-26":
+    i1:
+      gpu:
+        - {from: "09:00", to: "11:00", what: "W18's first reading (evaluation only on ruler tables: tables v0, stored placement, held-out A) with the evening's checkpoints (stage w6_eval or W18's own)", packages: [W18], status: planned}
+      select:
+        - {from: "11:00", to: "14:00", what: "W12's uncapped search, part 4, or tables v1 (W12)", packages: [W12], status: tentative}
+    i2:
+      gpu:
+        - {what: "open after round 1b", status: open}
+  "2026-11-27":
+    i1:
+      select:
+        - {from: "08:00", to: "14:00", what: "W12: tables v1 and their census (target; set by the 11-23 trial), in parts of at most 3 h", packages: [W12], status: tentative}
+      gpu:
+        - {from: "15:00", to: "17:00", what: "the reference arm's capability check (synthetic tables)", packages: [W6], status: planned}
+    i2:
+      gpu:
+        - {what: "open", status: open}
+  "2026-11-28":
+    i1:
+      select:
+        - {from: "08:00", to: "11:00", what: "combined CPU profile (rel-dev-c0-day1128-i1): W5's items on tables v1; the strict rendering of those items (W3 step 2)", packages: [W5, W3], status: planned}
+    i2:
+      select:
+        - {from: "12:00", to: "16:00", what: "tables v1 copied to i-2 over R2 (the coordinator), every file checked by sha256; if the copy fails, round 1's arms with relatives run on i-1 only", packages: [C0], status: planned}
+  "2026-11-29":
+    i1:
+      gpu:
+        - {what: "round 1 (tables v1 plus two days, not before 11-29): the short arms, by the programme lead's protocol (configs/rel/protocols/)", packages: [P0, W6], status: tentative}
+    i2:
+      gpu:
+        - {what: "round 1: the long arm", packages: [P0, W6], status: tentative}

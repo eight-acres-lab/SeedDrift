@@ -5,7 +5,7 @@ ci_version: "0.4"
 # the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel
 branch_from: {commit: 9140dec4f0172e05d283341fb0c201e2e760746a, what: the foundation commit, checks: "T0 and T1 passed on 2026-11-22"}
 contract: {file: seeddrift/train/rel/api.py, version: 1, from: exp/rel-p0 c25b6ef, merged: 2026-11-22}
-merged:             # branches merged into exp/rel: {branch, commit, checks, date}
+merged:             # branches merged into exp/rel: {branch, commit, checks, date}; later ones in git log of exp/rel
   - {branch: exp/rel-p0, commit: c25b6ef, what: contract version 1, checks: "T0 and T1 passed", date: 2026-11-22}
   - {branch: exp/rel-w5, commit: 7d175de, what: "evaluation conditions, classical baselines, copying chain", checks: "T0 and T1 passed on the merge", date: 2026-11-22}
   - {branch: exp/rel-w2, commit: 8ac246c, what: "tables of version 0 and their census", checks: "T0 and T1 passed on the merge", date: 2026-11-22,
@@ -25,19 +25,45 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
       for the contract, as intended"
   - {run_id: 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, machine: i1, profile: rel-dev-w2-v0-i1, commit: b6b3e7e3e27365f9cc49942494e4d62da3a24590, status: passed,
      note: "tables of version 0: 100,800 training and 3,000 held-out tables, 5.57 GB, manifest 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a; census"}
-  - {run_id: 20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started}
-  - {run_id: 20261122T063455-exp-rel-f4e79129-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started,
-     note: "arms w6-ref30m, w6-ref30m-norel, w6-ref10m"}
-  - {run_id: 20261122T063659-exp-rel-f4e79129-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started,
-     note: "arm w6-ref100m"}
+  - {run_id: 20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: passed}
+  - {run_id: 20261122T063455-exp-rel-f4e79129-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: gate_failed,
+     note: "W6's code before the day's protocol; every arm failed at its first evaluation (the column attention's batch over the CUDA grid limit); nothing trained"}
+  - {run_id: 20261122T063659-exp-rel-f4e79129-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: gate_failed,
+     note: "the same failure; nothing trained"}
+  - {run_id: 20261122T065254-exp-rel-55021e9e-rel-dev-w2-census-i1, machine: i1, profile: rel-dev-w2-census-i1, commit: 55021e9e6c3f9668a79162d51eac3854da20651d, status: passed}
+  - {run_id: 20261122T070214-exp-rel-da1ca6c8-rel-d1probe-i1, machine: i1, profile: rel-d1probe-i1, commit: da1ca6c8c6718ea64c0018fcdb9e7a47a0ae3516, status: passed,
+     note: "short probe, 50 steps: every preflight passed, no learning rate lowered"}
+  - {run_id: 20261122T070230-exp-rel-da1ca6c8-rel-d1probe-i2, machine: i2, profile: rel-d1probe-i2, commit: da1ca6c8c6718ea64c0018fcdb9e7a47a0ae3516, status: passed}
+  - {run_id: 20261122T071504-exp-rel-3382ed5e-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: 3382ed5efbd26ce034c475ca12b0d0fa1ac463fa, status: passed,
+     note: "arms w6-ref30m (59,852 tables seen), w6-ref30m-norel (137,224), w6-ref10m (122,912), each to its wall limit, final evaluation on all 3,000 held-out tables; another user's processes starved the machine of CPU from about 17:20 to about 18:30"}
+  - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: 3382ed5efbd26ce034c475ca12b0d0fa1ac463fa, status: passed,
+     note: "arm w6-ref100m (124,712 tables seen), final evaluation on all 3,000 held-out tables"}
+  - {run_id: 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, machine: i2, profile: rel-d1b-i2, commit: ff8430cbe73d22c94c8e44e42506db53e1c2cf91, status: started,
+     note: "arm w6-ref30m with seed 2 (branch exp/rel-d1b: commit 3382ed5 plus this profile); the day's estimate of the noise between seeds"}
+  - {run_id: 20261122T115230-exp-rel-6ec9b29e-rel-dev-w2-dist-i1, machine: i1, profile: rel-dev-w2-dist-i1, commit: 6ec9b29ed7faa37c16c52e2694bee84cd82b9f7d, status: passed}
+  - {run_id: 20261122T115715-exp-rel-a9fd55d3-rel-dev-w6-report-i1, machine: i1, profile: rel-dev-w6-report-i1, commit: a9fd55d, status: passed,
+     note: "the combined report of the evening's four arms beside the baselines (run 20261122T075150)"}
+  - {run_id: 20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1, machine: i1, profile: rel-d1c-i1, commit: 826eacc0f4647040306b370037b2485b93b62796, status: started,
+     note: "arm w6-ref100m-lr4e-4 (w6-ref100m at the 10 M arm's peak rate; the user's go-ahead); branch exp/rel-d1c: commit 3382ed5 plus the variant and this profile"}
+  - {run_id: 20261122T073023-exp-rel-81a0dfbd-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: gate_failed,
+     note: "a stray group of the source index (the one genome of split eval); fixed by W5 in 3efed75"}
+  - {run_id: 20261122T073224-exp-rel-81a0dfbd-rel-dev-w5-extra-i1, machine: i1, profile: rel-dev-w5-extra-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: passed}
+  - {run_id: 20261122T074006-exp-rel-6873b026-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 6873b026, status: passed}
+  - {run_id: 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: 8f20ea37, status: passed,
+     note: "the baselines again with the 600-table subset; every row of the first run reappears with the same bits"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:
   - {run_id: 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, from: i1, to: i2, route: R2, files: 662, bytes: 5573161899,
      what: "record.json, config, stages, gates, data/rel_w2/v0 into imports/runs/ on i-2", checked: "every file of the manifest by sha256 on i-2; the manifest against the run's stage record",
      date: 2026-11-22}
+  - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, from: i2, to: i1, route: R2, files: 48, bytes: 38803067,
+     what: "record.json, config, stages, gates, data/rel_w6 without the checkpoints (*.pt), into imports/runs/ on i-1, for the combined report",
+     checked: "every file by sha256 against the list made on i-2", date: 2026-11-22}
 # open items of the foundation
 open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
     until then the profiles rel-dev-c0-synth-i1 and -i2 fail at that stage
-  - exp/rel-w2 0b90789 is not merged: its census calls evalh.score.coarse_stratum, which exp/rel-w5 082c1f8 removed
+  - copy the seed-2 run of i-2 back to i-1 over R2 when it has ended; then W6's ladder report (rel-dev-w6-ladder-i1)
+  - after the 4e-4 run: W6's report with the learning-rate check (rel-dev-w6-lr-i1, to come)
+  - the re-evaluation profile rel-d1eval-i1 was not run: every arm's final evaluation completed

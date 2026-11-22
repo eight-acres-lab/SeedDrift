@@ -16,6 +16,9 @@ Profile block rel_w5_baselines:
   allow_kinds      table-set kinds accepted (default [real])
   conditions       the conditions scored (default: today's five, conditions.CONDITIONS); more of
                    conditions.EXTRA_CONDITIONS may be added, none of the five left out
+  subset_per_group the subset of the evaluation during training (conditions.subset: the first tables of every group
+                   in storage order; default 50, so 600 tables): its rows go to rows_subset.tsv (item_half "subset"),
+                   the same cells as those tables scored alone
 
 Coverage: the groups the table set covers (its manifest says which); development diagnosis only. The limits written
 into the results (LIMITS) say which way each one pulls the bits (lower is better): under the stored layout the bits
@@ -23,8 +26,10 @@ with the whole gene hidden are too low (optimistic), scattered cells only slight
 without relatives not at all; the classical baselines are a lower bound on what the relatives are worth, not an
 estimate; the choice of the rows biases that worth in a direction not known.
 
-Outputs under data/rel_w5/baselines/: rows.tsv (the result table, columns of the contract), params.json (the fitted
-numbers), report.md, results.json (written last: the headline numbers, the digests of what was scored, the inputs).
+Outputs under data/rel_w5/baselines/: rows.tsv (the result table, columns of the contract, item_half "all"),
+rows_subset.tsv (the same on the subset of the evaluation during training, item_half "subset"), params.json (the fitted
+numbers), report.md, results.json (written last: the headline numbers, the digests of what was scored on all tables and
+on the subset, the inputs).
 Gate G4_rel_w5_baselines: the results are complete, finite and normalised, the fit read training tables only and the
 scoring held-out tables only.
 """
@@ -47,6 +52,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score, shards
 
 STAGE = "rel_w5_baselines"
+SUBSET = "subset"                                                # item_half of the rows on the subset of the evaluation during training
 OUT = os.path.join("data", "rel_w5", "baselines")
 LIMITS = [
     "lower bits are better. The stored layout shows the relatives where the hidden residues align: with the whole gene hidden the bits are "
@@ -153,23 +159,32 @@ def main():
             raise SystemExit("%s: a table to score is not a held-out table" % STAGE)
         groups = shards.group_names(src, held.manifest)
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
-        results = brun.evaluate(tables, np.arange(n_held), params, conditions=conditions, seed=seed, with_chain=with_chain, log=log)
+        sub = cond.subset(meta["group"], int(c.get("subset_per_group", cond.SUBSET_PER_GROUP)))
+        results = brun.evaluate(tables, np.arange(n_held), params, conditions=conditions, seed=seed, with_chain=with_chain, log=log, subset=sub)
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
         rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables))
+        on_subset = brun.restrict(results, sub)
+        rows_sub = brun.result_rows(on_subset, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
+                                    item_half=SUBSET)
 
-        rows_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in ("rows.tsv", "params.json", "report.md", "results.json"))
+        rows_path, sub_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in
+                                                                   ("rows.tsv", "rows_subset.tsv", "params.json", "report.md", "results.json"))
         score.write_rows(rows_path, rows)
+        score.write_rows(sub_path, rows_sub)
         write_json(params_path, params)
         title = "Classical baselines on table set %s (%d held-out tables, seed %d)" % (held.manifest["name"], n_held, seed)
         with open(report_path, "w") as f:
-            f.write(brun.markdown(rows, title, groups) + "\nLimits:\n" + "".join("- %s\n" % x for x in LIMITS))
+            f.write(brun.markdown(rows, title, groups) + brun.subset_markdown(rows_sub, sub.shape[0]) + "\nLimits:\n" + "".join("- %s\n" % x for x in LIMITS))
         doc = dict(
             stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), chain=with_chain,
             reference=brun.REFERENCE,
             headline=headline(rows), groups=groups, n_groups=n_groups, limits=LIMITS,
             items={k: dict(sha256=r["items_sha256"], cells=int(r["cell_table"].shape[0]), tables=r["tables"]) for k, r in results.items()},
+            subset=dict(per_group=int(c.get("subset_per_group", cond.SUBSET_PER_GROUP)), tables=int(sub.shape[0]), rows=len(rows_sub),
+                        rows_sha256=sha256_file(sub_path), bits=brun.summary(rows_sub)[0],
+                        items={k: dict(sha256=r["items_sha256"], cells=int(r["cell_table"].shape[0]), tables=r["tables"]) for k, r in on_subset.items()}),
             selfcheck=cond.selfcheck(), numpy=np.__version__,
             fit=dict(tables=n_fit, seed=seed + 1, set=train.manifest["name"], folder=train.folder, files_read=len(train.verified),
                      numbers={m: {k: v for k, v in p.items() if k != "prior"} for m, p in params.items()}),
@@ -179,7 +194,7 @@ def main():
             sealed=sealed, rows=len(rows), rows_sha256=sha256_file(rows_path), seconds=round(time.time() - t0, 1),
         )
         write_json(out_path, doc)
-        for name, p in (("rows", rows_path), ("params", params_path), ("report", report_path), ("results", out_path)):
+        for name, p in (("rows", rows_path), ("rows_subset", sub_path), ("params", params_path), ("report", report_path), ("results", out_path)):
             st.output(name, p)
         st.extra.update(tables_scored=n_held, tables_fitted=n_fit, rows=len(rows))
         log("done: %d rows" % len(rows))
@@ -222,6 +237,19 @@ def gate(st, cfg, run_dir):
         ia, ib = (doc.get("items") or {}).get(a) or {}, (doc.get("items") or {}).get(b) or {}
         if ia.get("cells") != ib.get("cells") or abs(seen.get((a, "own_freq"), 0) - seen.get((b, "own_freq"), 1)) > 1e-9:
             problems.append(dict(conditions=[a, b], error="the same cells must be scored with and without relatives"))
+    sub = doc.get("subset") or {}
+    sub_path = os.path.join(folder, "rows_subset.tsv")
+    if not sub or not os.path.exists(sub_path) or sha256_file(sub_path, use_sidecar=False) != sub.get("rows_sha256"):
+        problems.append(dict(error="rows_subset.tsv is missing or not the file results.json names"))
+    else:
+        sub_rows = score.read_rows(sub_path)
+        top = {(r["condition"], r["variant"]) for r in sub_rows if r["group"] == score.ALL and r["stratum"] == score.ALL}
+        if any(r["item_half"] != SUBSET for r in sub_rows) or not all(math.isfinite(float(r["bits"])) for r in sub_rows):
+            problems.append(dict(error="a subset row is not marked subset or its bits are not finite"))
+        for c in doc.get("conditions") or []:
+            missing = [n for n in brun.names_under(c, bool(doc.get("chain"))) if (c, n) not in top]
+            if missing or not (sub.get("items") or {}).get(c, {}).get("sha256"):
+                problems.append(dict(condition=c, error="the subset lacks rows over all groups or the digest of its cells", baselines=missing))
     if doc.get("heldout", {}).get("kind") == api.TABLE_REAL and doc.get("n_groups") != 12:
         problems.append(dict(error="a real table set has 12 groups, the results have %s" % doc.get("n_groups")))
     if not doc.get("fit", {}).get("tables") or not doc.get("heldout", {}).get("tables"):
@@ -249,6 +277,7 @@ def summary(run_dir):
     strata = {c: {s.split("=")[-1]: {n: r4(b) for n, b in v.items() if n in SUMMARY_BASELINES} for s, v in head["by_nearest_identity"].get(c, {}).items()
                   if s in score.FINE} for c in (cond.SCATTERED, cond.WHOLE_GENE)}
     js = dict(bits={c: {n: r4(b) for n, b in v.items()} for c, v in head["bits"].items()}, by_nearest_identity=strata,
+              bits_subset={c: {n: r4(b) for n, b in v.items() if n in SUMMARY_BASELINES} for c, v in ((doc.get("subset") or {}).get("bits") or {}).items()},
               cells={k: v["cells"] for k, v in doc["items"].items()}, seed=doc["seed"], heldout_tables=doc["heldout"]["tables"],
               fit_tables=doc["fit"]["tables"], table_set=doc["heldout"]["set"], tables_run=doc["tables_run"]["run_id"], limits=doc["limits"])
     return dict(json=js, md=md)

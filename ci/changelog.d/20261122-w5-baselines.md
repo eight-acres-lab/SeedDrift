@@ -1,15 +1,23 @@
-Package W5 (with the copying chain of W10), first slice: classical baselines on the held-out tables.
+Package W5 (with the copying chain of W10), first slice: the evaluation conditions and classical baselines on the
+held-out tables.
 
-- `seeddrift/train/rel/evalh/`: `conditions.py`, the evaluation conditions every arm and every baseline share (which
-  cells of the examined row are hidden and scored, which rows are given; a 64-bit hash instead of a numpy generator, so
-  two interpreters plan the same cells; `ItemsDigest` proves it); `layout.py`, the stored layout in numpy; `score.py`,
-  from per-cell bits to rows of the result table (per group, then the mean of the groups; strata by the identity of
-  the nearest row); `shards.py`, reading the tables of a table-set manifest.
+- `seeddrift/train/rel/evalh/` (the one implementation; the trainer's held-out evaluation calls it):
+  `conditions.py`, which cells of the examined row are hidden and scored and which rows are given, under the five
+  conditions scattered, whole_gene, both without relatives, and whole_gene with the rows re-paired. Every random
+  choice is a 64-bit hash of (seed, stream, table, index), never a numpy generator, and the plan of a fixed batch is
+  pinned. Scattered: 15% of the target block's residue cells, at least one per table. Re-paired: one random cycle
+  through the other rows that exist (by their rank, so leaving out absent rows changes nothing), the same in every
+  non-target block; a table with fewer than two other rows has no such condition. `table_condition` plans one table,
+  `subset` gives the tables of the evaluation during training (the first 50 of each group), `ItemsDigest` the sha256
+  of what was scored. `layout.py`, the stored layout in numpy; `score.py`, per-cell bits to rows of the result table
+  (per group, then the mean of the groups; strata by the identity of the nearest row in ten bins, and by the number
+  of other rows); `shards.py`, reading the tables of a table-set manifest, every file checked against it.
 - `seeddrift/train/rel/baselines/`: own codon frequencies, the average of the rows, copy the nearest row (three
   per-position error rates; a variant fitted per identity bin), each a normalised distribution over tokens 1..65;
-  `fit.py` fits them on training tables only; `switch.py` runs the chain as a baseline.
+  `fit.py` fits them on training tables only; `switch.py` runs the copying chain as a baseline (both sides, the left
+  only, four columns ahead, and the stretch read as a whole).
 - `seeddrift/train/rel/chain/switching.py`: the copying chain with switching (forward, backward, three visibility
-  modes, the probability of a stretch as a whole), tested against enumeration.
+  modes, the chain-rule terms of a stretch), tested against enumeration.
 - Stage `w5_baselines` (kind `rel_tables`, the select lock; gate `G4_rel_w5_baselines`) and profile
   `rel-dev-w5-baselines-i1`.
 

@@ -240,11 +240,8 @@ def page(doc):
         parts = [p for p in ("train", "heldout") if p in st]
         L += ["", "## Nearest other row on the target, per table (the strata of the evaluator)", "", doc.get("strata_note", ""), "",
               "| stratum | " + " | ".join("%s tables | share" % p for p in parts) + " |", "|---|" + "---|---|" * len(parts)]
-        for key in ("fine", "coarse"):
-            for lab in st[parts[0]][key]:
-                L.append("| %s | " % lab + " | ".join("%s | %s" % ("{:,}".format(st[p][key][lab]["tables"]), _pct(st[p][key][lab]["share"])) for p in parts) + " |")
-            if key == "fine":
-                L.append("| | " + " | ".join("|" for _ in parts) + " |")
+        for lab in st[parts[0]]["fine"]:
+            L.append("| %s | " % lab + " | ".join("%s | %s" % ("{:,}".format(st[p]["fine"][lab]["tables"]), _pct(st[p]["fine"][lab]["share"])) for p in parts) + " |")
         for p in parts:
             h = st[p]["high"]
             L += ["", "%s tables (%s of them with another row on the target): the nearest row is at least 0.98 identical in %s (%s tables; %s of "

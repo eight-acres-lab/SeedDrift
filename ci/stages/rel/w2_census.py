@@ -10,7 +10,7 @@ Outputs under data/rel_w2/census/:
                drawn among the training genomes without looking at which of them have a homolog row; `headline` holds
                the four numbers of the first read-outs
                `strata` holds, per table set, the nearest other row of every table at the target locus in the
-               evaluator's strata (seeddrift/train/rel/evalh/score.py: ten equal bins and none, and the trainer's six),
+               evaluator's strata (seeddrift/train/rel/evalh/score.py: ten equal bins and none),
                read from the metadata field identity through the evaluator's reader, and the share of tables whose
                nearest row is at least 0.98 identical
                `cap` holds, per split and group of the open genomes, the genes whose homolog rows in stage pairs reach
@@ -93,12 +93,12 @@ def strata(src, doc, groups) -> dict:
         m = ts.load(0, ts.tables, ("identity", "group"))
         ident, grp, n = m["identity"], np.asarray(m["group"]).astype(np.int64), ts.tables
         near = SC.nearest_identity(ident)
-        fine, coarse = SC.fine_stratum(ident), SC.coarse_stratum(ident)
+        fine = SC.fine_stratum(ident)
         has = ~np.isnan(near)
         top = lambda x, sel: dict(tables=int((near[sel] >= x - EPS).sum()), share=float((near[sel] >= x - EPS).mean()) if sel.any() else None,
                                   share_of_tables_with_rows=float((near[sel & has] >= x - EPS).mean()) if (sel & has).any() else None)
         every = np.ones(n, dtype=bool)
-        d = dict(tables=n, with_other_rows=int(has.sum()), fine=_counts(fine, SC.FINE, n), coarse=_counts(coarse, SC.COARSE, n),
+        d = dict(tables=n, with_other_rows=int(has.sum()), fine=_counts(fine, SC.FINE, n),
                  high={"from_%.2f" % x: top(x, every) for x in HIGH}, per_group={})
         for g, name in enumerate(groups):
             sel = grp == g
@@ -254,9 +254,8 @@ def gate(st, cfg, run_dir):
             problems.append(dict(group=g, error="no codons of training genomes"))
     for part, d in doc["parts"].items():
         x = (rep.get("strata") or {}).get(part) or {}
-        for key in ("fine", "coarse"):
-            if sum(v["tables"] for v in (x.get(key) or {}).values()) != d["tables"]:
-                problems.append(dict(part=part, strata=key, error="the strata do not hold every table of the set"))
+        if sum(v["tables"] for v in (x.get("fine") or {}).values()) != d["tables"]:
+            problems.append(dict(part=part, error="the strata do not hold every table of the set"))
         if (x.get("high") or {}).get("from_0.98", {}).get("share") is None:
             problems.append(dict(part=part, error="no share of nearest rows at or above 0.98"))
     cap = rep.get("cap") or {}

@@ -140,7 +140,7 @@ def test_gates_pass_and_the_kind_gates_accept_the_table_set(built, monkeypatch):
     head = rep["headline"]
     st = rep["strata"]
     for part, n in (("train", 72), ("heldout", 24)):
-        assert st[part]["tables"] == n and sum(x["tables"] for x in st[part]["fine"].values()) == n == sum(x["tables"] for x in st[part]["coarse"].values())
+        assert st[part]["tables"] == n and sum(x["tables"] for x in st[part]["fine"].values()) == n and "coarse" not in st[part]
         assert set(st[part]["per_group"]) == set(TINY) and 0 <= st[part]["high"]["from_0.98"]["share"] <= 1
         assert list(st[part]["fine"]) == list(SC.FINE) and list(head[part]["nearest_fine"]) == list(SC.FINE)
     with open(os.path.join(run_dir, w2_v0.OUT, "heldout", "s0000.identity.npy"), "rb") as f:

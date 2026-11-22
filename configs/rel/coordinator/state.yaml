@@ -8,6 +8,12 @@ contract: {file: seeddrift/train/rel/api.py, version: 1, from: exp/rel-p0 c25b6e
 merged:             # branches merged into exp/rel: {branch, commit, checks, date}
   - {branch: exp/rel-p0, commit: c25b6ef, what: contract version 1, checks: "T0 and T1 passed", date: 2026-11-22}
   - {branch: exp/rel-w5, commit: 7d175de, what: "evaluation conditions, classical baselines, copying chain", checks: "T0 and T1 passed on the merge", date: 2026-11-22}
+  - {branch: exp/rel-w2, commit: 8ac246c, what: "tables of version 0 and their census", checks: "T0 and T1 passed on the merge", date: 2026-11-22,
+     note: "with one line by C0 in ci/stages/rel/w2_v0.py: the manifest carries its sealed record (b6b3e7e)"}
+  - {branch: exp/rel-w5, commit: f28ef4b, what: "the plan of the trainer's held-out evaluation", checks: "T0 and T1 passed on the merge", date: 2026-11-22}
+  - {branch: exp/rel-w6, commit: 22fb4a6, what: "reference trunk, trainer, stages w6_selftest, w6_fit, w6_report", checks: "T0 and T1 passed on the merge", date: 2026-11-22,
+     note: "with C0's fixes while W6's session was stopped: w6_fit takes the sealed record of the tables run; w6_report an unused import and the arm without relatives in the aligned curve"}
+  - {branch: exp/rel-w5, commit: 082c1f8, what: "the evaluation plan as today's protocol fixes it; the baselines profile", checks: "T0 and T1 passed on the merge", date: 2026-11-22}
 runs:               # runs started by the coordinator: {run_id, machine, profile, commit, status}
   - run_id: 20261122T052142-exp-rel-95d832f4-rel-dev-c0-synth-i1
     machine: i1
@@ -17,11 +23,21 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
     note: "diagnostic: the pre gates, the machine check (A800, 81920 MiB) and this machine's sealed sources (the pinned
       index, 257 test genomes, the sealed registry agreeing) passed; the stage stopped at the shard writer, which waits
       for the contract, as intended"
+  - {run_id: 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, machine: i1, profile: rel-dev-w2-v0-i1, commit: b6b3e7e3e27365f9cc49942494e4d62da3a24590, status: passed,
+     note: "tables of version 0: 100,800 training and 3,000 held-out tables, 5.57 GB, manifest 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a; census"}
+  - {run_id: 20261122T062939-exp-rel-f4e79129-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started}
+  - {run_id: 20261122T063455-exp-rel-f4e79129-rel-d1-i1, machine: i1, profile: rel-d1-i1, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started,
+     note: "arms w6-ref30m, w6-ref30m-norel, w6-ref10m"}
+  - {run_id: 20261122T063659-exp-rel-f4e79129-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: f4e79129762a56765f3053d7cccbcbeb98f4e89a, status: started,
+     note: "arm w6-ref100m"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
-copies: []
+copies:
+  - {run_id: 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, from: i1, to: i2, route: R2, files: 662, bytes: 5573161899,
+     what: "record.json, config, stages, gates, data/rel_w2/v0 into imports/runs/ on i-2", checked: "every file of the manifest by sha256 on i-2; the manifest against the run's stage record",
+     date: 2026-11-22}
 # open items of the foundation
 open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
     until then the profiles rel-dev-c0-synth-i1 and -i2 fail at that stage
-  - the stages of W6 (w6_selftest, w6_fit, w6_report) are registered when exp/rel-w6 is merged
+  - exp/rel-w2 0b90789 is not merged: its census calls evalh.score.coarse_stratum, which exp/rel-w5 082c1f8 removed

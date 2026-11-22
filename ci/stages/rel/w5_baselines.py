@@ -210,14 +210,24 @@ def gate(st, cfg, run_dir):
     return sha256_file(os.path.join(folder, "results.json"), use_sidecar=False)
 
 
+SUMMARY_BASELINES = ("own_freq", "row_average", "copy_nearest", "copy_nearest_binned", "switch_copy", "switch_copy.joint")
+
+
 def summary(run_dir):
-    """The headline table for the run summary (small: the published summary carries no table of rows)."""
+    """The headline numbers for the run summary, small (the summary hook takes at most 20 kB of a stage): bits of every
+    baseline under every condition, and for the two main conditions the key baselines by the identity of the nearest
+    row; the full tables are in report.md and rows.tsv."""
     folder = os.path.join(run_dir, OUT)
     with open(os.path.join(folder, "results.json")) as f:
         doc = json.load(f)
     with open(os.path.join(folder, "report.md")) as f:
         md = f.read().splitlines()
-    js = dict(headline=doc["headline"], items={k: v["sha256"] for k, v in doc["items"].items()}, seed=doc["seed"], heldout_tables=doc["heldout"]["tables"],
+    head = doc["headline"]
+    r4 = lambda x: round(float(x), 4)                                          # noqa: E731
+    strata = {c: {s.split("=")[-1]: {n: r4(b) for n, b in v.items() if n in SUMMARY_BASELINES} for s, v in head["by_nearest_identity"].get(c, {}).items()
+                  if s in score.FINE} for c in (cond.SCATTERED, cond.WHOLE_GENE)}
+    js = dict(bits={c: {n: r4(b) for n, b in v.items()} for c, v in head["bits"].items()}, by_nearest_identity=strata,
+              cells={k: v["cells"] for k, v in doc["items"].items()}, seed=doc["seed"], heldout_tables=doc["heldout"]["tables"],
               fit_tables=doc["fit"]["tables"], table_set=doc["heldout"]["set"], tables_run=doc["tables_run"]["run_id"], limits=doc["limits"])
     return dict(json=js, md=md)
 

@@ -93,7 +93,8 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     gate = json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_baselines.json")))
     assert gate["status"] == "pass" and len(key) == 64 and gate["evidence"]["problems"] == []
     s = w5_baselines.summary(run_dir)
-    assert s["json"]["headline"]["bits"] == bits and any("copy_nearest" in line for line in s["md"]) and len(json.dumps(s["json"])) < 20000
+    assert s["json"]["bits"][cond.SCATTERED]["copy_nearest"] == round(bits[cond.SCATTERED]["copy_nearest"], 4) and any("copy_nearest" in line for line in s["md"])
+    assert len(json.dumps(s["json"])) < 8000 and set(s["json"]["by_nearest_identity"]) == {cond.SCATTERED, cond.WHOLE_GENE}
     text = open(os.path.join(out, "report.md")).read()
     assert "upper bound" in text and "/" + "Users" + "/" not in text
     # a broken result fails the gate: a row without cells, then a missing condition

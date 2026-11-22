@@ -51,6 +51,8 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
   - {run_id: 20261122T074006-exp-rel-6873b026-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 6873b026, status: passed}
   - {run_id: 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: 8f20ea37, status: passed,
      note: "the baselines again with the 600-table subset; every row of the first run reappears with the same bits"}
+  - {run_id: 20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1, machine: i1, profile: rel-dev-w18-rulers-i1, commit: 32827098c5b0cbb5ff9192cf9ac116abd51982f8, status: failed,
+     note: "W18's ruler tables: the pre gates and the sealed record (989 genomes) passed, 1,084 triples drawn; stopped at W18's own check of pass C's cells (table 2403); nothing written; back to W18"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:
@@ -60,6 +62,10 @@ copies:
   - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, from: i2, to: i1, route: R2, files: 48, bytes: 38803067,
      what: "record.json, config, stages, gates, data/rel_w6 without the checkpoints (*.pt), into imports/runs/ on i-1, for the combined report",
      checked: "every file by sha256 against the list made on i-2", date: 2026-11-22}
+# branches of round configurations: commit 3382ed5 (the evening's code) plus profiles and variants only, so the arms
+# train exactly as the evening's arms did
+round_branches:
+  - {branch: exp/rel-r1a, commit: 098d93a, what: "round 1a: the long arm on i-2 (rel-r1along100m-i2 or rel-r1along30m-i2) and the short arms on i-1 (rel-r1ashort8e4-i1 or rel-r1ashort1e4-i1), by the learning-rate check of the 4e-4 run"}
 # open items of the foundation
 open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
@@ -67,3 +73,5 @@ open:
   - copy the seed-2 run of i-2 back to i-1 over R2 when it has ended; then W6's ladder report (rel-dev-w6-ladder-i1)
   - after the 4e-4 run: W6's report with the learning-rate check (rel-dev-w6-lr-i1, to come)
   - the re-evaluation profile rel-d1eval-i1 was not run: every arm's final evaluation completed
+  - the profile rel-r1ahier-i1 (the hierarchical head alone) is not run: the head becomes a short arm of round 1b (calendar version 4)
+  - W18's ruler tables (rel-dev-w18-rulers-i1) again once W18's fix is merged; then copied to i-2 over R2 for the 100 M arm at 2e-4

@@ -1,14 +1,18 @@
 """Stage rel_w3_offline (package W3; pipeline rel_tables): the strict offline rendering of the held-out evaluation
 items. `python -m ci.stages.rel.w3_offline RUN_DIR`.
 
-For every evaluation condition named (scattered and suffix in step one), the held-out tables of a passed tables run are
-written again as one part of a table set, their correspondence aligned anew wherever the condition hides residues of the
-frame row: the hidden residues are unknown to the aligner (seeddrift/train/rel/tables/align.py: BLOSUM62, gaps 11 +
+For every kind of mask named (scattered, suffix, whole_gene), the held-out tables of a passed tables run are written
+again as one part of a table set. With scattered cells or a suffix hidden, the correspondence is aligned anew wherever
+the condition hides residues of the frame row: the hidden residues are unknown to the aligner (seeddrift/train/rel/tables/align.py: BLOSUM62, gaps 11 +
 1 per position, an unknown residue -1 against anything, semi-global), so the correspondence depends on the length of a
 hidden stretch and never on its content. Evaluation renders such a part with the leak-free layout
 (seeddrift/train/rel/tables/render.py) and the same plan (seeddrift/train/rel/evalh/conditions.py): the scored cells and
 their truth are those of the stored layout (the frame row keeps its own columns), only the placement of the relatives
-changes. Everything else of a table (its rows, blocks, tokens, metadata) is copied as it is.
+changes. With the whole gene hidden, the target block is laid on its frame relative (the first other row, in the order
+of the table, with a stretch there: frame_row of the block), the examined row from the first column, every other row
+by its alignment to the frame relative, never through the examined row (AL.frame_layout); the re-paired condition
+takes this part, the conditions without relatives the stored tables. Everything else of a table (its rows, blocks,
+tokens, metadata) is copied as it is.
 
 The fourth validity test runs on every table of every part: the hidden residues are replaced by random codons and every
 stored position of a block with a hidden residue is erased, the correspondence is aligned again from the changed table
@@ -55,11 +59,12 @@ def settings(cfg) -> dict:
     unknown = set(c) - KEYS
     if unknown or not c.get("tables_from") or not c.get("tablesets"):
         raise SystemExit("%s: the profile names tables_from and tablesets (keys: %s): %s" % (STAGE, sorted(KEYS), sorted(unknown)))
-    conds = list(c.get("conditions") or [cond.SCATTERED, cond.SUFFIX])
+    conds = list(c.get("conditions") or [cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE])
     for x in conds:
         mask, mode = cond.parse(x)
-        if mask == cond.WHOLE_GENE or mode:
-            raise SystemExit("%s: step one renders scattered and suffix conditions only, not %r" % (STAGE, x))
+        if mode:
+            raise SystemExit("%s: a part is rendered for a mask (scattered, suffix, whole_gene), not for %r: re-paired and "
+                             "no-relatives conditions take the whole_gene part and the stored tables" % (STAGE, x))
     return dict(tables_from=str(c["tables_from"]), tablesets=list(c["tablesets"]), conditions=conds, seed=int(c.get("seed", cond.SEED)),
                 check_seed=int(c.get("check_seed", 20261123)), shard_tables=int(c.get("shard_tables", 2400)),
                 allow_kinds=list(c.get("allow_kinds") or [api.TABLE_REAL]))
@@ -87,15 +92,21 @@ def heldout(s):
 
 def one(tables, k):
     tab = {f: tables[f][k] for f in ("tok", "n", "col", "kind")}
-    tab["frame_len"] = tables["frame_len"][k]
+    tab["frame_len"], tab["frame_row"] = tables["frame_len"][k], tables["frame_row"][k]
     return tab
 
 
-def render_strict(tab, visible, target):
-    """The strict rendering of one table: its correspondence aligned with the hidden residues unknown, then leak-free."""
-    strict = dict(tab, col=AL.strict(tab, visible))
+def render_strict(tab, visible, target, condition=cond.SCATTERED):
+    """The strict rendering of one table: with the whole gene hidden, the target block laid on its frame relative
+    (AL.frame_layout); otherwise the correspondence aligned with the hidden residues unknown (AL.strict). Then leak-free.
+    Returns the strict table and grid, truth, ext."""
+    if cond.parse(condition)[0] == cond.WHOLE_GENE:
+        col, frame_row, frame_len = AL.frame_layout(tab)
+        strict = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)
+    else:
+        strict = dict(tab, col=AL.strict(tab, visible))
     grid, truth, ext = RD.render(strict, visible, target, RD.LEAKFREE)
-    return strict["col"], grid, truth, ext
+    return strict, grid, truth, ext
 
 
 def build(st, cfg, run_dir):
@@ -113,6 +124,7 @@ def build(st, cfg, run_dir):
     for c in s["conditions"]:
         tc = time.time()
         col = np.array(arrays["col"], copy=True)
+        frame_row, frame_len = np.array(arrays["frame_row"], copy=True), np.array(arrays["frame_len"], copy=True)
         digest = cond.ItemsDigest(c, s["seed"])
         failures, kept, anchors, dropped, ext_cells, codons = [], 0, 0, 0, 0, 0
         for a in range(0, held.tables, CHUNK):
@@ -123,12 +135,13 @@ def build(st, cfg, run_dir):
                 t = a + k
                 tab = one(arrays, t)
                 vis, target = batch["visible"][k], batch["target"][k]
-                new, grid, truth, ext = render_strict(tab, vis, target)
-                col[t] = new
-                dropped += RD.dropped(dict(tab, col=new), vis, target)
+                strict, grid, truth, ext = render_strict(tab, vis, target, c)
+                new = strict["col"]
+                col[t], frame_row[t], frame_len[t] = new, strict.get("frame_row", tab["frame_row"]), strict["frame_len"]
+                dropped += RD.dropped(strict, vis, target)
                 ext_cells += int(ext[1:].sum())
                 codons += int(((grid[1:] >= api.TARGET_MIN) & (grid[1:] <= api.TARGET_MAX)).sum())
-                old_anchor, new_anchor = _anchors(tab["col"], tab, vis), _anchors(new, tab, vis)
+                old_anchor, new_anchor = _anchors(tab["col"], tab, vis), _anchors(new, strict, vis)
                 anchors += int(old_anchor.sum())
                 kept += int((old_anchor & new_anchor & (tab["col"] == new)).sum())
                 gone = np.array(tab["col"], copy=True)                           # the fourth test: the hidden residues changed and
@@ -137,10 +150,10 @@ def build(st, cfg, run_dir):
                     if f0 and not vis[0, s0:s0 + f0].all():
                         gone[1:, s0:e0] = -1
                 other = dict(tab, tok=np.where(target, rng.integers(1, 66, tab["tok"].shape), tab["tok"]).astype(np.uint8), col=gone)
-                _, g2, _, e2 = render_strict(other, vis, target)
+                _, g2, _, e2 = render_strict(other, vis, target, c)
                 if not (np.array_equal(grid, g2) and np.array_equal(ext, e2)):
                     failures.append(t)
-        out = dict(arrays, col=col.astype(np.int16))
+        out = dict(arrays, col=col.astype(np.int16), frame_row=frame_row.astype(np.int8), frame_len=frame_len.astype(np.int16))
         folder = os.path.join(base, c)
         written = IO.write(folder, out, s["shard_tables"])
         for name, _ in written:
@@ -181,15 +194,17 @@ def build(st, cfg, run_dir):
 
 
 def _anchors(col, tab, vis):
-    """[R, ROW_LEN] the stored pairs whose two residues are visible (row 0 excluded)."""
+    """[R, ROW_LEN] the pairs of col whose two residues are visible (a block's frame row excluded)."""
     n = np.asarray(tab["n"]).astype(np.int64)
     cells = RD.cells_of(n)
     c = np.asarray(col).astype(np.int64)
     f = np.asarray(tab["frame_len"]).astype(np.int64)[RD.BLOCK_OF]
+    fr = RD.frame_rows(tab)[RD.BLOCK_OF]
     ok = cells & (c >= 0) & (c < f[None, :])
     dest = np.where(ok, RD.START[None, :] + np.maximum(c, 0), 0)
-    out = ok & np.asarray(vis, bool) & np.asarray(vis, bool)[0][dest]
-    out[0] = False
+    v = np.asarray(vis, bool)
+    out = ok & v & v[fr[None, :], dest]
+    out[np.arange(c.shape[0])[:, None] == fr[None, :]] = False
     return out
 
 

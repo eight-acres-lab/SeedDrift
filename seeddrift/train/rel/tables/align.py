@@ -160,3 +160,41 @@ def strict(tab, visible):
         for r, c in zip(rows, cols):
             col[r, s:s + n[r, b]] = c.astype(np.int16)
     return col
+
+
+def frame_relative(tab, block=None):
+    """The frame row of a block when the examined row is hidden there as a whole (the programme lead's decision): the
+    first other row, in the order of the table, that has a stretch in the block; None when no row has one. The order of
+    the rows comes from genome distance and random draws, never from the hidden residues."""
+    b = A.N_BLOCKS - 1 if block is None else int(block)
+    n = np.asarray(tab["n"]).astype(np.int64)
+    rows = [r for r in range(1, n.shape[0]) if n[r, b] > 0]
+    return rows[0] if rows else None
+
+
+def frame_layout(tab, block=None):
+    """(col, frame_row, frame_len) of a table whose block (the target block by default) is laid on its frame relative:
+    the frame relative keeps its own coordinates, the examined row is laid from the first column (its first codon on the
+    frame's), every other row by its alignment to the frame relative (aligned here, never through the examined row).
+    Nothing of the examined row but its length is used. Other blocks are left as stored."""
+    b = A.N_BLOCKS - 1 if block is None else int(block)
+    s = A.block_slices()[b][1]
+    tok = np.asarray(tab["tok"])
+    n = np.asarray(tab["n"]).astype(np.int64)
+    col = np.array(tab["col"], dtype=np.int16, copy=True)
+    frame_row = np.array(tab.get("frame_row", np.zeros(A.N_BLOCKS)), dtype=np.int8, copy=True).reshape(-1)
+    frame_len = np.array(tab["frame_len"], dtype=np.int16, copy=True)
+    fr = frame_relative(tab, b)
+    if fr is None:
+        return col, frame_row, frame_len
+    nf, n0 = int(n[fr, b]), int(n[0, b])
+    col[fr, s:s + nf] = np.arange(nf)
+    col[0, s:s + n0] = np.arange(n0)
+    rows = [r for r in range(1, tok.shape[0]) if r != fr and n[r, b] > 0]
+    if rows:
+        frame = residues(tok[fr, s:s + nf], np.ones(nf, bool))
+        cols, _ = align(frame, [residues(tok[r, s:s + n[r, b]], np.ones(int(n[r, b]), bool)) for r in rows])
+        for r, c in zip(rows, cols):
+            col[r, s:s + n[r, b]] = c.astype(np.int16)
+    frame_row[b], frame_len[b] = fr, max(nf, n0)
+    return col, frame_row, frame_len

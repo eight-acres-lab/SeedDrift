@@ -75,6 +75,33 @@ def test_the_matrix_and_the_aligner_against_enumeration():
     assert np.array_equal(same, np.arange(10, 90))
 
 
+def test_the_frame_relative_layout():
+    from test_rel_w5_baselines import toy_tables
+    tables, _ = toy_tables(n_tables=3, rows=5, seed=83)
+    tb = slice(RD.SLICES[-1][1], RD.SLICES[-1][2])
+    for t in range(3):
+        tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
+        tab["frame_len"], tab["frame_row"] = tables["n"][t, 0], np.zeros(A.N_BLOCKS, np.int8)
+        fr = AL.frame_relative(tab)
+        rows = [r for r in range(1, 5) if tab["n"][r, -1] > 0]
+        assert fr == (rows[0] if rows else None)
+        if fr is None:
+            continue
+        col, frame_row, frame_len = AL.frame_layout(tab)
+        nf, n0 = int(tab["n"][fr, -1]), int(tab["n"][0, -1])
+        assert frame_row[-1] == fr and frame_len[-1] == max(nf, n0) and (frame_row[:-1] == 0).all()
+        assert np.array_equal(col[fr, tb][:nf], np.arange(nf)) and np.array_equal(col[0, tb][:n0], np.arange(n0))
+        assert np.array_equal(col[:, :tb.start], tab["col"][:, :tb.start])
+        other = dict(tab, tok=np.array(tab["tok"], copy=True), col=np.full_like(tab["col"], -1))
+        other["tok"][0, tb] = 1 + (other["tok"][0, tb] % 64)                     # the examined row's content and every position
+        assert all(np.array_equal(a, b) for a, b in zip(AL.frame_layout(other), (np.where(np.arange(A.ROW_LEN)[None, :] < tb.start, other["col"], col), frame_row, frame_len)))
+    copy = {k: np.array(v, copy=True) for k, v in tab.items()}                    # a row that is the frame row's copy aligns one to one
+    copy["tok"][2, tb], copy["n"][2, -1] = copy["tok"][fr, tb], copy["n"][fr, -1]
+    if fr != 2:
+        col, _, _ = AL.frame_layout(copy)
+        assert np.array_equal(col[2, tb][:int(copy["n"][fr, -1])], np.arange(int(copy["n"][fr, -1])))
+
+
 def test_strict_realignment_ignores_what_is_hidden():
     rng = np.random.default_rng(3)
     from test_rel_w5_baselines import toy_tables
@@ -127,17 +154,21 @@ def test_stage_renders_every_held_out_table_strictly(tmp_path_factory, monkeypat
     with Stage(run_dir, w3_offline.STAGE) as st:
         out = w3_offline.build(st, cfg, run_dir)
     held = doc["parts"]["heldout"]["tables"]
-    assert sorted(out["parts"]) == [cond.SCATTERED, cond.SUFFIX] and out["kind"] == A.TABLE_REAL and out["layout"] == A.LAYOUT_LEAKFREE
+    assert sorted(out["parts"]) == [cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE] and out["kind"] == A.TABLE_REAL and out["layout"] == A.LAYOUT_LEAKFREE
     rep = json.load(open(os.path.join(run_dir, w3_offline.OUT, "report.json")))
     for c, r in rep["conditions"].items():
         assert r["tables"] == held and r["fourth_test_failures"] == 0 and r["dropped_targets"] == 0 and r["stored_anchors"] > 0
     sets = shards.parts(run_dir, out)
     old = shards.by_split(src, [doc])[shards.SPLIT_HELDOUT].load(0, held, ("tok", "n", "kind", "col"))
-    for c in (cond.SCATTERED, cond.SUFFIX):
+    for c in (cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE):
         new = sets[c].load(0, held, ("tok", "n", "kind", "col"))
         assert all(np.array_equal(new[f], old[f]) for f in ("tok", "n", "kind")) and not np.array_equal(new["col"], old["col"])
         tb = slice(RD.SLICES[-1][1], RD.SLICES[-1][2])
         assert np.array_equal(new["col"][:, :, :tb.start], old["col"][:, :, :tb.start])   # only the target block is aligned again
+    wg = sets[cond.WHOLE_GENE].load(0, held, ("n", "frame_row", "frame_len"))
+    for t in range(held):                                                        # the frame relative: the first row with a stretch there
+        rows = [r for r in range(1, wg["n"].shape[1]) if wg["n"][t, r, -1] > 0]
+        assert wg["frame_row"][t, -1] == (rows[0] if rows else 0) and (wg["frame_row"][t, :-1] == 0).all()
     with Stage(run_dir, "gates_rel_w3_offline", requires=("pre",)) as st:
         w3_offline.gate(st, cfg, run_dir)
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w3_offline.json")))["status"] == "pass"
@@ -150,4 +181,4 @@ def test_stage_renders_every_held_out_table_strictly(tmp_path_factory, monkeypat
         with Stage(run_dir, "gates_rel_w3_offline", requires=("pre",)) as st:
             w3_offline.gate(st, cfg, run_dir)
     with pytest.raises(SystemExit):
-        w3_offline.settings(dict(rel_w3_offline=dict(block, conditions=[cond.WHOLE_GENE])))
+        w3_offline.settings(dict(rel_w3_offline=dict(block, conditions=[cond.WHOLE_GENE + "+" + cond.REPAIRED])))

@@ -121,7 +121,14 @@ kinds:
         gates: [G4_rel_w12_v1]
         side: data
         produces: tableset
-        stub: true
+      w12_islands:
+        package: W12
+        rule: rel_w12_islands
+        output: data/rel_w12/islands/tableset.json
+        module: ci.stages.rel.w12_islands
+        gates: [G4_rel_w12_islands]
+        side: data
+        produces: tableset
   rel_traineval:
     purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
       (W5) of the arms of a round; today's slice of W4 and W6 runs as the stages of package W6

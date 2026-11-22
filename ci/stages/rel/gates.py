@@ -75,9 +75,18 @@ def kind_phase(st, cfg, run_dir, on):
         genomes = [g for g in doc.get("genomes") or [] if isinstance(g, dict)]
         counts["genomes"] += len(genomes)
         allowed = ("train",) if doc.get("purpose") == "train" else S.ALLOWED
+        island = [g for g in genomes if g.get("split") == "island"]
+        rest = [g for g in genomes if g.get("split") != "island"]
         try:
             sealed = sealed or common.sealed_set(cfg)
-            ev = common.sealed_check(cfg, genomes, splits={g["id"]: g.get("split") for g in genomes}, allowed=allowed, sealed=sealed)
+            if island:                                 # the island set's development chromosomes (8.8): not_for_training only,
+                if not doc.get("not_for_training"):     # never sealed, and not in the lineage check (their order is excluded
+                    raise SystemExit("genomes of split island in a set not marked not_for_training")   # from training only)
+                common.development_chromosomes([g["id"] for g in island])
+                S.check_ids([g["id"] for g in island], sealed, splits={g["id"]: "island" for g in island}, allowed=("island",))
+            ev = common.sealed_check(cfg, rest, splits={g["id"]: g.get("split") for g in rest}, allowed=allowed, sealed=sealed)
+            if island:
+                ev["islands"] = dict(checked=len(island), development_chromosomes=True)
             seal.append(dict(stage=s, tableset=doc.get("name"), kind=doc.get("kind"), passed=True, evidence=ev))
         except SystemExit as err:
             seal.append(dict(stage=s, tableset=doc.get("name"), kind=doc.get("kind"), passed=False, error=str(err)[:1500]))

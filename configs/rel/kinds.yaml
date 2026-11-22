@@ -55,7 +55,6 @@ kinds:
         module: ci.stages.rel.w2_dist
         gates: [G4_rel_w2_dist]
         side: data
-        stub: true
       w2_v0:
         package: W2
         rule: rel_w2_v0

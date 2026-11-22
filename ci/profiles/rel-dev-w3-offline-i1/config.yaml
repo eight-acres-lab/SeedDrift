@@ -1,0 +1,30 @@
+# Machine i-1: the strict offline rendering of the held-out evaluation items of the relational-model line (stage
+# w3_offline, ci/stages/rel/w3_offline.py; package W3, step one): the 3,000 held-out tables of the first tables run
+# written again, one part per condition (scattered, suffix), their correspondence aligned with the condition's hidden
+# residues unknown (a numpy aligner: BLOSUM62, gaps 11 + 1 per position, unknown -1, semi-global). The fourth validity
+# test on every table. Evaluation renders these parts with the leak-free layout and the same plan; the scored cells are
+# those of the stored tables. numpy only: the select lock, no GPU. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w3_offline]
+rel_w3_offline:
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1
+  tablesets:
+    - {path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a}
+  conditions: [scattered, suffix]
+  seed: 20261122
+  shard_tables: 2400
+train:
+  gpu_lease: false
+  device: cpu

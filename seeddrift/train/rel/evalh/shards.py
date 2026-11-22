@@ -107,6 +107,20 @@ def table_sets(run_dir, manifest):
     return {folder: TableSet(run_dir, folder, files) for folder, files in sorted(by.items())}
 
 
+def parts(run_dir, manifest):
+    """{part name: TableSet} of a manifest that names its parts (manifest["parts"][name]["folder"]): for table sets
+    with more than one part of a split, such as the strict offline rendering (one part per evaluation condition)."""
+    sets = table_sets(run_dir, manifest)
+    out = {}
+    for name, p in (manifest.get("parts") or {}).items():
+        folder = p.get("folder")
+        if folder not in sets:
+            raise ValueError("part %s: no table files under %s" % (name, folder))
+        sets[folder].manifest = manifest
+        out[name] = sets[folder]
+    return out
+
+
 def group_names(run_dir, manifest):
     """[the name of every group index of the meta field `group`]: from the table set's index file (role index,
     index.json, its list `groups`), else the manifest's group_names, else []. Never the coverage list, which leaves out

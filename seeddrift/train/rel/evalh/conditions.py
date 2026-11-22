@@ -289,10 +289,11 @@ class ItemsDigest:
         self.head = "rel-evalh-items v%d api=%d condition=%s seed=%d rate=%.6f\n" % (VERSION, api.API, condition, seed, rate)
         self.parts = {}
 
-    def add(self, batch):
+    def add(self, batch, keep=None):
+        """keep: only the tables with these ids (a set), e.g. the subset of the evaluation during training."""
         tok, target, rows = np.asarray(batch["tok"]), np.asarray(batch["target"]), np.asarray(batch["rows"])
         for k, t in enumerate(np.asarray(batch["table_ids"]).tolist()):
-            if not batch["has"][k]:                                    # the table has no such condition
+            if not batch["has"][k] or (keep is not None and t not in keep):  # no such condition here, or not kept
                 continue
             h = hashlib.sha256()
             r, s = np.nonzero(target[k])

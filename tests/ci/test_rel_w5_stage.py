@@ -56,7 +56,8 @@ def tables_run(tmp_path, status="passed", kind=api.TABLE_SYNTHETIC, heldout_spli
 
 
 def baselines_run(tmp_path, monkeypatch, src, doc, **over):
-    block = dict(tables_from=src, tablesets=[dict(path=TABLESET, sha256=doc["sha256"])], fit_tables=30, chain_tables=12, allow_kinds=[api.TABLE_SYNTHETIC])
+    block = dict(tables_from=src, tablesets=[dict(path=TABLESET, sha256=doc["sha256"])], fit_tables=30, chain_tables=12, allow_kinds=[api.TABLE_SYNTHETIC],
+                 subset_per_group=2)
     block.update(over)
     run_dir, cfg = RF.rel_run(tmp_path, stages=["w5_baselines"], rel_w5_baselines=block)
     monkeypatch.setattr(common, "check_machine", lambda cfg, gpus=None: dict(machine="i1", note="test"))
@@ -87,7 +88,15 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     groups = {line.split("\t")[api.RESULT_ROW.index("group")] for line in open(os.path.join(out, "rows.tsv")).read().splitlines()[1:]}
     assert groups == {"all", "arch", "bact", "phage"}
     rep = json.load(open(os.path.join(run_dir, "stages", "rel_w5_baselines.json")))
-    assert rep["status"] == "passed" and {o["name"] for o in rep["outputs"]} == {"rows", "params", "report", "results"}
+    assert rep["status"] == "passed" and {o["name"] for o in rep["outputs"]} == {"rows", "rows_subset", "params", "report", "results"}
+    sub = json.load(open(os.path.join(out, "results.json")))["subset"]                # the first 2 tables of each of the 3 groups
+    assert sub["tables"] == 6 and sub["per_group"] == 2 and sorted(sub["items"]) == sorted(cond.CONDITIONS)
+    assert all(sub["items"][c]["sha256"] != res["items"][c]["sha256"] and sub["items"][c]["tables"] == 6 for c in cond.CONDITIONS)
+    sub_rows = [line.split("\t") for line in open(os.path.join(out, "rows_subset.tsv")).read().splitlines()[1:]]
+    half, items = api.RESULT_ROW.index("item_half"), api.RESULT_ROW.index("n_items")
+    assert sub_rows and {r[half] for r in sub_rows} == {"subset"}
+    assert [int(r[items]) for r in sub_rows if r[api.RESULT_ROW.index("group")] == "all" and r[api.RESULT_ROW.index("stratum")] == "all"
+            and r[api.RESULT_ROW.index("condition")] == cond.SCATTERED][0] == 6
     with Stage(run_dir, "gates_rel_w5_baselines", requires=("pre",)) as st:
         key = w5_baselines.gate(st, cfg, run_dir)
     gate = json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_baselines.json")))

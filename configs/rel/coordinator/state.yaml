@@ -38,6 +38,12 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
      note: "arms w6-ref30m, w6-ref30m-norel, w6-ref10m; alone_share 0.05 for the arms with relatives"}
   - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: 3382ed5efbd26ce034c475ca12b0d0fa1ac463fa, status: started,
      note: "arm w6-ref100m"}
+  - {run_id: 20261122T073023-exp-rel-81a0dfbd-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: gate_failed,
+     note: "a stray group of the source index (the one genome of split eval); fixed by W5 in 3efed75"}
+  - {run_id: 20261122T073224-exp-rel-81a0dfbd-rel-dev-w5-extra-i1, machine: i1, profile: rel-dev-w5-extra-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: passed}
+  - {run_id: 20261122T074006-exp-rel-6873b026-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 6873b026, status: passed}
+  - {run_id: 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: 8f20ea37, status: passed,
+     note: "the baselines again with the 600-table subset; every row of the first run reappears with the same bits"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:
@@ -49,5 +55,4 @@ open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
     until then the profiles rel-dev-c0-synth-i1 and -i2 fail at that stage
   - copy the i-2 training run back to i-1 over R2 when it has ended (for the combined report)
-  - waiting for their turn on i-1's select lock: rel-dev-w2-dist-i1 (8 processes; after the trainings), rel-dev-w5-items-i1
-    (once w5_items is no longer a stub), rel-dev-w5-extra-i1
+  - waiting for its turn on i-1's select lock: rel-dev-w2-dist-i1 (8 processes; after the trainings)

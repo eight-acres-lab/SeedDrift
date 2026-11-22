@@ -31,8 +31,11 @@ rule rel_w13_pick:
     shell: STAGE.format(name="rel.w13_pick")
 
 # w13_build: the corpus with the relatives, built by the corpus stages as they are (fetch, corpus, reference,
-# eval_inputs, search, train_data: the inputs below), then checked (ci/stages/rel/w13_build.py)
+# eval_inputs, search, train_data: the inputs below, as far as rel_w13_build.upto), then checked (ci/stages/rel/w13_build.py)
+W13_UPTO = str((config.get("rel_w13_build") or {}).get("upto", "all"))      # how far the build goes (ci/stages/rel/w13_build.py)
+
 rule rel_w13_build:
-    input: "gates/pre.ok", "gates/corpus.ok", "data/train_data/index.json"
+    input: ["gates/pre.ok"] + {"fetch": ["data/fetch/manifest.json"], "search": ["gates/corpus.ok", "data/hits/manifest.json"],
+                               "all": ["gates/corpus.ok", "data/train_data/index.json"]}.get(W13_UPTO, ["data/train_data/index.json"])
     output: "data/rel_w13/build/report.json"
     shell: STAGE.format(name="rel.w13_build")

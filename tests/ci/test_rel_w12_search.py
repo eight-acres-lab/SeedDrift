@@ -3,6 +3,7 @@
 (tests/ci/test_rel_w2_stage.py) with its corpus files added, and a stand-in for DIAMOND whose rule is known (every
 target protein that starts with the query's first five residues, one or two ungapped alignments), so the rows can be
 compared with what that rule gives. The real DIAMOND runs where it is installed (the CI environment)."""
+import csv
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import pytest
 
 import rel_fixtures as RF
 import test_rel_w2_stage as TS
+from conftest import ROOT
 from ci import manifest as M
 from ci.gates import GateFailure
 from ci.hashing import sha256_file
@@ -98,12 +100,48 @@ def add_corpus(src, metas):
                                                                      sha256=sha256_file(mp, use_sidecar=False))]), f)
 
 
-def expected(src, metas, searched=None):
+def dev_accessions(n=2):
+    with open(os.path.join(ROOT, "bench", "islands", "results", "dev_genomes.tsv")) as f:
+        return [r["accession"] for r in csv.DictReader(f, delimiter="\t")][:n]
+
+
+def add_islands(src, accessions, copy_of):
+    """data/islands of a passed island stage: the chromosomes `accessions`, the first one a copy of the proteins of the
+    training genome `copy_of`, every other one with its second protein a copy of its first (a paralog)."""
+    with open(os.path.join(src, "data", "corpus", copy_of, "proteins.faa")) as f:
+        base = [line.strip() for line in f if not line.startswith(">")]
+    rng = np.random.default_rng(7)
+    genomes, entries = [], []
+    for k, acc in enumerate(accessions):
+        prot = list(base) if k == 0 else ["M" + "".join(rng.choice(list(AA), int(rng.integers(30, 90)))) for _ in range(8)]
+        if k:
+            prot[1] = prot[0]
+        rel = os.path.join("data", "islands", "inputs", acc)
+        os.makedirs(os.path.join(src, rel), exist_ok=True)
+        with open(os.path.join(src, rel, "genes.tsv"), "w") as f:
+            f.write("gene_id\treplicon\tstart\tend\tstrand\tpartial\n" + "".join("i%03d\tr\t1\t2\t+\t\n" % i for i in range(len(prot))))
+        with open(os.path.join(src, rel, "proteins.faa"), "w") as f:
+            f.write("".join(">%s__i%03d\n%s\n" % (acc, i, p) for i, p in enumerate(prot)))
+        genomes.append(dict(id=acc, folder=rel, group="bacteria", genes=len(prot), taxid=562, ranks=[1224, 1236, 91347, 543, 561, 562], genus="Escherichia"))
+        entries.append(dict(id=acc, files=[M.file_entry(os.path.join(src, rel, n), src) for n in ("genes.tsv", "proteins.faa")]))
+    man = M.build("islands", "islands", entries)
+    with open(os.path.join(src, "data", "islands", "manifest.json"), "w") as f:
+        json.dump(dict(sha256=M.write(man, os.path.join(src, "manifests")), dataset_id=M.dataset_id(man), **man), f)
+    ip = os.path.join(src, "data", "islands", "index.json")
+    with open(ip, "w") as f:
+        json.dump(dict(dataset_id="ds-islands-test", genomes=genomes), f)
+    with open(os.path.join(src, "stages", "islands_data.json"), "w") as f:
+        json.dump(dict(name="islands_data", status="passed", outputs=[dict(name="islands_index", path="data/islands/index.json", sha256=sha256_file(ip, use_sidecar=False))]), f)
+    return genomes
+
+
+def expected(src, metas, searched=None, islands=()):
     """{(query genome, query gene): {(target genome, target gene): alignments}} by the stand-in's rule."""
     open_ = [m for m in metas if m["split"] in ("train", "heldout") and m["id"] != TS.LEFT_OUT]     # the sealed check leaves that one out
+    open_ += [dict(id=g["id"], split="island", folder=g["folder"]) for g in islands]
     prot = {}
-    for m in open_:                                                      # the corpus proteins, as the stage reads them
-        with open(os.path.join(src, "data", "corpus", m["id"], "proteins.faa")) as f:
+    for m in open_:                                                      # the proteins, as the stage reads them
+        with open(os.path.join(src, m.get("folder") or os.path.join("data", "corpus", m["id"]), "proteins.faa")) as f:
             prot[m["id"]] = [line.strip() for line in f if not line.startswith(">")]
     train = [m["id"] for m in open_ if m["split"] == "train"]
     out = {}
@@ -114,7 +152,7 @@ def expected(src, metas, searched=None):
             if searched is not None and not searched[g][i]:
                 continue
             for t in targets:
-                if m["split"] == "heldout" and t != g and t not in train:
+                if m["split"] != "train" and t != g and t not in train:
                     continue
                 for j, p in enumerate(prot[t]):
                     if (t, j) == (g, i) or len(q) < 5 or p[:5] != q[:5]:
@@ -292,6 +330,34 @@ def test_a_stopped_run_resumes_from_its_finished_calls(source, tmp_path, monkeyp
     with pytest.raises(SystemExit, match="resume the run"):
         with Stage(run2, "rel_w12_search") as st:
             WS.build(st, dict(stop, run_dir=run2), run2)
+
+
+def test_development_chromosomes_are_extra_queries(source, tmp_path, monkeypatch):
+    import shutil as sh
+    src = str(tmp_path / "ci-root" / "runs" / "20261120T000000-src")
+    sh.copytree(source["src"], src)
+    accs = dev_accessions(2)
+    isl = add_islands(src, accs, [m["id"] for m in source["metas"] if m["split"] == "train"][0])
+    s2 = dict(source, src=src)
+    run_dir, cfg, rep = run_stage(s2, tmp_path, "20261123T000005-islands", islands=True)
+    got, genomes = got_pairs(run_dir)
+    assert got == expected(src, source["metas"], islands=isl)
+    split = {g["id"]: g["split"] for g in genomes}
+    assert [a for a in accs if split.get(a) == "island"] == accs and rep["queries"]["per_split"]["island"] == 2 and rep["islands"]["chromosomes"] == 2
+    assert any(k[0] == accs[0] for k in got) and any(t[0] == accs[1] for k, v in got.items() if k[0] == accs[1] for t in v)   # hits, and a paralog
+    TS.patch(monkeypatch, source["tmp"])
+    with Stage(run_dir, "gates_rel_w12_search") as st:
+        WS.gate(st, cfg, run_dir)
+    with open(os.path.join(src, "data", "islands", "index.json")) as f:
+        idx = json.load(f)
+    idx["genomes"][0]["id"] = "NC_999999.1"                              # not a development chromosome
+    ip = os.path.join(src, "data", "islands", "index.json")
+    with open(ip, "w") as f:
+        json.dump(idx, f)
+    with open(os.path.join(src, "stages", "islands_data.json"), "w") as f:  # the index as its stage recorded it
+        json.dump(dict(name="islands_data", status="passed", outputs=[dict(name="islands_index", path="data/islands/index.json", sha256=sha256_file(ip, use_sidecar=False))]), f)
+    with pytest.raises(SystemExit, match="not development chromosomes"):
+        run_stage(s2, tmp_path, "20261123T000006-islands-bad", islands=True)
 
 
 def test_settings_are_checked():

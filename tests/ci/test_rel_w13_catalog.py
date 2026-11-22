@@ -19,6 +19,9 @@ from ci.taxonomy import Taxonomy
 HEAD = ["assembly_accession", "tax_id", "scientific_name", "strain", "assembly_level", "genome_representation", "base_count", "completeness_score",
         "contamination_score", "host_tax_id", "environmental_sample", "version", "last_updated", "accession"]
 NEW_SPECIES = 90000001                                                   # a second species of the genus Coxiella (776), added to the fixture
+NEW_PHAGES = (90000002, 90000003, 90000004, 90000005)                    # four more species of the phage genus 3044853, added to the fixture
+# the selection's host records (NCBI virus reports): virus taxid -> host taxid
+HOSTS = [(10702, 2320), (10377, 9258), (10280, 615), (90000003, 615), (90000004, 99999999), (90000005, 10239)]
 
 
 def rec(acc, taxid, host="", rep="full", env="false", bases=2_000_000, version="1", updated="2026-01-01"):
@@ -29,16 +32,18 @@ def rec(acc, taxid, host="", rep="full", env="false", bases=2_000_000, version="
 
 # bacteria: the anchor's species twice (one an environmental sample, and in two versions: the portal answers a row per
 # version), a partial one, the anchor's own assembly, a sealed
-# test genome's assembly, one of the genus, one of the closed development order, an unknown taxid; viruses: the anchor
-# phage's species with a bacterial host, with an excluded host, without a host (the selection knows one), with a
-# eukaryote host (a conflict), and a eukaryote virus without any host
+# test genome's assembly, one of the genus, one of the closed development order, an unknown taxid; viruses (their hosts
+# from HOSTS, never from the record's host field): the anchor phage's species three times, whatever host its records
+# name; a eukaryote virus; a giant virus with a prokaryote host (a conflict); phages without a host record (the record
+# naming a sample host), with an excluded host, with a host that does not resolve, with only a non-organism host
 RECORDS = {
     "bacteria": [rec("GCA_000000101", 227377), rec("GCA_000000102", 777, env="true", version="2", bases=2_000_100),
                  rec("GCA_000000102", 777, env="true", version="1", updated="2025-01-01"), rec("GCA_000000103", 227377, rep="partial"),
                  rec("GCA_000000104", 227377), rec("GCA_000000001", 227377), rec("GCA_000000105", NEW_SPECIES), rec("GCA_000000106", 615),
                  rec("GCA_000000107", 99999999)],
     "viruses": [rec("GCA_000000201", 10702, host=227377, bases=40_000), rec("GCA_000000202", 10702, host=615), rec("GCA_000000203", 10702),
-                rec("GCA_000000204", 10702, host=9258), rec("GCA_000000205", 10377)],
+                rec("GCA_000000204", 10377), rec("GCA_000000205", 10280), rec("GCA_000000206", 90000002, host=9606), rec("GCA_000000207", 90000003),
+                rec("GCA_000000208", 90000004), rec("GCA_000000209", 90000005)],
 }
 
 
@@ -78,9 +83,9 @@ def catalog_run(tmp, records=RECORDS, short=None, run_id="20261124T000000-cat"):
 def test_the_snapshot_is_canonical_locked_and_read_back(tmp_path):
     run_dir, cfg = catalog_run(tmp_path)
     cats, lock, prov = WK.read(run_dir)
-    assert {k: len(v) for k, v in cats.items()} == {"bacteria": 8, "archaea": 0, "viruses": 5}
+    assert {k: len(v) for k, v in cats.items()} == {"bacteria": 8, "archaea": 0, "viruses": 9}
     assert [r["accession"] for r in cats["bacteria"]] == sorted({r["accession"] for r in RECORDS["bacteria"]})
-    assert lock["catalogues"]["viruses"]["records"] == lock["catalogues"]["viruses"]["announced"] == 5 and len(lock["catalogues"]["viruses"]["sha256"]) == 64
+    assert lock["catalogues"]["viruses"]["records"] == lock["catalogues"]["viruses"]["announced"] == 9 and len(lock["catalogues"]["viruses"]["sha256"]) == 64
     b = lock["catalogues"]["bacteria"]                                  # one row per version; the highest version kept
     assert (b["rows"], b["announced"], b["records"], b["older_versions_dropped"], b["version_ties"]) == (9, 9, 8, 1, 0)
     assert [r["base_count"] for r in cats["bacteria"] if r["accession"] == "GCA_000000102"] == ["2000100"]
@@ -118,6 +123,8 @@ def test_an_incomplete_answer_is_refused(tmp_path):
 def fixture_taxonomy():
     t = Taxonomy(os.path.join(os.path.dirname(__file__), "fixtures", "tiny", "taxdump"))
     t.parent[NEW_SPECIES], t.rank[NEW_SPECIES], t.sci[NEW_SPECIES] = 776, "species", "Coxiella sp. fixture"
+    for k in NEW_PHAGES:
+        t.parent[k], t.rank[k], t.sci[k] = 3044853, "species", "phage fixture %d" % k
     return t
 
 
@@ -125,7 +132,6 @@ def test_the_wide_count_follows_the_rules_of_the_selection(tmp_path):
     tax = fixture_taxonomy()
     run_dir, _ = catalog_run(tmp_path)
     cats, _, _ = WK.read(run_dir)
-    cats["viruses"].append(rec("GCA_000000206", 10702, host=99999999))     # a host the taxonomy does not know
     metas = [dict(id="bacteria_GCF_000000104.1", group="bacteria", split="train", taxid=227377, ranks=[0, 0, 0, 0, 776, 777]),
              dict(id="plasmid_GCF_000000104.1", group="mobile.plasmid", split="train", taxid=227377, ranks=[0, 0, 0, 0, 776, 777]),
              dict(id="phage_a", group="viruses.phage", split="heldout", taxid=10702, ranks=[0, 0, 0, 0, 3044853, 3060797]),
@@ -135,22 +141,23 @@ def test_the_wide_count_follows_the_rules_of_the_selection(tmp_path):
              dict(id="fungi_b", group="eukaryota.fungi", species_taxid="4829", genus="4828", out="not needed for the target (pick 2)", selected="0", proteins_central="9000")]
     sealed = RF.sealed(test_ids=TS.SEALED)
     s = dict(per_anchor=[1, 3], propose=3, max_genes_euk=1500)
-    counts, reasons, kept = WC.census_wide(cats, metas, entries, cands, s, tax, sealed, [])
+    own = WC.corpus_genomes(metas, entries)
+    host_recs = [dict(virus_taxid=v, host_taxid=h) for v, h in HOSTS]
+    counts, reasons, kept = WC.census_wide(cats, metas, own, cands, host_recs, s, tax, sealed, [])
     b = counts["train"]["bacteria"]
     assert b["new_same_species"]["candidates"] == 2 and b["new_same_genus"]["candidates"] == 1        # 101, 102; 105
     assert counts["train"]["mobile.plasmid"]["new_same_species"]["candidates"] == 2                    # the host species' assemblies, not its own
     assert b["in_corpus"]["same_species"] == 0                                                          # its own assembly is not its relative
     ph = counts["heldout"]["viruses.phage"]["new_same_species"]["candidates"]
-    assert ph == 2                                                                                      # 201 (its host), 203 (the selection's host)
+    assert ph == 3                                                                                      # 201, 202, 203: the selection's host, 2320
     assert counts["train"]["eukaryota.fungi"]["new_same_species"]["candidates"] == 1 and kept == ["eukaryota.fungi"]
     assert counts["train"]["eukaryota.fungi"]["proposals"]["3"]["proteins"] == 1500
     want = {"bacteria | eligible": 2, "bacteria | eligible, an environmental sample": 1, "bacteria | partial genome": 1, "bacteria | already in the corpus": 1,
-            "bacteria | refused by the sealed check": 1, "bacteria | excluded by lineage": 1, "bacteria | taxid unknown": 1, "viruses | excluded by a host rule": 1,
-            "viruses | group conflict": 1}
-    assert all(reasons.get(k) == v for k, v in want.items()), reasons
-    assert reasons["viruses | eligible"] == 2
-    assert [k for k in reasons if k.startswith("viruses | host unknown")] and sum(reasons.values()) == 14
-    assert reasons["viruses | excluded by a host rule (the host taxid does not resolve)"] == 1
+            "bacteria | refused by the sealed check": 1, "bacteria | excluded by lineage": 1, "bacteria | taxid unknown": 1, "viruses | eligible": 4,
+            "viruses | group conflict": 1, "viruses | host unknown (no host record of the species; the ENA record names a sample host)": 1,
+            "viruses | excluded by a host rule": 1, "viruses | excluded by a host rule (a host taxid does not resolve)": 1,
+            "viruses | host unknown (only an environment or unplaced host is recorded)": 1}
+    assert reasons == want, reasons
     text = json.dumps(dict(counts=counts, reasons=reasons))
     assert "GCA_000000001" not in text and not any(x in text for x in TS.SEALED)
 
@@ -179,3 +186,19 @@ def test_the_census_reports_both_counts_side_by_side(tmp_path):
     assert "Side by side" in page and "How the two counts differ" in page and not any(x in page for x in TS.SEALED)
     with Stage(run_dir, "gates_rel_w13_census") as st:
         WC.gate(st, cfg, run_dir)
+
+
+def test_a_genbank_twin_of_a_refseq_genome_is_one_genome():
+    own = {("viruses.phage", "000000301"): "phage_GCF_000000301.1"}
+    base = dict(group="viruses.phage", species_taxid="7", genus="6", proteins_central="50")
+    cands = [dict(base, id="phage_GCF_000000301.1", accession="GCF_000000301.1", out="", selected="1"),
+             dict(base, id="virus_GCA_000000301.1", accession="GCA_000000301.1", out="another genome of the species (x) preferred", selected="0"),
+             dict(base, id="virus_GCF_000000302.1", accession="GCF_000000302.1", out="not needed for the target (pick 4)", selected="0"),
+             dict(base, id="virus_GCA_000000302.2", accession="GCA_000000302.2", out="not needed for the target (pick 5)", selected="0"),
+             dict(base, id="virus_GCA_000000303.1", accession="GCA_000000303.1", out="excluded: excluded order Enterobacterales", selected="0"),
+             dict(base, id="virus_without_accession", accession="", out="not needed for the target (pick 1)", selected="0")]
+    u = WC.unique(cands, own)
+    assert sorted(r["id"] for r in u) == ["phage_GCF_000000301.1", "virus_GCF_000000302.1", "virus_without_accession"]
+    metas = [dict(id="phage_GCF_000000301.1", group="viruses.phage", split="train", ranks=[0, 0, 0, 0, 6, 7])]
+    _, counts = WC.census(cands, metas, dict(per_anchor=[1], max_genes_euk=1500), own)
+    assert counts["train"]["viruses.phage"]["new_same_species"]["candidates"] == 2     # 302 once and the one without an accession, never its own twin

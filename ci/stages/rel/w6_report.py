@@ -70,8 +70,9 @@ CAVEATS = [
     "without relatives falls on whole genes and about a sixth of that of the arms with relatives: they optimise different mixtures.",
     "One seed per arm, no noise floor, learning rates set by width and not tuned (a warm-up over 1,000 steps, then constant): only "
     "large effects in one direction count. Throughput and memory were measured on GPUs that other users' processes shared.",
-    "The eukaryotic groups hold only the first 1,500 genes of each genome; they are reported apart from the prokaryotes, plasmids "
-    "and viruses, and the mean over all groups is not the headline.",
+    "The six eukaryotic groups (fungi, invertebrates, mammals, other vertebrates, plants and algae, protists) hold only the first "
+    "1,500 genes of each genome; they are reported apart from the six groups of prokaryotes, plasmids and viruses, and the mean over "
+    "all twelve groups is not the headline.",
 ]
 
 

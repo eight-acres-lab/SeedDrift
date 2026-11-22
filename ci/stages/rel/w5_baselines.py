@@ -97,26 +97,6 @@ def check_genomes(cfg, docs):
     return common.sealed_check(cfg, list(genomes.values()), splits={k: g.get("split") for k, g in genomes.items()})
 
 
-def group_names(src, doc):
-    """The names of the groups the meta field `group` indexes: the table set's index file, else its coverage."""
-    for e in doc.get("files") or []:
-        if e.get("role") == "index" and os.path.basename(e["path"]) == "index.json":
-            with open(os.path.join(src, e["path"])) as f:
-                names = json.load(f).get("groups")
-            if isinstance(names, list) and names:
-                return [str(g.get("name")) if isinstance(g, dict) else str(g) for g in names]
-    return [str(g) for g in (doc.get("coverage") or {}).get("groups") or []]
-
-
-def row_group_names(doc):
-    """{group index: the name the group column of the result rows carries}: the manifest's group_names where it has
-    them (the rule of the trainer's rows, so both sides write the same key), else nothing (the index is written)."""
-    names = doc.get("group_names")
-    if isinstance(names, dict):
-        return {int(k): str(v) for k, v in names.items()}
-    return {k: str(v) for k, v in enumerate(names or [])}
-
-
 def headline(rows):
     main, strata = brun.summary(rows)
     return dict(bits=main, by_nearest_identity=strata)
@@ -150,13 +130,13 @@ def main():
         meta = held.load(0, n_held, ("group", "split", "identity"))
         if (meta["split"] != shards.SPLIT_HELDOUT).any():
             raise SystemExit("%s: a table to score is not a held-out table" % STAGE)
-        groups = group_names(src, held.manifest)
+        groups = shards.group_names(src, held.manifest)
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
         results = brun.evaluate(tables, np.arange(n_held), params, seed=seed, with_chain=with_chain, log=log)
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
-        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, row_group_names(held.manifest), brun.other_rows(tables))
+        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables))
 
         rows_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in ("rows.tsv", "params.json", "report.md", "results.json"))
         score.write_rows(rows_path, rows)

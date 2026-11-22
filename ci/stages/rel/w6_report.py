@@ -30,7 +30,7 @@ from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common
-from seeddrift.train.rel import api, handoff
+from seeddrift.train.rel import handoff
 from seeddrift.train.rel.data import heldout_plan as H
 from seeddrift.train.rel.trainer import rows as W
 

@@ -96,7 +96,9 @@ def settings(st, cfg) -> dict:
 
 
 def table_set(cfg, spec, verify) -> dict:
-    """The manifest of a table set of another run of this machine, complete and through the sealed check."""
+    """The manifest of a table set of another run (of this machine, or copied to it), complete, with the record of the
+    sealed check made where the tables were built: handoff.from_run refuses a real set without it, and the check itself
+    needs the sealed registry, which only the machine that builds tables has."""
     try:
         doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"])
     except (handoff.HandoffError, OSError, ValueError) as err:
@@ -105,8 +107,8 @@ def table_set(cfg, spec, verify) -> dict:
     if bad:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))
     genomes = list(doc.get("genomes") or [])
-    seal = common.sealed_check(cfg, genomes, splits={g["id"]: g.get("split") for g in genomes})
-    return dict(doc=doc, sealed=dict(genomes=len(genomes), ids=seal.get("ids"), lineage=seal.get("lineage")))
+    seal = doc.get("sealed_check") or {}
+    return dict(doc=doc, sealed=dict(genomes=len(genomes), ids=seal.get("ids"), lineage=seal.get("lineage"), recorded_by=doc["producer"]["run_id"]))
 
 
 def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:

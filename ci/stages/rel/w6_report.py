@@ -1,6 +1,6 @@
 """Stage rel_w6_report (package W6; pipeline rel_traineval): the learning curves of the arms set side by side, aligned
 by cells seen, next to the classical baselines scored on the same held-out tables. `python -m ci.stages.rel.w6_report
-RUN_DIR`. CPU only, numpy and the standard library; it reads result rows (api.RESULT_ROW) and nothing else of a model.
+RUN_DIR`. CPU only, numpy and the standard library; it reads result rows (the columns of the contract) and nothing else of a model.
 
 Profile block rel_w6_report (all optional):
   fits       [run directory, ...]: passed runs of this machine whose stage rel_w6_fit trained arms; their rows are set
@@ -12,6 +12,9 @@ Outputs under data/rel_w6/report/:
   curves.tsv    every evaluation of every arm: cells seen, target cells, bits under each condition (all groups, all strata)
   aligned.tsv   the curves of the main condition on one grid of cells seen (linear interpolation between an arm's
                 evaluations; empty beyond its last one), one column per arm
+  (the result rows are the evaluator's, seeddrift/train/rel/evalh/score.py: groups by their index, the strata the
+  identity of the nearest row in ten bins; an arm and a baseline scored the same cells when their rows of a condition
+  carry the same items_sha256, which the report states and its gate requires)
   final.tsv     the final weights of every arm and every baseline: bits by condition, group and stratum
   report.md     the tables a reader starts from; report.json the same as data, written last
 Every number is a development diagnosis under the stored placement: a hidden whole gene still has its relatives placed
@@ -30,9 +33,9 @@ from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common
-from seeddrift.train.rel import api, handoff
-from seeddrift.train.rel.data import heldout_plan as H
-from seeddrift.train.rel.trainer import rows as W
+from seeddrift.train.rel import handoff
+from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
 
 OUT = os.path.join("data", "rel_w6", "report")
 FIT = os.path.join("data", "rel_w6", "fit")
@@ -50,7 +53,7 @@ def settings(cfg) -> dict:
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     base = [dict(run=str(b["run"]), path=str(b["path"])) for b in sc.get("baselines") or []]
-    return dict(fits=[str(x) for x in sc.get("fits") or []], baselines=base, main=str(sc.get("main", H.SCATTERED)))
+    return dict(fits=[str(x) for x in sc.get("fits") or []], baselines=base, main=str(sc.get("main", cond.SCATTERED)))
 
 
 def number(x):
@@ -65,7 +68,7 @@ def collect(run_dir, cfg, s):
     fits = ([run_dir] if os.path.exists(os.path.join(run_dir, FIT, "models.json")) else []) + [f for f in s["fits"] if os.path.realpath(f) != os.path.realpath(run_dir)]
     if not fits:
         raise SystemExit("rel_w6_report: no fit to report (this run trained nothing and rel_w6_report.fits names no run)")
-    rows, arms, sources = [], {}, []
+    rows, arms, sources, groups = [], {}, [], []
     for f in fits:
         if f == run_dir:
             with open(os.path.join(f, FIT, "models.json")) as fh:
@@ -79,7 +82,8 @@ def collect(run_dir, cfg, s):
             if v["name"] in arms:
                 raise SystemExit("rel_w6_report: arm %s is in two of the runs reported" % v["name"])
             arms[v["name"]] = dict(v, run=os.path.basename(f))
-        rows += W.read_rows(os.path.join(f, FIT, "results.tsv"))
+        rows += SC.read_rows(os.path.join(f, FIT, "results.tsv"))
+        groups = groups or list(doc.get("groups") or [])
         sources.append(dict(run=os.path.basename(f), models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
     base = []
     for b in s["baselines"]:
@@ -88,30 +92,47 @@ def collect(run_dir, cfg, s):
         status = json.load(open(rec)).get("status") if os.path.exists(rec) else None
         if status != "passed":
             raise SystemExit("rel_w6_report: the baselines' run %s is %s, not passed" % (b["run"], status))
-        got = W.read_rows(p)
+        got = SC.read_rows(p)
         base += got
         sources.append(dict(run=os.path.basename(b["run"]), baselines=b["path"], sha256=sha256_file(p, use_sidecar=False), rows=len(got)))
-    return rows, arms, base, sources
+    return rows, arms, base, sources, groups
+
+
+def same_items(rows, base, arms):
+    """{condition: whether the final rows of the arms and the baseline rows carry one digest of what was scored}; a
+    condition without baseline rows is not listed. False means the bits beside each other are of different cells."""
+    out = {}
+    for c in cond.CONDITIONS:
+        mine = {r["items_sha256"] for r in rows if r["weights"] == "final" and r["condition"] == c and r["variant"] in arms}
+        theirs = {r["items_sha256"] for r in base if r["condition"] == c}
+        if mine and theirs:
+            out[c] = len(mine | theirs) == 1
+    return out
 
 
 def curves(rows, arms):
     """{arm: [{cells_seen, target_cells, weights, condition: bits}]} over the evaluations (all groups, all strata), by cells seen."""
     out = {}
     for r in rows:
-        if r["group"] == W.ALL and r["stratum"] == W.ALL and r["variant"] in arms:
+        if r["group"] == SC.ALL and r["stratum"] == SC.ALL and r["variant"] in arms:
             key = (int(r["cells_seen"]), r["weights"] == "final")
-            point = out.setdefault(r["variant"], {}).setdefault(key, dict(cells_seen=int(r["cells_seen"]), target_cells=int(r["target_cells"]),
-                                                                       weights=r["weights"], item_half=r["item_half"], n_items={}))
+            point = out.setdefault(r["variant"], {}).setdefault(key, dict(cells_seen=int(r["cells_seen"]), scored_cells=int(r["target_cells"]),
+                                                                       weights=r["weights"], items=int(r["n_items"])))
             point[r["condition"]] = float(r["bits"])
-            point["n_items"][r["condition"]] = int(r["n_items"])
     return {a: [pts[k] for k in sorted(pts)] for a, pts in out.items()}
 
 
 def aligned(cv, main):
-    """The main condition of every arm on one grid of cells seen. The subset points make the curve (the final point is
-    scored on all tables, another set of items, and is listed in final.tsv)."""
-    series = {a: [(p["cells_seen"], p[main]) for p in pts if p["weights"] != "final" and main in p] for a, pts in cv.items()}
-    series = {a: x for a, x in series.items() if len(x) >= 2}
+    """The main condition of every arm on one grid of cells seen (for an arm trained without relatives the same
+    condition without relatives, named in its column). The subset points make the curve (the final point is scored on
+    all tables, another set of items, and is listed in final.tsv)."""
+    alone = main + "+" + cond.NO_RELATIVES                       # the reading of an arm trained without relatives
+    series = {}
+    for a, pts in cv.items():
+        c = main if any(main in p for p in pts) else alone
+        x = [(p["cells_seen"], p[c]) for p in pts if p["weights"] != "final" and c in p]
+        if len(x) >= 2:
+            series[a if c == main else "%s (%s)" % (a, c)] = x
     if not series:
         return [], []
     steps = [np.median(np.diff([c for c, _ in x])) for x in series.values()]
@@ -154,13 +175,13 @@ def md_table(header, table):
 
 def build(st, cfg, run_dir):
     s = settings(cfg)
-    rows, arms, base, sources = collect(run_dir, cfg, s)
+    rows, arms, base, sources, groups = collect(run_dir, cfg, s)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     cv = curves(rows, arms)
-    conds = [c for c in H.CONDITIONS if any(c in p for pts in cv.values() for p in pts)]
-    tsv(os.path.join(folder, "curves.tsv"), ["arm", "weights", "items", "cells_seen", "target_cells"] + conds,
-        [[a, p["weights"], p["item_half"], p["cells_seen"], p["target_cells"]] + [p.get(c) for c in conds] for a in sorted(cv) for p in cv[a]])
+    conds = [c for c in cond.CONDITIONS if any(c in p for pts in cv.values() for p in pts)]
+    tsv(os.path.join(folder, "curves.tsv"), ["arm", "weights", "tables_scored", "cells_seen"] + conds,
+        [[a, p["weights"], p["items"], p["cells_seen"]] + [p.get(c) for c in conds] for a in sorted(cv) for p in cv[a]])
     head, grid = aligned(cv, s["main"])
     tsv(os.path.join(folder, "aligned.tsv"), head or ["cells_seen"], grid)
     fin = final_table(rows, base, arms)
@@ -173,16 +194,21 @@ def build(st, cfg, run_dir):
         i = arms[a]["info"]
         arm_rows.append([a, arms[a]["status"], i.get("params"), i.get("steps"), i.get("cells_seen"), i.get("target_cells"), number(i.get("cells_per_s")),
                          number((i.get("preflight") or {}).get("cells_per_s")), i.get("reserved_mb"), i.get("peak_mb"), i.get("micro"), i.get("ended_by"), i.get("wall_s")])
-    by_cond = [[c] + [cell.get((v, c, W.ALL, W.ALL)) for v in names + bnames] for c in conds]
-    strata = [[c, x] + [cell.get((v, c, W.ALL, x)) for v in names + bnames] for c in conds for x in H.STRATA
-              if any((v, c, W.ALL, x) in cell for v in names + bnames)]
-    groups = sorted({r[3] for r in fin if r[3] != W.ALL})
-    by_group = [[g] + [cell.get((v, s["main"], g, W.ALL)) for v in names + bnames] for g in groups]
+    by_cond = [[c] + [cell.get((v, c, SC.ALL, SC.ALL)) for v in names + bnames] for c in conds]
+    strata = [[c, x.split("=")[-1]] + [cell.get((v, c, SC.ALL, x)) for v in names + bnames] for c in conds for x in SC.STRATA
+              if any((v, c, SC.ALL, x) in cell for v in names + bnames)]
+    gname = lambda g: groups[int(g)] if g.isdigit() and int(g) < len(groups) else g                # noqa: E731
+    by_group = [[gname(g)] + [cell.get((v, s["main"], g, SC.ALL)) for v in names + bnames]
+                for g in sorted({r[3] for r in fin if r[3] != SC.ALL}, key=lambda g: (not g.isdigit(), int(g) if g.isdigit() else 0, g))]
+    same = same_items(rows, base, arms)
     md = ["# Relational line: learning curves of the reference trunk", "", "Bits per codon of the examined row's target block on held-out tables. " +
           "Development diagnosis:", ""] + ["- " + c for c in CAVEATS] + ["", "## Arms: throughput and memory as measured", ""]
     md += md_table(["arm", "status", "parameters", "steps", "cells seen", "target cells", "cells/s (training)", "cells/s (preflight, alone)", "GPU MB reserved",
                     "GPU MB allocated", "tables per micro-batch", "ended by", "wall s"], arm_rows)
     md += ["", "## Final weights, all held-out tables: bits per codon by condition (mean of the groups)", ""] + md_table(["condition"] + names + bnames, by_cond)
+    if bnames:
+        md += ["", "The arms and the baselines scored the same cells (one digest of the scored cells per condition): %s." % (
+            ", ".join("%s %s" % (c, "yes" if ok else "NO") for c, ok in same.items()) or "no condition in common")]
     md += ["", "## By the identity of the nearest row (target block)", ""] + md_table(["condition", "nearest identity"] + names + bnames, strata)
     md += ["", "## By group, condition %s" % s["main"], ""] + md_table(["group"] + names + bnames, by_group)
     md += ["", "## Curves of condition %s, aligned by cells seen (the subset of held-out tables scored on the way)" % s["main"], ""] + (md_table(head, grid) if head else ["no curve"])
@@ -191,10 +217,10 @@ def build(st, cfg, run_dir):
             md += ["", "%s failed: `%s`" % (a, " ".join((arms[a].get("error") or "").split())[-600:])]
     with open(os.path.join(folder, "report.md"), "w") as f:
         f.write("\n".join(md) + "\n")
-    report = dict(main=s["main"], caveats=CAVEATS, sources=sources, conditions=conds,
+    report = dict(main=s["main"], caveats=CAVEATS, sources=sources, conditions=conds, groups=groups, same_items=same,
                   arms={a: dict(status=arms[a]["status"], run=arms[a]["run"], info=arms[a]["info"], evaluations=len(cv.get(a, [])),
-                                final={c: cell.get((a, c, W.ALL, W.ALL)) for c in conds}) for a in names},
-                  baselines={b: {c: cell.get((b, c, W.ALL, W.ALL)) for c in conds} for b in bnames},
+                                final={c: cell.get((a, c, SC.ALL, SC.ALL)) for c in conds}) for a in names},
+                  baselines={b: {c: cell.get((b, c, SC.ALL, SC.ALL)) for c in conds} for b in bnames},
                   aligned=dict(columns=head, rows=grid), by_condition=dict(columns=["condition"] + names + bnames, rows=by_cond),
                   by_stratum=dict(columns=["condition", "stratum"] + names + bnames, rows=strata), by_group=dict(columns=["group"] + names + bnames, rows=by_group))
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "report.md"):
@@ -221,6 +247,8 @@ def gate(st, cfg, run_dir):
             problems.append(dict(arm=a, error="no final bits"))
     if len(rep.get("caveats") or []) < 4:
         problems.append(dict(error="the report does not state what it does not show"))
+    if not all((rep.get("same_items") or {}).values()):
+        problems.append(dict(error="arms and baselines were not scored on the same cells", same_items=rep.get("same_items")))
     require(GateResult("G4_rel_w6_report", "fail" if problems else "pass",
                        dict(problems=problems[:20], arms={a: x["final"] for a, x in rep["arms"].items()}, baselines=sorted(rep["baselines"]))), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False)])
@@ -232,6 +260,7 @@ def summary(run_dir):
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
     small = dict(main=rep["main"], caveats=rep["caveats"], by_condition=rep["by_condition"], by_stratum=rep["by_stratum"], aligned=rep["aligned"],
+                 same_items=rep.get("same_items"),
                  arms={a: dict(status=x["status"], final=x["final"], cells_seen=x["info"].get("cells_seen"), cells_per_s=x["info"].get("cells_per_s"),
                                reserved_mb=x["info"].get("reserved_mb"), params=x["info"].get("params")) for a, x in rep["arms"].items()},
                  baselines=rep["baselines"])

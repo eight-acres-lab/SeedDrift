@@ -1,9 +1,11 @@
-"""Held-out evaluation of a model during and after its training, and the result rows it writes.
+"""Held-out evaluation of a model during and after its training.
 
-The plan of every condition is seeddrift.train.rel.data.heldout_plan (shared with the baselines): only cells of the
-examined row in its target block are scored, under the stored placement. bits = sum of -log2 p(true token) over the
-scored cells / their number, pooled inside a (group, stratum); the row of group "all" is the plain mean of the groups
-that have scored cells. The metadata (group, identity) is read here for the report only and never reaches the model.
+What is hidden and scored, the strata, the averaging and the result rows are the evaluator's
+(seeddrift/train/rel/evalh: conditions.materialise, score.aggregate, score.result_row), the one implementation every
+arm and every classical baseline shares: only cells of the examined row in its target block are scored, a table's id
+is its position in the held-out set, and the digest of what was scored (items_sha256) equals the baselines' when the
+same tables were scored. This module renders the planned tables in the stored placement, runs the model and returns
+the bits of every scored cell. The metadata (group, identity) is used for the report only and never reaches the model.
 """
 from __future__ import annotations
 
@@ -13,11 +15,13 @@ import numpy as np
 import torch
 
 from seeddrift.train.rel import api as A
-from seeddrift.train.rel.data import heldout_plan as H
 from seeddrift.train.rel.data import sampler as S
 from seeddrift.train.rel.data import tables as T
+from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
 
-EVAL_VERSION = "1"
+EVAL_VERSION = "2"
+PLAN_FIELDS = ("tok", "n", "col", "kind")
 
 
 def to_device(batch, device):
@@ -27,11 +31,30 @@ def to_device(batch, device):
     return out
 
 
+def subset(tables, per_group):
+    """The first per_group tables of every group, in storage order (0: all tables). Positions in the table set."""
+    if not per_group:
+        return np.arange(len(tables), dtype=np.int64)
+    keep = [np.flatnonzero(tables.group == g)[:per_group] for g in sorted(set(tables.group.tolist()))]
+    return np.sort(np.concatenate(keep)).astype(np.int64)
+
+
+def conditions_of(relatives):
+    """The conditions an arm is scored under: an arm trained without relatives is read only without them."""
+    return [c for c in cond.CONDITIONS if relatives or cond.parse(c)[1] == cond.NO_RELATIVES]
+
+
+def strata_of(tables, ids):
+    """(len(ids),) index into the evaluator's strata: the identity of the nearest row at the target locus."""
+    return SC.identity_stratum(np.stack([tables.meta(int(i))["identity"] for i in ids]))
+
+
 @torch.no_grad()
-def score(model, tables, ids, cond, device, max_rows=64):
-    """bits (float64 [len(ids)], the sum over the scored cells) and cells (int64 [len(ids)]) of condition cond; a
-    table without that condition has 0 cells."""
-    bits, cells = np.zeros(len(ids)), np.zeros(len(ids), dtype=np.int64)
+def score(model, tables, ids, condition, device, max_rows=64, chunk=32):
+    """The tables ids (positions in the held-out set) under one condition. Returns bits (float64 [C], one per scored
+    cell), cell_table (int64 [C], the index into ids of the cell's table) and the digest of what was scored."""
+    digest = cond.ItemsDigest(condition)
+    bits, cell_table = [], []
     pending, rows = [], 0
 
     def flush():
@@ -40,26 +63,32 @@ def score(model, tables, ids, cond, device, max_rows=64):
             b = to_device(S.collate([dict(grid=g, truth=t) for _, g, t in pending]), device)
             logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"])
             per = -logp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0].double() / math.log(2.0)
-            tot = torch.zeros(len(pending), dtype=torch.float64, device=per.device).index_add_(0, b["example"], per).cpu().numpy()
-            cnt = torch.bincount(b["example"], minlength=len(pending)).cpu().numpy()
-            for (k, _, _), x, c in zip(pending, tot, cnt):
-                bits[k], cells[k] = x, c
+            bits.append(per.cpu().numpy())
+            cell_table.append(np.array([k for k, _, _ in pending], dtype=np.int64)[b["example"].cpu().numpy()])
         pending, rows = [], 0
 
     was_training = model.training
     model.eval()
-    for k, i in enumerate(ids):
-        tab = tables.table(int(i))
-        plan = H.condition(T.take_rows(tab, T.present_rows(tab)), cond, int(i))
-        if plan is None:
-            continue
-        grid, truth = T.render(*plan)
-        if not truth.any():
-            continue
-        if rows and rows + grid.shape[0] > max_rows:
-            flush()
-        pending.append((k, grid, truth))
-        rows += grid.shape[0]
+    ids = np.asarray(ids, dtype=np.int64)
+    for at in range(0, len(ids), chunk):
+        part = ids[at:at + chunk]
+        tabs = [tables.table(int(i)) for i in part]
+        plan = cond.materialise({f: np.stack([t[f] for t in tabs]) for f in PLAN_FIELDS}, part, condition)
+        digest.add(plan)
+        for k, tab in enumerate(tabs):
+            planned = dict(tok=plan["tok"][k], n=plan["n"][k], col=plan["col"][k], kind=plan["kind"][k], frame_len=tab["frame_len"])
+            keep = T.present_rows(planned)
+            grid, truth = T.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep])
+            if int((truth > 0).sum()) != int(plan["target"][k].sum()):
+                raise ValueError("table %d under %s: the grid scores %d cells, the evaluator planned %d"
+                                 % (int(part[k]), condition, int((truth > 0).sum()), int(plan["target"][k].sum())))
+            if not truth.any():
+                continue
+            if rows and rows + grid.shape[0] > max_rows:
+                flush()
+            pending.append((at + k, grid, truth))
+            rows += grid.shape[0]
     flush()
     model.train(was_training)
-    return bits, cells
+    cat = lambda parts, dtype: np.concatenate(parts) if parts else np.zeros(0, dtype=dtype)      # noqa: E731
+    return cat(bits, np.float64), cat(cell_table, np.int64), digest.hexdigest()

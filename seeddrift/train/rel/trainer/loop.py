@@ -30,12 +30,12 @@ import torch
 
 from seeddrift.train.rel import api as A
 from seeddrift.train.rel import registry
-from seeddrift.train.rel.data import heldout_plan as H
 from seeddrift.train.rel.data import sampler as S
 from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.models.common import layers as C
+from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.trainer import heldout as E
-from seeddrift.train.rel.trainer import rows as W
 
 TRAINER_VERSION = "1"
 MB = float(1 << 20)
@@ -65,8 +65,8 @@ def write_json(path, obj):
 
 
 def versions():
-    return "api=%s;common=%s;trainer=%s;reader=%s;sampler=%s;render=%s;plan=%s;eval=%s" % (
-        T.API_VERSION, C.COMMON_VERSION, TRAINER_VERSION, T.READER_VERSION, S.SAMPLER_VERSION, T.RENDER_VERSION, H.PLAN_VERSION, E.EVAL_VERSION + "/" + W.ROWS_VERSION)
+    return "api=%s;common=%s;trainer=%s;reader=%s;sampler=%s;render=%s;evalh=%s/%s;eval=%s" % (
+        T.API_VERSION, C.COMMON_VERSION, TRAINER_VERSION, T.READER_VERSION, S.SAMPLER_VERSION, T.RENDER_VERSION, cond.VERSION, SC.VERSION, E.EVAL_VERSION)
 
 
 class Run:
@@ -101,10 +101,9 @@ class Run:
         self.opt = torch.optim.AdamW([dict(params=decay, weight_decay=float(cfg["weight_decay"])), dict(params=rest, weight_decay=0.0)],
                                      lr=float(cfg["lr"]), betas=tuple(float(b) for b in cfg["betas"]), fused=self.device.type == "cuda")
         self.micro = max(1, min(int(cfg["micro"]), int(cfg["per_step"])))
-        # the conditions this arm is scored under: an arm trained without relatives is read only without them
-        self.conditions = [c for c in H.CONDITIONS if cfg["relatives"] or H.NO_REL in c.split("+")]
+        self.conditions = E.conditions_of(cfg["relatives"])
         self.main = self.conditions[0]
-        self.group_names = self.held.group_names
+        self.rows = []                                                  # every result row written so far
 
     def peak_mb(self):
         if self.device.type != "cuda":
@@ -138,27 +137,32 @@ class Run:
         self.opt.step()
         return total / n_targets / math.log(2.0), norm, (scheme_bits / math.log(2.0)).tolist(), scheme_cells.tolist()
 
-    def fixed_columns(self, weights, item_half, cells_seen, target_cells, cells_per_s, status):
+    def fixed_columns(self, weights, item_half, cells_seen, cells_per_s, status):
+        """The columns of a result row that are the same for every row of one evaluation."""
         cfg = self.cfg
         budget = "cells=%s;wall_s=%s" % (cfg["budget_cells"] if cfg["budget_cells"] else "none", int(cfg["wall_s"]))
-        return dict(run=cfg["run"], commit=cfg["commit"], variant=cfg["name"], author=cfg["author"], module=self.info["module"], params=self.params,
-                    seed=int(cfg["seed"]), table_set=self.held.name, table_kind=self.held.kind, items_sha256=self.held.sha256, item_half=item_half,
-                    layout=A.LAYOUT_STORED, budget=budget, weights=weights, cells_seen=int(cells_seen), target_cells=int(target_cells),
-                    cells_per_s="%.1f" % cells_per_s, peak_mb="%.0f" % self.peak_mb()[1], status=status, versions=versions())
+        return dict(run=cfg["run"], commit=cfg["commit"], variant=cfg["name"], author=cfg["author"], module="models." + self.info["module"],
+                    params=self.params, seed=int(cfg["seed"]), table_set=self.held.name, table_kind=self.held.kind, item_half=item_half,
+                    layout=A.LAYOUT_STORED, budget=budget, weights=weights, cells_seen=int(cells_seen), cells_per_s=round(cells_per_s, 1),
+                    peak_mb=round(self.peak_mb()[1]), tier=SC.ALL, passes=1, baseline="", bits_minus_baseline="", status=status, versions=versions())
 
-    def evaluate(self, ids, fixed, path, strata=None, groups=None):
-        """Scores the held-out tables ids under every condition of this arm and appends the rows to path, condition
-        by condition. Returns {condition: bits of (all groups, all strata)} and the per-table sums."""
-        strata = W.strata_of(self.held, ids) if strata is None else strata
-        groups = self.held.group[ids] if groups is None else groups
-        main, tables = {}, {}
-        for cond in self.conditions:
-            bits, cells = E.score(self.model, self.held, ids, cond, self.device, max_rows=int(self.cfg["eval_max_rows"]))
-            agg = W.aggregate(bits, cells, groups, strata, self.group_names)
-            W.write_rows(path, W.result_rows(fixed, cond, agg))
-            main[cond] = next((x for g, s, x, _ in agg if g == W.ALL and s == W.ALL), None)       # None: no table has this condition
-            tables[cond] = (bits, cells)
-        return main, tables
+    def evaluate(self, ids, fixed, path, strata=None):
+        """Scores the held-out tables ids under every condition of this arm; the rows (the evaluator's result rows) are
+        added to self.rows and the whole table written to path after every condition. Returns {condition: bits of
+        (all groups, all strata), None when nothing was scored} and the bits and tables of the scored cells."""
+        strata = E.strata_of(self.held, ids) if strata is None else strata
+        groups = self.held.group[ids]
+        main, cells = {}, {}
+        for c in self.conditions:
+            bits, cell_table, digest = E.score(self.model, self.held, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]))
+            agg = SC.aggregate(bits, cell_table, groups, strata, len(self.held.group_names) or None)
+            self.rows += [SC.result_row(condition=c, items_sha256=digest, group=r["group"], stratum=r["stratum"], bits=r["bits"],
+                                        target_cells=r["target_cells"], n_items=r["n_items"], **fixed) for r in agg]
+            SC.write_rows(path + ".part", self.rows)
+            os.replace(path + ".part", path)
+            main[c] = next((r["bits"] for r in agg if r["group"] == SC.ALL and r["stratum"] == SC.ALL), None)
+            cells[c] = (bits, cell_table)
+        return main, cells
 
 
 def worst_case(examples, rows):
@@ -217,11 +221,11 @@ def preflight(cfg):
             cells += sum(e["grid"].size for e in ex)
             steps += 1
         out.update(cells_per_s=round(cells / (time.time() - t0), 1), steps_timed=steps, loss_bits=round(bits, 4))
-        ids = W.subset(run.held, 1)[:2]
+        ids = E.subset(run.held, 1)[:2]
         t0 = time.time()
         scored = {c: E.score(run.model, run.held, ids, c, run.device, max_rows=int(cfg["eval_max_rows"])) for c in run.conditions}
         out.update(eval_s_per_table=round((time.time() - t0) / max(1, len(ids)), 3),
-                   eval_bits={c: round(float(b.sum() / max(1, n.sum())), 4) for c, (b, n) in scored.items()})
+                   eval_bits={c: round(float(b.mean()), 4) if len(b) else 0.0 for c, (b, _, _) in scored.items()})
         if not all(math.isfinite(v) for v in out["eval_bits"].values()):
             raise SystemExit("the held-out scores are not finite: %s" % out["eval_bits"])
         out["ok"] = True
@@ -248,10 +252,10 @@ def fit(cfg):
     for name in ("results.tsv", "steps.csv", "summary.json"):
         if os.path.exists(os.path.join(cfg["out"], name)):
             raise SystemExit("%s exists in %s: a training starts in an empty folder" % (name, cfg["out"]))
-    W.write_rows(results, [], header=True)
-    sub = W.subset(run.held, int(cfg["eval_per_group"]))
-    everything = W.subset(run.held, int(cfg["final_per_group"]))
-    sub_strata, sub_groups = W.strata_of(run.held, sub), run.held.group[sub]
+    SC.write_rows(results, [])
+    sub = E.subset(run.held, int(cfg["eval_per_group"]))
+    everything = E.subset(run.held, int(cfg["final_per_group"]))
+    sub_strata = E.strata_of(run.held, sub)
     state = dict(name=cfg["name"], status="running", params=run.params, device=run.device.type, micro=run.micro, conditions=run.conditions,
                  main_condition=run.main, versions=versions(), evals=[], best=None)
     summary = os.path.join(cfg["out"], "summary.json")
@@ -266,8 +270,8 @@ def fit(cfg):
     def evaluate_subset():
         t = time.time()
         rate = cells_seen / train_time if train_time > 0 else 0.0
-        fixed = run.fixed_columns("raw", "subset", cells_seen, target_seen, rate, "running")
-        main, _ = run.evaluate(sub, fixed, results, strata=sub_strata, groups=sub_groups)
+        fixed = run.fixed_columns("raw", "subset", cells_seen, rate, "running")
+        main, _ = run.evaluate(sub, fixed, results, strata=sub_strata)
         took = time.time() - t
         state["evals"].append(dict(step=step, cells_seen=cells_seen, bits=main, eval_s=round(took, 1), wall_s=round(time.time() - began, 1)))
         if main[run.main] is not None and (state["best"] is None or main[run.main] < state["best"]["bits"]):
@@ -340,10 +344,11 @@ def fit(cfg):
     save("final.pt")
     write_json(summary, state)
     t = time.time()
-    fixed = run.fixed_columns("final", "all", cells_seen, target_seen, rate, "ok")
-    main, tables = run.evaluate(everything, fixed, results)
-    np.savez(os.path.join(cfg["out"], "heldout_final.npz"), table=everything,
-             **{"%s_%s" % (k, c.replace("+", "__")): v for c, bc in tables.items() for k, v in zip(("bits", "cells"), bc)})
+    fixed = run.fixed_columns("final", "" if len(everything) == len(run.held) else "subset", cells_seen, rate, "ok")
+    main, cells = run.evaluate(everything, fixed, results)
+    # every scored cell of the final weights: its bits and the position of its table in the held-out set
+    np.savez(os.path.join(cfg["out"], "heldout_final.npz"),
+             **{"%s_%s" % (k, c.replace("+", "__")): v for c, (b, t) in cells.items() for k, v in (("bits", b), ("table", everything[t]))})
     state.update(status="ok", final=main, final_eval_s=round(time.time() - t, 1), wall_s=round(time.time() - began, 1))
     write_json(summary, state)
     return state

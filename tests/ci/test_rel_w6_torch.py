@@ -9,6 +9,8 @@ import os
 import sys
 import tempfile
 
+import numpy as np
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 for _p in (ROOT, HERE):
@@ -24,18 +26,18 @@ except ImportError:
 import test_rel_w6_data as D  # noqa: E402
 
 from seeddrift.train.rel import api as A  # noqa: E402
-from seeddrift.train.rel.data import heldout_plan as H  # noqa: E402
+from seeddrift.train.rel.evalh import conditions as cond  # noqa: E402
+from seeddrift.train.rel.evalh import score as SC  # noqa: E402
 
 if HAVE_TORCH:
     from seeddrift.train.rel.trainer import loop  # noqa: E402
-    from seeddrift.train.rel.trainer import rows as W  # noqa: E402
 else:
     import pytest
     pytestmark = pytest.mark.skip(reason="torch is not installed here; the model interpreter runs these tests")
 
 
 def _config(root, kind=A.TABLE_SYNTHETIC, **over):
-    tables = D.write_tableset(root, [("t0", D.random_tables(24, rows=4, seed=1)), ("h0", D.random_tables(12, rows=4, seed=2, split=1))], kind=kind)
+    tables = D.write_tableset(root, [("train/s0000", D.random_tables(24, rows=4, seed=1)), ("heldout/s0000", D.random_tables(12, rows=4, seed=2, split=1))], kind=kind)
     cfg = dict(name="tiny", author="w6", model="axial", size=dict(layers=1, width=256), objective="mlm", lr=1e-3, seed=1, wall_s=900,
                train_tables=tables, train_root=root, train_split=0, heldout_tables=tables, heldout_root=root, heldout_split=1,
                out=os.path.join(root, "out"), probe=True, rows=[2, 4], per_step=2, micro=1, max_steps=6, eval_every_cells=8000, eval_per_group=1,
@@ -48,18 +50,25 @@ def test_tiny_fit():
     root = tempfile.mkdtemp()
     cfg = _config(root)
     pre = loop.preflight(cfg)
-    assert pre["ok"] and pre["micro"] == 1 and pre["params"] > 1e6 and pre["cells_per_s"] > 0 and set(pre["eval_bits"]) == set(H.CONDITIONS)
+    assert pre["ok"] and pre["micro"] == 1 and pre["params"] > 1e6 and pre["cells_per_s"] > 0 and set(pre["eval_bits"]) == set(cond.CONDITIONS)
     out = loop.fit(cfg)
     assert out["status"] == "ok" and out["steps"] == 6 and out["ended_by"] == "max_steps" and out["cells_seen"] > 0
     assert len(out["evals"]) >= 2 and out["evals"][0]["step"] == 0 and out["evals"][0]["cells_seen"] == 0
     assert abs(out["evals"][0]["bits"]["scattered"] - math.log2(65)) < 0.3                       # an untrained model is near uniform
-    rows = W.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     final = [r for r in rows if r["weights"] == "final"]
-    assert {r["condition"] for r in final} == set(H.CONDITIONS) and {r["item_half"] for r in final} == {"all"}
+    assert {r["condition"] for r in final} == set(cond.CONDITIONS) and {r["item_half"] for r in final} == {""}
+    assert {r["item_half"] for r in rows if r["weights"] == "raw"} == {"subset"} and set(rows[0]) == set(A.RESULT_ROW)
     assert all(r["layout"] == A.LAYOUT_STORED and r["table_kind"] == A.TABLE_SYNTHETIC and r["variant"] == "tiny" and r["run"] == "run-x" for r in rows)
     top = [r for r in final if r["group"] == "all" and r["stratum"] == "all"]
-    assert len(top) == 5 and all(0 < float(r["bits"]) < 8 and int(r["cells_seen"]) == out["cells_seen"] for r in top)
-    assert {r["group"] for r in final} >= {"all", "g00", "g11"} and {r["stratum"] for r in final} <= set(H.STRATA) | {"all"}
+    assert len(top) == 5 and all(0 < float(r["bits"]) < 8 and int(r["cells_seen"]) == out["cells_seen"] and int(r["n_items"]) == 12 for r in top)
+    assert {r["group"] for r in final} >= {"all", "0", "11"} and {r["stratum"] for r in final} <= set(SC.STRATA) | {"all"}
+    # the digest of what was scored is the evaluator's: the same tables under the same condition, the same digest
+    held = {f: np.stack([loop.T.open_tableset(cfg["heldout_tables"], root, 1).table(i)[f] for i in range(12)]) for f in ("tok", "n", "col", "kind")}
+    for r in top:
+        d = cond.ItemsDigest(r["condition"])
+        d.add(cond.materialise(held, np.arange(12), r["condition"]))
+        assert d.hexdigest() == r["items_sha256"], r["condition"]
     with open(os.path.join(cfg["out"], "steps.csv")) as f:
         steps = list(csv.DictReader(f))
     assert len(steps) == 6 and float(steps[0]["lr"]) < float(steps[-1]["lr"]) <= 1e-3 and all(float(s["loss_bits"]) > 0 for s in steps)
@@ -78,8 +87,8 @@ def test_tiny_fit():
 def test_tiny_fit_without_relatives():
     root = tempfile.mkdtemp()
     out = loop.fit(_config(root, relatives=False, max_steps=2, per_step=4, micro=4, eval_every_cells=None))
-    assert out["status"] == "ok" and out["conditions"] == [c for c in H.CONDITIONS if "no_relatives" in c] and out["cells_seen"] == 2 * 4 * A.ROW_LEN
-    rows = W.read_rows(os.path.join(root, "out", "results.tsv"))
+    assert out["status"] == "ok" and out["conditions"] == [c for c in cond.CONDITIONS if "no_relatives" in c] and out["cells_seen"] == 2 * 4 * A.ROW_LEN
+    rows = SC.read_rows(os.path.join(root, "out", "results.tsv"))
     assert {r["condition"] for r in rows} == {"scattered+no_relatives", "whole_gene+no_relatives"}
 
 
@@ -94,7 +103,6 @@ def test_real_tables_only_outside_probe_mode():
 
 
 def test_budget_ends_the_run_and_checkpoints_are_kept():
-    import numpy as np
     root = tempfile.mkdtemp()
     out = loop.fit(_config(root, kind=A.TABLE_REAL, probe=False, max_steps=None, budget_cells=30000, eval_every_cells=12000))
     assert out["ended_by"] == "budget" and out["cells_seen"] >= 30000 and out["status"] == "ok"
@@ -105,7 +113,7 @@ def test_budget_ends_the_run_and_checkpoints_are_kept():
         lr = [float(r["lr"]) for r in csv.DictReader(f)]
     assert lr[-1] < max(lr) and max(lr) <= 1e-3                                                   # warm-up, then decay towards the budget's end
     z = np.load(os.path.join(root, "out", "heldout_final.npz"))
-    assert len(z["table"]) == 12 and (z["cells_scattered"] >= 0).all() and z["bits_whole_gene"].sum() > 0
+    assert len(z["bits_whole_gene"]) == len(z["table_whole_gene"]) > 0 and set(z["table_scattered"].tolist()) <= set(range(12)) and z["bits_whole_gene"].sum() > 0
 
 
 if __name__ == "__main__":

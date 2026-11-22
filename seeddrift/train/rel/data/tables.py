@@ -58,7 +58,7 @@ class TableSet:
 
     def __init__(self, shards, split=None, name="", kind=A.TABLE_REAL, sha256="", group_names=None):
         self.name, self.kind, self.sha256 = name, kind, sha256
-        self.group_names = dict(group_names or {})
+        self.group_names = list(group_names or [])                 # the name of group g, where the table set gives names
         self.shards = [str(s) for s in shards]
         if not self.shards:
             raise ValueError("table set %s has no shards" % name)
@@ -98,10 +98,22 @@ class TableSet:
         return {f: np.array(self._field(int(shard), f)[int(k)]) for f in SAMPLING_FIELDS}
 
 
+def group_names(man, root):
+    """The names of the groups the metadata field `group` indexes: the table set's index file, else its coverage."""
+    for e in man.get("files") or []:
+        if e.get("role") == "index" and os.path.basename(str(e.get("path", ""))) == "index.json":
+            with open(os.path.join(root, e["path"])) as f:
+                names = json.load(f).get("groups")
+            if isinstance(names, list) and names:
+                return [str(g.get("name")) if isinstance(g, dict) else str(g) for g in names]
+    return [str(g) for g in (man.get("coverage") or {}).get("groups") or []]
+
+
 def open_tableset(manifest, root, split=None):
     """A table set from its manifest (the hand-off file of the line: files [{path, role}] relative to `root`, the run
-    directory that holds them). Its shards are the files <shard>.<field>.npy of role shard or meta, in the order of
-    their names. `split`: see TableSet."""
+    directory that holds them). Its shards are the files <shard>.<field>.npy of role shard or meta; the shards of a
+    folder are one ordered set, in the order of their names. `split`: see TableSet; the tables of a split come from
+    one folder, so a table's number here is its position in that folder's set (the table id of the evaluator)."""
     with open(manifest) as f:
         man = json.load(f)
     fields = {}
@@ -113,10 +125,12 @@ def open_tableset(manifest, root, split=None):
     bad = {os.path.basename(s): sorted(need - have) for s, have in fields.items() if need - have}
     if bad or not fields:
         raise ValueError("table set %s: %s" % (manifest, "shards lack fields %s" % bad if bad else "no shard files"))
-    names = man.get("group_names")
-    names = {int(k): str(v) for k, v in names.items()} if isinstance(names, dict) else {k: str(v) for k, v in enumerate(names or [])}
-    return TableSet(sorted(fields), split=split, name=str(man.get("name", "")), kind=str(man.get("kind", "")), sha256=str(man.get("sha256", "")),
-                    group_names=names)
+    ts = TableSet(sorted(fields), split=split, name=str(man.get("name", "")), kind=str(man.get("kind", "")), sha256=str(man.get("sha256", "")),
+                  group_names=group_names(man, root))
+    folders = {os.path.dirname(ts.shards[int(k)]) for k in set(ts.where[:, 0].tolist())}
+    if split is not None and len(folders) != 1:
+        raise ValueError("table set %s: the tables of split %r lie in %d folders" % (manifest, split, len(folders)))
+    return ts
 
 
 def present_rows(tab):

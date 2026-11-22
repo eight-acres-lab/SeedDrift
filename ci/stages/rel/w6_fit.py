@@ -44,6 +44,9 @@ from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
 from ci.stages.rel import common, w6_tools
 from seeddrift.train.rel import api, handoff
+from seeddrift.train.rel.data import tables as T
+from seeddrift.train.rel.evalh import conditions as cond
+from seeddrift.train.rel.evalh import score as SC
 
 OUT = os.path.join("data", "rel_w6", "fit")
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "eval_per_group", "eval_points", "eval_every_cells", "final_per_group", "eval_max_rows", "max_steps",
@@ -106,7 +109,7 @@ def table_set(cfg, spec, verify) -> dict:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))
     genomes = list(doc.get("genomes") or [])
     seal = common.sealed_check(cfg, genomes, splits={g["id"]: g.get("split") for g in genomes})
-    return dict(doc=doc, sealed=dict(genomes=len(genomes), ids=seal.get("ids"), lineage=seal.get("lineage")))
+    return dict(doc=doc, groups=T.group_names(doc, spec["run"]), sealed=dict(genomes=len(genomes), ids=seal.get("ids"), lineage=seal.get("lineage")))
 
 
 def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
@@ -214,14 +217,8 @@ GRACE_S, POLL_S = 900, 5
 def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
     root = os.path.join(run_dir, OUT)
     results = os.path.join(root, "results.tsv")
-    with open(results + ".part", "w") as out:
-        out.write("\t".join(api.RESULT_ROW) + "\n")
-        for n, x in arms.items():
-            p = os.path.join(x["folder"], "results.tsv")
-            if os.path.exists(p):
-                with open(p) as f:
-                    out.writelines(f.readlines()[1:])
-    os.replace(results + ".part", results)
+    SC.write_rows(results, [r for x in arms.values() if os.path.exists(os.path.join(x["folder"], "results.tsv"))
+                            for r in SC.read_rows(os.path.join(x["folder"], "results.tsv"))])
     variants = []
     for n, x in arms.items():
         a, pre, summ = x["arm"], x["preflight"], x.get("summary") or {}
@@ -241,6 +238,7 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
                               tablesets=[dict(run_id=os.path.basename(s["tables"][k]["run"]), name=t["doc"]["name"], sha256=t["doc"]["sha256"], use=k,
                                               split=s["tables"][k]["split"]) for k, t in sets.items()],
                               variants=variants, probe=s["probe"], wall_s=s["wall_s"], schedule=schedule, gpu_free_mb_at_start=free0, model_env=env_info,
+                              groups=sets["heldout"].get("groups") or [],
                               producer=dict(stage="w6_fit", package="W6", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     st.output("results", results)
     for v in variants:
@@ -259,12 +257,9 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
 def final_rows(run_dir):
     """{arm: {condition: bits}} of the rows (final weights, all groups, all strata) of the stage's result table."""
     out = {}
-    with open(os.path.join(run_dir, OUT, "results.tsv")) as f:
-        head = f.readline().rstrip("\n").split("\t")
-        for line in f:
-            r = dict(zip(head, line.rstrip("\n").split("\t")))
-            if r["weights"] == "final" and r["group"] == "all" and r["stratum"] == "all":
-                out.setdefault(r["variant"], {})[r["condition"]] = float(r["bits"])
+    for r in SC.read_rows(os.path.join(run_dir, OUT, "results.tsv")):
+        if r["weights"] == "final" and r["group"] == SC.ALL and r["stratum"] == SC.ALL:
+            out.setdefault(r["variant"], {})[r["condition"]] = float(r["bits"])
     return out
 
 
@@ -279,11 +274,9 @@ def gate(st, cfg, run_dir):
         problems.append(dict(error="no arm was trained"))
     final = final_rows(run_dir)
     for v in ok:
-        want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or ["?"]
+        want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)
         have = final.get(v["name"], {})
         lack = [c for c in want if c not in have or not 0 < have[c] < 20]
-        # a table set without two other rows anywhere has no "repaired" condition: its row is then absent, not wrong
-        lack = [c for c in lack if not (c.endswith(api.COND_REPAIRED) and (v["info"].get("final") or {}).get(c, 0) is None)]
         if lack:
             problems.append(dict(arm=v["name"], error="no final row under %s" % ", ".join(lack)))
     failed = {v["name"]: (v.get("error") or "")[-600:] for v in doc.get("variants") or [] if v.get("status") != "ok"}

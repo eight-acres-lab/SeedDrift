@@ -182,3 +182,93 @@ def test_stage_renders_every_held_out_table_strictly(tmp_path_factory, monkeypat
             w3_offline.gate(st, cfg, run_dir)
     with pytest.raises(SystemExit):
         w3_offline.settings(dict(rel_w3_offline=dict(block, conditions=[cond.WHOLE_GENE + "+" + cond.REPAIRED])))
+
+
+class FakeIndex:
+    """The interface of package W2's index of the uncapped search, holding given alignments."""
+
+    def __init__(self):
+        self.store, self.t = {}, []
+
+    def add(self, qg, tg, qi, ti, hsps):
+        self.store.setdefault((qg, tg, qi), []).append(len(self.t))
+        self.t.append((ti, hsps))
+
+    def pairs(self, qg, tg, qi):
+        return list(self.store.get((qg, tg, qi), []))
+
+    def tgene(self, p):
+        return self.t[p][0]
+
+    def alignments(self, p):
+        return self.t[p][1]
+
+
+def fake_columns(cigar, qs, ss):
+    """The CIGAR reading of the index (M both, I query, D target), 0-based."""
+    import re
+    q, t, oq, ot = int(qs) - 1, int(ss) - 1, [], []
+    for k, op in re.findall(rb"(\d+)([MID])", bytes(cigar)):
+        k = int(k)
+        if op == b"M":
+            oq.append(np.arange(q, q + k))
+            ot.append(np.arange(t, t + k))
+            q, t = q + k, t + k
+        elif op == b"I":
+            q += k
+        else:
+            t += k
+    return (np.concatenate(oq), np.concatenate(ot)) if oq else (np.zeros(0, int), np.zeros(0, int))
+
+
+def to_hsp(col, qf, tf):
+    """One alignment (qs, qe, ss, se, cigar) of the pairs col[j] = frame position (-1 none), shifted by the stretches'
+    first codons."""
+    pairs = [(int(c), j) for j, c in enumerate(col) if c >= 0]
+    ops, (pq, pt) = [], pairs[0]
+    run = 1
+    for q, t in pairs[1:]:
+        dq, dt = q - pq - 1, t - pt - 1
+        if dq or dt:
+            ops.append(b"%dM" % run)
+            run = 0
+            if dq:
+                ops.append(b"%dI" % dq)
+            if dt:
+                ops.append(b"%dD" % dt)
+        run += 1
+        pq, pt = q, t
+    ops.append(b"%dM" % run)
+    return (pairs[0][0] + qf + 1, pq + qf + 1, pairs[0][1] + tf + 1, pt + tf + 1, b"".join(ops))
+
+
+def test_online_frame_layout_from_the_search_index_is_the_offline_one():
+    from test_rel_w5_baselines import toy_tables
+    tables, _ = toy_tables(n_tables=4, rows=5, seed=85)
+    rng = np.random.default_rng(2)
+    for t in range(4):
+        tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
+        tab["frame_len"], tab["frame_row"] = tables["n"][t, 0], np.zeros(A.N_BLOCKS, np.int8)
+        R = tab["tok"].shape[0]
+        meta = dict(genome=np.arange(R) + 100, row_gene=rng.integers(0, 50, (R, A.N_BLOCKS)), row_first=rng.integers(0, 9, (R, A.N_BLOCKS)))
+        off_col, off_fr, off_len = AL.frame_layout(tab)
+        fr = AL.frame_relative(tab)
+        if fr is None:
+            continue
+        ix = FakeIndex()
+        s = RD.SLICES[-1][1]
+        for r in range(1, R):
+            m = int(tab["n"][r, -1])
+            c = off_col[r, s:s + m]
+            if r == fr or m == 0 or (c < 0).all():
+                continue
+            ix.add(int(meta["genome"][fr]), int(meta["genome"][r]), int(meta["row_gene"][fr, -1]), int(meta["row_gene"][r, -1]),
+                   [to_hsp(c, int(meta["row_first"][fr, -1]), int(meta["row_first"][r, -1]))])
+            ix.add(int(meta["genome"][fr]), int(meta["genome"][r]), int(meta["row_gene"][fr, -1]), int(meta["row_gene"][r, -1]) + 1000,
+                   [to_hsp(np.arange(m) % 3, 0, 0)])                       # a paralogue of the same genome: another gene, ignored
+        col, frame_row, frame_len, placed = AL.frame_layout_online(tab, meta, ix, columns=fake_columns)
+        assert np.array_equal(col, off_col) and np.array_equal(frame_row, off_fr) and np.array_equal(frame_len, off_len)
+        assert set(placed) == {r for r in range(1, R) if r != fr and tab["n"][r, -1] > 0}
+        miss = dict(meta, row_gene=np.full_like(meta["row_gene"], 7))           # no stored pair: the row is not shown
+        col2, _, _, placed2 = AL.frame_layout_online(tab, miss, ix, columns=fake_columns)
+        assert all(v == 0 for v in placed2.values()) and all((col2[r, s:s + int(tab["n"][r, -1])] == -1).all() for r in placed2)

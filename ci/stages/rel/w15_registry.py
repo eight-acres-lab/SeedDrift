@@ -13,12 +13,13 @@ Four things, all from the registry draft the profile names (bench/rel/registry/e
    it, and the supplementary files of the DOIs the profile lists, each file with its URL, size and sha256. Papers are
    stored under the run's data folder, never in the repository.
 
-Profile block rel_w15_registry: registry (repository path of the draft), source (the run directory of a passed selfsup
+Profile block rel_w15_registry: registry (repository path of the draft, or a list of drafts read as one registry), source (the run directory of a passed selfsup
 run, for its training-data index; optional), fetch (bool), supplements (DOIs whose supplements are fetched),
 max_supplement_mb (default 50), pause_s (default 0.5).
 Output data/rel_w15/registry/report.json and report.md; papers in data/rel_w15/registry/papers/.
 Gate G4_rel_w15_registry: the draft breaks no rule, every role is unassigned, nothing sits at bench/catalogue/events.tsv,
-the report's sha256 of the draft matches the draft.
+the report's sha256 of the drafts matches the drafts, and with fetch on at least half the paper lookups returned a
+parsed record (a wholesale failure fails the run instead of passing it with nothing fetched).
 """
 from __future__ import annotations
 
@@ -45,6 +46,7 @@ USER_AGENT = "literature-registry-fetch/0.2 (python urllib)"
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;()\[\]]+")
 CATALOGUE = os.path.join("bench", "catalogue", "events.tsv")
 PRETRAIN_SPLITS = ("train", "heldout")
+FETCH_MIN_SHARE = 0.5        # gate: with fetch on, at least half the lookups must return a parsed record
 
 
 def settings(cfg) -> dict:
@@ -52,10 +54,10 @@ def settings(cfg) -> dict:
     unknown = set(c) - KEYS
     if unknown or not c.get("registry"):
         raise SystemExit("%s: the profile names registry (and only %s): %s" % (STAGE, sorted(KEYS), sorted(unknown)))
-    path = str(c["registry"])
-    if os.path.normpath(path) == CATALOGUE:
+    paths = [str(x) for x in (c["registry"] if isinstance(c["registry"], list) else [c["registry"]])]
+    if any(os.path.normpath(x) == CATALOGUE for x in paths):
         raise SystemExit("%s: the draft never lives at %s (gate G2 reads that file)" % (STAGE, CATALOGUE))
-    return dict(registry=path, source=c.get("source"), fetch=bool(c.get("fetch", False)),
+    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)),
                 supplements=[d.lower() for d in c.get("supplements") or []],
                 max_supplement_mb=float(c.get("max_supplement_mb", 50)), pause_s=float(c.get("pause_s", 0.5)))
 
@@ -94,6 +96,10 @@ def taxa(rows, tax) -> dict:
             rec["status"] = "unresolved"
         elif not same:
             rec.update(status="rank_differs", ncbi_ranks=sorted({tax.rank.get(t, "?") for t in cands}))
+            byline = sorted(((len(wanted & {tax.name(x) for x in tax.lineage(t)}), t) for t in cands), reverse=True)
+            if len(byline) == 1 or byline[0][0] > byline[1][0]:     # one candidate fits the lineage: keep its taxid
+                t = byline[0][1]
+                rec.update(taxid=t, ncbi_rank=tax.rank.get(t), ncbi_lineage=[tax.name(x) for x in reversed(tax.lineage(t))])
         elif len(scored) > 1 and scored[0][0] == scored[1][0]:
             rec.update(status="ambiguous", taxids=[t for _, t in scored])
         else:
@@ -119,7 +125,7 @@ def pretraining(found, index, tax) -> dict:
             lineages.append((split, None))
     out = {}
     for eid, rec in found.items():
-        if rec.get("status") != "ok":
+        if not rec.get("taxid"):
             continue
         counts = {s: 0 for s in PRETRAIN_SPLITS}
         for split, lin in lineages:
@@ -150,7 +156,7 @@ def sealed_overlap(found, sealed, tax) -> dict:
     """event_id -> y when the radius contains a sealed genus or family, or lies inside one."""
     out = {}
     for eid, rec in found.items():
-        if rec.get("status") != "ok":
+        if not rec.get("taxid"):
             continue
         t = rec["taxid"]
         hits = [why for s, why in sealed.items() if s in set(tax.lineage(t)) or t in set(tax.lineage(s))]
@@ -159,9 +165,11 @@ def sealed_overlap(found, sealed, tax) -> dict:
 
 
 def _get(url, opener, max_bytes=None):
+    """(status, body). read() with no argument for the whole body: read(-1) on a chunked response returns the raw
+    chunk framing (run 20261122T151028 stored 79 metadata files that way)."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with opener(req, timeout=60) as resp:
-        data = resp.read(max_bytes + 1 if max_bytes else -1)
+        data = resp.read(max_bytes + 1) if max_bytes else resp.read()
         return resp.status, data
 
 
@@ -180,7 +188,7 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
     try:
         status, data = _get(url, opener)
         rec["meta"] = dict(_store(dest, "meta.json", data), url=url, status=status)
-        hits = (json.loads(data).get("resultList") or {}).get("result") or []
+        hits = (json.loads(data, strict=False).get("resultList") or {}).get("result") or []
         hit = hits[0] if hits else {}
         rec.update(found=bool(hits), pmcid=hit.get("pmcid"), open_access=hit.get("isOpenAccess"), pmid=hit.get("pmid"),
                    title=hit.get("title"), year=hit.get("pubYear"))
@@ -213,8 +221,8 @@ def _folder(doi):
 def build(st, cfg, run_dir):
     s = settings(cfg)
     t0 = time.time()
-    path = st.repo(s["registry"])
-    rows = reg.read(path)
+    paths = [st.repo(x) for x in s["registry"]]
+    rows = [r for x in paths for r in reg.read(x)]
     errors, warnings = reg.check(rows)
     summary_ = reg.summarise(rows) if not errors else {}
     from ci.taxonomy import Taxonomy
@@ -235,7 +243,7 @@ def build(st, cfg, run_dir):
                                 max_supplement_mb=s["max_supplement_mb"], pause_s=s["pause_s"]))
             time.sleep(s["pause_s"])
     doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"],
-               registry_sha256=sha256_file(path, use_sidecar=False), records=len(rows), errors=errors, warnings=warnings,
+               registry_sha256={x: sha256_file(st.repo(x), use_sidecar=False) for x in s["registry"]}, records=len(rows), errors=errors, warnings=warnings,
                summary=summary_, taxa=found, pretraining=pre, sealed_overlap=overlap, papers=papers,
                note="no model output and no score is read; the sealed test split of the medium corpus is not looked at",
                seconds=round(time.time() - t0, 1))
@@ -273,11 +281,16 @@ def gate(st, cfg, run_dir):
     with open(p) as f:
         doc = json.load(f)
     bad = [dict(error=e) for e in doc.get("errors") or []]
-    path = os.path.join(common.ROOT, doc["registry"]) if not os.path.isabs(doc["registry"]) else doc["registry"]
-    if sha256_file(path, use_sidecar=False) != doc.get("registry_sha256"):
-        bad.append(dict(error="the draft is not the file the report was made from"))
+    for rel, sha in (doc.get("registry_sha256") or {}).items():
+        path = rel if os.path.isabs(rel) else os.path.join(common.ROOT, rel)
+        if sha256_file(path, use_sidecar=False) != sha:
+            bad.append(dict(error="%s is not the file the report was made from" % rel))
     if os.path.exists(os.path.join(common.ROOT, CATALOGUE)):
         bad.append(dict(error="%s exists: the draft must not live there" % CATALOGUE))
+    papers = doc.get("papers") or []
+    looked_up = sum(1 for x in papers if "found" in x)
+    if papers and looked_up < FETCH_MIN_SHARE * len(papers):
+        bad.append(dict(error="only %d of %d paper lookups returned a parsed record: a systematic fetch failure" % (looked_up, len(papers))))
     require(GateResult("G4_rel_w15_registry", "fail" if bad else "pass",
                        dict(problems=bad[:50], records=doc.get("records"), warnings=len(doc.get("warnings") or []),
                             taxa={k: sum(1 for v in doc["taxa"].values() if v["status"] == k) for k in ("ok", "rank_differs", "ambiguous", "unresolved")})),

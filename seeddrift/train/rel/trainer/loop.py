@@ -44,6 +44,7 @@ from seeddrift.train.rel.models.common import layers as C
 from seeddrift.train.rel.trainer import heldout as E
 
 TRAINER_VERSION = "2"
+RULER = getattr(A, "TABLE_RULER", "ruler")      # the kind of the ruler table sets (package W18): evaluation only
 MB = float(1 << 20)
 DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask_weights=None, rows=[4, 16], relatives=True, per_step=4, micro=4,
                 warmup_steps=1000, weight_decay=0.01, betas=[0.9, 0.98], clip=1.0, budget_cells=None, ema=True, eval_first=1000,
@@ -86,7 +87,9 @@ def versions():
 class Run:
     """What a preflight and a training share: the tables, the model and its moving average, the optimiser."""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, evaluate_only=False):
+        """evaluate_only (evaluate_checkpoints alone): the held-out set may be a ruler set (package W18) of the split it
+        carries; a training or preflight reads real held-out tables of split 1 only."""
         self.cfg = cfg = settings(cfg)
         torch.set_num_threads(int(cfg["threads"]))
         torch.manual_seed(int(cfg["seed"]))
@@ -95,15 +98,21 @@ class Run:
         self.device = torch.device("cuda" if cfg["device"] != "cpu" and torch.cuda.is_available() else "cpu")
         if cfg["device"] == "cuda" and self.device.type != "cuda":
             raise SystemExit("the configuration asks for a GPU and there is none")
-        if int(cfg["train_split"]) != 0 or int(cfg["heldout_split"]) != 1:
+        held_split = int(cfg["heldout_split"])
+        if int(cfg["train_split"]) != 0 or (held_split != 1 and not evaluate_only):
             raise SystemExit("the training tables are split 0 and the held-out tables split 1 (given %s and %s)" % (cfg["train_split"], cfg["heldout_split"]))
         self.train = T.open_split(cfg["train_root"], cfg["train_tables"], 0)
-        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], 1)
-        for ts, want in ((self.train, 0), (self.held, 1)):
+        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], held_split)
+        ruler = evaluate_only and self.held.kind == RULER and not cfg["probe"]
+        if self.held.kind == A.TABLE_REAL and held_split != 1:
+            raise SystemExit("real held-out tables are split 1, not %d" % held_split)
+        for ts, want in ((self.train, 0), (self.held, held_split)):
             got = np.unique(np.asarray(ts.load(("split",))["split"]))
             if got.tolist() != [want]:
                 raise SystemExit("table set %s: the tables read as split %d carry splits %s" % (ts.name, want, got.tolist()))
         for ts in (self.train, self.held):
+            if ts is self.held and ruler:
+                continue                                              # a ruler set, read by an evaluation only
             if bool(cfg["probe"]) == (ts.kind == A.TABLE_REAL):
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
                                  % (ts.name, ts.kind))
@@ -332,7 +341,7 @@ def evaluate_checkpoints(cfg):
     (final_tables, final_cells, final_wall_s) and at its best node (best_tables, best_cells, best_wall_s). Writes
     results.tsv, heldout_final.npz and summary.json in out."""
     began = time.time()
-    run = Run(dict(cfg, out=cfg["out"]))
+    run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
     out_dir = cfg["out"]
     os.makedirs(out_dir, exist_ok=True)

@@ -186,6 +186,26 @@ def test_saved_weights_evaluated_again():
     assert {r["budget"].split(";")[0] for r in rows if r["weights"] == "ema@final"} == {"tables=%d" % out["tables_seen"]}
 
 
+def test_saved_weights_read_on_a_ruler_set_and_never_trained_on():
+    """An evaluation of saved weights reads a ruler set (package W18) as its held-out set; a training never does."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, max_steps=3, eval_first=4)
+    out = loop.fit(cfg)
+    rroot = tempfile.mkdtemp()
+    ruler = D.write_tableset(rroot, [("heldout/s0000", D.random_tables(12, rows=4, seed=3, split=1))], kind="ruler", name="w6-ruler")
+    again = loop.evaluate_checkpoints(dict(cfg, heldout_tables=ruler, heldout_root=rroot, out=os.path.join(root, "again"),
+                                           final=os.path.join(root, "out", "final.pt"), best=None, final_tables=out["tables_seen"],
+                                           final_cells=out["cells_seen"], final_wall_s=out["wall_s"]))
+    rows = SC.read_rows(os.path.join(root, "again", "results.tsv"))
+    assert again["status"] == "ok" and {r["table_kind"] for r in rows} == {"ruler"} and {r["table_set"] for r in rows} == {"w6-ruler"}
+    try:
+        loop.fit(dict(cfg, heldout_tables=ruler, heldout_root=rroot, out=os.path.join(root, "out2")))
+    except SystemExit as err:
+        assert "kind" in str(err)
+    else:
+        raise AssertionError("a training took a ruler set")
+
+
 def test_split_and_gradient_checks():
     root = tempfile.mkdtemp()
     try:

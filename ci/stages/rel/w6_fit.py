@@ -116,6 +116,9 @@ def table_set(cfg, spec, verify) -> dict:
         doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"])
     except (handoff.HandoffError, OSError, ValueError) as err:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], err))
+    if doc.get("kind") not in ("real", "synthetic"):                  # a ruler set is read by evaluations only, never trained on
+        raise SystemExit("rel_w6_fit: table set %s of %s is of kind %s; training reads real (or, probing, synthetic) sets only"
+                         % (spec["path"], spec["run"], doc.get("kind")))
     bad = handoff.tableset_problems(doc, spec["run"] if verify else "")
     if bad:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))

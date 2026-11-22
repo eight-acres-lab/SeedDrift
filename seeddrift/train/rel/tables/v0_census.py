@@ -223,5 +223,33 @@ def page(doc):
                   _pct(a["checks"]["codons_coding_their_aligned_residue"]), "{:,}".format(a["checks"]["aligned_codons_checked"]),
                   "{:,}".format(a["checks"]["cells_cut_at_block_length"]), "{:,}".format(a["checks"]["aligned_codons_lost_to_the_cut"]),
                   "{:,}".format(a["checks"]["candidate_rows_without_stored_codons"]), "{:,}".format(a["checks"]["duplicate_pair_rows"]))]
+    if doc.get("cap"):
+        cp = doc["cap"]
+        splits = [x for x in ("train", "heldout") if x in cp["per_split"]]
+        L += ["", "## Genes whose homolog rows reach the cap of stage pairs (%d genomes kept per gene)" % cp["cap"], "",
+              "| group | " + " | ".join("%s genes | at the cap | rows per gene" % x for x in splits) + " |", "|---|" + "---|---|---|" * len(splits)]
+        for g in doc["groups"] + ["all"]:
+            cells = []
+            for x in splits:
+                d = cp["per_split"][x].get(g) or {}
+                cells.append("%s | %s | %s" % ("{:,}".format(d.get("genes", 0)), _pct(d.get("share_at_cap")),
+                                               "n/a" if d.get("rows_per_gene") is None else "%.1f" % d["rows_per_gene"]))
+            L.append("| %s | " % g + " | ".join(cells) + " |")
+    if doc.get("strata"):
+        st = doc["strata"]
+        parts = [p for p in ("train", "heldout") if p in st]
+        L += ["", "## Nearest other row on the target, per table (the strata of the evaluator)", "", doc.get("strata_note", ""), "",
+              "| stratum | " + " | ".join("%s tables | share" % p for p in parts) + " |", "|---|" + "---|---|" * len(parts)]
+        for lab in st[parts[0]]["fine"]:
+            L.append("| %s | " % lab + " | ".join("%s | %s" % ("{:,}".format(st[p]["fine"][lab]["tables"]), _pct(st[p]["fine"][lab]["share"])) for p in parts) + " |")
+        for p in parts:
+            h = st[p]["high"]
+            L += ["", "%s tables (%s of them with another row on the target): the nearest row is at least 0.98 identical in %s (%s tables; %s of "
+                  "the tables with another row), at least 0.99 in %s, identical in %s." % (
+                      p, "{:,}".format(st[p]["with_other_rows"]), _pct(h["from_0.98"]["share"]), "{:,}".format(h["from_0.98"]["tables"]),
+                      _pct(h["from_0.98"]["share_of_tables_with_rows"]), _pct(h["from_0.99"]["share"]), _pct(h["from_1.00"]["share"]))]
+        if "heldout" in st:
+            L += ["", "Held-out tables with the nearest row at least 0.98 identical, per group: " + "; ".join(
+                "%s %s" % (g, _pct(x["high"]["from_0.98"]["share"])) for g, x in st["heldout"]["per_group"].items()) + "."]
     L += ["", "## What these numbers are not", ""] + ["- " + x for x in doc["caveats"]] + [""]
     return "\n".join(L)

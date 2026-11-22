@@ -23,9 +23,11 @@ Configuration (profile block rel_w2_v0):
   processes          worker processes
   max_left_out       genomes the sealed check may refuse by name before the stage stops (20)
 Outputs under data/rel_w2/v0/: train/ and heldout/ (the shards: <shard>.<field>.npy, the shard and meta fields of the
-contract), index.json (rows, groups, the genome list the meta field `genome` indexes, the parts and their shards),
+contract, written by seeddrift/train/rel/tables/v0_io.py; read them with seeddrift/train/rel/evalh/shards.py), index.json
+(rows, groups, the genome list the meta field `genome` indexes, the parts and their shards),
 counts.json (the census counts and the codon counts per genome; never a model input) and tableset.json (the table-set
-manifest of seeddrift/train/rel/handoff.py, kind real, written last).
+manifest of seeddrift/train/rel/handoff.py, kind real, written last; `group_names` lists the groups the meta field
+`group` indexes, `parts` the folder, shards and checksum of each part, `sealed_check` the record of the sealed check).
 """
 from __future__ import annotations
 
@@ -246,7 +248,7 @@ def build(st, cfg, run_dir):
         table_version=V.TABLE_VERSION, layout=api.LAYOUT_STORED,
         coverage=dict(groups=present, scenarios=["far relatives only: the medium corpus as it is, rows among the 64 nearest genomes of a gene"],
                       not_covered=NOT_COVERED, note=COVERAGE_NOTE),
-        tables=sum(p["tables"] for p in parts.values()), rows=s["rows"], seed=s["seed"], parts=parts, files=files,
+        tables=sum(p["tables"] for p in parts.values()), rows=s["rows"], seed=s["seed"], parts=parts, files=files, group_names=groups,
         genomes=[dict(id=ids[i], taxid=int(metas[i]["taxid"]), split=metas[i]["split"]) for i in sorted(used)],
         left_out=[dict(group=x["group"], split=x["split"], reasons=x["reasons"]) for x in left], source=src["provenance"],
         sealed_check=dict(passed=True, **st.extra["sealed_check"]),       # the record readers on every machine require (handoff.py)
@@ -276,6 +278,8 @@ def gate(st, cfg, run_dir):
     problems = [dict(e, part="manifest") for e in handoff.tableset_problems(doc)]
     if doc.get("kind") != api.TABLE_REAL or (doc.get("producer") or {}).get("stage") != "w2_v0" or doc.get("api_version") != V.API_VERSION:
         problems.append(dict(error="not a real table set of stage w2_v0 for this version of the contract"))
+    if doc.get("group_names") != index.get("groups"):
+        problems.append(dict(error="the manifest's group names are not the index's groups"))
     if doc.get("source") != src["provenance"]:
         problems.append(dict(error="the manifest names another source than the configured run's records"))
     wrong = [g["id"] for g in listed if g["id"] not in by or by[g["id"]]["split"] != g.get("split") or g.get("split") not in V.OPEN_SPLITS]

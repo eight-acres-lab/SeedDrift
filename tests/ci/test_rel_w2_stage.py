@@ -17,6 +17,7 @@ from ci.hashing import sha256_file
 from ci.stages.common import Stage
 from ci.stages.rel import common, gates as rel_gates, w2_census, w2_v0
 from seeddrift.train.rel import handoff
+from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.tables import v0_build as V
 from seeddrift.train.rel.tables import v0_io as IO
 
@@ -32,9 +33,11 @@ GENOMES = ([("%s_%s%d" % (g.replace(".", "_"), s[:2], k), g, s) for g in sorted(
 SIZES = dict(train=25, heldout=12, test=2)
 
 
-def make_source(run):
-    """A passed selfsup run as stage rel_w2_v0 reads it: the arrays, their manifests, the stage records, the record."""
-    metas, _ = T.make_run(run, genomes=GENOMES, lengths=[20, 24, 30, 33, 36, 40, 44, 50, 140, 270], taxids={g: v[0] for g, v in TINY.items()})
+def make_source(run, with_truth=False):
+    """A passed selfsup run as stage rel_w2_v0 reads it: the arrays, their manifests, the stage records, the record.
+    Returns the genomes of the training-data index (with_truth: and the true correspondences of the homolog rows, as
+    test_rel_w2_tables.make_run gives them). Other packages' tests import this fixture."""
+    metas, truth = T.make_run(run, genomes=GENOMES, lengths=[20, 24, 30, 33, 36, 40, 44, 50, 140, 270], taxids={g: v[0] for g, v in TINY.items()})
     ip = os.path.join(run, "data", "train_data", "index.json")
     tman = M.build("train-data", "train_data", [dict(id=m["id"], files=[M.file_entry(os.path.join(run, "data", "train_data", m["id"] + ".npz"), run)]) for m in metas])
     with open(ip) as f:
@@ -57,7 +60,7 @@ def make_source(run):
             json.dump(dict(name=stage, status="passed", outputs=[dict(name=n, path=p, sha256=sha256_file(os.path.join(run, p), use_sidecar=False)) for n, p in outs]), f)
     with open(os.path.join(run, "record.json"), "w") as f:
         json.dump(dict(run_id=os.path.basename(run), status="passed", ci_version="0.3", git=dict(sha="1" * 40), pipeline="selfsup"), f)
-    return metas
+    return (metas, truth) if with_truth else metas
 
 
 def patch(mp, tmp):
@@ -76,14 +79,14 @@ def built(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("w2")
     src = str(tmp / "ci-root" / "runs" / "20261120T000000-src")
     os.makedirs(src)
-    metas = make_source(src)
+    metas, truth = make_source(src, with_truth=True)
     run_dir, cfg = RF.rel_run(tmp, stages=("w2_v0", "w2_census"), rel_w2_v0=dict(source=src, expect=SIZES, rows=16, train_per_group=6, heldout_per_group=2,
                                                                                   shard_tables=24, processes=2))
     with pytest.MonkeyPatch.context() as mp:
         patch(mp, tmp)
         with Stage(run_dir, "rel_w2_v0") as st:                          # the plain Stage: no machine check here
             doc = w2_v0.build(st, cfg, run_dir)
-    return dict(tmp=tmp, src=src, metas=metas, run_dir=run_dir, cfg=cfg, doc=doc)
+    return dict(tmp=tmp, src=src, metas=metas, truth=truth, run_dir=run_dir, cfg=cfg, doc=doc)
 
 
 def _gate(run_dir, name):
@@ -118,10 +121,7 @@ def test_stage_writes_a_table_set_of_the_open_splits(built):
             assert (np.bincount(np.load(os.path.join(run_dir, w2_v0.OUT, part, x["name"] + ".group.npy")), minlength=12) == x["tables"] // 12).all()
     assert sorted(g["id"] for g in doc["genomes"]) == sorted(set(listed) & {g["id"] for g in doc["genomes"]}) and len(doc["genomes"]) > 24
     assert w2_v0.summary(run_dir)["json"]["tables"] == dict(train=72, heldout=24)
-    parts, man = IO.open_parts(run_dir)                                   # the reader finds the parts from the manifest
-    assert man["sha256"] == doc["sha256"] and parts["train"].tables == 72 and parts["heldout"].tables == 24
-    got = parts["heldout"].take([23, 0], ("tok", "kind", "split"))
-    assert got["tok"].shape == (2, 16, 1024) and (got["split"] == 1).all() and (got["kind"][:, 0, V.TARGET] == 1).all()
+    assert doc["group_names"] == index["groups"] and doc["sealed_check"]["passed"] is True
 
 
 def test_gates_pass_and_the_kind_gates_accept_the_table_set(built, monkeypatch):
@@ -140,18 +140,121 @@ def test_gates_pass_and_the_kind_gates_accept_the_table_set(built, monkeypatch):
         w2_census.gate(st, cfg, run_dir)
     assert _gate(run_dir, "G4_rel_w2_census")["status"] == "pass"
     head = rep["headline"]
+    st = rep["strata"]
+    for part, n in (("train", 72), ("heldout", 24)):
+        assert st[part]["tables"] == n and sum(x["tables"] for x in st[part]["fine"].values()) == n and "coarse" not in st[part]
+        assert set(st[part]["per_group"]) == set(TINY) and 0 <= st[part]["high"]["from_0.98"]["share"] <= 1
+        assert list(st[part]["fine"]) == list(SC.FINE) and list(head[part]["nearest_fine"]) == list(SC.FINE)
+    with open(os.path.join(run_dir, w2_v0.OUT, "heldout", "s0000.identity.npy"), "rb") as f:
+        ident = np.load(f)
+    near = SC.nearest_identity(ident)
+    assert st["heldout"]["high"]["from_0.98"]["tables"] == int((near >= 0.98 - 1e-6).sum()) and st["heldout"]["with_other_rows"] == int((~np.isnan(near)).sum())
     assert set(head["codons_per_group"]) == set(TINY) and all(v > 0 for v in head["codons_per_group"].values())
     assert head["train"]["tables"] == 72 and 0 < head["train"]["filled"]["not_target"] <= 1
     assert 0 <= head["train"]["random_rows_filled"]["not_target"] <= head["train"]["filled"]["not_target"]
     assert head["heldout"]["nearest_row_on_target"]["quantiles"]["q50"] is not None
     page = open(os.path.join(run_dir, w2_census.OUT, "report.md")).read()
     assert "## Table set `heldout`" in page and "viruses.giant" in page and not any(g in page for g in SEALED)
+    assert "the strata of the evaluator" in page and "nearest_identity=0.9-1.0" in page and "at least 0.98 identical" in page
+    cap = rep["cap"]                                                     # genes at the cap, against the homolog files themselves
+    assert cap["cap"] == T.KEEP and cap["training_genomes"] == 24 and abs(cap["random_fill_ceiling"] - T.KEEP / 23) < 1e-12
+    want = {}
+    for m in built["metas"]:
+        if m["split"] in ("train", "heldout") and m["id"] != LEFT_OUT:
+            rows = np.diff(np.load(os.path.join(built["src"], "data", "pairs", m["id"] + ".npz"))["off"].astype(np.int64))
+            d = want.setdefault(m["split"], [0, 0])
+            d[0] += len(rows)
+            d[1] += int((rows >= T.KEEP).sum())
+    for split, (genes, at_cap) in want.items():
+        assert cap["per_split"][split]["all"]["genes"] == genes and cap["per_split"][split]["all"]["genes_at_cap"] == at_cap
+    assert all(at_cap > 0 for _, at_cap in want.values()) and head["train"]["genes_at_cap"]["all"] == cap["per_split"]["train"]["all"]["share_at_cap"]
+    assert "reach the cap of stage pairs" in page and "measures the cap, not biology" in page and "counted over all three splits" in page
+    for part in ("train", "heldout"):
+        per = head[part]["tables_without_other_rows_per_group"]
+        assert set(per) == set(TINY) and all(0 <= v <= 1 for v in per.values())
     assert w2_census.summary(run_dir)["json"] == head
     with open(os.path.join(run_dir, "gates", "rel_w2_census.ok"), "w") as f:
         json.dump(dict(phase="rel_w2_census", passed=True), f)
     with Stage(run_dir, "gates_rel_tables") as st:                           # the kind's gates: hand-off and the sealed check
         rel_gates.kind_phase(st, cfg, run_dir, ["w2_v0", "w2_census"])
     assert _gate(run_dir, "G4_rel_handoff")["status"] == "pass" and _gate(run_dir, "G3_rel")["status"] == "pass"
+
+
+def test_round_trip_through_the_evaluator_reader_and_layout(built):
+    """The shards read back through the manifest by the evaluator's reader (evalh/shards.py) are the files the build
+    wrote, in the order of the tables; the evaluator's layout (evalh/layout.py place) puts every codon of every row in
+    the column of the examined codon the simulation aligned it to, and nothing anywhere else."""
+    from seeddrift.train.rel import api
+    from seeddrift.train.rel.evalh import layout, shards
+    run_dir, doc, truth, src = built["run_dir"], built["doc"], built["truth"], built["src"]
+    sets = shards.by_split(run_dir, [doc])
+    with open(os.path.join(run_dir, w2_v0.OUT, "index.json")) as f:
+        listed = [g["id"] for g in json.load(f)["genomes"]]
+    arrays = {}
+
+    def gene(gid, j):
+        if gid not in arrays:
+            arrays[gid] = np.load(os.path.join(src, "data", "train_data", gid + ".npz"))
+        z = arrays[gid]
+        return z["codons"][z["codon_off"][j]:z["codon_off"][j + 1]]
+    fields = sorted(IO.fields(16))
+    for split, part in ((0, "train"), (1, "heldout")):
+        ts = sets[split]
+        assert ts.folder == os.path.join(w2_v0.OUT, part) and ts.tables == doc["parts"][part]["tables"]
+        got = ts.load(0, ts.tables, fields)                                  # every file checked against the manifest
+        direct = {f: np.concatenate([np.load(os.path.join(run_dir, w2_v0.OUT, part, "%s.%s.npy" % (x["name"], f))) for x in doc["parts"][part]["shards"]])
+                  for f in fields}
+        assert all(np.array_equal(got[f], direct[f], equal_nan=(f == "identity")) for f in fields)
+        grid = layout.place(got["tok"], got["n"], got["col"], api.GAP)
+        want = np.full(grid.shape, api.GAP, dtype=grid.dtype)
+        for t in range(ts.tables):
+            gid = listed[got["genome"][t, 0]]
+            for b, (_, s0, s1) in enumerate(V.SLICES):
+                i = int(got["gene"][t, b])
+                if i < 0:
+                    continue
+                own = gene(gid, i)[:s1 - s0]
+                want[t, 0, s0:s0 + len(own)] = own
+                for q in range(1, 16):
+                    if got["genome"][t, q] < 0 or (gid, i, listed[got["genome"][t, q]]) not in truth:
+                        continue
+                    pid = listed[got["genome"][t, q]]
+                    j, pairs = truth[(gid, i, pid)]
+                    other = gene(pid, j)
+                    ok = {y: x for y, x in pairs.items() if x < len(own) and y < len(other)}
+                    if not ok:
+                        continue
+                    first = min(ok)
+                    for y, x in ok.items():
+                        if y < first + (s1 - s0):                            # the stretch is cut at the block length
+                            want[t, q, s0 + x] = other[y]
+        assert np.array_equal(grid, want)
+
+
+def test_census_of_another_run(built, monkeypatch, tmp_path):
+    """The census alone, from the table set of a passed run (rel_w2_census.tables_from), as the census-only profile runs it."""
+    import shutil
+    patch(monkeypatch, built["tmp"])
+    tables_run = str(tmp_path / "ci-root" / "runs" / "20261122T000001-tables")
+    shutil.copytree(built["run_dir"], tables_run)
+    with open(os.path.join(tables_run, "stages", "rel_w2_v0.json")) as f:
+        stage = json.load(f)
+    with open(os.path.join(tables_run, "record.json"), "w") as f:
+        json.dump(dict(run_id=os.path.basename(tables_run), status="passed", stages=[stage], pipeline="rel_tables"), f)
+    run_dir, cfg = RF.rel_run(tmp_path, stages=("w2_census",), run_id="20261122T000002-census", rel_w2_census=dict(tables_from=tables_run))
+    with Stage(run_dir, "rel_w2_census") as st:
+        rep = w2_census.build(st, cfg, run_dir)
+    with Stage(run_dir, "gates_rel_w2_census") as st:
+        w2_census.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w2_census")["status"] == "pass" and rep["tableset"]["run_id"] == os.path.basename(built["run_dir"])
+    assert rep["strata"]["heldout"]["tables"] == 24 and sum(x["tables"] for x in rep["strata"]["train"]["fine"].values()) == 72
+    with Stage(run_dir, "gates_rel_tables") as st:                           # no table set written here: the kind gates pass
+        rel_gates.kind_phase(st, cfg, run_dir, ["w2_census"])
+    assert _gate(run_dir, "G3_rel")["status"] == "pass" and _gate(run_dir, "G4_rel_handoff")["status"] == "pass"
+    with open(os.path.join(tables_run, "record.json"), "w") as f:
+        json.dump(dict(run_id="x", status="failed", stages=[stage]), f)
+    with pytest.raises(SystemExit, match="not passed"):
+        w2_census.tables(run_dir, cfg)
 
 
 def test_gate_fails_on_a_held_out_genome_among_the_other_rows(built, monkeypatch, tmp_path):

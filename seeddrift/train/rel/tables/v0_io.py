@@ -1,6 +1,8 @@
-"""The shard files of a table set on disk: the one writer and reader (the contract, seeddrift/train/rel/api.py, names the
-arrays and leaves the file layout to this module). Numpy and the standard library only, so the CI environment and the
-model's Python read the same files the same way.
+"""The shard files of a table set on disk: the one writer (the contract, seeddrift/train/rel/api.py, names the arrays
+and leaves the file layout to the writer). Reading them and placing their rows for stages and models belong to the
+evaluator's seeddrift/train/rel/evalh/shards.py and evalh/layout.py; Part, open_parts and stored_grid below are the
+writer's own reading of what it wrote, kept for the round-trip checks of the tests (the evaluator's reader and layout
+are checked against them). Numpy and the standard library only.
 
 A part of a table set (the training tables, the held-out tables, a synthetic set) is a folder of shards:
   <folder>/<shard>.<field>.npy   one plain .npy file per field, uncompressed, so it can be memory-mapped; its first
@@ -14,16 +16,15 @@ Conventions the arrays follow (version 0 of the tables; the kinds are the contra
     never from a meta field.
   - a block that does not exist (frame_len 0) has kind KIND_NONE in every row.
   - a row's codons of a block are in the row's own coordinates, left-justified in the block's slice; `col` gives each
-    codon's column inside the block in the coordinates of row 0 (-1: no column there). The stored layout is
-    grid[row, block start + col[k]] = tok[k] for col[k] >= 0 (stored_grid below).
+    codon's column inside the block in the coordinates of row 0 (-1: no column there), strictly increasing over the
+    codons that have one. The stored layout puts codon k at block start + col[k] (evalh/layout.py place).
 
   fields(rows)                            {field: (dtype, shape of one table)}
   alloc(n, rows)                          blank arrays of n tables (every field at its "nothing" value)
   create(folder, tables, rows, shard_tables)   new shard files -> ([(shard, tables)], {(shard index, field): memmap})
   write(folder, arrays, shard_tables)     a whole part from {field: array [N, ...]} -> [(shard, tables)]
-  Part(folder, shards, rows)              a part on disk: field(name), shard(i, names), take(ids, names)
-  open_parts(run_dir, tableset)           the parts of a table set written by stage rel_w2_v0, from its manifest
-  stored_grid(tok, col, fill)             rows placed in the coordinates of row 0 by the stored columns
+  Part(folder, shards, rows), open_parts(run_dir), stored_grid(tok, col, fill)
+                                          the writer's reading, for the round-trip checks only (see above)
 """
 from __future__ import annotations
 
@@ -35,10 +36,10 @@ import numpy as np
 from seeddrift.train.rel import api as A
 
 KIND_NONE = getattr(A, "KIND_NONE", 0)
-FILL = dict(tok=A.PAD, n=0, col=-1, frame_row=0, frame_len=0, kind=KIND_NONE, start=-1, strand=0, replicon=-1,
-            genome=-1, group=-1, split=-1, gene=-1, tier=-1, identity=np.nan)
 MODEL_FIELDS, META_FIELDS = tuple(A.SHARD_FIELDS), tuple(A.META_FIELDS)
 TABLESET = os.path.join("data", "rel_w2", "v0", "tableset.json")
+FILL = dict(tok=A.PAD, n=0, col=-1, frame_row=0, frame_len=0, kind=KIND_NONE, start=-1, strand=0, replicon=-1,
+            genome=-1, group=-1, split=-1, gene=-1, tier=-1, identity=np.nan)
 
 
 def fields(rows):

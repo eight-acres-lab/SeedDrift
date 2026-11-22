@@ -166,7 +166,10 @@ def test_gates_pass_and_the_kind_gates_accept_the_table_set(built, monkeypatch):
     for split, (genes, at_cap) in want.items():
         assert cap["per_split"][split]["all"]["genes"] == genes and cap["per_split"][split]["all"]["genes_at_cap"] == at_cap
     assert all(at_cap > 0 for _, at_cap in want.values()) and head["train"]["genes_at_cap"]["all"] == cap["per_split"]["train"]["all"]["share_at_cap"]
-    assert "reach the cap of stage pairs" in page and "measures the cap, not biology" in page
+    assert "reach the cap of stage pairs" in page and "measures the cap, not biology" in page and "counted over all three splits" in page
+    for part in ("train", "heldout"):
+        per = head[part]["tables_without_other_rows_per_group"]
+        assert set(per) == set(TINY) and all(0 <= v <= 1 for v in per.values())
     assert w2_census.summary(run_dir)["json"] == head
     with open(os.path.join(run_dir, "gates", "rel_w2_census.ok"), "w") as f:
         json.dump(dict(phase="rel_w2_census", passed=True), f)

@@ -171,6 +171,7 @@ def report(doc, counts, src=None, cap=None) -> dict:
         near = a["nearest_row_identity"]["target"]
         head[part] = dict(
             tables=d["tables"], other_rows_mean=a["other_rows"]["mean"], tables_without_other_rows=a["other_rows"]["share_of_tables_without"],
+            tables_without_other_rows_per_group={g: x["other_rows"]["share_of_tables_without"] for g, x in d["census"]["per_group"].items()},
             filled=dict(not_target=a["filled"]["not_target"]["share"], relation=a["filled"]["relation"]["share"], left=a["filled"]["left"]["share"],
                         right=a["filled"]["right"]["share"], not_target_of_row_slots=a["filled"]["not_target"]["share_of_row_slots"]),
             filled_per_group={g: x["filled"]["not_target"]["share"] for g, x in d["census"]["per_group"].items()},
@@ -183,9 +184,10 @@ def report(doc, counts, src=None, cap=None) -> dict:
             random_rows_filled_per_group={g: x["random_rows_filled"]["not_target"]["share"] for g, x in d["census"]["per_group"].items()})
     if cap is not None:
         out["cap"] = cap
-        out["caveats"] = CAVEATS + ["The fill of rows drawn at random is bounded by the cap of stage pairs: at most %d of the %d other training genomes "
-                                    "(%.1f%%) have a homolog row on a gene, so that share measures the cap, not biology." % (
-                                        cap["cap"], cap["training_genomes"] - 1, 100 * cap["random_fill_ceiling"])]
+        out["caveats"] = CAVEATS + ["The fill of rows drawn at random is bounded by the cap of stage pairs: it keeps at most %d genomes per gene, "
+                                    "counted over all three splits, so at most %d of the %d other training genomes (%.1f%%) can have a homolog row on "
+                                    "a gene; that share measures the cap, not biology." % (
+                                        cap["cap"], cap["cap"], cap["training_genomes"] - 1, 100 * cap["random_fill_ceiling"])]
         for split, by in cap["per_split"].items():
             head.setdefault(split, {})["genes_at_cap"] = dict(all=by["all"]["share_at_cap"], per_group={g: d["share_at_cap"] for g, d in by.items() if g != "all"})
     if src is not None:

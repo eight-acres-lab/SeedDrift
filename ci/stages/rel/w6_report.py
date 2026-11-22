@@ -21,6 +21,8 @@ Profile block rel_w6_report (all optional):
              lower rate (low) and a small arm (small), at the last node all three reached and at the end, against the
              seeds' difference; one of three conclusions (caught up: the rate; better than the lower rate but not caught
              up: part; diverged or no better: not the rate); note is printed with it (the machines, say)
+  pairs      [{name, first, second}]: two arms side by side (the second minus the first) at every node both reached and
+             at the end, under scattered, whole_gene and suffix, against the seeds' difference
   notes      [text, ...]: what these runs do not show, added to the report's caveats (the machines they ran on, say)
   baselines  [{run, path}]: result tables of passed runs (the classical baselines of package W5: path
              data/rel_w5/baselines/rows.tsv; its results.json beside it gives the digest of the cells it scored)
@@ -96,7 +98,7 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     lr = sc.get("lr_check")
@@ -117,7 +119,8 @@ def settings(cfg) -> dict:
                 leak_pairs=[[str(a), str(b)] for a, b in sc.get("leak_pairs") or []],
                 lr_sweeps=[dict(name=str(w["name"]), arms=[[str(x) for x in e] if isinstance(e, list) else [str(e)] for e in w["arms"]])
                            for w in sc.get("lr_sweeps") or []],
-                passes=[str(a) for a in sc.get("passes") or []], notes=[str(x) for x in sc.get("notes") or []])
+                passes=[str(a) for a in sc.get("passes") or []], notes=[str(x) for x in sc.get("notes") or []],
+                pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []])
 
 
 LR_CONCLUSIONS = {
@@ -572,6 +575,32 @@ def build(st, cfg, run_dir):
                 n = noise(None, c, x) if spread else None
                 leak.append(dict(leakfree=lf, stored=st_arm, condition=c, tables=x, bits_leakfree=a, bits_stored=b, leak=d, noise=n,
                                  reading=beyond(d, n) if n else None))
+    leak_nodes = []                                                    # at every node both reached: equal tables seen
+    for lf, st_arm in s["leak_pairs"]:
+        common = sorted(set(nodes.get(lf, [])) & set(nodes.get(st_arm, [])) - {0})
+        for t in common:
+            for x in (SC.ALL, x0):
+                a, b = N(lf, t, cond.SCATTERED, SC.ALL, x), N(st_arm, t, cond.SCATTERED, SC.ALL, x)
+                n = noise(t, cond.SCATTERED, x) if spread else None
+                leak_nodes.append(dict(leakfree=lf, stored=st_arm, node=t, tables=x, bits_leakfree=a, bits_stored=b, leak=diff(a, b), noise=n,
+                                       reading=beyond(diff(a, b), n) if n else None))
+    # pairs of arms: the second minus the first, at every node both reached and at the end, against the seeds' difference
+    pairs_out = []
+    for q in s["pairs"]:
+        if q["first"] not in arms or q["second"] not in arms:
+            raise SystemExit("rel_w6_report.pairs %s: %s are no arms of the report" % (q["name"], [x for x in (q["first"], q["second"]) if x not in arms]))
+        a1, a2 = q["first"], q["second"]
+        common = sorted(set(nodes.get(a1, [])) & set(nodes.get(a2, [])) - {0})
+        prow = []
+        for t in common + ["end"]:
+            row = [t]
+            for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix")):
+                u, v = (F(a1, c), F(a2, c)) if t == "end" else (N(a1, t, c), N(a2, t, c))
+                n = noise(None if t == "end" else t, c) if spread else None
+                row += [u, v, diff(v, u), beyond(diff(v, u), n) if n else None]
+            prow.append(row)
+        pairs_out.append(dict(name=q["name"], first=a1, second=a2, rows=prow,
+                              tables_seen={a: arms[a]["info"].get("tables_seen") for a in (a1, a2)}))
     # learning-rate sweeps: arms of one size at several peak rates (a seed group as one entry: its mean where all of it
     # reached a node, the one that reached it otherwise) at every node all entries reached, the best against the next
     sweep_conds = [c for c in (cond.SCATTERED, cond.SCATTERED + NO_REL, cond.WHOLE_GENE + NO_REL)]
@@ -750,6 +779,17 @@ def build(st, cfg, run_dir):
         md += md_table(["leak-free arm", "stored arm", "condition", "tables", "bits leak-free", "bits stored", "leak", "seeds' difference", "reading"],
                        [[r["leakfree"], r["stored"], r["condition"], r["tables"], r["bits_leakfree"], r["bits_stored"], r["leak"], fmt_noise(r["noise"]),
                          r["reading"] or ""] for r in leak])
+        if leak_nodes:
+            md += ["", "Scattered at every node both reached (equal tables seen; 600 tables):", ""]
+            md += md_table(["leak-free arm", "stored arm", "tables seen", "tables", "bits leak-free", "bits stored", "leak", "seeds' difference", "reading"],
+                           [[r["leakfree"], r["stored"], r["node"], r["tables"], r["bits_leakfree"], r["bits_stored"], r["leak"], fmt_noise(r["noise"]),
+                             r["reading"] or ""] for r in leak_nodes])
+    for q in pairs_out:
+        md += ["", "## %s: %s against %s" % (q["name"], q["second"], q["first"]), "",
+               "The second minus the first (negative: the second is lower), at every node both reached (600 tables) and at the end (all tables; "
+               "tables seen %s), against the seeds' difference." % ", ".join("%s %s" % (a, t) for a, t in q["tables_seen"].items()), ""]
+        md += md_table(["tables seen"] + ["%s, %s" % (c, w) for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix"))
+                                          for w in ("first", "second", "difference", "reading")], q["rows"])
     for w in sweeps:
         md += ["", "## Learning rates of %s: %s" % (w["name"], ", ".join("%s at %s" % (e, w["lr"][e]) for e in w["entries"])), "",
                "Bits at every node all of them reached (600 tables; a group of seeds: its mean), then at the end (all tables; each at its own "
@@ -816,7 +856,8 @@ def build(st, cfg, run_dir):
                   relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
-                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out, lr_check=lr_check, leak=leak, lr_sweeps=sweeps, passes=over,
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out, lr_check=lr_check, leak=leak, leak_nodes=leak_nodes, pairs=pairs_out, lr_sweeps=sweeps,
+                  passes=over,
                   noise=[dict(node=t, condition=c, stratum=x, bits=v) for (t, c, x), v in sorted(spread.items())], readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))

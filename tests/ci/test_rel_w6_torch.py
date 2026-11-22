@@ -142,11 +142,16 @@ def test_leakfree_layout_trains():
     out = loop.fit(cfg)
     assert out["status"] == "ok" and out["steps"] == 3
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))         # probe mode: the leak-free conditions rendered online
-    lay = {r["condition"]: r["layout"] for r in rows if r["weights"] == "ema@final"}
-    assert lay == {"scattered": "leakfree", "whole_gene": "leakfree", "whole_gene+repaired": "leakfree", "scattered+no_relatives": "stored",
-                   "whole_gene+no_relatives": "stored"}
+    lay = {}
+    for r in rows:
+        if r["weights"] == "ema@final":
+            lay.setdefault(r["condition"], set()).add(r["layout"])
+    assert lay == {"scattered": {"leakfree"}, "whole_gene": {"leakfree", "stored"}, "whole_gene+repaired": {"leakfree", "stored"},
+                   "scattered+no_relatives": {"stored"}, "whole_gene+no_relatives": {"stored"}}           # the whole gene in both layouts
+    assert {"whole_gene@stored", "whole_gene+repaired@stored"} <= set(out["final"])
     for c in cond.CONDITIONS:                                     # the cells scored stay the evaluator's whatever the layout
         assert out["final_items"][c] == _digest(cfg, root, c), c
+    assert out["final_items"]["whole_gene@stored"] == out["final_items"]["whole_gene"]
     real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
     try:
         loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))

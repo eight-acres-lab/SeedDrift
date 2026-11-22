@@ -267,6 +267,34 @@ def test_sampler_layouts_per_mask_scheme():
     assert RD.LEAKFREE == A.LAYOUT_LEAKFREE
 
 
+def test_sampler_keeps_the_frame_row_of_a_block():
+    """A block framed on another row than row 0 (the whole gene of tables framed on a relative) keeps that row whatever
+    rows are drawn, renumbered to its place among the rows kept; tables framed on row 0 draw as before."""
+    ts = _set(36)
+    i = next(t for t in range(len(ts)) if len(T.present_rows(ts.table(t))) >= 6)
+    tab = ts.table(i)
+    frame = int(T.present_rows(tab)[-1])
+    framed = dict(tab, frame_row=np.where(np.arange(A.N_BLOCKS) == A.N_BLOCKS - 1, frame, 0))
+
+    class One:
+        group, rows = np.zeros(1, np.int64), ts.rows
+
+        def __len__(self):
+            return 1
+
+        def table(self, _):
+            return framed
+    s = S.Sampler(One(), seed=1, rows=(2, 3), masks=["scattered"])
+    for step in range(20):
+        e = s.draw(step)[0]
+        assert 2 <= e["grid"].shape[0] <= 3 and frame in e["rows"].tolist() and e["rows"][0] == 0
+    kept = T.take_rows(framed, np.array([0, frame]))
+    assert kept["frame_row"].tolist() == [0] * (A.N_BLOCKS - 1) + [1]
+    assert T.take_rows(framed, np.array([0, 1]))["frame_row"][-1] == -1                       # left out: the renderer frames on row 0
+    plain = [e["table"] for st in range(5) for e in S.Sampler(ts, seed=3).draw(st)]
+    assert plain == [e["table"] for st in range(5) for e in S.Sampler(ts, seed=3).draw(st)]
+
+
 def test_sampler_share_of_tables_without_relatives():
     ts = _set(30)                                         # table 27 has no other row; its group 3 also holds tables 3 and 15
     never = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, alone_share=0.0).draw(st)}

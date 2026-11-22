@@ -300,6 +300,22 @@ def test_scale_at_the_last_node_of_all_arms_and_of_every_two():
     assert w6_report.scale_readings(["s", "x"], {"s": 10, "x": 20}, dict(nodes, x=[0]), N) == (None, [])        # no node besides step 0 in common
 
 
+def test_report_reads_the_whole_gene_in_two_layouts(tmp_path):
+    """An arm trained leak-free reads the whole gene leak-free and also in the stored layout it was trained in: the
+    stored rows come under "<condition>@stored", the others keep their condition, and a caveat says so."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    rows = SC.read_rows(p)
+    wg = [cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED]
+    lf = [dict(r, layout="leakfree", bits=float(r["bits"]) + 0.5) for r in rows if r["variant"] == "w6-ref30m-s1" and r["condition"] in wg]
+    SC.write_rows(p, rows + lf)
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report={}), run_dir)
+    fin = rep["arms"]["w6-ref30m-s1"]["final"]
+    assert abs(fin["whole_gene"] - fin["whole_gene@stored"] - 0.5) < 1e-9 and "whole_gene+repaired@stored" in rep["conditions"]
+    assert "whole_gene@stored" not in rep["arms"]["w6-ref10m-s1"]["final"] or rep["arms"]["w6-ref10m-s1"]["final"]["whole_gene@stored"] is None
+    assert any("trained stored, evaluated leak-free" in c for c in rep["caveats"])
+
+
 def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)

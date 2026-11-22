@@ -469,10 +469,14 @@ def read_ruler(run, cfg, began):
     max_rows = int(ro.get("max_rows", 32))
     info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else "final", relatives=bool(cfg["relatives"]), layout=layout, render_version=version,
                 run=cfg["run"], commit=cfg["commit"], root=cfg["heldout_root"])
+    extra = {}
+    if ro.get("in_place_only"):                                       # the protocol's switch of compute: in-place implants only
+        extra = dict(scenarios=[0]) if untrained else (dict(presence_scenarios=[0]) if ro.get("presence") else {})
     head = importlib.import_module(str(ro["module"])).run_ruler(lambda examples: E.score_cells(reader, examples, run.device, max_rows=max_rows),
                                                                 run.held, info, out_dir, render=render, presence=bool(ro.get("presence")),
-                                                                max_rows=max_rows)
+                                                                max_rows=max_rows, **extra)
     state = dict(name=cfg["name"], status="ok", readout=str(ro["module"]), weights=info["weights"], layout=layout, presence=bool(ro.get("presence")),
+                 in_place_only=extra,
                  tables=len(run.held), table_set=run.held.name, table_kind=run.held.kind, versions=versions(), params=run.params,
                  step=int(ck["step"]) if ck else 0, tables_seen=int(ck["tables_seen"]) if ck else 0, cells_seen=int(ck["cells_seen"]) if ck else 0,
                  ruler={k: v for k, v in (head or {}).items() if isinstance(v, (str, int, float, bool)) or v is None},

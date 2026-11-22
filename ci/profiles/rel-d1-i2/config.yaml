@@ -1,0 +1,37 @@
+# Machine i-2, today's first readings of the relational-model line (2026-11-22; the programme lead's protocol of that day,
+# sections 4 and 9): the arm of about 100 M parameters of the axial reference trunk, with relatives, one seed, on the
+# tables of version 0 built on i-1 (run 20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1) and copied over R2, every file checked by sha256 on arrival.
+# The GPU is shared with the vLLM service, which is never stopped: one training at a time, no GPU lease. The
+# self-tests of the torch code run first (CPU, GPU hidden); no training starts before they pass.
+# Readings are development diagnoses: stored placement (whole_gene is an upper bound), rows drawn among genomes with
+# a homolog row on the target gene, learning rates not tuned, no noise floor. Wall limit of a training 4.5 h.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 18000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_selftest, w6_fit, w6_report]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref100m.yaml, seed: 1}
+  wall_s: 16200
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

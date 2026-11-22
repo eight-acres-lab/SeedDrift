@@ -192,13 +192,50 @@ def test_the_whole_table_at_once_is_the_rule_row_by_row():
         assert all(np.array_equal(a, b) for a, b in zip(RD.placement(tab, vis), RD.placement_reference(tab, vis)))
 
 
+def stored_reference(tab, visible, target):
+    """The trainer's reader's own stored-layout renderer before it used this module (W6, commit 3382ed5), copied here
+    as an independent reference: every row at its stored columns, GAP between its first and last placed cell, PAD
+    outside, a block without codons filled by its kind, nothing beyond the frame; a hidden codon shows as MASK."""
+    from seeddrift.train.rel.evalh import layout
+
+    L = A.ROW_LEN
+    block_of, start = np.zeros(L, np.int64), np.zeros(L, np.int64)
+    for b, (_, s, e) in enumerate(SLICES):
+        block_of[s:e], start[s:e] = b, s
+    fill = np.full(256, A.PAD, np.uint8)
+    fill[A.KIND_ABSENT], fill[A.KIND_NOT_SEARCHED], fill[A.KIND_TRUNCATED] = A.ABSENT, A.NOT_SEARCHED, A.TRUNCATED
+
+    def placed_values(values, f):
+        return layout.place(np.asarray(values)[None], np.asarray(tab["n"])[None], np.asarray(tab["col"])[None], f)[0]
+
+    tok, kind = np.asarray(tab["tok"]), np.asarray(tab["kind"])
+    frame_len = np.asarray(tab["frame_len"]).astype(np.int64)
+    R = tok.shape[0]
+    cells = (np.arange(L) - start)[None, :] < np.asarray(tab["n"])[:, block_of]
+    shown = cells & (np.asarray(tab["col"]) >= 0)
+    hidden = cells & ~np.asarray(visible, dtype=bool)
+    placed = placed_values(shown.astype(np.uint8), 0).astype(bool)
+    token = placed_values(np.where(hidden, A.MASK, tok).astype(np.uint8), A.PAD)
+    want = np.asarray(target, dtype=bool) & hidden & (tok >= A.TARGET_MIN) & (tok <= A.TARGET_MAX)
+    truth = placed_values(np.where(want, tok, 0).astype(np.uint8), 0)
+    grid = np.full((R, L), A.PAD, np.uint8)
+    for b, (_, s, e) in enumerate(SLICES):
+        p = placed[:, s:e]
+        span = (np.cumsum(p, axis=1) > 0) & (np.cumsum(p[:, ::-1], axis=1)[:, ::-1] > 0)
+        g = np.where(p, token[:, s:e], np.where(span, A.GAP, A.PAD)).astype(np.uint8)
+        empty = ~np.isin(kind[:, b], (A.KIND_PRESENT, A.KIND_SELF_COPY))
+        g[empty] = A.PAD
+        f = int(frame_len[b])
+        g[empty, :f] = fill[kind[empty, b]][:, None]
+        g[:, f:] = A.PAD
+        grid[:, s:e] = g
+    truth[grid != A.MASK] = 0
+    return grid, truth
+
+
 def test_without_hidden_cells_leak_free_is_stored_and_stored_is_the_readers():
     tables, _ = toy_tables(n_tables=6, rows=6, seed=73)
     rng = np.random.default_rng(1)
-    try:
-        from seeddrift.train.rel.data import tables as T
-    except ImportError:
-        T = None
     for t in range(6):
         tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
         tab["frame_len"] = tables["n"][t, 0]
@@ -208,10 +245,9 @@ def test_without_hidden_cells_leak_free_is_stored_and_stored_is_the_readers():
         g2, t2, e2 = RD.render(tab, vis, hide, RD.STORED)
         assert np.array_equal(g1, g2) and not e1.any() and not t1.any()
         vis, hide = _plans(tab, rng)
-        if T is not None:                                                        # the trainer's reader renders the stored layout so
-            gw, tw = T.render(tab, vis, hide)
-            gs, ts, _ = RD.render(tab, vis, hide, RD.STORED)
-            assert np.array_equal(gw, gs) and np.array_equal(tw, ts)
+        gw, tw = stored_reference(tab, vis, hide)                               # the reader's old renderer, independent of RD
+        gs, ts, _ = RD.render(tab, vis, hide, RD.STORED)
+        assert np.array_equal(gw, gs) and np.array_equal(tw, ts)
         un, _, _ = RD.render(tab, vis, hide, RD.UNALIGNED)
         for b, (_, s, e) in enumerate(SLICES):                                   # unaligned: every row from the block's first column
             for r in range(1, 6):

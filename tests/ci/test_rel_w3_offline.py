@@ -272,3 +272,51 @@ def test_online_frame_layout_from_the_search_index_is_the_offline_one():
         miss = dict(meta, row_gene=np.full_like(meta["row_gene"], 7))           # no stored pair: the row is not shown
         col2, _, _, placed2 = AL.frame_layout_online(tab, miss, ix, columns=fake_columns)
         assert all(v == 0 for v in placed2.values()) and all((col2[r, s:s + int(tab["n"][r, -1])] == -1).all() for r in placed2)
+
+
+def test_online_frame_layout_reads_the_other_direction_when_the_target_is_not_in_the_library():
+    """The search's targets are the training genomes only (every genome is a query, and each genome was also searched
+    against itself). A self-copy row of a held-out row 0 laid on a training frame relative is found only as the query:
+    the other direction, its sides swapped. Two rows of one non-training genome: the genome against itself. Two rows of
+    two different non-training genomes: no pair, the row is not shown."""
+    from test_rel_w5_baselines import toy_tables
+    TRAIN, HELD, OTHER = set(range(100, 120)), 900, 901
+    tables, _ = toy_tables(n_tables=8, rows=6, seed=91)
+    rng = np.random.default_rng(5)
+    used = {"forward": 0, "reverse": 0, "self": 0, "none": 0}
+    s = RD.SLICES[-1][1]
+    for t in range(8):
+        tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
+        tab["frame_len"], tab["frame_row"] = tables["n"][t, 0], np.zeros(A.N_BLOCKS, np.int8)
+        R = tab["tok"].shape[0]
+        fr = AL.frame_relative(tab)
+        if fr is None:
+            continue
+        genome = np.array([HELD] + [int(g) for g in rng.choice([HELD, OTHER, 100, 101, 102], R - 1)])
+        genome[fr] = HELD if t % 2 == 0 else 100 + t                             # a self-copy frame, or a training one
+        meta =dict(genome=genome, row_gene=rng.integers(0, 50, (R, A.N_BLOCKS)), row_first=rng.integers(0, 9, (R, A.N_BLOCKS)))
+        gene, first = meta["row_gene"][:, -1], meta["row_first"][:, -1]
+        off_col, off_fr, off_len = AL.frame_layout(tab)
+        nf = int(tab["n"][fr, -1])
+        ix, want = FakeIndex(), off_col.copy()
+        for r in range(1, R):
+            m = int(tab["n"][r, -1])
+            c = off_col[r, s:s + m].astype(np.int64)
+            if r == fr or m == 0 or (c < 0).all():
+                continue
+            F, G = int(genome[fr]), int(genome[r])
+            if G in TRAIN or F == G:                                             # stored with the frame relative as the query
+                ix.add(F, G, int(gene[fr]), int(gene[r]), [to_hsp(c, int(first[fr]), int(first[r]))])
+                used["self" if F == G and G not in TRAIN else "forward"] += 1
+            if F in TRAIN or F == G:                                             # stored with the row as the query
+                inv = np.full(nf, -1, np.int64)
+                inv[c[c >= 0]] = np.flatnonzero(c >= 0)
+                ix.add(G, F, int(gene[r]), int(gene[fr]), [to_hsp(inv, int(first[r]), int(first[fr]))])
+                if G not in TRAIN and F != G:
+                    used["reverse"] += 1
+            if G not in TRAIN and F not in TRAIN and F != G:                     # no direction: the row is not shown
+                want[r, s:s + m] = -1
+                used["none"] += 1
+        col, frame_row, frame_len, placed = AL.frame_layout_online(tab, meta, ix, columns=fake_columns)
+        assert np.array_equal(col, want) and np.array_equal(frame_row, off_fr) and np.array_equal(frame_len, off_len)
+    assert all(v > 0 for v in used.values()), used

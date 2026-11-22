@@ -39,13 +39,19 @@ def test_picks_are_looked_up_and_replaced_in_order():
                anchor("p1", "mobile.plasmid", "heldout", sp=[row("GCA_1", "mobile.plasmid"), row("GCA_2", "mobile.plasmid")], ge=[row("GCA_6", "mobile.plasmid")]),
                anchor("f1", "eukaryota.fungi", "train", sp=[euk]),
                anchor("t1", "bacteria", "test", sp=[row("GCA_5", "bacteria")])]
-    chosen, seen = WP.choose(anchors, 3, 40, 2, get)
-    assert [r["accession"] for r, _ in chosen["b1"]["picks"]] == ["GCA_1", "GCA_4", "GCA_5"] and chosen["b1"]["looked"] == 4   # GCA_3 lists nothing
-    assert [rel for _, rel in chosen["b1"]["picks"]] == ["same species", "same genus", "same genus"]
+    probed = []
+
+    def serve(accs):
+        probed.append(tuple(accs))
+        return accs != ["CP4"]                                         # ENA lists GCA_4's chromosome but does not serve it
+    chosen, seen, ok = WP.choose(anchors, 3, 40, 2, get, serve)
+    assert [r["accession"] for r, _ in chosen["b1"]["picks"]] == ["GCA_1", "GCA_5"] and chosen["b1"]["looked"] == 4   # GCA_3 lists nothing, GCA_4 is not served
+    assert ok[("GCA_4.1", "Chromosome")] is False and ("CP3",) in probed and ("CP1",) in probed and len(probed) == len(set(probed))
+    assert [rel for _, rel in chosen["b1"]["picks"]] == ["same species", "same genus"]
     assert [r["accession"] for r, _ in chosen["p1"]["picks"]] == ["GCA_2", "GCA_6"]           # only assemblies that list a plasmid
     assert [r["id"] for r, _ in chosen["f1"]["picks"]] == ["fungi_x"] and "t1" not in chosen  # no lookup for a eukaryote; no test anchor
     assert len(asked) == len(set(asked)) and "GCA_5.1" in seen
-    capped, _ = WP.choose(anchors[:1], 3, 2, 1, get)
+    capped, _, _ = WP.choose(anchors[:1], 3, 2, 1, get, serve)
     assert [r["accession"] for r, _ in capped["b1"]["picks"]] == ["GCA_1"]                    # at most max_lookups candidates examined
 
 
@@ -108,6 +114,7 @@ def picked(tmp_path_factory):
     with pytest.MonkeyPatch.context() as mp:
         TS.patch(mp, tmp)
         mp.setattr(WP, "replicons", lambda a: [("CP_" + a, "Chromosome"), ("PL_" + a, "Plasmid")])
+        mp.setattr(WP, "served", lambda accs: True)
         with Stage(run_p, "rel_w13_pick") as st:
             rep = WP.build(st, cfg_p, run_p)
     return dict(tmp=tmp, metas=metas, spec=spec, run=run_p, cfg=cfg_p, rep=rep, census=run_c)
@@ -163,6 +170,7 @@ def test_a_census_that_differs_is_refused(picked, monkeypatch, tmp_path):
         open(bad, "w").write(body)
     with pytest.MonkeyPatch.context() as mp:                             # the pick again, so later tests read a passed stage
         mp.setattr(WP, "replicons", lambda a: [("CP_" + a, "Chromosome"), ("PL_" + a, "Plasmid")])
+        mp.setattr(WP, "served", lambda accs: True)
         with Stage(picked["run"], "rel_w13_pick") as st:
             WP.build(st, picked["cfg"], picked["run"])
 

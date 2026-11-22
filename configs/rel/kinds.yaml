@@ -142,7 +142,6 @@ kinds:
         gates: [G4_rel_w6_fit]
         side: train
         produces: models
-        resumable: true
         tolerance: true
       w6_report:
         package: W6

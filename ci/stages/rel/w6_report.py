@@ -48,8 +48,10 @@ OUT = os.path.join("data", "rel_w6", "report")
 FIT = os.path.join("data", "rel_w6", "fit")
 NODE_RX = re.compile(r"^(ema|raw)@tables=(\d+)$")
 NO_REL = "+" + cond.NO_RELATIVES
-EUKARYOTE_PREFIX = "eukaryota."
 NONE_BIN = SC.FINE[-1]
+WITH_RELATIVES = getattr(SC, "RELATIVES", (None,))[0]               # the stratum of the tables with a relative on the target
+BLOCK_OF = getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
+BLOCKS = getattr(SC, "BLOCKS", ("eukaryotes", "prokaryotes, plasmids, viruses"))
 CAVEATS = [
     "Lower bits are better. Under the stored placement the relatives of a hidden whole gene are placed by its hidden residues, so "
     "the whole_gene bits are biased low (optimistic), the value of relatives under that condition is overestimated and the cost of "
@@ -229,16 +231,18 @@ def build(st, cfg, run_dir):
     headline = [[c, x.replace(SC.FINE_PREFIX, "")] + [F(v, c, SC.ALL, x) for v in cols] for c in conds for x in SC.FINE
                 if x != NONE_BIN and any(F(v, c, SC.ALL, x) is not None for v in cols)]
     group_set = sorted({k[4] for k in bits if k[4] != SC.ALL})
-    euk = [g for g in group_set if g.startswith(EUKARYOTE_PREFIX)]
-    rest = [g for g in group_set if not g.startswith(EUKARYOTE_PREFIX)]
+    in_block = {b: [g for g in group_set if BLOCK_OF(g) == b] for b in BLOCKS}
 
-    def mean_of(v, c, gs):
-        xs = [F(v, c, g) for g in gs]
-        xs = [x for x in xs if x is not None]
+    def mean_of(v, c, gs, x=SC.ALL):
+        xs = [F(v, c, g, x) for g in gs]
+        xs = [y for y in xs if y is not None]
         return sum(xs) / len(xs) if xs else None
-    blocks = [[c, label] + [mean_of(v, c, gs) for v in cols] for c in conds for label, gs in (("eukaryotes (%d groups)" % len(euk), euk),
-                                                                                                ("prokaryotes, plasmids, viruses (%d groups)" % len(rest), rest)) if gs]
-    by_group = [[g, "eukaryote" if g in euk else "other"] + [F(v, s["main"] if v not in norel else s["main"] + NO_REL, g) for v in cols] for g in group_set]
+    # the headline: the tables with a relative on the target block, the two blocks apart (mean of the groups of a block)
+    lead = [[c, "%s (%d groups)" % (b, len(gs))] + [mean_of(v, c, gs, WITH_RELATIVES) for v in cols] for c in conds for b, gs in in_block.items()
+            if gs and WITH_RELATIVES is not None]
+    blocks = [[c, "%s (%d groups)" % (b, len(gs))] + [mean_of(v, c, gs) for v in cols] for c in conds for b, gs in in_block.items() if gs]
+    euk = in_block[BLOCKS[0]]
+    by_group = [[g, BLOCK_OF(g)] + [F(v, s["main"] if v not in norel else s["main"] + NO_REL, g) for v in cols] for g in group_set]
 
     # what relatives are worth, twice
     relatives = []
@@ -297,12 +301,14 @@ def build(st, cfg, run_dir):
     md += ["", "## Arms", ""] + md_table(["arm", "run", "status", "relatives", "parameters", "peak lr", "lr reduced by the preflight", "steps", "tables seen",
                                          "passes over the training tables", "cells/s", "tables/s", "GPU MB reserved", "tables per micro-batch",
                                          "evaluation share of training time", "ended by", "masked row attention"], arm_rows)
-    md += ["", "## Headline: final evaluation on all held-out tables, by the identity of the nearest row (mean of the groups)", ""]
+    md += ["", "## Headline: final evaluation, the held-out tables with a relative on the target block, the two blocks apart (mean of the groups)", ""]
+    md += md_table(["condition", "block"] + cols, lead) if lead else ["(the rows carry no stratum of tables with relatives)"]
+    md += ["", "## By the identity of the nearest row (mean of the groups; the bin without other rows left out)", ""]
     md += md_table(["condition", "nearest identity"] + cols, headline)
     if bnames:
         md += ["", "Arms and baselines scored the same cells (digests of the scored cells): %s." % (
             ", ".join("%s %s" % (c, "yes" if v else "NO") for c, v in same.items()) or "not known (no digests beside the baseline rows)")]
-    md += ["", "### Eukaryotic groups apart from the others (mean of the groups, all strata)", ""] + md_table(["condition", "groups"] + cols, blocks)
+    md += ["", "### The two blocks over all their tables (mean of the groups, all strata)", ""] + md_table(["condition", "block"] + cols, blocks)
     md += ["", "## What relatives are worth", "",
            "Bits without relatives minus bits with them (positive: relatives help). First on all held-out tables: the arm without relatives at "
            "its best node against the arm of the same size with relatives at its end (conservative while the curve with relatives still falls); "
@@ -338,7 +344,8 @@ def build(st, cfg, run_dir):
                                 evaluations=len(nodes.get(a, [])) + (1 if any(F(a, c) is not None for c in conds) else 0),
                                 final={c: F(a, c) for c in conds}) for a in names},
                   baselines={b: {c: F(b, c) for c in conds} for b in bnames},
-                  headline=dict(columns=["condition", "stratum"] + cols, rows=headline), blocks=dict(columns=["condition", "groups"] + cols, rows=blocks),
+                  lead=dict(columns=["condition", "block"] + cols, rows=lead), headline=dict(columns=["condition", "stratum"] + cols, rows=headline),
+                  blocks=dict(columns=["condition", "block"] + cols, rows=blocks),
                   relatives=relatives, scale=scale, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group))
@@ -379,7 +386,7 @@ def summary(run_dir):
         rep = json.load(f)
     with open(os.path.join(run_dir, OUT, "report.md")) as f:
         md = f.read().splitlines()
-    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), headline=rep["headline"],
+    small = dict(main=rep["main"], same_items=rep.get("same_items"), scale=rep.get("scale"), lead=rep.get("lead"), headline=rep["headline"],
                  relatives=[{k: r[k] for k in r if k != "per_node"} for r in rep["relatives"]],
                  arms={a: dict(status=x["status"], final=x["final"], tables_seen=x["info"].get("tables_seen"), cells_seen=x["info"].get("cells_seen"),
                                cells_per_s=x["info"].get("cells_per_s"), reserved_mb=x["info"].get("reserved_mb"), params=x["info"].get("params"),

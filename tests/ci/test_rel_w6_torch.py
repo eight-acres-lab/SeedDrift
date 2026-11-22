@@ -44,7 +44,7 @@ def _config(root, kind=A.TABLE_SYNTHETIC, **over):
     cfg = dict(name="tiny", author="w6", model="axial", size=dict(layers=1, width=256), objective="mlm", lr=1e-3, seed=1, wall_s=900,
                train_tables=tables, train_root=root, heldout_tables=tables, heldout_root=root, out=os.path.join(root, "out"), probe=True,
                rows=[2, 4], per_step=2, micro=1, max_steps=6, warmup_steps=3, eval_first=4, eval_per_group=1, preflight_steps=8,
-               preflight_warmup=3, device="cpu", threads=2, run="run-x", commit="abc", group_names={"0": "bacteria"})
+               preflight_warmup=3, preflight_guard="reduce", device="cpu", threads=2, run="run-x", commit="abc", group_names={"0": "bacteria"})
     cfg.update(over)
     return cfg
 
@@ -94,6 +94,18 @@ def test_tiny_fit():
         pass
     else:
         raise AssertionError("a training started in a folder that holds one")
+
+
+def test_preflight_guard_stops_by_default():
+    root = tempfile.mkdtemp()
+    try:
+        loop.preflight(_config(root, lr=10.0, preflight_guard="stop"))
+    except SystemExit as err:
+        assert "did not train" in str(err)
+    else:
+        raise AssertionError("a preflight whose loss did not fall passed")
+    with open(os.path.join(root, "out", "preflight.json")) as f:
+        assert json.load(f)["ok"] is False
 
 
 def test_moving_average():

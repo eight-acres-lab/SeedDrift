@@ -14,7 +14,7 @@ Profile block rel_w6_fit:
              normal way at its budget or at this limit, whichever comes first
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
   optional   eval_per_group (50), eval_first (1000 tables), final_per_group (0: all), eval_max_rows, warmup_steps (1000),
-             ema (true), preflight_steps (200), max_steps, threads, preflight_wall_s, verify_files (default true: every
+             ema (true), preflight_steps (200), preflight_guard (stop), max_steps, threads, preflight_wall_s, verify_files (default true: every
              file of the table sets is hashed against its manifest before any training starts)
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
@@ -25,7 +25,8 @@ What the stage does:
   2. every arm is preflighted alone, one after the other: the model built on the real tables, parameters counted, the
      largest micro-batch run (with fewer tables per micro-batch when it does not fit the arm's memory allowance, the
      variant's gpu_mb), then 200 steps on a fresh model as the divergence guard (a loss that is not finite or does not
-     fall: the arm trains at 0.3 times its peak learning rate, recorded), two held-out tables scored;
+     fall: the preflight fails and the arm is not trained; the learning rate is never lowered on its own unless the
+     profile sets preflight_guard: reduce), 72 held-out tables scored (an evaluation batch at its largest);
   3. the arms that passed are trained, largest declared memory first, at most rel.parallel at once and only while the
      memory their preflights measured fits beside what was free at the start;
   4. an arm that fails (preflight, training, its wall limit) is recorded with the end of its log and does not stop
@@ -54,11 +55,11 @@ from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
-PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "max_steps")
+PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps")
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
-VARIANT_MAY = ("mask_weights", "micro", "note")
+VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share")
 API_VERSION = getattr(api, "API", None) or getattr(api, "API_VERSION", None)
 NAME_RX = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -128,7 +129,7 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     tc = cfg.get("train") or {}
     conf = dict(name=arm["name"], author=v["author"], api=v["api"], model=v["model"], size=v["size"], objective=v["objective"], masks=v["masks"],
                 mask_weights=v.get("mask_weights"), layout=v["layout"], rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
-                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), seed=arm["seed"], budget_cells=arm["budget_cells"],
+                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
                 wall_s=s["wall_s"], probe=s["probe"], threads=s["threads"], device="cpu" if tc.get("device") == "cpu" else "auto",
                 out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
                 group_names={str(k): v for k, v in ((sets or {}).get("heldout") or {}).get("row_groups", {}).items()})

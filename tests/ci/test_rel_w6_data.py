@@ -238,6 +238,14 @@ def test_sampler():
     assert not e["truth"][1:].any() and not e["truth"][0, :T.T0].any()
 
 
+def test_sampler_share_of_tables_without_relatives():
+    ts = _set(30)                                         # table 27 has no other row; its group 3 also holds tables 3 and 15
+    never = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, alone_share=0.0).draw(st)}
+    natural = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3).draw(st)}
+    alone = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, relatives=False, alone_share=0.0).draw(st)}
+    assert 27 not in never and 27 in natural and 27 in alone and {3, 15} <= never
+
+
 def test_collate():
     ts = _set(36)
     ex = S.Sampler(ts, seed=5).draw(2)

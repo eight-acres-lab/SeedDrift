@@ -48,6 +48,7 @@ MB = float(1 << 20)
 DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask_weights=None, rows=[4, 16], relatives=True, per_step=4, micro=4,
                 warmup_steps=1000, weight_decay=0.01, betas=[0.9, 0.98], clip=1.0, budget_cells=None, ema=True, eval_first=1000,
                 eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
+                preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
                 run="", commit="", layout=A.LAYOUT_STORED, columns=A.ROW_LEN)
 NEEDED = ("name", "model", "size", "lr", "seed", "wall_s", "train_tables", "train_root", "heldout_tables", "heldout_root", "out")
@@ -107,7 +108,7 @@ class Run:
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
                                  % (ts.name, ts.kind))
         self.sampler = S.Sampler(self.train, cfg["seed"], masks=cfg["masks"], weights=cfg["mask_weights"], rows=cfg["rows"],
-                                 relatives=cfg["relatives"], per_step=cfg["per_step"])
+                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"])
         self.module = registry.load("model", cfg["model"])
         self.objective = registry.load("objective", cfg["objective"])
         self.model = self.module.build(cfg["size"]).to(self.device)
@@ -230,8 +231,10 @@ def preflight(cfg):
     micro-batch run forward and backward, with fewer tables per micro-batch while it does not fit the GPU or the arm's
     memory allowance (gpu_mb); then, on a fresh model, preflight_steps steps (warm-up over preflight_warmup steps to
     the peak learning rate): when the loss is not finite or its mean over the last 20 steps is not below that of the
-    first 5, the arm trains at preflight_lr_scale times its peak, which is recorded; 72 held-out tables scored under
-    every condition (evaluation batches at their largest). Writes preflight.json in every case."""
+    first 5, the preflight fails (preflight_guard "stop", the default: an implementation problem to look at, the
+    learning rate is never lowered on its own) or, with preflight_guard "reduce", the arm trains at preflight_lr_scale
+    times its peak, which is recorded; 72 held-out tables scored under every condition (evaluation batches at their
+    largest). Writes preflight.json in every case."""
     cfg = settings(cfg)
     os.makedirs(cfg["out"], exist_ok=True)
     out = dict(name=cfg["name"], ok=False, torch=torch.__version__, trainer=TRAINER_VERSION, lr_peak=float(cfg["lr"]))
@@ -287,13 +290,18 @@ def preflight(cfg):
             losses.append(float("nan"))
         start, end = float(np.mean(losses[:5])), float(np.mean(losses[-20:]))
         bad = not all(math.isfinite(x) for x in losses) or not end < start
-        lr = peak * float(cfg["preflight_lr_scale"]) if bad else peak
+        if cfg["preflight_guard"] not in ("stop", "reduce"):
+            raise SystemExit("preflight_guard is stop or reduce, not %r" % cfg["preflight_guard"])
+        lr = peak * float(cfg["preflight_lr_scale"]) if bad and cfg["preflight_guard"] == "reduce" else peak
         took = time.time() - t0 if t0 is not None else 0.0
         alloc, reserved = run.peak_mb()
         out.update(guard=dict(steps=len(losses), warmup=warm, start_bits=round(start, 4), end_bits=round(end, 4) if math.isfinite(end) else None,
                               failed=bad, lr=lr), lr=lr, lr_reduced=bad, cells_per_s=round(cells / took, 1) if took > 0 else None,
                    steps_per_s=round(timed / took, 3) if took > 0 else None, peak_mb=max(round(alloc), max(t.get("peak_mb", 0) for t in tried)),
                    reserved_mb=max(round(reserved), max(t.get("reserved_mb", 0) for t in tried)))
+        if bad and cfg["preflight_guard"] == "stop":
+            raise SystemExit("the preflight's %d steps did not train: the loss went from %.4f to %s bits (finite: %s); stopped, the learning rate is "
+                             "not lowered on its own" % (len(losses), start, "%.4f" % end if math.isfinite(end) else end, all(math.isfinite(x) for x in losses)))
         data, _, _ = run.held_data()
         ids = E.subset(run.held, 6)[:72]                              # 72 tables: an evaluation batch at its largest (64 rows)
         t0 = time.time()

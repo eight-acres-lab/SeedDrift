@@ -1,7 +1,8 @@
 """The training examples of a step (numpy only).
 
 Every step draws its tables, their rows and their masks from (seed, step), so a step is the same whatever came before
-it. Tables: a group drawn uniformly, then one of its tables. Rows: row 0 and a random choice of the other rows that
+it. Tables: a group drawn uniformly, then one of its tables; with alone_share (arms with relatives only), the tables of
+a group that have no other row are drawn at most at that share (their own share where it is lower). Rows: row 0 and a random choice of the other rows that
 exist, so that the table has between rows[0] and rows[1] rows (with relatives = False every other row is removed).
 Mask scheme: one per table, drawn among `masks` (modules of seeddrift.train.rel.data.masks) with `weights`
 (uniform when not given). Layout: the stored placement (tables.render).
@@ -24,7 +25,7 @@ def mask_scheme(name):
 
 
 class Sampler:
-    def __init__(self, tables, seed, masks=("scattered", "span", "whole_gene"), weights=None, rows=(4, 16), relatives=True, per_step=4):
+    def __init__(self, tables, seed, masks=("scattered", "span", "whole_gene"), weights=None, rows=(4, 16), relatives=True, per_step=4, alone_share=None):
         self.tables, self.seed, self.per_step, self.relatives = tables, int(seed), int(per_step), bool(relatives)
         self.masks = [str(m) for m in masks]
         self.plans = [mask_scheme(m).plan for m in self.masks]
@@ -39,10 +40,26 @@ class Sampler:
         self.by_group = [np.flatnonzero(tables.group == g) for g in groups]
         if not groups:
             raise ValueError("the table set has no tables")
+        self.alone = None
+        if alone_share is not None and self.relatives:
+            if not 0 <= float(alone_share) <= 1:
+                raise ValueError("alone_share %r is a share" % (alone_share,))
+            kind = tables.load(("kind",))["kind"]
+            has = (np.asarray(kind) != T.KIND_NONE).any(axis=2)[:, 1:].any(axis=1)
+            self.alone = []
+            for ids in self.by_group:
+                lone, other = ids[~has[ids]], ids[has[ids]]
+                p = min(len(lone) / len(ids), float(alone_share)) if len(other) else 1.0
+                self.alone.append((lone, other, p))
 
     def example(self, rng):
         for _ in range(16):
-            ids = self.by_group[int(rng.integers(len(self.by_group)))]
+            g = int(rng.integers(len(self.by_group)))
+            if self.alone is None:
+                ids = self.by_group[g]
+            else:
+                lone, other, p = self.alone[g]
+                ids = lone if len(lone) and rng.random() < p else other
             i = int(ids[rng.integers(len(ids))])
             tab = self.tables.table(i)
             others = T.present_rows(tab)[1:]

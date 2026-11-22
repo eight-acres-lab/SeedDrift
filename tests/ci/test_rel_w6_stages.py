@@ -120,7 +120,8 @@ def _rows(run, arm, points, final, conditions, params=100, module="models.axial"
         for k, c in enumerate(conditions):
             for group, stratum, x, n in ((GROUPS[0], SC.ALL, bits + k, items // 2), (GROUPS[1], SC.ALL, bits + k + 0.5, items // 2), (SC.ALL, SC.ALL, bits + k + 0.25, items),
                                           (SC.ALL, SC.FINE[2], bits + k + 1, 4), (SC.ALL, SC.FINE[9], bits + k - 1, 2), (SC.ALL, SC.FINE[-1], bits + k + 2, 1),
-                                          (SC.ALL, SC.OTHER_ROWS[2], bits + k, 3), (SC.ALL, SC.OTHER_ROWS[0], bits + 0.125, 1)):
+                                          (SC.ALL, SC.OTHER_ROWS[2], bits + k, 3), (SC.ALL, SC.OTHER_ROWS[0], bits + 0.125, 1),
+                                          (GROUPS[0], SC.RELATIVES[0], bits + k + 0.0625, 4), (GROUPS[1], SC.RELATIVES[0], bits + k + 0.5625, 4)):
                 out.append(SC.result_row(run=run, commit="c", variant=arm, author="w6", module=module, params=params, seed=1, table_set="t", table_kind="real",
                                          items_sha256="5" * 64, item_half=half, layout="stored", budget="tables=%d;wall_s=10" % tables, weights=weights,
                                          cells_seen=cells, target_cells=40 * n, cells_per_s=10.0, peak_mb=5, condition=c, group=group, tier=SC.TIER,
@@ -232,7 +233,9 @@ def test_report_readings_beside_baselines(tmp_path):
     repair = {r[0]: r[1:] for r in rep["repair"]["rows"]}
     assert repair["w6-ref30m-s1"] == [6.0, 9.0, 3.0] and "copy_nearest" in repair
     assert all(abs(r[4]) < 1e-9 for r in rep["check"]["rows"])
-    assert [r[0] for r in rep["by_group"]["rows"]] == list(GROUPS) and rep["by_group"]["rows"][1][1] == "eukaryote"
+    assert [r[0] for r in rep["by_group"]["rows"]] == list(GROUPS) and rep["by_group"]["rows"][1][1] == "eukaryotes"
+    lead = {(r[0], r[1].split(" (")[0]): r[2:] for r in rep["lead"]["rows"]}
+    assert lead[("scattered", "eukaryotes")] == [5.6625, None, 5.5625, 5.9625, 6.4625] and lead[("whole_gene", "prokaryotes, plasmids, viruses")][2] == 6.0625
     assert rep["aligned"]["columns"] == ["tables_seen", "w6-ref10m-s1 (scattered)", "w6-ref30m-norel-s1 (scattered+no_relatives)", "w6-ref30m-s1 (scattered)"]
     assert rep["aligned"]["rows"][1] == [1000, 5.85, 5.85, 5.75] and rep["same_items"] == {c: True for c in cond.CONDITIONS}
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()

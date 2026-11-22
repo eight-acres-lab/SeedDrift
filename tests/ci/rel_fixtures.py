@@ -24,7 +24,9 @@ def synthetic(n=4, seed=1, **params):
 
 
 def sealed(test_ids=("medium_test_GCF_000000001.1",), chromosomes=("NC_000913.3",), aliases=()):
-    return S.SealedSet.from_parts(test_ids, aliases, chromosomes)
+    """A SealedSet from given parts; its source names a stand-in registry, as SealedSet.load does on machine i-1, so that
+    manifests built in tests carry a complete sealed record."""
+    return S.SealedSet.from_parts(test_ids, aliases, chromosomes, source=dict(kind="given", registry=dict(path="fixture: no registry file")))
 
 
 def gpus(machine="i1"):

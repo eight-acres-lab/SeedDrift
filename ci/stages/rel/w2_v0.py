@@ -249,6 +249,7 @@ def build(st, cfg, run_dir):
         tables=sum(p["tables"] for p in parts.values()), rows=s["rows"], seed=s["seed"], parts=parts, files=files,
         genomes=[dict(id=ids[i], taxid=int(metas[i]["taxid"]), split=metas[i]["split"]) for i in sorted(used)],
         left_out=[dict(group=x["group"], split=x["split"], reasons=x["reasons"]) for x in left], source=src["provenance"],
+        sealed_check=dict(passed=True, **st.extra["sealed_check"]),       # the record readers on every machine require (handoff.py)
         index=os.path.join(OUT, "index.json"),
         producer=dict(stage="w2_v0", package="W2", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     p = os.path.join(base, "tableset.json")

@@ -24,7 +24,7 @@ probe_proteins (a first, discarded call of that many query proteins that measure
 a sample run, 0 otherwise), wall_s (stop before a call that would end after it; the run is resumed later, finished
 calls are kept), reserve_gb.
 Outputs under data/rel_w12/search/: <genome>.npz per query genome (v1_hits.py), genomes.json (the genome list the
-arrays index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
+arrays index), index/ (the lookup index of all of them, memory-mappable: v1_hits.Index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
 run, the linear extrapolation to the full search with the disk it needs).
 Gate G4_rel_w12_search (gate()): every query genome has its file, sound and as listed; the query genomes are the open
 splits of the source and the database genomes its training split; the files are the ones the manifest names.
@@ -328,7 +328,14 @@ def build(st, cfg, run_dir):
     write_json(gp, dict(genomes=genomes, note="the genome list the arrays index (tgenome)"))
     files.append(gp)
     shutil.rmtree(parts)
+    # the lookup index of every query genome's rows (memory-mapped lookups by query genome, target genome, query gene)
+    ix_dir = os.path.join(out, "index")
+    index_sizes = H.write_index(ix_dir, [(lambda gid=g["id"]: H.load(os.path.join(out, gid + ".npz"))) for g in genomes])
+    index_files = [os.path.join(ix_dir, k + ".npy") for k in H.INDEX_FIELDS]
+    files += index_files
+    say("lookup index: %d genes, %d pairs, %d alignments" % (index_sizes["genes"], index_sizes["pairs"], index_sizes["hsps"]))
     entries = [dict(path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p)) for p in files]
+    index_bytes = sum(e["bytes"] for e in entries if os.path.basename(os.path.dirname(e["path"])) == "index")
     nbytes = sum(e["bytes"] for e in entries)
     total_letters = sum(g["letters"] for g in genomes)
     searched_letters = sum(g["searched_letters"] for g in genomes)
@@ -339,7 +346,8 @@ def build(st, cfg, run_dir):
                queries=dict(genomes=len(genomes), proteins=int(sum(g["genes"] for g in genomes)), letters=total_letters, searched_proteins=stats["genes_searched"],
                             searched_letters=searched_letters, per_split={sp: sum(1 for g in genomes if g["split"] == sp) for sp in V.OPEN_SPLITS + ("island",)}),
                islands=island_prov,
-               rows=dict(stats, bytes=nbytes, bytes_per_hsp=(nbytes / stats["hsps"]) if stats["hsps"] else None,
+               index=dict(index_sizes, folder=os.path.relpath(ix_dir, run_dir), bytes=index_bytes),
+               rows=dict(stats, bytes=nbytes, index_bytes=index_bytes, bytes_per_hsp=(nbytes / stats["hsps"]) if stats["hsps"] else None,
                          hsps_per_searched_gene=(stats["hsps"] / stats["genes_searched"]) if stats["genes_searched"] else None),
                timing=timing, left_out=[dict(group=x["group"], split=x["split"], reasons=x["reasons"]) for x in left],
                sealed_check=dict(passed=True, **st.extra["sealed_check"]))
@@ -395,7 +403,7 @@ def page_of(rep):
          "| pairs (query gene, target gene) | %s, %s of them to the own genome |" % ("{:,}".format(r["pairs"]), "{:,}".format(r["self_pairs"])),
          "| alignments | %s, %.1f per searched gene |" % ("{:,}".format(r["hsps"]), r["hsps_per_searched_gene"] or 0.0),
          "| searched genes with at least one pair | %s of %s |" % ("{:,}".format(r["genes_with_pairs"]), "{:,}".format(r["genes_searched"])),
-         "| bytes on disk | %.2f GB, %.1f per alignment |" % (r["bytes"] / 1e9, r["bytes_per_hsp"] or 0.0),
+         "| bytes on disk | %.2f GB, %.1f per alignment (the lookup index %.2f GB of it) |" % (r["bytes"] / 1e9, r["bytes_per_hsp"] or 0.0, r.get("index_bytes", 0) / 1e9),
          "| free disk | %.0f GB (reserve %.0f GB) |" % (rep["disk"]["free_gb"], rep["disk"]["reserve_gb"])]
     e = rep.get("extrapolation")
     if e:
@@ -447,6 +455,19 @@ def gate(st, cfg, run_dir):
         bad = H.check(a, len(genomes))
         if bad or len(a["off"]) - 1 != g["genes"] or int(a["searched"].sum()) != g["searched"] or len(a["qs"]) != g["hsps"]:
             problems.append(dict(genome=g["id"], error="rows not sound or not as listed", problems=bad[:3]))
+    ix = rep.get("index") or {}
+    try:
+        idx = H.Index(os.path.join(run_dir, ix.get("folder", os.path.join(OUT, "index"))))
+        gb = np.asarray(idx.a["gene_base"])
+        if len(gb) != len(genomes) + 1 or list(np.diff(gb)) != [g["genes"] for g in genomes] or len(idx.a["qs"]) != sum(g["hsps"] for g in genomes):
+            problems.append(dict(error="the lookup index does not hold every query genome's rows"))
+        for qg in range(0, len(genomes), max(1, len(genomes) // 20)):    # a sample of genomes: their pairs as in their own files
+            a = H.load(os.path.join(run_dir, OUT, genomes[qg]["id"] + ".npz"))
+            k0 = int(gb[qg])
+            if not np.array_equal(np.asarray(idx.a["off"][k0:k0 + genomes[qg]["genes"] + 1]) - int(idx.a["off"][k0]), a["off"]):
+                problems.append(dict(genome=genomes[qg]["id"], error="the lookup index differs from the genome's rows"))
+    except (OSError, ValueError, KeyError) as err:
+        problems.append(dict(error="the lookup index cannot be read: %s" % err))
     require(GateResult("G4_rel_w12_search", "fail" if problems else "pass", dict(problems=problems[:50], genomes=len(genomes), rows=rep.get("rows"),
                                                                                  extrapolation=rep.get("extrapolation"))), run_dir)
     return sha256_json([sha256_file(p, use_sidecar=False)])

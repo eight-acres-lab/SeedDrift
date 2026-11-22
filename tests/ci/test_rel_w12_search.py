@@ -286,6 +286,38 @@ def test_full_search_gives_every_pair_of_the_rule(source, tmp_path, monkeypatch)
             WS.gate(st, cfg, run_dir)
 
 
+def test_lookup_index_answers_every_pair_in_microseconds(source, tmp_path):
+    import time
+    run_dir, cfg, rep = run_stage(source, tmp_path, "20261123T000007-index")
+    got, genomes = got_pairs(run_dir)
+    ix = H.Index(os.path.join(run_dir, rep["index"]["folder"]))
+    gi = {g["id"]: k for k, g in enumerate(genomes)}
+    asked = 0
+    for (qg, qi), targets in got.items():
+        by = {}
+        for (tg, tj), n in targets.items():
+            by.setdefault(tg, {})[tj] = n
+        for tg, want in by.items():
+            hits = ix.lookup(gi[qg], gi[tg], qi)
+            assert {tj: len(al) for tj, al in hits} == want
+            a = H.load(os.path.join(run_dir, WS.OUT, qg + ".npz"))
+            p = [x for x in range(int(a["off"][qi]), int(a["off"][qi + 1])) if a["tgenome"][x] == gi[tg]][0]
+            h = int(a["hsp_off"][p])
+            assert hits[0][1][0] == (int(a["qs"][h]), int(a["qe"][h]), int(a["ss"][h]), int(a["se"][h]), bytes(a["cigar"][a["cigar_off"][h]:a["cigar_off"][h + 1]]))
+            asked += 1
+    assert asked > 20
+    empty = [(gi[g["id"]], 0) for g in genomes if (g["id"], 0) not in got]
+    assert all(len(ix.pairs(qg, 0, qi)) == 0 for qg, qi in empty)
+    t0, n = time.perf_counter(), 0
+    for _ in range(20):
+        for (qg, qi), targets in got.items():
+            for (tg, _) in targets:
+                ix.pairs(gi[qg], gi[tg], qi)
+                n += 1
+    assert (time.perf_counter() - t0) / n < 2e-4                          # microseconds per lookup (a loose bound for slow runners)
+    assert rep["index"]["hsps"] == rep["rows"]["hsps"] and rep["rows"]["index_bytes"] > 0
+
+
 def test_sample_run_searches_a_share_per_group_and_extrapolates(source, tmp_path):
     run_dir, cfg, rep = run_stage(source, tmp_path, "20261123T000002-sample", sample=0.3, probe_proteins=3)
     got, genomes = got_pairs(run_dir)

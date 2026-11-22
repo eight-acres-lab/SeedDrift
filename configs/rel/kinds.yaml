@@ -129,6 +129,14 @@ kinds:
         gates: [G4_rel_w12_islands]
         side: data
         produces: tableset
+      w18_rulers:
+        package: W18
+        rule: rel_w18_rulers
+        output: data/rel_w18/rulers/tableset.json
+        module: ci.stages.rel.w18_rulers
+        gates: [G4_rel_w18_rulers]
+        side: eval
+        produces: tableset
   rel_traineval:
     purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
       (W5) of the arms of a round; today's slice of W4 and W6 runs as the stages of package W6
@@ -160,6 +168,14 @@ kinds:
         side: eval
         produces: models
         reads: [real, ruler]
+      w18_readout:
+        package: W18
+        rule: rel_w18_readout
+        output: data/rel_w18/readout/report.json
+        module: ci.stages.rel.w18_readout
+        gates: [G4_rel_w18_readout]
+        side: eval
+        reads: [ruler]
       w6_report:
         package: W6
         rule: rel_w6_report

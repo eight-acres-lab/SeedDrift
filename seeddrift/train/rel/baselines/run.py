@@ -60,15 +60,18 @@ def n_params(name):
     return switch.N_PARAMS if name in switch.NAMES else fitting.N_PARAMS[name]
 
 
-def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SEED, base=4, with_chain=True, log=None):
+def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SEED, base=4, with_chain=True, log=None, subset=None):
     """Per condition: dict(items_sha256, cell_table (C,) index of the table of every scored cell, bits {name: (C,)},
     amino_acid_bits {name: (C,)} (not for the joint reading, which gives no distribution per cell), seconds {name},
-    tables)."""
+    tables). subset: table ids of a subset (that of the evaluation during training) whose digest is wanted as well
+    (items_subset_sha256): the cells of a table do not depend on the others, so restrict() gives its rows."""
     table_ids = np.asarray(table_ids)
+    keep = None if subset is None else {int(x) for x in np.asarray(subset).tolist()}
     out = {}
     for condition in conditions:
         p = params[cond.parse(condition)[0]]
         digest = cond.ItemsDigest(condition, seed)
+        digest_subset = cond.ItemsDigest(condition, seed)
         which = names_under(condition, with_chain)
         bits = {n: [] for n in which}
         aa = {n: [] for n in which if n != switch.JOINT}
@@ -76,6 +79,8 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
         cell_table = []
         for a, _, m, bt, truth in fitting.batches(tables, table_ids, condition, seed, base):
             digest.add(m)
+            if keep is not None:
+                digest_subset.add(m, keep)
             cell_table.append(a + bt.cells[0])
             for n in which:
                 t0 = time.time()
@@ -93,8 +98,24 @@ def evaluate(tables, table_ids, params, conditions=cond.CONDITIONS, seed=cond.SE
             bits={n: (np.concatenate(v) if v else np.zeros(0)) for n, v in bits.items()},
             amino_acid_bits={n: (np.concatenate(v) if v else np.zeros(0)) for n, v in aa.items()},
         )
+        if keep is not None:
+            out[condition]["items_subset_sha256"] = digest_subset.hexdigest()
         if log:
             log("%s: %d cells of %d tables" % (condition, out[condition]["cell_table"].shape[0], table_ids.shape[0]))
+    return out
+
+
+def restrict(results, positions):
+    """The results of evaluate() on the tables at these positions only (positions in the list evaluated; the same
+    cells, bits and digest as evaluating those tables alone)."""
+    positions = np.asarray(positions).astype(np.int64)
+    out = {}
+    for condition, res in results.items():
+        m = np.isin(res["cell_table"], positions)
+        out[condition] = dict(res, cell_table=res["cell_table"][m], tables=int(positions.shape[0]),
+                              items_sha256=res.get("items_subset_sha256", ""),
+                              bits={n: b[m] for n, b in res["bits"].items()},
+                              amino_acid_bits={n: b[m] for n, b in (res.get("amino_acid_bits") or {}).items()})
     return out
 
 
@@ -103,10 +124,11 @@ def other_rows(tables):
     return cond.present_rows(tables["kind"])[:, 1:].sum(axis=1)
 
 
-def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None):
+def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL):
     """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind,
     items_sha256 (of the table set scored) and versions. One row per baseline x condition x group x stratum that has
-    cells; the group column carries group_names[index] where given, else the index. n_other: other_rows(tables)."""
+    cells; the group column carries group_names[index] where given, else the index. n_other: other_rows(tables).
+    item_half: "all", or "subset" for the rows of restrict() on the subset of the evaluation during training."""
     strata = score.strata_of(identity, n_other)
     rows = []
     for condition, res in results.items():
@@ -122,7 +144,7 @@ def result_rows(results, group, identity, params, head, n_groups=12, group_names
                     run=head.get("run", ""), commit=head.get("commit", ""), variant=n, author=AUTHOR,
                     module="baselines." + ("switch" if n in switch.NAMES else "classical"), params=n_params(n),
                     seed=head.get("seed", ""), table_set=head.get("table_set", ""), table_kind=head.get("table_kind", ""),
-                    items_sha256=head.get("items_sha256", ""), item_half=score.ALL, layout=api.LAYOUT_STORED, budget=0, weights="",
+                    items_sha256=head.get("items_sha256", ""), item_half=item_half, layout=api.LAYOUT_STORED, budget=0, weights="",
                     cells_seen=int(params[mask]["fit"]["cells"]), target_cells=r["target_cells"],
                     cells_per_s=round(cells / max(res["seconds"][n], 1e-9), 1), peak_mb="", condition=condition,
                     group=r["group"], tier=score.TIER, stratum=r["stratum"], passes=1, bits=r["bits"], baseline="",
@@ -143,6 +165,20 @@ def summary(rows):
         else:
             strata.setdefault(r["condition"], {}).setdefault(r["stratum"], {})[r["variant"]] = r["bits"]
     return main, strata
+
+
+def subset_markdown(rows, tables):
+    """The baselines on the subset of the evaluation during training (rows of item_half subset): the line every
+    curve point of a training is read against, on the same tables."""
+    main, _ = summary(rows)
+    conds = [c for c in cond.CONDITIONS + cond.EXTRA_CONDITIONS if c in main]
+    order = [n for n in names(True) if any(n in v for v in main.values())]
+    out = ["", "## On the subset of the evaluation during training (%d tables, item_half subset; rows_subset.tsv)" % tables, "",
+           "The same cells as on all tables, restricted to these tables: the line every point of a training curve is read against.", "",
+           "| baseline | " + " | ".join(conds) + " |", "|---|" + "---|" * len(conds)]
+    for n in order:
+        out.append("| %s | " % n + " | ".join("%.3f" % main[c][n] if n in main[c] else "" for c in conds) + " |")
+    return "\n".join(out) + "\n"
 
 
 def markdown(rows, title="Classical baselines: bits per codon", groups=None):

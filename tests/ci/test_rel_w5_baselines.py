@@ -536,6 +536,28 @@ def test_baselines_under_the_conditions_only_an_evaluation_uses():
     assert {r["condition"] for r in rows} == set(conditions) and "suffix" in brun.markdown(rows)
 
 
+def test_the_subset_is_the_same_cells_as_its_tables_scored_alone():
+    """restrict(evaluate(all tables), subset) gives, cell for cell, what evaluating the subset's tables alone gives, and
+    the subset's digest is theirs: the baseline line on the subset of the evaluation during training."""
+    train, _ = toy_tables(n_tables=24, rows=5, seed=61)
+    held, hmeta = toy_tables(n_tables=18, rows=5, seed=62, n_groups=3)
+    params = brun.fit_all(train, np.arange(24), seed=4, chain_tables=8)
+    ids = np.arange(18) + 300
+    sub = cond.subset(hmeta["group"], 2)
+    assert sub.tolist() == [0, 1, 2, 3, 4, 5]
+    whole = brun.evaluate(held, ids, params, seed=9, subset=ids[sub])
+    alone = brun.evaluate({k: v[sub] for k, v in held.items()}, ids[sub], params, seed=9)
+    part = brun.restrict(whole, sub)
+    for c in cond.CONDITIONS:
+        assert whole[c]["items_subset_sha256"] == alone[c]["items_sha256"] != whole[c]["items_sha256"] and part[c]["items_sha256"] == alone[c]["items_sha256"]
+        for n, b in alone[c]["bits"].items():
+            assert np.array_equal(part[c]["bits"][n], b), (c, n)
+    rows = brun.result_rows(part, hmeta["group"], hmeta["identity"], params, dict(run="r"), n_groups=3, item_half="subset")
+    top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["variant"] == "own_freq" and r["condition"] == cond.SCATTERED]
+    assert {r["item_half"] for r in rows} == {"subset"} and top[0]["n_items"] == 6
+    assert "On the subset" in brun.subset_markdown(rows, 6)
+
+
 def test_aggregate_is_the_mean_of_the_group_means():
     bits = np.array([1.0, 3.0, 10.0, 20.0, 30.0, 7.0])
     cell_table = np.array([0, 0, 1, 1, 1, 2])

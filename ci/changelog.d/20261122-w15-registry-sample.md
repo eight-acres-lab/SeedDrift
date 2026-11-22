@@ -39,3 +39,9 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
   parsed record. A name found at another rank keeps its taxid when one candidate fits the lineage. The run's
   taxonomy and corpus counts are written into the sample (taxids, NCBI ranks, the train and held-out counts); the
   profile reads both drafts and five more supplements.
+- After the second server run (20261122T153204: 110 of 111 DOIs looked up, 17 full texts, 1 of 8 supplements): Europe
+  PMC's back end failed intermittently, answering open-access articles with HTTP 500 and supplements with an XML
+  errorBean under status 200. Lookups, full texts and supplements are now retried (after 10 s and 30 s); a supplement
+  must be a zip archive and a full text an article, else nothing is stored. DOIs keep balanced parentheses. A stated
+  taxid settles homonyms such as "environmental samples". Batch 2's taxonomy and corpus counts from the run are
+  written into its records.

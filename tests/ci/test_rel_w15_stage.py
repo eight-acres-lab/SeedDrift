@@ -109,9 +109,10 @@ def test_fetch_stores_meta_fulltext_and_capped_supplements(tmp_path):
             return Resp(meta.encode())
         if req.full_url.endswith("fullTextXML"):
             return Resp(b"<article/>")
-        return Resp(b"x" * 2000)
+        return Resp(b"PK" + b"x" * 2000)
 
-    rec = W.fetch("10.1/x", str(tmp_path / "p"), opener=opener, supplements=True, max_supplement_mb=0.001, pause_s=0)
+    rec = W.fetch("10.1/x", str(tmp_path / "p"), opener=opener, supplements=True, max_supplement_mb=0.001, pause_s=0,
+                  sleep=lambda s: None)
     assert rec["pmcid"] == "PMC1" and rec["fulltext"]["bytes"] == 10 and len(rec["fulltext"]["sha256"]) == 64
     assert "not stored" in rec["supplements"]["error"]
     assert (tmp_path / "p" / "meta.json").exists() and not (tmp_path / "p" / "supplements.zip").exists()
@@ -145,7 +146,7 @@ def test_fetch_reads_the_whole_body_and_parses_control_characters(tmp_path):
     def opener(req, timeout):
         return Chunked(meta.encode() if "search?" in req.full_url else b"<article/>")
 
-    rec = W.fetch("10.1/y", str(tmp_path / "q"), opener=opener, pause_s=0)
+    rec = W.fetch("10.1/y", str(tmp_path / "q"), opener=opener, pause_s=0, sleep=lambda s: None)
     assert rec.get("found") is True and rec["pmcid"] == "PMC2" and rec["fulltext"]["bytes"] == 10
 
 
@@ -167,3 +168,46 @@ def test_gate_fails_on_a_wholesale_fetch_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "require", lambda result, run_dir: seen.append(result))
     mod.gate(None, {}, str(run))
     assert seen[0].status == "fail" and "systematic fetch failure" in json.dumps(seen[0].evidence)
+
+
+def test_dois_keep_balanced_parentheses():
+    rows = [_row("E1", "Aphis (genus)", "Insecta;Aphis", papers="10.1016/S1473-3099(15)00424-7;10.1000/a",
+                 later="support:10.1128/aac.00129-17 (from Moraxella);comment:(see 10.1000/b)")]
+    assert W.dois(rows) == ["10.1016/s1473-3099(15)00424-7", "10.1000/a", "10.1128/aac.00129-17", "10.1000/b"]
+
+
+def test_supplement_error_bodies_are_retried_and_never_stored(tmp_path):
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC3")])))
+    answers = [b"<?xml version='1.0'?><errorBean>Connection refused</errorBean>", b"<errorBean/>", b"PK\x03\x04zip"]
+    waited = []
+
+    def opener(req, timeout):
+        if "search?" in req.full_url:
+            return Resp(meta.encode())
+        if req.full_url.endswith("fullTextXML"):
+            raise W.urllib.error.HTTPError(req.full_url, 500, "Internal Server Error", {}, None)
+        return Resp(answers.pop(0))
+
+    rec = W.fetch("10.1/z", str(tmp_path / "z"), opener=opener, supplements=True, pause_s=0, sleep=waited.append)
+    assert rec["supplements"]["bytes"] == 7 and waited == [10, 30, 10, 30]       # full text retried twice, then supplements
+    assert rec["fulltext"]["status"] == 500 and "after retries" in rec["fulltext"]["note"]
+    answers[:] = [b"<errorBean/>"] * 3
+    rec = W.fetch("10.1/z", str(tmp_path / "z2"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
+    assert "not a zip archive" in rec["supplements"]["error"] and not (tmp_path / "z2" / "supplements.zip").exists()
+
+
+def test_a_stated_taxid_settles_homonyms():
+    tax = Tax()
+    rows = [_row("E1", "Aphis (no rank)", "root;Aphis", recipient_exclusion_taxid="14")]
+    assert W.taxa(rows, tax)["E1"]["taxid"] == 14
+
+
+def test_fulltext_error_bodies_are_retried(tmp_path):
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC4")])))
+    answers = [b"<?xml version='1.0'?><ns4:errorBean>refused</ns4:errorBean>", b"<article>ok</article>"]
+
+    def opener(req, timeout):
+        return Resp(meta.encode() if "search?" in req.full_url else answers.pop(0))
+
+    rec = W.fetch("10.1/w", str(tmp_path / "w"), opener=opener, pause_s=0, sleep=lambda s: None)
+    assert rec["fulltext"]["bytes"] == len(b"<article>ok</article>")

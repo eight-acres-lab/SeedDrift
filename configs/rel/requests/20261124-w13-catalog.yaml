@@ -1,0 +1,7 @@
+package: W13
+kind: cpu_run
+to: C0
+what: register stage w13_catalog in kind rel_corpus of configs/rel/kinds.yaml before w13_census (rule rel_w13_catalog in ci/rules/rel_w13.smk, output data/rel_w13/catalog/manifest.json, module ci.stages.rel.w13_catalog, gates [G4_rel_w13_catalog], side data), then run profile rel-dev-w13-catalog-i1 on machine i1 with the select lock in a window that does not hold up W12. The profile is rel-dev-w13-census-i1 with rel.stages [w13_catalog, w13_census], an empty block rel_w13_catalog and rel_w13_census.catalog_from: this run; it contains that census, which need not run on its own. W13 pushes the profile as soon as the registration is on exp/rel (the profile test refuses a stage the registry lacks), or C0 adds it with the registration
+why: the programme lead's ruling of 2026-11-22 for W13 step 1; the prokaryote catalogues of the corpus selection are reference genomes only (about one per species), so the census is made twice and reported side by side, on the selection's snapshots and on a fresh snapshot of assembly metadata (ENA portal; bacteria, archaea, viruses; dated and with sha256 in the lock); metadata only, no sequence; the report may come on 2026-11-25
+size: {hours: 0.3, threads: 2, disk_gb: 0.2, gpu_mem_gb: 0}
+by: 2026-11-25

@@ -60,7 +60,7 @@ switches that are off by default.
   `not_for_training`, checked by `common.development_chromosomes`, refused as input of every training stage; the lock
   calendar and state in `configs/rel/coordinator/`.
 - Round profiles of round 1b: `rel-r1bshort-i1` (the 10 M and 30 M arms on the leak-free layout and the hierarchical
-  output head, three at once, 4 h each) and `rel-r1blong-i2` (the 30 M arm on the leak-free layout at 1.5e-4, 11 h).
+  output head on the same layout, three at once, 4 h each) and `rel-r1blong-i2` (the 30 M arm on the leak-free layout at 1.5e-4, 11 h).
 
 ## 0.4 (branch exp/rel, 2026-11-22: the foundation)
 

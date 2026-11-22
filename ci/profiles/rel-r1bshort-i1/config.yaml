@@ -1,10 +1,12 @@
 # Machine i-1, round 1b of the relational-model line (task breakdown 8.6; the programme lead's rulings of 2026-11-22
 # and 2026-11-23): the short arms, three at once, about 4 h each, with relatives, seed 1: the 10 M and 30 M arms on the
 # leak-free layout (scattered and span rendered leak-free by package W3's renderer, the whole gene kept stored) at the
-# evening's rates (4e-4 and 3e-4), and the hierarchical output head (w6-ref30m-hier, the stored layout). A leak-free
-# arm is scored on package W3's strict offline rendering of the held-out items (tables.heldout_offline, run
-# 20261122T132634), its whole-gene conditions also in the stored layout it was trained in; every arm also on condition
-# suffix (the programme lead's ruling on a hidden span). Tables v0. A preflight that fails or a value that is not finite
+# evening's rates (4e-4 and 3e-4), and the hierarchical output head on the same leak-free layout at 3e-4
+# (w6-ref30m-leakfree-hier; the programme lead's choice of 2026-11-23: set against w6-ref30m-leakfree of this run, it
+# reads the head alone; one seed, so the threshold is borrowed from the two seeds of the stored layout, about 0.007 to
+# 0.008 bits, and the report says so). Every arm is scored on package W3's strict offline rendering of the held-out
+# items (tables.heldout_offline, run 20261122T132634), its whole-gene conditions also in the stored layout it was
+# trained in, and on condition suffix (the programme lead's ruling on a hidden span). Tables v0. A preflight that fails or a value that is not finite
 # stops the arm; nothing lowers the learning rate. The report sets them beside the classical baselines of run
 # 20261122T075150. CI 0.5, round 1b's foundation. Development diagnosis only.
 pipeline: rel_traineval
@@ -33,7 +35,7 @@ rel_w6_fit:
   arms:
     - {variant: configs/rel/variants/w6-ref10m-leakfree.yaml, seed: 1}
     - {variant: configs/rel/variants/w6-ref30m-leakfree.yaml, seed: 1}
-    - {variant: configs/rel/variants/w6-ref30m-hier.yaml, seed: 1}
+    - {variant: configs/rel/variants/w6-ref30m-leakfree-hier.yaml, seed: 1}
   wall_s: 14400                  # 4 h: one training, its final evaluation on all 3,000 held-out tables included
   eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
   eval_max_rows: 32

@@ -1,0 +1,31 @@
+# Machine i-1: the tables of version 0 of the relational-model line and their census (pipeline rel_tables, stages
+# w2_v0 and w2_census; package W2). No old stage runs again: the training-data arrays (split three ways) and the homolog
+# rows of stage pairs come from round R3's run of this machine, every file checked against that run's records. About
+# 100,000 training tables (8,400 for each of the 12 groups; the examined genome a training genome) and 3,000 held-out
+# tables (250 per group; the examined genome a held-out genome, the other rows training genomes), 16 rows stored. The
+# sealed test split is not opened. CPU only (the select lock), 8 worker processes. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 12
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w2_v0, w2_census]
+rel_w2_v0:
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  rows: 16
+  train_per_group: 8400
+  heldout_per_group: 250
+  shard_tables: 2400
+  processes: 8
+train:
+  gpu_lease: false
+  device: cpu

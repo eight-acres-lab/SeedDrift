@@ -14,7 +14,8 @@ The neighbours and relation blocks are A's, drawn from A alone as in tables of v
 neighbours and k). The other rows are training genomes that hold, on each of A:i, D:j and A:k, a homolog row of stage
 pairs starting inside the stored block with at least one aligned codon under it, up to rows - 1 of them drawn at random,
 the same rows in the same order in the three tables: so the three tables have the same rows with content on the target
-block. D is never a row (rows are training genomes; D is held out). A and D have the standard genetic code (the caller
+block. To find such rows the genes are drawn in turn (Implanter.draw): i among A's genes with a partner, j among D's
+length-matched genes that share a partner with i, k among A's length-matched genes that share one with both. D is never a row (rows are training genomes; D is held out). A and D have the standard genetic code (the caller
 decides which genomes are eligible). The donor is drawn by the tier of its distance to A, the tiers taken in turn.
 
 Kinds and fields are those of tables of version 0 (v0_build.py), with these differences: row 0's position fields
@@ -151,11 +152,29 @@ class Implanter:
     def tier(self, a, b):
         return int(DI.tier_of(np.array([self.dist[self.dix[a], self.dix[b]]]), self.edges)[0])
 
-    def draw(self, gid_a, donors, rng):
-        """One attempt: (i, D, j, k) or None. donors: the candidate donors of this attempt's tier."""
+    def partner_sets(self, gid):
+        """[the allowed partners (pairs indices, sorted) whose homolog row of gene g starts inside its stored part] for
+        every gene g of genome gid (cheap: no alignment is read)."""
+        key = (gid, "sets")
+        if key not in self._rows:
+            z, gen = self.pairs.of(gid), self.g[gid]
+            off = z["off"].astype(np.int64)
+            gene = np.repeat(np.arange(len(off) - 1), np.diff(off))
+            tg = z["tgenome"].astype(np.int64)
+            stored = np.minimum(np.diff(gen.coff), A.LEN_TARGET)
+            ok = np.isin(tg, np.fromiter(self.allowed_ix, dtype=np.int64)) & (z["qs"].astype(np.int64) - 1 < stored[gene])
+            self._rows[key] = [np.unique(tg[off[g]:off[g + 1]][ok[off[g]:off[g + 1]]]) for g in range(len(off) - 1)]
+        return self._rows[key]
+
+    def draw(self, gid_a, donors, rng, condition=True):
+        """One attempt: (i, D, j, k) or None. donors: the candidate donors of this attempt's tier. With condition, i is
+        drawn among A's genes with a partner, j among D's genes that share a partner with i, k among A's genes that
+        share a partner with both (each uniform among the genes that qualify, lengths matched); without, uniform among the
+        length-matched genes."""
         ga = self.g[gid_a]
         lens_a = np.diff(ga.coff)
-        cand_i = np.flatnonzero(lens_a >= self.min_codons)
+        sa = self.partner_sets(gid_a) if condition else None
+        cand_i = np.array([x for x in np.flatnonzero(lens_a >= self.min_codons) if not condition or len(sa[x])], dtype=np.int64)
         if not len(cand_i) or not donors:
             return None
         i = int(cand_i[int(rng.integers(len(cand_i)))])
@@ -165,36 +184,49 @@ class Implanter:
         gd = self.g[d]
         sl_d = np.minimum(np.diff(gd.coff), A.LEN_TARGET)
         cj = np.flatnonzero((sl_d >= lo) & (sl_d <= hi))
+        if condition:
+            sd = self.partner_sets(d)
+            cj = np.array([x for x in cj if len(np.intersect1d(sa[i], sd[x], assume_unique=True))], dtype=np.int64)
+        if not len(cj):
+            return None
+        j = int(cj[int(rng.integers(len(cj)))])
         bad = set(self.near(ga, i)) | {i}
         sl_a = np.minimum(lens_a, A.LEN_TARGET)
-        ck = np.array([x for x in np.flatnonzero((sl_a >= lo) & (sl_a <= hi)) if int(x) not in bad], dtype=np.int64)
-        if not len(cj) or not len(ck):
+        ck = [int(x) for x in np.flatnonzero((sl_a >= lo) & (sl_a <= hi)) if int(x) not in bad]
+        if condition:
+            both = np.intersect1d(sa[i], sd[j], assume_unique=True)
+            ck = [x for x in ck if len(np.intersect1d(both, sa[x], assume_unique=True))]
+        if not ck:
             return None
-        return i, d, int(cj[int(rng.integers(len(cj)))]), int(ck[int(rng.integers(len(ck)))])
+        return i, d, j, int(ck[int(rng.integers(len(ck)))])
 
     def triple(self, gid_a, tiers, donors_by_tier, rng):
         """The draws of one triple: (i, D, j, k, rows, attempts) or None when no attempt found a gene pair. tiers: the tiers
-        to try, in order (the first one first; the next ones only when a tier has no donor left)."""
+        to try, in order (the first that has a donor left is used). Up to `attempts` conditioned draws (draw) until the
+        three genes have a common row with a cell under each; failing that, up to `attempts` unconditioned draws give a
+        triple without other rows (it serves the composition readout only)."""
         ga = self.g[gid_a]
-        last = None
         n = 0
         for t in tiers:
             donors = donors_by_tier.get(t) or []
             if not donors:
                 continue
-            for _ in range(self.attempts - n):
+            for _ in range(self.attempts):
                 n += 1
                 got = self.draw(gid_a, donors, rng)
                 if got is None:
                     continue
                 i, d, j, k = got
-                li, lj, lk = stored_len(ga, i), stored_len(self.g[d], j), stored_len(ga, k)
-                rows = self.common_rows([(gid_a, i, li), (d, j, lj), (gid_a, k, lk)])
-                last = (i, d, j, k, rows, n)
+                rows = self.common_rows([(gid_a, i, stored_len(ga, i)), (d, j, stored_len(self.g[d], j)), (gid_a, k, stored_len(ga, k))])
                 if rows:
-                    return last
-            break                                                         # the tier was tried: keep its last draw
-        return last
+                    return i, d, j, k, rows, n
+            for _ in range(self.attempts):                                # no common row in this tier: a triple of zero rows
+                n += 1
+                got = self.draw(gid_a, donors, rng, condition=False)
+                if got is not None:
+                    return got + ([], n)
+            break
+        return None
 
     # ---- tables ----
     def fill(self, out, meta, t, gid_a, genes, owner, tgene, rows, census_misc):

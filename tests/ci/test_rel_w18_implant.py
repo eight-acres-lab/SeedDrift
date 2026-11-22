@@ -145,3 +145,16 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+
+
+def test_a_triple_without_a_common_row_keeps_zero_rows():
+    d, metas, truth, genomes, ids, train, _ = W2T.run()
+    dist = distances(genomes, ids)
+    eligible = {m["id"] for m in metas if m["split"] == "heldout"}
+    imp = I.Implanter(SS.Pairs(d), genomes, train, ids, dist, ids, EDGES, eligible, rows=8, min_codons=20, length_tol=0.5, attempts=3)
+    imp.common_rows = lambda targets: []                              # no genome holds all three genes
+    out, meta, triples, counts = imp.build([m for m in metas if m["split"] in ("train", "heldout")], W2T.GROUPS, 2, 5)
+    gix = {g: i for i, g in enumerate(ids)}
+    assert counts["triples"] == counts["zero_rows"] > 0 and (meta["on_target"] == 0).all() and (out["genome"][:, 1:] == -1).all()
+    assert I.verify(out, meta, {gix[g] for g in eligible}, {gix[g] for g in train}) == []
+    assert (meta["attempts"] > 3).all()                               # the conditioned draws were tried first

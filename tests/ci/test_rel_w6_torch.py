@@ -118,6 +118,19 @@ def test_anyorder_fill_in_trains():
     assert out["status"] == "ok" and out["steps"] == 3 and all(math.isfinite(v) for v in out["final"].values() if v is not None)
 
 
+def test_hierarchical_head_trains():
+    root = tempfile.mkdtemp()
+    cfg = _config(root, size=dict(layers=1, width=256, head="hierarchical"), max_steps=3)
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["params"] == loop.registry.load("model", "axial").count_parameters(1, 256, head="hierarchical")
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and out["steps"] == 3 and all(0 < v < 12 for v in out["final"].values() if v is not None)
+    final = [r for r in SC.read_rows(os.path.join(cfg["out"], "results.tsv")) if r["weights"] == "ema@final" and r["group"] == "all"]
+    for c in cond.CONDITIONS:                                     # the parts of the bits still add up to the bits of the codon
+        whole, aa, rest = (float(next(r["bits"] for r in final if r["condition"] == c and r["stratum"] == x)) for x in ("all",) + tuple(SC.PARTS))
+        assert abs(aa + rest - whole) < 1e-4, c
+
+
 def test_moving_average():
     root = tempfile.mkdtemp()
     run = loop.Run(_config(root))

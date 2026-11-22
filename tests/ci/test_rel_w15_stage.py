@@ -211,3 +211,70 @@ def test_fulltext_error_bodies_are_retried(tmp_path):
 
     rec = W.fetch("10.1/w", str(tmp_path / "w"), opener=opener, pause_s=0, sleep=lambda s: None)
     assert rec["fulltext"]["bytes"] == len(b"<article>ok</article>")
+
+
+def test_a_body_cut_short_is_retried_and_then_recorded(tmp_path):
+    import http.client
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC5")])))
+    state = dict(cuts=1)
+
+    def opener(req, timeout):
+        if "search?" in req.full_url:
+            return Resp(meta.encode())
+        if req.full_url.endswith("fullTextXML"):
+            return Resp(b"<article/>")
+        if state["cuts"]:
+            state["cuts"] -= 1
+            raise http.client.IncompleteRead(b"PK partial", 1000)
+        return Resp(b"PK\x03\x04whole")
+
+    rec = W.fetch("10.1/v", str(tmp_path / "v"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
+    assert rec["supplements"]["bytes"] == len(b"PK\x03\x04whole")
+    state["cuts"] = 99
+    rec = W.fetch("10.1/v", str(tmp_path / "v2"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
+    assert rec["supplements"]["error_type"] == "IncompleteRead" and rec["supplements"]["status"] is None
+    assert rec["fulltext"]["bytes"] == 10
+
+
+def test_fetch_all_records_an_unexpected_failure_and_goes_on(tmp_path):
+    def one(d, dest, **kw):
+        if d == "10.1000/bad":
+            raise RuntimeError("boom")
+        return dict(doi=d, found=True)
+
+    s = dict(supplements=[], max_supplement_mb=1, pause_s=0)
+    got = W.fetch_all(["10.1000/a", "10.1000/bad", "10.1000/c"], str(tmp_path), s, fetch_one=one, sleep=lambda x: None)
+    assert [g["doi"] for g in got] == ["10.1000/a", "10.1000/bad", "10.1000/c"]
+    assert got[1]["fetched"] is False and got[1]["error_type"] == "RuntimeError"
+
+
+def test_failures_are_counted_by_type_and_last_status(tmp_path):
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC6")])))
+
+    def opener(req, timeout):
+        if "search?" in req.full_url:
+            return Resp(meta.encode())
+        raise W.urllib.error.HTTPError(req.full_url, 500, "Internal Server Error", {}, None)
+
+    rec = W.fetch("10.1/u", str(tmp_path / "u"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
+    assert rec["fulltext"]["error_type"] == "HTTPError" and rec["fulltext"]["status"] == 500
+    papers = [rec, dict(doi="10.1000/x", error_type="RuntimeError", status=None, fetched=False)]
+    assert W.failures(papers) == {"fulltext": {"HTTPError 500": 1}, "supplements": {"HTTPError 500": 1},
+                                  "paper": {"RuntimeError": 1}}
+
+
+def test_the_gate_still_fails_when_the_guard_records_every_paper(tmp_path, monkeypatch):
+    import ci.stages.rel.w15_registry as mod
+
+    def one(d, dest, **kw):
+        raise RuntimeError("down")
+
+    s = dict(supplements=[], max_supplement_mb=1, pause_s=0)
+    papers = mod.fetch_all(["10.1000/%d" % i for i in range(5)], str(tmp_path), s, fetch_one=one, sleep=lambda x: None)
+    run = tmp_path / "run"
+    (run / mod.OUT).mkdir(parents=True)
+    (run / mod.OUT / "report.json").write_text(json.dumps(dict(errors=[], registry_sha256={}, papers=papers, records=0, taxa={})))
+    seen = []
+    monkeypatch.setattr(mod, "require", lambda result, run_dir: seen.append(result))
+    mod.gate(None, {}, str(run))
+    assert seen[0].status == "fail" and "0 of 5" in json.dumps(seen[0].evidence)

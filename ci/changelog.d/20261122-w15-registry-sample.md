@@ -45,3 +45,11 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
   must be a zip archive and a full text an article, else nothing is stored. DOIs keep balanced parentheses. A stated
   taxid settles homonyms such as "environmental samples". Batch 2's taxonomy and corpus counts from the run are
   written into its records.
+- After the third server run (20261122T175251, stopped after 2,553 s): a supplement's chunked body was cut short
+  (`http.client.IncompleteRead`), which the retries did not cover, and the stage stopped. Retries now cover
+  `http.client.HTTPException` (IncompleteRead among them) and every `OSError` (connection resets); a paper still
+  failing after the retries is recorded as not fetched, and any other failure of one paper is recorded too
+  (`fetch_all`), so one paper never stops the stage.
+- Every part that could not be fetched records its error type and the last HTTP status (`error_type`, `status`);
+  the report counts them per part (`fetch_failures`). The gate's rule (with fetch on, at least half the lookups must
+  return a parsed record) still applies after the guard: papers the guard records count as failed lookups.

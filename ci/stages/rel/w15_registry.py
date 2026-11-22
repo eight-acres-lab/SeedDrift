@@ -24,6 +24,7 @@ parsed record (a wholesale failure fails the run instead of passing it with noth
 from __future__ import annotations
 
 import csv
+import http.client
 import json
 import os
 import re
@@ -45,6 +46,9 @@ EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
 USER_AGENT = "literature-registry-fetch/0.2 (python urllib)"
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;\[\]]+")
 RETRIES = (10, 30)           # seconds to wait before the second and third try of a lookup or a supplement
+# what a retry may cure: connection errors and resets, a body cut short (http.client.IncompleteRead, run
+# 20261122T175251), an error body; HTTPError is an URLError and is handled apart (5xx retried, 4xx not)
+TRANSIENT = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)
 CATALOGUE = os.path.join("bench", "catalogue", "events.tsv")
 PRETRAIN_SPLITS = ("train", "heldout")
 FETCH_MIN_SHARE = 0.5        # gate: with fetch on, at least half the lookups must return a parsed record
@@ -197,9 +201,33 @@ def _tries(fn, waits, sleep=time.sleep):
         except urllib.error.HTTPError as err:
             if err.code < 500 or i == len(waits):
                 raise
-        except (urllib.error.URLError, OSError, ValueError):
+        except TRANSIENT:
             if i == len(waits):
                 raise
+
+
+def _failure(err, url=None) -> dict:
+    """A part that could not be fetched: the error's type, the last HTTP status if there was one, and its message."""
+    out = dict(error_type=type(err).__name__, status=getattr(err, "code", None), error=str(err)[:200])
+    if url:
+        out["url"] = url
+    return out
+
+
+def failures(papers) -> dict:
+    """Per part (meta, fulltext, supplements, paper): counts of the error types of what could not be fetched."""
+    out = {}
+    for p in papers:
+        for part in ("meta", "fulltext", "supplements"):
+            x = p.get(part)
+            if isinstance(x, dict) and x.get("error_type"):
+                key = x["error_type"] + ("" if x.get("status") is None else " %s" % x["status"])
+                out.setdefault(part, {}).setdefault(key, 0)
+                out[part][key] += 1
+        if p.get("error_type"):
+            out.setdefault("paper", {}).setdefault(p["error_type"], 0)
+            out["paper"][p["error_type"]] += 1
+    return out
 
 
 def _supplement(url, opener, max_bytes):
@@ -228,8 +256,8 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
         hit = hits[0] if hits else {}
         rec.update(found=bool(hits), pmcid=hit.get("pmcid"), open_access=hit.get("isOpenAccess"), pmid=hit.get("pmid"),
                    title=hit.get("title"), year=hit.get("pubYear"))
-    except (urllib.error.URLError, OSError, ValueError) as err:
-        rec["meta"] = dict(url=url, error=str(err)[:200])
+    except TRANSIENT as err:
+        rec["meta"] = _failure(err, url)
         return rec
     for what, path, cap in (("fulltext", "fullTextXML", None), ("supplements", "supplementaryFiles", max_supplement_mb)):
         if not rec.get("pmcid") or (what == "supplements" and not supplements):
@@ -247,14 +275,29 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
             else:
                 rec[what] = dict(_store(dest, "fulltext.xml" if what == "fulltext" else "supplements.zip", data), url=url, status=status)
         except urllib.error.HTTPError as err:
-            rec[what] = dict(url=url, status=err.code, error=str(err)[:200])
+            rec[what] = _failure(err, url)
             if what == "fulltext" and err.code == 500:
                 rec[what]["note"] = ("HTTP 500 after retries: Europe PMC's back end failed (run 20261122T153204 had such failures "
                                      "for open-access articles too), or the article is outside its open subset; PMC's terms bar "
                                      "automated bulk download from its own site")
-        except (urllib.error.URLError, OSError, ValueError) as err:
-            rec[what] = dict(url=url, error=str(err)[:200])
+        except TRANSIENT as err:
+            rec[what] = _failure(err, url)
     return rec
+
+
+def fetch_all(doi_list, base, s, fetch_one=None, sleep=time.sleep) -> list:
+    """fetch() for every DOI; one paper's unexpected failure is recorded and never stops the stage (run 20261122T175251
+    stopped on an IncompleteRead in one supplement)."""
+    fetch_one = fetch_one or fetch
+    out = []
+    for d in doi_list:
+        try:
+            out.append(fetch_one(d, os.path.join(base, _folder(d)), supplements=d in s["supplements"],
+                                 max_supplement_mb=s["max_supplement_mb"], pause_s=s["pause_s"]))
+        except Exception as err:  # noqa: BLE001 - recorded as not fetched; the other papers go on
+            out.append(dict(_failure(err), doi=d, fetched=False))
+        sleep(s["pause_s"])
+    return out
 
 
 def _folder(doi):
@@ -280,14 +323,12 @@ def build(st, cfg, run_dir):
     overlap = sealed_overlap(found, sealed_genera(tax, st.repo(os.path.join("bench", "hard", "EXCLUDE.tsv"))), tax)
     papers = []
     if s["fetch"]:
-        base = st.path("rel_w15", "registry", "papers", "x")
-        for d in dois(rows):
-            papers.append(fetch(d, os.path.join(os.path.dirname(base), _folder(d)), supplements=d in s["supplements"],
-                                max_supplement_mb=s["max_supplement_mb"], pause_s=s["pause_s"]))
-            time.sleep(s["pause_s"])
+        base = os.path.dirname(st.path("rel_w15", "registry", "papers", "x"))
+        papers = fetch_all(dois(rows), base, s)
     doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"],
                registry_sha256={x: sha256_file(st.repo(x), use_sidecar=False) for x in s["registry"]}, records=len(rows), errors=errors, warnings=warnings,
                summary=summary_, taxa=found, pretraining=pre, sealed_overlap=overlap, papers=papers,
+               fetch_failures=failures(papers),
                note="no model output and no score is read; the sealed test split of the medium corpus is not looked at",
                seconds=round(time.time() - t0, 1))
     out = st.path("rel_w15", "registry", "report.json")
@@ -314,8 +355,11 @@ def markdown_server(doc) -> str:
             pre.get("train", ""), pre.get("heldout", ""), ov.get("sealed_overlap", "")))
     if doc["papers"]:
         ok = sum(1 for p in doc["papers"] if (p.get("fulltext") or {}).get("sha256"))
-        out += ["", "%d DOIs looked up; %d with an open full text stored; %d with supplements stored." % (
-            len(doc["papers"]), ok, sum(1 for p in doc["papers"] if (p.get("supplements") or {}).get("sha256")))]
+        out += ["", "%d DOIs looked up (%d with a parsed record); %d with an open full text stored; %d with supplements stored." % (
+            len(doc["papers"]), sum(1 for p in doc["papers"] if "found" in p), ok,
+            sum(1 for p in doc["papers"] if (p.get("supplements") or {}).get("sha256")))]
+        for part, counts in sorted((doc.get("fetch_failures") or {}).items()):
+            out.append("Not fetched, %s: %s." % (part, ", ".join("%s %d" % kv for kv in sorted(counts.items()))))
     return "\n".join(out) + "\n"
 
 

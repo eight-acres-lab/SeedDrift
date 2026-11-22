@@ -135,15 +135,27 @@ def test_leakfree_layout_trains():
     """Leak-free scattered and span samples, stored whole genes: the model is built with the ext vector (one more
     width of parameters), trains, and its checkpoint records the size it was built with."""
     root = tempfile.mkdtemp()
-    cfg = _config(root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
+    cfg = _config(root, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
     axial = loop.registry.load("model", "axial")
     pre = loop.preflight(cfg)
     assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256
     out = loop.fit(cfg)
     assert out["status"] == "ok" and out["steps"] == 3
-    ck = torch.load(os.path.join(cfg["out"], "final.pt"), map_location="cpu", weights_only=True)
-    assert ck["size"] == dict(layers=1, width=256, ext=True) and "ext.weight" in ck["ema"]
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))         # probe mode: the leak-free conditions rendered online
+    lay = {r["condition"]: r["layout"] for r in rows if r["weights"] == "ema@final"}
+    assert lay == {"scattered": "leakfree", "whole_gene": "leakfree", "whole_gene+repaired": "leakfree", "scattered+no_relatives": "stored",
+                   "whole_gene+no_relatives": "stored"}
+    for c in cond.CONDITIONS:                                     # the cells scored stay the evaluator's whatever the layout
+        assert out["final_items"][c] == _digest(cfg, root, c), c
+    real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
+    try:
+        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))
+    except SystemExit as err:
+        assert "offline" in str(err)
+    else:
+        raise AssertionError("a leak-free arm was scored without the strict offline rendering")
     run = loop.Run(dict(cfg, out=os.path.join(root, "other")))
+    assert run.size == dict(layers=1, width=256, ext=True) and run.model.ext is not None
     assert loop.layouts_of(run.cfg) == {"scattered": "leakfree", "span": "leakfree", "whole_gene": "stored"}
     assert sorted({run.sampler.layouts[e["scheme"]] for s in range(8) for e in run.sampler.draw(s)}) == ["leakfree", "stored"]
     try:

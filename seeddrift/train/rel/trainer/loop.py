@@ -40,6 +40,7 @@ from seeddrift.train.rel.data import sampler as S
 from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
+from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.models.common import layers as C
 from seeddrift.train.rel.trainer import heldout as E
 
@@ -53,6 +54,9 @@ DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
                 run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN)
 TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
+# the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
+OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",
+                getattr(cond, "SUFFIX", "suffix"): "suffix"}
 NEEDED = ("name", "model", "size", "lr", "seed", "wall_s", "train_tables", "train_root", "heldout_tables", "heldout_root", "out")
 
 
@@ -156,6 +160,14 @@ class Run:
         self.n_groups = int(self.held.group.max()) + 1
         self.rows = []                                                  # every result row written so far
         self._held = None
+        self._parts = {}
+        self.offline = None                                             # package W3's strict offline rendering of the held-out set
+        if cfg.get("heldout_offline_tables"):
+            doc = T.read_manifest(cfg["heldout_offline_tables"])
+            self.offline = dict(doc=doc, parts=shards.parts(cfg["heldout_offline_root"], doc))
+            for name, ts in self.offline["parts"].items():
+                if int(ts.tables) != len(self.held):
+                    raise SystemExit("offline part %s holds %d tables, the held-out set %d" % (name, ts.tables, len(self.held)))
 
     def held_data(self):
         """The arrays of every held-out table (read once), and its metadata for the strata."""
@@ -164,6 +176,25 @@ class Run:
             meta = self.held.load(("identity",))
             self._held = (data, np.asarray(meta["identity"]), E.other_rows(data["kind"]))
         return self._held
+
+    def eval_source(self, condition):
+        """(layout, arrays of every held-out table) a condition is scored in: an arm trained in the stored layout, and
+        the conditions without relatives, read the stored tables in the stored layout; an arm trained leak-free reads
+        the other conditions in the leak-free layout, from the part of the strict offline rendering made for that
+        condition's mask (OFFLINE_PART) when the run names one, else from the stored tables rendered online (probe and
+        tests only: the online anchors are the stored pairs)."""
+        data = self.held_data()[0]
+        if self.cfg["layout"] == A.LAYOUT_STORED or cond.NO_RELATIVES in condition:
+            return A.LAYOUT_STORED, data
+        part = OFFLINE_PART.get(condition)
+        if self.offline is None or part is None:
+            if not self.cfg["probe"] and part is not None:
+                raise SystemExit("a leak-free arm is scored under %s on the strict offline rendering (heldout_offline_tables)" % condition)
+            return A.LAYOUT_LEAKFREE, data
+        if part not in self._parts:
+            ts = self.offline["parts"][part]
+            self._parts[part] = ts.load(0, ts.tables, E.PLAN_FIELDS, verify=False)
+        return A.LAYOUT_LEAKFREE, self._parts[part]
 
     def peak_mb(self):
         if self.device.type != "cuda":
@@ -226,13 +257,15 @@ class Run:
         """The held-out tables ids under every condition of this arm, read by the moving average. The rows go to
         self.rows and the whole table to path after every condition. Returns {condition: bits over all groups and
         strata, None when nothing was scored}, {condition: (bits, cell_table)} and {condition: items digest}."""
-        data, identity, n_other = self.held_data()
-        part = {f: v[ids] for f, v in data.items()}
+        _, identity, n_other = self.held_data()
         strata = SC.strata_of(identity[ids], n_other[ids])
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
         for c in self.conditions:
-            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]))
+            layout, data = self.eval_source(c)
+            part = {f: v[ids] for f, v in data.items()}
+            fixed = dict(fixed, layout=layout)
+            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout)
             agg = SC.aggregate(bits, cell_table, groups, strata, self.n_groups, self.group_names)
             for label, b in zip(SC.PARTS, (aa, bits - aa)):           # the two parts of the bits, per group and over the groups
                 agg += [dict(r, stratum=label) for r in SC.aggregate(b, cell_table, groups, [], self.n_groups, self.group_names) if r["stratum"] == SC.ALL]

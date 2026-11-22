@@ -22,7 +22,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
 
 EVAL_VERSION = "4"
-PLAN_FIELDS = ("tok", "n", "col", "kind", "frame_len")
+PLAN_FIELDS = ("tok", "n", "col", "kind", "frame_len", "frame_row")
 
 
 def to_device(batch, device):
@@ -102,11 +102,16 @@ def other_rows(kind):
 
 
 @torch.no_grad()
-def score(model, data, ids, condition, device, max_rows=64, chunk=32):
+def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.LAYOUT_STORED):
     """The tables ids (positions in the held-out set; data: their arrays PLAN_FIELDS, in the same order) under one
-    condition. Returns bits (float64 [C], one per scored cell), cell_table (int64 [C], the index into ids of the
-    cell's table), the digest of what was scored, and the bits of the amino acid of every scored cell (the first of the
-    two parts of the evaluator's score.amino_acid_bits; reporting only, the genetic code never reaches the model)."""
+    condition, rendered in `layout` (stored: tables.render; another: package W3's renderer, with the cells it laid by
+    extension where the model reads them). Returns bits (float64 [C], one per scored cell), cell_table (int64 [C], the
+    index into ids of the cell's table), the digest of what was scored, and the bits of the amino acid of every scored
+    cell (the first of the two parts of the evaluator's score.amino_acid_bits; reporting only, the genetic code never
+    reaches the model)."""
+    if layout != A.LAYOUT_STORED:
+        from seeddrift.train.rel.tables import render as RD
+        with_ext = getattr(model, "ext", None) is not None
     digest = cond.ItemsDigest(condition)
     bits, cell_table, aa_bits = [], [], []
     pending, rows = [], 0
@@ -116,13 +121,13 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32):
     def flush():
         nonlocal pending, rows
         if pending:
-            b = to_device(S.collate([dict(grid=g, truth=t) for _, g, t in pending]), device)
+            b = to_device(S.collate([dict(grid=g, truth=t) if x is None else dict(grid=g, truth=t, ext=x) for _, g, t, x in pending]), device)
             logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b))
             per = -logp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0].double() / math.log(2.0)
             bits.append(per.cpu().numpy())
             p_class = logp.double().exp() @ onehot
             aa_bits.append((-torch.log2(p_class.gather(1, classes[b["token"] - A.TARGET_MIN][:, None])[:, 0])).cpu().numpy())
-            cell_table.append(np.array([k for k, _, _ in pending], dtype=np.int64)[b["example"].cpu().numpy()])
+            cell_table.append(np.array([k for k, _, _, _ in pending], dtype=np.int64)[b["example"].cpu().numpy()])
         pending, rows = [], 0
 
     was_training = model.training
@@ -135,9 +140,15 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32):
         for k in range(len(ids[part])):
             if not plan["has"][k]:
                 continue
-            planned = dict(tok=plan["tok"][k], n=plan["n"][k], col=plan["col"][k], kind=plan["kind"][k], frame_len=plan["frame_len"][k])
+            planned = dict(tok=plan["tok"][k], n=plan["n"][k], col=plan["col"][k], kind=plan["kind"][k], frame_len=plan["frame_len"][k],
+                           frame_row=plan["frame_row"][k])
             keep = T.present_rows(planned)
-            grid, truth = T.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep])
+            ext = None
+            if layout == A.LAYOUT_STORED:
+                grid, truth = T.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep])
+            else:
+                grid, truth, ext = RD.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep], layout=layout)
+                ext = ext if with_ext else None
             if int((truth > 0).sum()) != int(plan["target"][k].sum()):
                 raise ValueError("table %d under %s: the grid scores %d cells, the evaluator planned %d"
                                  % (int(ids[at + k]), condition, int((truth > 0).sum()), int(plan["target"][k].sum())))
@@ -145,7 +156,7 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32):
                 continue
             if rows and rows + grid.shape[0] > max_rows:
                 flush()
-            pending.append((at + k, grid, truth))
+            pending.append((at + k, grid, truth, ext))
             rows += grid.shape[0]
     flush()
     model.train(was_training)

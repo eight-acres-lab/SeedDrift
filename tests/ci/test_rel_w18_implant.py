@@ -221,3 +221,87 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+
+
+# ---- tables of version 1: the homolog rows of W12's uncapped search (the stand-in DIAMOND of W12's tests) ----
+import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def v1(tmp_path_factory):
+    import json as _json
+    import stat
+    import test_rel_w12_search as T12
+    import test_rel_w2_stage as TS
+    from seeddrift.train import source_model as SM
+    from seeddrift.train.rel.tables import v1_hits as H
+    tmp = tmp_path_factory.mktemp("w18v1")
+    src = str(tmp / "ci-root" / "runs" / "20261120T000000-src")
+    os.makedirs(src)
+    metas = TS.make_source(src)
+    T12.add_corpus(src, metas)
+    fake = tmp / "diamond"
+    fake.write_text(T12.FAKE % dict(python=sys.executable))
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    run_dir, cfg, rep = T12.run_stage(dict(tmp=tmp, src=src, metas=metas, diamond=str(fake)), tmp / "s", "20261123T000010-search")
+    with open(os.path.join(run_dir, "data", "rel_w12", "search", "genomes.json")) as f:
+        sgen = _json.load(f)["genomes"]
+    by = {m["id"]: m for m in metas}
+    opened = [by[g["id"]] for g in sgen if g["split"] in ("train", "heldout")]
+    arrays = {m["id"]: SM.Genome(m, os.path.join(src, "data", "train_data", m["id"] + ".npz")) for m in opened}
+    ids = [m["id"] for m in opened]
+    dist = distances(arrays, ids)
+    train = [m["id"] for m in opened if m["split"] == "train"]
+    eligible = {m["id"] for m in opened if m["split"] == "heldout"}
+    rows_of = lambda gid: H.load(os.path.join(run_dir, "data", "rel_w12", "search", gid + ".npz"))      # noqa: E731
+    imp = I.ImplanterV1(sgen, arrays, rows_of, train, ids, dist, ids, EDGES, eligible, I.split_units(opened), rows=8, min_codons=20, length_tol=0.6)
+    out, meta, triples, counts, capacity = imp.build(opened, sorted(TS.TINY), 5, per_tier=2, group_tier_cap=6)
+    return dict(out=out, meta=meta, triples=triples, counts=counts, imp=imp, ids=ids, train=train, eligible=eligible, opened=opened, sgen=sgen,
+                rows_of=rows_of, dist=dist)
+
+
+def test_version_1_triples_are_sound(v1):
+    out, meta, ids = v1["out"], v1["meta"], v1["ids"]
+    gix = {g: i for i, g in enumerate(ids)}
+    units = I.split_units(v1["opened"])
+    assert v1["counts"]["triples"] > 0 and I.verify(out, meta, {gix[g] for g in v1["eligible"]}, {gix[g] for g in v1["train"]},
+                                                    {gix[g]: u for g, u in units.items()}) == []
+    assert {"genome_of_row", "row_gene", "row_first"} <= set(out)
+    T = I.TARGET
+    assert not (out["kind"] == A.KIND_SELF_COPY).any() and not (out["kind"] == A.KIND_NOT_SEARCHED).any()
+    exists = out["genome"] >= 0
+    assert ((out["genome_of_row"] >= 0) == exists).all() and (out["genome_of_row"][exists] == np.nonzero(exists)[1]).all()   # one row per genome
+    assert (out["tier"] == meta["row_tier"]).all()
+    absent = out["kind"][:, 1:, :T] == A.KIND_ABSENT
+    assert absent.any()                                                # a row's genome without a homolog of a context gene: searched, absent
+
+
+def test_version_1_rows_are_the_search_pairs_and_take_tiers_in_turn(v1):
+    out, meta, ids, sgen = v1["out"], v1["meta"], v1["ids"], v1["sgen"]
+    T = I.TARGET
+    sidx = {g["id"]: k for k, g in enumerate(sgen)}
+    checked = 0
+    for t in range(len(out["tok"])):
+        v = int(meta["variant"][t])
+        owner = ids[meta["donor"][t]] if v == 0 else ids[out["genome"][t, 0]]
+        gene = int([meta["gene_j"][t], meta["gene_i"][t], meta["gene_k"][t]][v])
+        a = v1["rows_of"](owner)
+        for q in range(1, out["tok"].shape[1]):
+            if out["genome"][t, q] < 0:
+                continue
+            ti = sidx[ids[out["genome"][t, q]]]
+            pairs = [p for p in range(int(a["off"][gene]), int(a["off"][gene + 1])) if int(a["tgenome"][p]) == ti]
+            assert pairs and out["row_gene"][t, q, T] in {int(a["tgene"][p]) for p in pairs} and out["kind"][t, q, T] == A.KIND_PRESENT
+            checked += 1
+        tiers = [int(x) for x in meta["row_tier"][t, 1:] if x >= 0]
+        k = len(set(tiers))                                            # tiers take turns: the first round holds every tier once, in order
+        assert tiers[:k] == sorted(set(tiers))
+    assert checked > 10
+
+
+def test_version_1_masks_are_shared_in_a_triple(v1):
+    out, meta = v1["out"], v1["meta"]
+    got = {}
+    for t in range(len(out["tok"])):
+        d = P.mask_digest({k: out[k][t] for k in P.FIELDS}, meta["row_tier"][t], t, int(meta["parent"][t]))
+        assert got.setdefault(int(meta["triple"][t]), d) == d

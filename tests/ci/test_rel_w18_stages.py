@@ -324,3 +324,54 @@ def test_readout_stage_reads_cells_from_several_evaluation_runs(built, evaluated
         assert sorted(a for a, _, _ in got) == ["toy", "toy-norel", "toy.untrained"] and [x[1] for x in got if x[0] == "toy-norel"] == [p]
     finally:
         shutil.copytree(dst, src)
+
+
+def test_rulers_stage_builds_tables_of_version_1(tmp_path_factory, monkeypatch):
+    """Version 1: the homolog rows of a passed full run of stage w12_search on the same source (W12's stand-in DIAMOND),
+    the fields of version 1, every rows file checked against the search's manifest."""
+    import stat
+    import sys
+    import test_rel_w12_search as T12
+    tmp = tmp_path_factory.mktemp("w18v1stage")
+    src = str(tmp / "ci-root" / "runs" / "20261120T000000-src")
+    os.makedirs(src)
+    metas = W2S.make_source(src)
+    T12.add_corpus(src, metas)
+    fake = tmp / "diamond"
+    fake.write_text(T12.FAKE % dict(python=sys.executable))
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    search_dir, _, _ = T12.run_stage(dict(tmp=tmp, src=src, metas=metas, diamond=str(fake)), tmp / "s", "20261123T000010-search")
+    with open(os.path.join(search_dir, "record.json")) as f:
+        rec = json.load(f)
+    if rec.get("status") != "passed":                                  # the search stage's own test leaves the record to the launcher
+        stages = []
+        for name in sorted(os.listdir(os.path.join(search_dir, "stages"))):
+            with open(os.path.join(search_dir, "stages", name)) as f:
+                stages.append(json.load(f))
+        with open(os.path.join(search_dir, "record.json"), "w") as f:
+            json.dump(dict(rec, status="passed", stages=stages), f)
+    dist_run = str(tmp / "ci-root" / "runs" / "20261122T000000-dist")
+    os.makedirs(dist_run)
+    make_dist(dist_run, src)
+    run_dir, cfg = RF.rel_run(tmp)
+    cfg = dict(cfg, rel=dict(machine="i1", stages=["w18_rulers"]),
+               rel_w18_rulers=dict(version=1, search_from=search_dir, expect=W2S.SIZES, rows=8, per_tier=2, group_tier_cap=4, k=4,
+                                   min_codons=20, length_tol=0.6, shard_tables=9, processes=1))     # the source and the distances from the search
+    patch(monkeypatch, tmp)
+    monkeypatch.setattr(w18_rulers, "declared_tables", lambda path: {m["id"]: 11 for m in metas})
+    with Stage(run_dir, "rel_w18_rulers") as st:
+        doc = w18_rulers.build(st, cfg, run_dir)
+    assert handoff.tableset_problems(doc, run_dir) == [] and doc["tables_of_version"] == 1 and doc["name"].startswith("w18-implant-v1")
+    with open(os.path.join(run_dir, w18_rulers.OUT, "index.json")) as f:
+        assert json.load(f)["distance_run"]["computed"]
+    bad = dict(cfg, rel_w18_rulers=dict(cfg["rel_w18_rulers"], source=dist_run))
+    with pytest.raises(SystemExit, match="another source"):
+        w18_rulers.source_of(w18_rulers.settings(bad))
+    with Stage(run_dir, "gates_rel_w18_rulers") as st:
+        w18_rulers.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w18_rulers")["status"] == "pass"
+    ts = shards.by_split(run_dir, [doc])[1]
+    got = ts.load(0, ts.tables, ("kind", "genome_of_row", "tier"))
+    assert (got["kind"] == api.KIND_ABSENT).any() and not (got["kind"] == api.KIND_NOT_SEARCHED).any()
+    meta = P.load_meta(run_dir, doc)
+    assert (got["tier"] == meta["row_tier"]).all() and (got["genome_of_row"][:, 0] == 0).all()

@@ -13,8 +13,14 @@ translation table their corpus source declares and the nuclear code the NCBI tax
 11 (the same codon to amino-acid map). Other rows are training genomes only.
 
 Profile block rel_w18_rulers:
-  source             the passed selfsup run
-  dist               the passed run of stage w2_dist on the same source
+  version            0 (default): homolog rows of stage pairs of the source, tables of version 0; 1: the homolog rows of
+                     a passed full run of stage w12_search (search_from) on the same source, the fields of version 1
+  search_from        (version 1) the passed full run of stage w12_search; its rows files are checked against its
+                     manifest as they are read; the source is the one the search read (its manifest's settings, which
+                     may be a corpus of stage w13_build), and source, when given, must be that one
+  source             the passed selfsup run (version 0)
+  dist               the passed run of stage w2_dist on the same source (version 0; version 1 without it computes the
+                     distances here, as stage w12_v1 does: the same k-mers, k and sketch size)
   expect             optional {split: genomes}
   rows               rows per table (16)
   per_tier           triples per eligible A and donor tier (2); group_tier_cap: at most this many per (group, tier) (30)
@@ -52,7 +58,7 @@ from seeddrift.train.rel.tables import v0_build as V
 from seeddrift.train.rel.tables import v0_io as IO
 
 OUT = os.path.join("data", "rel_w18", "rulers")
-KEYS = {"source", "dist", "expect", "rows", "per_tier", "group_tier_cap", "scenarios", "edges", "k", "min_codons", "length_tol", "attempts",
+KEYS = {"version", "search_from", "source", "dist", "expect", "rows", "per_tier", "group_tier_cap", "scenarios", "edges", "k", "min_codons", "length_tol", "attempts",
         "donor_cap", "min_aligned", "aligned_share", "shard_tables", "processes", "max_left_out"}
 COVERAGE_NOTE = ("Implant tables (ruler, evaluation only): the target block of a held-out genome A replaced by a gene of another held-out genome D of "
                  "the standard code, with two controls at the same locus (A's own gene, another gene of A). Rows are training genomes with a homolog row "
@@ -66,16 +72,19 @@ NOT_COVERED = ["donors of the training split", "close relatives (same species or
 def settings(cfg) -> dict:
     c = cfg.get("rel_w18_rulers") or {}
     unknown = set(c) - KEYS
-    if unknown or not c.get("source") or not c.get("dist"):
-        raise SystemExit("rel_w18_rulers: needs source and dist; unknown keys %s" % sorted(unknown))
-    out = dict(source=str(c["source"]), dist=str(c["dist"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()},
+    v1 = int(c.get("version", 0)) == 1
+    if unknown or (not v1 and (not c.get("source") or not c.get("dist"))):
+        raise SystemExit("rel_w18_rulers: needs source and dist (version 0) or search_from (version 1); unknown keys %s" % sorted(unknown))
+    out = dict(version=int(c.get("version", 0)), search_from=c.get("search_from"), source=str(c.get("source") or ""), dist=str(c.get("dist") or ""), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()},
                rows=int(c.get("rows", 16)), per_tier=int(c.get("per_tier", 2)), group_tier_cap=int(c.get("group_tier_cap", 30)),
                scenarios=bool(c.get("scenarios", True)), min_aligned=int(c.get("min_aligned", 10)), aligned_share=float(c.get("aligned_share", 0.3)),
                edges=[float(x) for x in c.get("edges") or [0.05, 0.2, 0.5, 1.0]], k=int(c.get("k", 6)), min_codons=int(c.get("min_codons", 64)),
                length_tol=float(c.get("length_tol", 0.15)), attempts=int(c.get("attempts", 40)), donor_cap=int(c.get("donor_cap", 3)),
                shard_tables=int(c.get("shard_tables", 720)), processes=int(c.get("processes", 4)), max_left_out=int(c.get("max_left_out", 20)),
                seed=int(cfg.get("seed", 1)))
-    if not (2 <= out["rows"] <= 32 and 1 <= out["per_tier"] <= 10 and 1 <= out["group_tier_cap"] <= 1000 and out["edges"] == sorted(out["edges"])
+    if out["version"] not in (0, 1) or (out["version"] == 1 and not out["search_from"]):
+        raise SystemExit("rel_w18_rulers: version is 0 or 1, and version 1 needs search_from")
+    if not (2 <= out["rows"] <= 64 and 1 <= out["per_tier"] <= 10 and 1 <= out["group_tier_cap"] <= 1000 and out["edges"] == sorted(out["edges"])
             and 1 <= out["min_codons"] <= 256 and 1 <= out["min_aligned"] and 0 <= out["aligned_share"] < 1
             and 0 < out["length_tol"] < 1 and 1 <= out["attempts"] <= 1000 and 1 <= out["donor_cap"] and 3 <= out["shard_tables"] <= 20000
             and out["shard_tables"] % 3 == 0 and 1 <= out["processes"] <= 16):
@@ -144,6 +153,43 @@ def eligibility(metas, declared, codes):
     return ok, left
 
 
+def source_of(s):
+    """(the source run's records, the search run's (version 1) or None): version 0 reads source; version 1 the source
+    the search read, which source, when given, must be."""
+    if s["version"] == 1:
+        from ci.stages.rel import w12_v1
+        smeta = w12_v1.search_run(s["search_from"])
+        path = str((smeta[0].get("settings") or {}).get("source", ""))
+        if s["source"] and os.path.normpath(path) != os.path.normpath(s["source"]):
+            raise SystemExit("rel_w18_rulers: the search run read another source (%s)" % path)
+        return W.source(path, pairs=False), smeta
+    return W.source(s["source"]), None
+
+
+def search_source(s, smeta, metas):
+    """(the search's genome list, rows_of, provenance) of the full search run s["search_from"] (version 1; smeta its
+    w12_v1.search_run): every open genome is in its list with its split, and every rows file is checked against the
+    search's manifest when it is read."""
+    from ci.stages.rel import w12_v1
+    from seeddrift.train.rel.tables import v1_hits as H
+    man, sgen, files, prov = smeta
+    split = {g["id"]: g["split"] for g in sgen}
+    bad = [m["id"] for m in metas if split.get(m["id"]) != m["split"]]
+    if bad:
+        raise SystemExit("rel_w18_rulers: open genomes missing from the search's list or with another split: %s" % bad[:5])
+    checked = {}
+
+    def rows_of(gid):
+        rel = os.path.join(w12_v1.SEARCH, gid + ".npz")
+        full = os.path.join(s["search_from"], rel)
+        if gid not in checked:
+            if rel not in files or sha256_file(full, use_sidecar=False) != files[rel]["sha256"]:
+                raise SystemExit("rel_w18_rulers: %s is not the rows file the search's manifest names" % rel)
+            checked[gid] = True
+        return H.load(full)
+    return sgen, rows_of, prov
+
+
 def mask_digests(out, meta):
     """({triple: the sha256 of the cells its passes hide}, [triples whose three tables differ]): the masks are hashed on
     the triple, so the three tables of a triple hide the same cells (the target blocks have one length)."""
@@ -187,7 +233,7 @@ def build(st, cfg, run_dir):
     from bench.rel import implant as I
     from ci.taxonomy import Taxonomy
     s, t0, say = settings(cfg), time.time(), lambda text: print("rel_w18_rulers: " + text, flush=True)
-    src = W.source(s["source"])
+    src, smeta = source_of(s)
     run = src["run"]
     groups = sorted(KingdomMap().names)
     sealed = common.sealed_set(cfg)
@@ -196,26 +242,38 @@ def build(st, cfg, run_dir):
     ents = {m["id"]: W.entry(src, m) for m in metas}
     st.extra["sealed_check"] = common.sealed_record(cfg, list(ents.values()), splits={m["id"]: m["split"] for m in metas}, sealed=sealed, tax=tax)
     st.extra.update(source=src["provenance"], split_sizes=sizes, left_out=left)
-    dist_ids, dist, dist_rep = distance_run(s["dist"], s["k"])
-    if dist_rep.get("source") != src["provenance"]:
-        raise SystemExit("rel_w18_rulers: the distance run was made on another source")
+    if s["dist"]:
+        dist_ids, dist, dist_rep = distance_run(s["dist"], s["k"])
+        if dist_rep.get("source") != src["provenance"]:
+            raise SystemExit("rel_w18_rulers: the distance run was made on another source")
+    else:
+        dist_ids, dist, dist_rep = None, None, None                   # version 1: computed below, once the arrays are loaded
     declared = declared_tables(st.repo(cfg["corpus_spec"]))
     codes = nuclear_codes(st.repo(cfg["taxdump"]), {int(m["taxid"]) for m in metas}, tax)
     eligible, by_code = eligibility(metas, declared, codes)
     say("%d held-out genomes of the standard code eligible as A and D; left out by the code: %s" % (len(eligible), {g: len(v) for g, v in by_code.items()}))
-    paths = [os.path.join("data", d, m["id"] + ".npz") for d in ("train_data", "pairs") for m in metas]
+    paths = [os.path.join("data", d, m["id"] + ".npz") for d in (("train_data", "pairs") if s["version"] == 0 else ("train_data",)) for m in metas]
     shas = V.hash_files([os.path.join(run, p) for p in paths], s["processes"])
     bad = [p for p, sha in zip(paths, shas) if src["files"].get(p) != sha]
     if bad:
         raise SystemExit("rel_w18_rulers: files of %s differ from its manifests: %s" % (run, bad[:5]))
     genomes, _ = V.load_genomes(os.path.join(run, "data", "train_data"), metas, s["processes"])
     say("%d files checked, %d genomes loaded, %.0f s" % (len(paths), len(genomes), time.time() - t0))
+    if dist is None:
+        from ci.stages.rel import w12_v1
+        dist_ids = [m["id"] for m in metas]
+        dist = w12_v1.distances(genomes, [dict(id=x) for x in dist_ids], dict(dist_k=s["k"], dist_size=4096, processes=s["processes"]))
+        say("distances of %d genomes computed, %.0f s" % (len(dist_ids), time.time() - t0))
     ids = [m["id"] for m in metas]
     train = [m["id"] for m in metas if m["split"] == "train"]
     units = I.split_units(metas)
-    imp = I.Implanter(SS.Pairs(run), genomes, train, ids, dist, dist_ids, s["edges"], eligible, units, rows=s["rows"], min_codons=s["min_codons"],
-                      length_tol=s["length_tol"], attempts=s["attempts"], donor_cap=s["donor_cap"], min_aligned=s["min_aligned"],
-                      aligned_share=s["aligned_share"])
+    draws = dict(rows=s["rows"], min_codons=s["min_codons"], length_tol=s["length_tol"], attempts=s["attempts"], donor_cap=s["donor_cap"],
+                 min_aligned=s["min_aligned"], aligned_share=s["aligned_share"])
+    if s["version"] == 0:
+        imp = I.Implanter(SS.Pairs(run), genomes, train, ids, dist, dist_ids, s["edges"], eligible, units, **draws)
+    else:
+        sgen, rows_of, st.extra["search"] = search_source(s, smeta, metas)
+        imp = I.ImplanterV1(sgen, genomes, rows_of, train, ids, dist, dist_ids, s["edges"], eligible, units, **draws)
     out, meta, triples, counts, capacity = imp.build(metas, groups, s["seed"], per_tier=s["per_tier"], group_tier_cap=s["group_tier_cap"],
                                                      scenarios=s["scenarios"], progress=say)
     gix = {g: i for i, g in enumerate(ids)}
@@ -230,18 +288,19 @@ def build(st, cfg, run_dir):
     say("%d triples (%d copies of scenario donor_unsampled), %d tables, %.0f s" % (len(triples), counts["copies"], len(out["tok"]), time.time() - t0))
     base = os.path.join(run_dir, OUT)
     folder = os.path.join(base, "tables")
-    shards = IO.write(folder, out, s["shard_tables"])
+    shards = IO.write(folder, out, s["shard_tables"], s["version"])
     files = []
     for name, _ in shards:
-        for field in V.fields(s["rows"]):
+        for field in IO.fields(s["rows"], s["version"]):
             p = os.path.join(folder, "%s.%s.npy" % (name, field))
-            files.append(dict(path=os.path.relpath(p, run_dir), role="shard" if field in api.SHARD_FIELDS else "meta"))
+            files.append(dict(path=os.path.relpath(p, run_dir), role="shard" if field in IO.model_fields(s["version"]) else "meta"))
     files.append(dict(path=os.path.relpath(write_meta(os.path.join(base, "w18_meta.npz"), meta), run_dir), role="meta"))
     for f, sha in zip(files, V.hash_files([os.path.join(run_dir, f["path"]) for f in files], s["processes"])):
         f.update(sha256=sha, bytes=os.path.getsize(os.path.join(run_dir, f["path"])))
     used = sorted({int(x) for x in np.unique(out["genome"]) if x >= 0} | {int(x) for x in np.unique(meta["donor"])})
     present = sorted({t["group"] for t in triples})
-    index = dict(format="rel-w18-rulers-index", version=1, table_version=I.TABLE_VERSION, api_version=V.API_VERSION, rows=s["rows"], groups=groups,
+    tver = I.TABLE_VERSION + ("-v1" if s["version"] else "")
+    index = dict(format="rel-w18-rulers-index", version=1, table_version=tver, tables_of_version=s["version"], api_version=V.API_VERSION, rows=s["rows"], groups=groups,
                  edges=s["edges"], tiers=["<%g" % s["edges"][0]] + ["%g-%g" % (a, b) for a, b in zip(s["edges"], s["edges"][1:])] + [">=%g" % s["edges"][-1], "no shared k-mer"],
                  k=s["k"], variants=list(I.VARIANTS), meta_fields={k: v[2] for k, v in I.FIELDS.items()}, settings=s, counts=counts,
                  triples=[dict(t, a=gix[t["a"]], d=gix[t["d"]]) for t in triples], units=imp.unit_names, capacity=capacity,
@@ -249,7 +308,8 @@ def build(st, cfg, run_dir):
                  left_out_by_code={g: len(v) for g, v in by_code.items()}, code_detail=by_code, eligible=sorted(gix[g] for g in eligible),
                  meta_file="w18_meta.npz",
                  genomes=[dict(id=m["id"], group=m["group"], split=m["split"], taxid=int(m["taxid"])) for m in metas],
-                 distance_run=dict(run_id=os.path.basename(os.path.normpath(s["dist"])), report_sha256=sha256_file(os.path.join(s["dist"], "data", "rel_w2", "dist", "report.json"), use_sidecar=False)))
+                 distance_run=(dict(run_id=os.path.basename(os.path.normpath(s["dist"])), report_sha256=sha256_file(os.path.join(s["dist"], "data", "rel_w2", "dist", "report.json"), use_sidecar=False))
+                               if s["dist"] else dict(computed="here, as stage w12_v1 computes them", k=s["k"], size=4096)))
     ip = os.path.join(base, "index.json")
     write_json(ip, index)
     files.append(dict(path=os.path.relpath(ip, run_dir), role="index", sha256=sha256_file(ip, use_sidecar=False), bytes=os.path.getsize(ip)))
@@ -258,8 +318,8 @@ def build(st, cfg, run_dir):
     part = dict(split=V.SPLITS["heldout"], tables=n, folder=os.path.relpath(folder, run_dir), shards=[dict(name=nm, tables=m) for nm, m in shards],
                 sha256=sha256_json(sorted([f["path"], f["sha256"]] for f in files if f["role"] != "index")))
     doc = handoff.finish(dict(
-        format="rel-tableset", format_version=1, name="w18-implant-r%d-s%d" % (s["rows"], s["seed"]), kind=api.TABLE_RULER, purpose="ruler",
-        api_version=V.API_VERSION, table_version=I.TABLE_VERSION, layout=api.LAYOUT_STORED,
+        format="rel-tableset", format_version=1, name="w18-implant%s-r%d-s%d" % ("-v1" if s["version"] else "", s["rows"], s["seed"]), kind=api.TABLE_RULER, purpose="ruler",
+        api_version=V.API_VERSION, table_version=tver, tables_of_version=s["version"], layout=api.LAYOUT_STORED,
         coverage=dict(groups=present, scenarios=["an implant at the locus of a held-out gene, from a held-out donor of the standard code, every donor distance the held-out split offers"],
                       not_covered=NOT_COVERED, note=COVERAGE_NOTE),
         tables=n, rows=s["rows"], seed=s["seed"], parts=dict(ruler=part), files=files, group_names=groups,
@@ -295,12 +355,12 @@ def gate(st, cfg, run_dir):
     if doc.get("kind") != api.TABLE_RULER or doc.get("purpose") != "ruler" or (doc.get("producer") or {}).get("stage") != "w18_rulers":
         problems.append(dict(error="not a ruler set of stage w18_rulers"))
     listed = index.get("genomes") or []
-    src = W.source(s["source"])
+    src, _ = source_of(s)
     by = {m["id"]: m for m in src["index"]["genomes"]}
     wrong = [g["id"] for g in listed if g["id"] not in by or by[g["id"]]["split"] != g.get("split") or g.get("split") not in V.OPEN_SPLITS]
     if wrong:
         problems.append(dict(error="genomes listed outside the open splits of the source, or with another split", genomes=wrong[:10]))
-    out = _load(run_dir, doc, list(V.fields(s["rows"])))
+    out = _load(run_dir, doc, list(IO.fields(s["rows"], s["version"])))
     with np.load(os.path.join(base, "w18_meta.npz")) as z:
         meta = {k: z[k] for k in z.files}
     if sorted(meta) != sorted(I.FIELDS) or any(len(v) != len(out["tok"]) for v in meta.values()):

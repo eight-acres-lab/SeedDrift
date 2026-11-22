@@ -56,6 +56,7 @@ def test_every_variant_file_loads_and_round_1a_changes_one_key():
     load = lambda n: yaml.safe_load(open(os.path.join(folder, n + ".yaml")))                      # noqa: E731
     rest = lambda v, *keys: {k: x for k, x in v.items() if k not in ("name",) + keys}              # noqa: E731
     for n, base, lr in (("w6-ref30m-lr1.5e-4", "w6-ref30m", 1.5e-4), ("w6-ref30m-lr6e-4", "w6-ref30m", 6e-4),
+                        ("w6-ref30m-leakfree-lr1.5e-4", "w6-ref30m-leakfree", 1.5e-4),
                         ("w6-ref100m-lr8e-4", "w6-ref100m", 8e-4), ("w6-ref100m-lr1e-4", "w6-ref100m", 1e-4)):
         assert load(n)["optimizer"] == {"lr": lr} and rest(load(n), "optimizer") == rest(load(base), "optimizer"), n
     assert load("w6-ref30m-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
@@ -343,7 +344,7 @@ def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
         f.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s,bits_scattered\n")
         for k in range(1, 501):
             f.write("%d,%d,0,0,0,%.3f,0,0,0,0,0,\n" % (k, 4 * k, 6.0 - k / 250.0))
-    sc = dict(lr_sweeps=[dict(name="fixture", arms=["w6-ref10m-s1", ["w6-ref30m-s1"]])], passes=["w6-ref30m-s1"])
+    sc = dict(lr_sweeps=[dict(name="fixture", arms=["w6-ref10m-s1", ["w6-ref30m-s1"]])], passes=["w6-ref30m-s1"], notes=["A note of the profile."])
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=sc), run_dir)
     w = rep["lr_sweeps"][0]
     assert w["node"] == 2000 and [r[0] for r in w["rows"]] == [1000, 2000] and w["best"][cond.SCATTERED]["entry"] == "w6-ref30m-s1"
@@ -353,7 +354,7 @@ def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
     assert abs(o["rows"][1][5] - 0.3) < 1e-9                                       # the fall of scattered from 5.75 to 5.45
     assert abs(o["rows"][1][7] - (6.0 - 375.5 / 250.0)) < 1e-6                      # the training loss of steps 251..500 (tables 1,004..2,000)
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
-    assert "## Learning rates of fixture" in text and "over passes of the training tables" in text
+    assert "## Learning rates of fixture" in text and "over passes of the training tables" in text and "- A note of the profile." in text
     with pytest.raises(SystemExit):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
 

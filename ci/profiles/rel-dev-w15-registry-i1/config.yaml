@@ -1,0 +1,36 @@
+# Machine i-1: the event registry draft of the relational-model line checked on the server (stage w15_registry,
+# ci/stages/rel/w15_registry.py; package W15). No model output and no score is read. The draft's own checks; every
+# exclusion taxon looked up in the run's NCBI taxdump; genomes inside each radius counted in the train and held-out
+# splits of round R3's training-data index (the sealed test split is never looked at); overlap with the sealed island
+# genera of bench/hard/EXCLUDE.tsv; Europe PMC metadata of every DOI in the draft, the open full text where Europe PMC
+# has it, and the supplements of the DOIs listed below (at most 50 MB each), stored in the run's data folder.
+# Standard library only: the select lock, no GPU, network to Europe PMC. Development diagnosis only.
+pipeline: rel_events
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 1
+blas_threads: 1
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w15_registry]
+rel_w15_registry:
+  registry: bench/rel/registry/events_v0.2-sample.tsv
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  fetch: true
+  supplements:
+    - 10.1371/journal.pgen.1000827
+    - 10.1073/pnas.1810031116
+    - 10.1371/journal.pbio.0040234
+    - 10.1186/1745-6150-7-13
+    - 10.1371/journal.pbio.2004830
+  max_supplement_mb: 50
+  pause_s: 0.5
+train:
+  gpu_lease: false
+  device: cpu

@@ -1,0 +1,127 @@
+"""Package W15: stage rel_w15_registry (ci/stages/rel/w15_registry.py), with a small taxonomy and no network."""
+from __future__ import annotations
+
+import io
+import json
+
+import pytest
+
+from ci.stages.rel import w15_registry as W
+from tests.ci.test_rel_w15_registry import _row
+
+# root 1 > Eukaryota 2 > Metazoa 3 > Insecta 4 > Drosophila 5 (genus) > D. ananassae 6 ; Insecta 4 > Aphis 7 (genus)
+# root 1 > Bacteria 10 > Pseudomonadaceae 11 (family) > Pseudomonas 12 (genus) ; Bacteria 10 > Neisseria 13 (genus)
+NODES = {1: (1, "no rank", "root"), 2: (1, "superkingdom", "Eukaryota"), 3: (2, "kingdom", "Metazoa"),
+         4: (3, "class", "Insecta"), 5: (4, "genus", "Drosophila"), 6: (5, "species", "Drosophila ananassae"),
+         7: (4, "genus", "Aphis"), 10: (1, "superkingdom", "Bacteria"), 11: (10, "family", "Pseudomonadaceae"),
+         12: (11, "genus", "Pseudomonas"), 13: (10, "genus", "Neisseria"), 14: (1, "no rank", "Aphis")}
+
+
+class Tax:
+    def __init__(self):
+        self.parent = {t: p for t, (p, _, _) in NODES.items()}
+        self.rank = {t: r for t, (_, r, _) in NODES.items()}
+        self.sci = {t: n for t, (_, _, n) in NODES.items()}
+        self.by_name = {}
+        for t, n in self.sci.items():
+            self.by_name.setdefault(n, []).append(t)
+
+    def resolve(self, t):
+        if int(t) not in self.parent:
+            raise KeyError(t)
+        return int(t)
+
+    def lineage(self, t):
+        t, out = self.resolve(t), []
+        while True:
+            out.append(t)
+            if self.parent[t] == t:
+                return out
+            t = self.parent[t]
+
+    def name(self, t):
+        return self.sci[t]
+
+    def at_rank(self, t, rank):
+        return next((x for x in self.lineage(t) if self.rank[x] == rank), 0)
+
+    def genus_by_name(self, name, domains=(10,)):
+        return [t for t in self.by_name.get(name, []) if self.rank[t] == "genus" and set(self.lineage(t)) & set(domains)]
+
+
+def test_taxa_resolve_rank_lineage_and_stated_taxid():
+    rows = [_row("E1", "Drosophila (genus)", "Eukaryota;Metazoa;Arthropoda;Insecta;Drosophila", recipient_exclusion_taxid="99"),
+            _row("E2", "Aphis (genus)", "Eukaryota;Metazoa;Insecta;Aphis"),
+            _row("E3", "Insecta (order)", "Eukaryota;Metazoa;Insecta"),
+            _row("E4", "Nothing (genus)", "Eukaryota;Nothing")]
+    got = W.taxa(rows, Tax())
+    assert got["E1"]["status"] == "ok" and got["E1"]["taxid"] == 5
+    assert got["E1"]["names_not_in_ncbi"] == ["Arthropoda"] and got["E1"]["stated_taxid_differs"] == 99
+    assert got["E2"]["status"] == "ok" and got["E2"]["taxid"] == 7       # the genus, not the no-rank homonym
+    assert got["E3"]["status"] == "rank_differs" and got["E3"]["ncbi_ranks"] == ["class"]
+    assert got["E4"]["status"] == "unresolved"
+
+
+def test_pretraining_reads_only_train_and_heldout():
+    found = {"E1": dict(status="ok", taxid=5), "E2": dict(status="ok", taxid=13), "E3": dict(status="unresolved")}
+    index = dict(genomes=[dict(split="train", taxid=6), dict(split="heldout", taxid=5), dict(split="test", taxid=6),
+                          dict(split="train", taxid=12), dict(split="test", taxid="not a taxid")])
+    got = W.pretraining(found, index, Tax())
+    assert got["E1"] == dict(train=1, heldout=1, in_pretraining="y", unresolved_genomes=0)
+    assert got["E2"]["in_pretraining"] == "n" and "E3" not in got
+
+
+def test_sealed_genera_and_overlap(tmp_path):
+    p = tmp_path / "EXCLUDE.tsv"
+    p.write_text("# c\ndate\tkind\tname\treason\n2026-11-16\tgenus\tPseudomonas\tsealed genus of the island anchor (and its family)\n"
+                 "2026-11-17\torder\tEnterobacterales\tthe development order\n")
+    tax = Tax()
+    sealed = W.sealed_genera(tax, str(p))
+    assert sealed == {12: "sealed genus Pseudomonas", 11: "family of sealed genus Pseudomonas"}
+    got = W.sealed_overlap({"E1": dict(status="ok", taxid=10), "E2": dict(status="ok", taxid=13),
+                            "E3": dict(status="ok", taxid=12)}, sealed, tax)
+    assert got["E1"]["sealed_overlap"] == "y" and got["E2"]["sealed_overlap"] == "n" and got["E3"]["sealed_overlap"] == "y"
+
+
+def test_dois_collects_from_papers_and_later():
+    rows = [_row("E1", "Aphis (genus)", "Insecta;Aphis", papers="10.1126/science.1142490;10.1186/1471-2164-15-1097",
+                 later="support:10.1093/gbe/evv158 (x);challenge:G3 7:2439 (no doi)")]
+    assert W.dois(rows) == ["10.1126/science.1142490", "10.1186/1471-2164-15-1097", "10.1093/gbe/evv158"]
+
+
+class Resp(io.BytesIO):
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_fetch_stores_meta_fulltext_and_capped_supplements(tmp_path):
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC1", isOpenAccess="Y", pmid="9", title="t", pubYear="2010")])))
+    seen = []
+
+    def opener(req, timeout):
+        seen.append(req.full_url)
+        if "search?" in req.full_url:
+            return Resp(meta.encode())
+        if req.full_url.endswith("fullTextXML"):
+            return Resp(b"<article/>")
+        return Resp(b"x" * 2000)
+
+    rec = W.fetch("10.1/x", str(tmp_path / "p"), opener=opener, supplements=True, max_supplement_mb=0.001, pause_s=0)
+    assert rec["pmcid"] == "PMC1" and rec["fulltext"]["bytes"] == 10 and len(rec["fulltext"]["sha256"]) == 64
+    assert "not stored" in rec["supplements"]["error"]
+    assert (tmp_path / "p" / "meta.json").exists() and not (tmp_path / "p" / "supplements.zip").exists()
+    assert "User-Agent" in str(seen) or len(seen) == 3
+
+
+def test_settings_refuse_the_catalogue_path():
+    with pytest.raises(SystemExit):
+        W.settings({W.STAGE: dict(registry="bench/catalogue/events.tsv")})
+    with pytest.raises(SystemExit):
+        W.settings({W.STAGE: dict(registry="bench/rel/registry/events_v0.2-sample.tsv", scores="x")})
+    s = W.settings({W.STAGE: dict(registry="bench/rel/registry/events_v0.2-sample.tsv", supplements=["10.1/A"])})
+    assert s["supplements"] == ["10.1/a"] and s["fetch"] is False

@@ -25,7 +25,8 @@ OLD_PIPELINES = ("train", "select", "search", "selfsup", "codon", "register", "a
 KIND_RX = re.compile(r"^rel_[a-z][a-z0-9]*$")
 STAGE_RX = re.compile(r"^(c0|w[0-9]+)_[a-z][a-z0-9_]*$")
 GATE_RX = re.compile(r"^G[0-9]+_rel(_[a-z0-9_]+)?$")
-STAGE_KEYS = {"package", "rule", "output", "module", "gates", "side", "produces", "resumable", "tolerance", "stub"}
+STAGE_KEYS = {"package", "rule", "output", "module", "gates", "side", "produces", "resumable", "tolerance", "stub", "reads"}
+TABLE_KINDS = ("real", "synthetic", "ruler")
 _CACHE = {}
 
 
@@ -64,6 +65,11 @@ def problems(doc) -> list:
                 out.append(dict(where, error="side is data, train or eval"))
             if s.get("produces") not in (None, "tableset", "models"):
                 out.append(dict(where, error="produces is tableset or models"))
+            rd = s.get("reads", ["real"])
+            if not isinstance(rd, list) or not rd or set(rd) - set(TABLE_KINDS):
+                out.append(dict(where, error="reads is a list of table kinds among %s" % ", ".join(TABLE_KINDS)))
+            elif "ruler" in rd and s.get("side") == "train":
+                out.append(dict(where, error="a train-side stage never reads ruler sets (evaluation only)"))
             for flag in ("resumable", "tolerance", "stub"):
                 if flag in s and not isinstance(s[flag], bool):
                     out.append(dict(where, error="%s is true or false" % flag))
@@ -109,6 +115,11 @@ def stage(name, path: str = KINDS_FILE) -> dict:
     if name not in st:
         raise SystemExit("unknown stage %r of the relational-model line (configs/rel/kinds.yaml)" % name)
     return st[name]
+
+
+def reads(name, path: str = KINDS_FILE) -> tuple:
+    """The kinds of table sets stage `name` may read (configs/rel/kinds.yaml field reads; default real)."""
+    return tuple(stage(name, path).get("reads", ["real"]))
 
 
 def stages_of(cfg, path: str = KINDS_FILE) -> list:

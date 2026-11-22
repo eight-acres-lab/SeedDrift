@@ -17,6 +17,10 @@
                                  the whole sealed check of the CI environment on [{id, taxid}]: check_ids, then
                                  check_lineage. Every rel stage that builds tables from genomes calls it; it needs the
                                  machine's sealed registry, so tables are built on machine i-1
+  read_tableset(stage, run_dir, path, sha256=None)
+                                 a table set of another run for stage `stage`, through handoff.from_run with the kinds
+                                 the stage may read (configs/rel/kinds.yaml field reads): an evaluation-only stage may
+                                 read ruler sets, a training stage never; raises SystemExit otherwise
   sealed_record(cfg, genomes, splits=None, allowed=...)
                                  sealed_check, returned as the record a table-set manifest carries (sealed_check:
                                  passed, ids, lineage; seeddrift/train/rel/handoff.py). Stages that read table sets
@@ -136,6 +140,14 @@ def sealed_check(cfg, genomes, splits=None, allowed=S.ALLOWED, sealed=None, tax=
         raise SystemExit(str(err))
     lin = check_lineage(genomes, cfg, tax, spec_path, **g2_paths) if genomes else dict(checked=0, note="no genomes")
     return dict(ids=ids, lineage=lin)
+
+
+def read_tableset(stage, run_dir, path, sha256=None) -> dict:
+    from seeddrift.train.rel import handoff
+    try:
+        return handoff.from_run(run_dir, path, sha256, kinds=kinds.reads(stage))
+    except handoff.HandoffError as err:
+        raise SystemExit("stage %s: %s" % (stage, err))
 
 
 def sealed_record(cfg, genomes, splits=None, allowed=S.ALLOWED, **kw) -> dict:

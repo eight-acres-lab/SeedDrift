@@ -105,3 +105,12 @@ def test_run_record_schema_takes_rel_kinds_only_by_pattern_fails_otherwise():
     for bad in ("rel_", "rel-tables", "relx", "Rel_tables"):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(bad, prop)
+
+
+def test_a_train_side_stage_reading_ruler_sets_fails():
+    bad = json.loads(json.dumps(kinds.load()))
+    bad["kinds"]["rel_traineval"]["stages"]["w6_fit"]["reads"] = ["real", "ruler"]
+    assert any("never reads ruler" in p["error"] for p in kinds.problems(bad))
+    bad["kinds"]["rel_traineval"]["stages"]["w6_fit"]["reads"] = ["rulers"]
+    assert any("reads is a list" in p["error"] for p in kinds.problems(bad))
+    assert kinds.reads("w6_eval") == ("real", "ruler") and kinds.reads("w6_fit") == ("real",)

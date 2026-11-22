@@ -553,7 +553,9 @@ def build(st, cfg, run_dir):
                "It is the only noise estimate of the day, and it holds two differences at once: that of the seeds and that of the machines "
                "(the runs trained on different GPUs, which other processes shared). A difference of scale or of what relatives are worth that "
                "is not larger than it cannot be read; at a node the seeds did not all reach, and at the end, the difference at the last node "
-               "they all reached stands in." % ("the second minus the first" if len(g["arms"]) == 2 else "spread"), ""]
+               "they all reached stands in. That difference is one reading of one pair of seeds at one node and is itself very imprecise; later "
+               "in training the seeds may come closer or drift apart, so judging later nodes by the difference at %s tables is only an "
+               "approximation." % ("the second minus the first" if len(g["arms"]) == 2 else "spread", "{:,}".format(g["rows"][-1][0])), ""]
         md += md_table(["tables seen"] + ["%s, %s" % (c, a) for c in both for a in g["arms"] + ["difference"]], g["rows"])
     if s["exclude"]:
         md += ["", "Left out of the readings of relatives and scale (shown in the curves only): %s." % ", ".join(s["exclude"])]

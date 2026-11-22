@@ -354,6 +354,7 @@ def test_report_with_two_seeds_reads_against_their_difference(tmp_path):
     assert one["reading_end"] == "beyond the seeds' difference" and one["noise_end"]["node"] == 2000
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "Against the seeds' difference" in text and "only " + "w6-ref30m-s1 @i2" in text and "the only noise estimate" in text
+    assert "by the difference at 2,000 tables is only an approximation" in text
     assert any("whose difference (seeds and machines at once)" in c for c in rep["caveats"])
     w6_report.gate(st, cfg, run_dir)
     assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"

@@ -1,0 +1,18 @@
+"""Objective "mlm": bidirectional fill-in. Every hidden residue (a token 1..65 of its own row) is predicted on its own
+from the grid; the loss is the cross-entropy over those 65 tokens, computed in float32."""
+from __future__ import annotations
+
+import torch.nn.functional as F
+
+from seeddrift.train.rel import api as A
+
+NAME = "mlm"
+FACTORISATION = "independent"
+
+
+def loss(model, batch):
+    """batch: grid long [N, C], sizes, and for the target cells row, col and token (1..65). Returns the summed loss in
+    nats and the loss of every target cell (float32 [M], in the order of the batch's cells)."""
+    logits = model(batch["grid"], batch["sizes"], batch["row"], batch["col"])
+    per = F.cross_entropy(logits, batch["token"] - A.TARGET_MIN, reduction="none")
+    return per.sum(), per

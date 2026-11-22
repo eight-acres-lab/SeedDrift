@@ -1,0 +1,16 @@
+# The large size of the reference arm: 12 layers, width 768 (113 M parameters), relatives given. On a GPU with about
+# 20 GB free one table of 16 rows is a micro-batch (the preflight halves the micro-batch until it fits gpu_mb).
+name: w6-ref100m
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: stored
+rows: [4, 16]
+columns: 1024
+size: 100m
+relatives: true
+optimizer: {lr: 2.0e-4}
+gpu_mb: 18000
+tables: real

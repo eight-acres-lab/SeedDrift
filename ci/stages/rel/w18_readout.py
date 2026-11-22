@@ -5,8 +5,9 @@ check, their controls and statistics (protocol w18-v0), from the per-cell files 
 
 Inputs: the ruler set (rel_w18_readout.tables: {run, path, sha256}, read through common.read_tableset, so the run
 passed, the kind is one this stage may read and the set carries its sealed record) and the per-cell files of the
-evaluation (data/rel_w6/eval/<arm>/ruler_cells.npz of rel_w18_readout.eval_run, default this run; each file listed with
-its sha256 in that run's record of stage rel_w6_eval). Every file must name the ruler set's manifest, and the digest of
+evaluation (data/rel_w6/eval/<arm>/ruler_cells.npz of rel_w18_readout.eval_run: one run directory or a list of them,
+default this run; each file listed with its sha256 in its run's record of stage rel_w6_eval; an arm folder in one run
+only). Every file must name the ruler set's manifest, and the digest of
 what it scored must equal the plan of seeddrift/train/rel/readouts/w18_passes.py recomputed here without a model.
 
 Arms by their files: an arm with relatives and trained weights gives the source shift, the two-block gain, the gain
@@ -22,7 +23,7 @@ paired win rate of implant against own (primary) and against original (the posit
 pooled AUC in all, by donor tier and by quartile of the host codon model; paired differences against the best-similarity
 rule, the coverage shift, the untrained model, the presence passes and the host codon model.
 
-Profile block rel_w18_readout: tables, eval_run (optional), arms (optional: the arms to read, default every file
+Profile block rel_w18_readout: tables, eval_run (optional; a run directory or a list), arms (optional: the arms to read, default every file
 found), reps (2,000), seed (20261124).
 Outputs under data/rel_w18/readout/: scores.tsv (every score of every table), stats.tsv (the win rates and AUCs),
 defined.tsv (the defined share of the source shift, implant minus own), coverage.tsv (charter rule 7's table), report.md,
@@ -84,27 +85,33 @@ def ruler(s):
 
 
 def cell_files(s, run_dir):
-    """[(arm, path, sha256)] of the per-cell files of the evaluation run, each listed in its record of stage rel_w6_eval."""
-    ev = s["eval_run"] or run_dir
-    root = os.path.join(ev, EVAL)
-    rec = os.path.join(ev, "stages", "rel_w6_eval.json")
-    listed = {}
-    if os.path.exists(rec):
-        with open(rec) as f:
-            for o in json.load(f).get("outputs") or []:
-                listed[os.path.normpath(os.path.join(ev, o["path"]) if not os.path.isabs(o["path"]) else o["path"])] = o.get("sha256")
-    out = []
-    for arm in sorted(os.listdir(root)) if os.path.isdir(root) else []:
-        p = os.path.join(root, arm, P.RULER_CELLS)
-        if not os.path.exists(p) or (s["arms"] and arm not in s["arms"]):
-            continue
-        sha = sha256_file(p, use_sidecar=False)
-        if listed.get(os.path.normpath(p)) != sha:
-            raise SystemExit("rel_w18_readout: %s is not an output the evaluation run's record of stage rel_w6_eval lists with this content" % p)
-        out.append((arm, p, sha))
+    """[(arm, path, sha256)] of the per-cell files of the evaluation runs (eval_run: one run directory or a list; default
+    this run), each listed in its run's record of stage rel_w6_eval; an arm folder appears in one run only."""
+    runs = s["eval_run"] or run_dir
+    runs = [runs] if isinstance(runs, str) else list(runs)
+    out, seen = [], {}
+    for ev in runs:
+        root = os.path.join(ev, EVAL)
+        rec = os.path.join(ev, "stages", "rel_w6_eval.json")
+        listed = {}
+        if os.path.exists(rec):
+            with open(rec) as f:
+                for o in json.load(f).get("outputs") or []:
+                    listed[os.path.normpath(os.path.join(ev, o["path"]) if not os.path.isabs(o["path"]) else o["path"])] = o.get("sha256")
+        for arm in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+            p = os.path.join(root, arm, P.RULER_CELLS)
+            if not os.path.exists(p) or (s["arms"] and arm not in s["arms"]):
+                continue
+            if arm in seen:
+                raise SystemExit("rel_w18_readout: arm folder %s is in two evaluation runs (%s and %s)" % (arm, seen[arm], ev))
+            sha = sha256_file(p, use_sidecar=False)
+            if listed.get(os.path.normpath(p)) != sha:
+                raise SystemExit("rel_w18_readout: %s is not an output the evaluation run's record of stage rel_w6_eval lists with this content" % p)
+            seen[arm] = ev
+            out.append((arm, p, sha))
     missing = sorted(set(s["arms"]) - {a for a, _, _ in out})
     if missing or not out:
-        raise SystemExit("rel_w18_readout: no per-cell file for arms %s under %s" % (missing or "any", root))
+        raise SystemExit("rel_w18_readout: no per-cell file for arms %s under %s" % (missing or "any", runs))
     return out
 
 

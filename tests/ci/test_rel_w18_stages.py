@@ -289,3 +289,32 @@ def test_readout_stage_refuses_cells_of_another_plan(built, evaluated, tmp_path,
     with pytest.raises(SystemExit, match="another plan"):              # listed now, but it scored the plan without presence passes
         with Stage(ev, "rel_w18_readout") as st:
             w18_readout.build(st, cfg, ev)
+
+
+def test_readout_stage_reads_cells_from_several_evaluation_runs(built, evaluated, tmp_path, monkeypatch):
+    """Arms evaluated on two machines: eval_run lists both runs; an arm folder in both is refused."""
+    import shutil
+    from ci.stages.rel import w18_readout
+    ev, cfg = evaluated["ev"], evaluated["cfg"]
+    patch(monkeypatch, built["tmp"])
+    other = str(tmp_path / "20261126T000001-exp-rel-00000000-eval-i2")
+    os.makedirs(os.path.join(other, "stages"))
+    src = os.path.join(ev, "data", "rel_w6", "eval", "toy-norel")
+    dst = os.path.join(other, "data", "rel_w6", "eval", "toy-norel")
+    shutil.copytree(src, dst)
+    p = os.path.join(dst, P.RULER_CELLS)
+    with open(os.path.join(other, "stages", "rel_w6_eval.json"), "w") as f:
+        json.dump(dict(name="rel_w6_eval", status="passed", outputs=[dict(name="ruler_cells_toy-norel", path=os.path.relpath(p, other),
+                                                                          sha256=sha256_file(p, use_sidecar=False))]), f)
+    s = w18_readout.settings(dict(cfg, rel_w18_readout=dict(cfg["rel_w18_readout"], eval_run=[ev, other])))
+    with pytest.raises(SystemExit, match="two evaluation runs"):
+        w18_readout.cell_files(s, ev)
+    s = w18_readout.settings(dict(cfg, rel_w18_readout=dict(cfg["rel_w18_readout"], eval_run=[ev, other], arms=["toy", "toy.untrained"])))
+    assert [a for a, _, _ in w18_readout.cell_files(s, ev)] == ["toy", "toy.untrained"]
+    shutil.rmtree(src)
+    try:
+        s = w18_readout.settings(dict(cfg, rel_w18_readout=dict(cfg["rel_w18_readout"], eval_run=[ev, other])))
+        got = w18_readout.cell_files(s, ev)
+        assert sorted(a for a, _, _ in got) == ["toy", "toy-norel", "toy.untrained"] and [x[1] for x in got if x[0] == "toy-norel"] == [p]
+    finally:
+        shutil.copytree(dst, src)

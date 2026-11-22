@@ -32,11 +32,11 @@ def to_device(batch, device):
 
 
 def subset(tables, per_group):
-    """The first per_group tables of every group, in storage order (0: all tables). Positions in the table set."""
+    """The evaluator's subset (conditions.subset): the first per_group tables of every group, in storage order; 0: all
+    tables. Positions in the table set."""
     if not per_group:
         return np.arange(len(tables), dtype=np.int64)
-    keep = [np.flatnonzero(tables.group == g)[:per_group] for g in sorted(set(tables.group.tolist()))]
-    return np.sort(np.concatenate(keep)).astype(np.int64)
+    return np.asarray(cond.subset(tables.group, int(per_group)), dtype=np.int64)
 
 
 def conditions_of(relatives):

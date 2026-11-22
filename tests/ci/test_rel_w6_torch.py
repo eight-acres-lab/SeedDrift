@@ -115,7 +115,7 @@ def test_tiny_fit_without_relatives():
     assert out["status"] == "ok" and out["conditions"] == [c for c in cond.CONDITIONS if "no_relatives" in c] and out["cells_seen"] == 2 * 4 * A.ROW_LEN
     rows = SC.read_rows(os.path.join(root, "out", "results.tsv"))
     assert {r["condition"] for r in rows} == {"scattered+no_relatives", "whole_gene+no_relatives"} and {r["weights"] for r in rows} == {
-        "raw@tables=0", "raw@tables=4", "raw@final"}
+        "raw@tables=0", "raw@tables=4", "raw@tables=8", "raw@final"}
 
 
 def test_real_tables_only_outside_probe_mode():

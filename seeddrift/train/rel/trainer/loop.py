@@ -164,8 +164,9 @@ class Run:
         self.opt.step()
         return total / n_targets / math.log(2.0), norm, (scheme_bits / math.log(2.0)).tolist(), scheme_cells.tolist()
 
+    @torch.no_grad()
     def update_ema(self, t):
-        """The moving average after step t: coefficient min(0.999, (1 + t) / (10 + t))."""
+        """The moving average after step t: coefficient min(0.999, (1 + t) / (10 + t)); no autograd graph."""
         if self.ema is not None:
             d = min(0.999, (1.0 + t) / (10.0 + t))
             torch._foreach_mul_(self.ema_weights, d)
@@ -181,7 +182,8 @@ class Run:
         return dict(run=cfg["run"], commit=cfg["commit"], variant=cfg["name"], author=cfg["author"], module="models." + self.info["module"],
                     params=self.params, seed=int(cfg["seed"]), table_set=self.held.name, table_kind=self.held.kind, items_sha256=self.held.sha256,
                     item_half=item_half, layout=A.LAYOUT_STORED, budget=budget, weights=weights, cells_seen=int(cells_seen),
-                    cells_per_s=round(cells_per_s, 1), peak_mb=round(self.peak_mb()[1]), tier=SC.ALL, passes=1, status=status, versions=versions())
+                    cells_per_s=round(cells_per_s, 1), peak_mb=round(self.peak_mb()[1]), tier=getattr(SC, "TIER", SC.ALL), passes=1, status=status,
+                    versions=versions())
 
     def evaluate(self, ids, fixed, path):
         """The held-out tables ids under every condition of this arm, read by the moving average. The rows go to

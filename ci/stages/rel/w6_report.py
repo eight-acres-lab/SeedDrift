@@ -207,7 +207,7 @@ def build(st, cfg, run_dir):
                          i.get("reserved_mb"), i.get("peak_mb"), i.get("micro"), number(i.get("eval_overhead")), i.get("ended_by"), i.get("wall_s")])
     by_cond = [[c] + [cell.get((v, c, SC.ALL, SC.ALL)) for v in names + bnames] for c in conds]
     strata = {key: [[c, x.replace(SC.FINE_PREFIX, "")] + [cell.get((v, c, SC.ALL, x)) for v in names + bnames] for c in conds for x in labels
-                    if any((v, c, SC.ALL, x) in cell for v in names + bnames)] for key, labels in (("fine", SC.FINE), ("coarse", SC.COARSE), ("other_rows", SC.OTHER_ROWS))}
+                    if any((v, c, SC.ALL, x) in cell for v in names + bnames)] for key, labels in (("fine", SC.FINE), ("other_rows", SC.OTHER_ROWS))}
     gname = lambda g: groups[int(g)] if g.isdigit() and int(g) < len(groups) else g                # noqa: E731
     by_group = [[gname(g)] + [cell.get((v, c, g, SC.ALL)) for v in names + bnames]
                 for c in [s["main"]] for g in sorted({r[3] for r in fin if r[3] != SC.ALL}, key=lambda g: (not g.isdigit(), int(g) if g.isdigit() else 0, g))]
@@ -226,7 +226,7 @@ def build(st, cfg, run_dir):
     md += ["", "## By the number of other rows of the table", ""] + md_table(["condition", "other rows"] + names + bnames, strata["other_rows"])
     md += ["", "## By group, condition %s" % s["main"], ""] + md_table(["group"] + names + bnames, by_group)
     md += ["", "## Curves at equal tables seen (condition %s; the first %s held-out tables of every group at every node)" % (
-        s["main"], "/".join(sorted({str(arms[a]["info"].get("eval_subset") or "") for a in names}) - {""}) or "?"), ""] + (md_table(head, grid) if grid else ["no curve"])
+        s["main"], "/".join(sorted({str(arms[a]["info"].get("eval_subset") or "") for a in names} - {""})) or "?"), ""] + (md_table(head, grid) if grid else ["no curve"])
     for a in names:
         if arms[a]["status"] != "ok":
             md += ["", "%s failed: `%s`" % (a, " ".join((arms[a].get("error") or "").split())[-600:])]

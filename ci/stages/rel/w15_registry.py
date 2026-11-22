@@ -271,7 +271,7 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
             else:
                 status, data = _tries(lambda: _fulltext(url, opener), waits, sleep)
             if max_bytes and len(data) > max_bytes:
-                rec[what] = dict(url=url, error="larger than %.0f MB, not stored" % cap)
+                rec[what] = dict(url=url, error_type="TooLarge", status=status, error="larger than %.0f MB, not stored" % cap)
             else:
                 rec[what] = dict(_store(dest, "fulltext.xml" if what == "fulltext" else "supplements.zip", data), url=url, status=status)
         except urllib.error.HTTPError as err:

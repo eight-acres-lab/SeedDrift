@@ -53,3 +53,7 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
 - Every part that could not be fetched records its error type and the last HTTP status (`error_type`, `status`);
   the report counts them per part (`fetch_failures`). The gate's rule (with fetch on, at least half the lookups must
   return a parsed record) still applies after the guard: papers the guard records count as failed lookups.
+- From the fourth server run (20261122T185535: 111 of 111 lookups, 28 full texts, 3 of 8 supplements; Europe PMC
+  still answered 34 full-text requests with 500 after the retries): the psbA claim set is regraded A on the supported
+  trees of its full text, and the crucivirus record keeps C (the junction window is in a figure and the GenBank
+  features, not in the text). A supplement over the size cap now records its error type (`TooLarge`).

@@ -13,15 +13,15 @@
 | G05 | EV012 (environmental samples) | C 1 | - |
 | G06 | EV014 (Methanosarcina) | C 1 | - |
 
-Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV011 (Caudoviricetes; C; claim_set); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
+Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV011 (Caudoviricetes; A; claim_set); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
 
 ## 2. Counts
 
 | label | records | groups |
 |---|---|---|
-| A | 4 | 2 |
+| A | 5 | 2 |
 | B | 0 | 0 |
-| C | 6 | 5 |
+| C | 5 | 5 |
 | D | 6 | 0 |
 | disputed | 0 | 0 |
 | overturned | 4 | 0 |
@@ -37,7 +37,7 @@ Scenario cells (direction x recipient group). Each filled cell lists its records
 | euk>prok | C1 |  |  |  |  |  |  |  |  |  |  |  |
 | euk>euk |  |  |  |  | C2 overturned1 | A1 D1 |  | overturned1 |  |  |  |  |
 | virus>host |  |  | D2 |  |  |  |  |  |  |  |  |  |
-| host>virus |  |  |  |  |  |  |  |  | C1 |  |  |  |
+| host>virus |  |  |  |  |  |  |  |  | A1 |  |  |  |
 | virus>virus |  |  |  |  |  |  |  |  |  | C1 |  |  |
 
 Complex scenarios of charter section 1 (scenario tags), discovery routes and whether the full text was read, by label:
@@ -49,7 +49,7 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 | ancient | 1 |  | 3 | 2 |  | 1 |
 | donor_unsampled |  |  | 1 |  |  |  |
 | partial |  |  |  |  |  |  |
-| serial | 1 |  | 1 |  |  |  |
+| serial | 2 |  |  |  |  |  |
 | high_foreign | 1 |  |  | 1 |  | 1 |
 | chimeric_virus |  |  | 1 |  |  |  |
 | contamination_vs_integration | 1 |  |  |  |  | 2 |
@@ -57,18 +57,18 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 | intron_gain | 1 |  |  |  |  |  |
 | large_insert | 2 |  |  |  |  |  |
 | route ? |  |  | 3 |  |  |  |
-| route N |  |  | 1 | 4 |  |  |
+| route N | 1 |  |  | 4 |  |  |
 | route P |  |  | 1 |  |  | 2 |
 | route S | 4 |  | 1 | 2 |  | 2 |
-| full text n |  |  | 3 | 5 |  | 1 |
-| full text partial | 3 |  | 3 | 1 |  | 3 |
-| full text y | 1 |  |  |  |  |  |
+| full text n |  |  | 2 | 5 |  | 1 |
+| full text partial | 4 |  | 2 | 1 |  | 3 |
+| full text y | 1 |  | 1 |  |  |  |
 
 Grades that would change if `donor_structure` were accepted as evidence of foreign origin (RULES.md section 11): EV007 D -> A; EV009 D -> A.
 
 ## 3. Recheckable evidence
 
-11 of 20 records (55%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 4 of the 6 groups. By label: A 3 of 4, C 4 of 6, D 2 of 6, overturned 2 of 4.
+11 of 20 records (55%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 4 of the 6 groups. By label: A 4 of 5, C 3 of 5, D 2 of 6, overturned 2 of 4.
 
 ## 4. Exclusion and exposure
 

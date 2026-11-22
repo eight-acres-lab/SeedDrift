@@ -18,15 +18,15 @@
 | G10 | EV026 (Enterobacterales) | A 1 | - |
 | G11 | EV028 (Helicobacter) | B 1 | - |
 
-Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV011 (Caudoviricetes; C; claim_set); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event); EV021 (Saccharomycetaceae; D; event); EV025 (Mimiviridae; C; claim_set); EV027 (Campylobacter; A; claim_set); EV029 (Schistosoma; overturned; event); EV030 (Homo; overturned; claim_set).
+Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV011 (Caudoviricetes; A; claim_set); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event); EV021 (Saccharomycetaceae; D; event); EV025 (Mimiviridae; C; claim_set); EV027 (Campylobacter; A; claim_set); EV029 (Schistosoma; overturned; event); EV030 (Homo; overturned; claim_set).
 
 ## 2. Counts
 
 | label | records | groups |
 |---|---|---|
-| A | 8 | 5 |
+| A | 9 | 5 |
 | B | 1 | 1 |
-| C | 8 | 6 |
+| C | 7 | 6 |
 | D | 7 | 0 |
 | disputed | 0 | 0 |
 | overturned | 6 | 0 |
@@ -42,7 +42,7 @@ Scenario cells (direction x recipient group). Each filled cell lists its records
 | euk>prok | C1 |  |  |  |  |  |  |  |  |  |  |  |
 | euk>euk |  |  |  | A1 | C2 overturned2 | A1 D1 | A1 C1 | overturned1 |  |  |  |  |
 | virus>host |  |  | D2 |  |  |  |  |  |  |  |  |  |
-| host>virus |  |  |  |  |  |  |  |  | C1 |  | C1 |  |
+| host>virus |  |  |  |  |  |  |  |  | A1 |  | C1 |  |
 | virus>virus |  |  |  |  |  |  |  |  |  | C1 |  |  |
 
 Complex scenarios of charter section 1 (scenario tags), discovery routes and whether the full text was read, by label:
@@ -54,7 +54,7 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 | ancient | 1 |  | 3 | 2 |  | 1 |
 | donor_unsampled | 1 |  | 1 |  |  |  |
 | partial |  |  |  |  |  |  |
-| serial | 3 |  | 2 |  |  |  |
+| serial | 4 |  | 1 |  |  |  |
 | high_foreign | 2 |  |  | 1 |  | 1 |
 | chimeric_virus |  |  | 1 |  |  |  |
 | contamination_vs_integration | 1 |  |  |  |  | 3 |
@@ -62,18 +62,18 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 | intron_gain | 1 |  |  |  |  |  |
 | large_insert | 3 |  | 1 |  |  |  |
 | route ? |  |  | 4 | 1 |  | 1 |
-| route N | 2 | 1 | 1 | 4 |  |  |
+| route N | 3 | 1 |  | 4 |  |  |
 | route P | 1 |  | 2 |  |  | 2 |
 | route S | 5 |  | 1 | 2 |  | 3 |
-| full text n |  | 1 | 4 | 6 |  | 2 |
-| full text partial | 7 |  | 4 | 1 |  | 4 |
-| full text y | 1 |  |  |  |  |  |
+| full text n |  | 1 | 3 | 6 |  | 2 |
+| full text partial | 8 |  | 3 | 1 |  | 4 |
+| full text y | 1 |  | 1 |  |  |  |
 
 Grades that would change if `donor_structure` were accepted as evidence of foreign origin (RULES.md section 11): EV007 D -> A; EV009 D -> A.
 
 ## 3. Recheckable evidence
 
-16 of 30 records (53%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 7 of the 11 groups. By label: A 7 of 8, B 0 of 1, C 4 of 8, D 2 of 7, overturned 3 of 6.
+16 of 30 records (53%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 7 of the 11 groups. By label: A 8 of 9, B 0 of 1, C 3 of 7, D 2 of 7, overturned 3 of 6.
 
 ## 4. Exclusion and exposure
 

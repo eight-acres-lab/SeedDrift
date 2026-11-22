@@ -114,7 +114,8 @@ def test_fetch_stores_meta_fulltext_and_capped_supplements(tmp_path):
     rec = W.fetch("10.1/x", str(tmp_path / "p"), opener=opener, supplements=True, max_supplement_mb=0.001, pause_s=0,
                   sleep=lambda s: None)
     assert rec["pmcid"] == "PMC1" and rec["fulltext"]["bytes"] == 10 and len(rec["fulltext"]["sha256"]) == 64
-    assert "not stored" in rec["supplements"]["error"]
+    assert "not stored" in rec["supplements"]["error"] and rec["supplements"]["error_type"] == "TooLarge"
+    assert W.failures([rec]) == {"supplements": {"TooLarge 200": 1}}
     assert (tmp_path / "p" / "meta.json").exists() and not (tmp_path / "p" / "supplements.zip").exists()
     assert "User-Agent" in str(seen) or len(seen) == 3
 

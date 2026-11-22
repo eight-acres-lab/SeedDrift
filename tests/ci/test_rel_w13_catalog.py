@@ -60,8 +60,7 @@ def portal(records, short=None):
 
 
 def catalog_run(tmp, records=RECORDS, short=None, run_id="20261124T000000-cat"):
-    # stage w13_catalog is not yet in the registry of kinds (configs/rel/requests/20261124-w13-catalog.yaml asks for it)
-    run_dir, cfg = RF.rel_run(tmp, kind="rel_corpus", stages=("w13_census",), run_id=run_id, data_root=str(tmp / "store"))
+    run_dir, cfg = RF.rel_run(tmp, kind="rel_corpus", stages=("w13_catalog",), run_id=run_id, data_root=str(tmp / "store"))
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(WK, "get", portal(records, short))
         with Stage(run_dir, "rel_w13_catalog") as st:

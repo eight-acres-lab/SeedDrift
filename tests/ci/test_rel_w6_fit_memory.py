@@ -18,31 +18,39 @@ REF = "w6-ref30m-s1"
 
 
 class _Slow(C0T._Proc):
-    """A training that runs for a few of the scheduler's polls before it ends."""
+    """A training that runs for a few of the scheduler's polls before it ends; at its end it records the micro-batch
+    its configuration then says (events: ("end", arm, micro))."""
 
-    def __init__(self, code, polls=3):
+    def __init__(self, code, conf, name, events, polls=3):
         super().__init__(code)
-        self.left = polls
+        self.left, self.conf, self.name, self.events = polls, conf, name, events
 
     def poll(self):
         self.left -= 1
-        return None if self.left > 0 else self.returncode
+        if self.left > 0:
+            return None
+        if self.left == 0:
+            with open(self.conf) as f:
+                self.events.append(("end", self.name, json.load(f)["micro"]))
+        return self.returncode
 
 
-def _trainer(started=None):
+def _trainer(started=None, events=None):
     """The stand-in's training (each running for a few polls; `started` collects the configuration every training
     started with), and a preflight that halves the micro-batch while its reserve exceeds the allowance (gpu_mb), as the
-    trainer's preflight does."""
+    trainer's preflight does. events: every call in order, ("preflight", arm), ("fit", arm, micro), ("end", arm, micro)."""
     base = C0T._trainer()
+    events = [] if events is None else events
 
     def start(py, mode, conf, log, env):
-        if mode != "preflight":
-            proc, lg = base(py, mode, conf, log, env)
-            with open(conf) as f:
-                (started if started is not None else []).append(json.load(f))
-            return _Slow(proc.returncode), lg
         with open(conf) as f:
             c = json.load(f)
+        if mode != "preflight":
+            proc, lg = base(py, mode, conf, log, env)
+            (started if started is not None else []).append(c)
+            events.append(("fit", c["name"], c["micro"]))
+            return _Slow(proc.returncode, conf, c["name"], events), lg
+        events.append(("preflight", c["name"]))
         micro, reserved = int(c["micro"]), float(C0T.RESERVED[c["name"]])
         while reserved > float(c["gpu_mb"]) and micro > 1:
             micro, reserved = micro // 2, reserved * 0.6
@@ -55,9 +63,10 @@ def _trainer(started=None):
     return start
 
 
-def _fit(tmp_path, monkeypatch, free, parallel=1, started=None, **block):
+def _fit(tmp_path, monkeypatch, free, parallel=1, started=None, events=None, **block):
     """rel_w6_fit's build with the coordinator's two arms, `parallel` at once; `free` the free GPU memory at each
-    measurement in turn (the last repeated). Returns the model index, the gate's record and the run directory."""
+    measurement in turn (the last repeated; or a function giving it). Returns the model index, the gate's record and the
+    run directory."""
     b = dict(tables=dict(train=dict(run="/x/runs/a", path="data/rel_w2/v0/tableset.json", split=0),
                          heldout=dict(run="/x/runs/a", path="data/rel_w2/v0/tableset.json", split=1)),
              arms=C0T.ARMS, max_steps=10, wall_s=600)
@@ -66,12 +75,12 @@ def _fit(tmp_path, monkeypatch, free, parallel=1, started=None, **block):
     cfg = dict(cfg, rel_w6_fit=b, train=dict(gpu_lease=False, device="auto"), rel=dict(cfg.get("rel") or {}, parallel=parallel))
     st = Stage(run_dir, "rel_w6_fit")
     sets = dict(doc=dict(kind="real", name="v0", sha256="2" * 64, tables=100), groups=list(C0T.GROUPS), row_groups=dict(enumerate(C0T.GROUPS)), sealed=True)
-    seen = list(free)
+    seen = [] if callable(free) else list(free)
     monkeypatch.setattr(w6_fit, "table_set", lambda cfg, spec, verify: dict(sets))
     monkeypatch.setattr(w6_fit, "POLL_S", 0)
     monkeypatch.setattr(w6_fit.w6_tools, "interpreter", lambda st, cfg: ("py", "lock", {"torch": "2"}))
-    monkeypatch.setattr(w6_fit.w6_tools, "gpu_free_mb", lambda: float(seen.pop(0) if len(seen) > 1 else seen[0]))
-    monkeypatch.setattr(w6_fit.w6_tools, "start", _trainer(started))
+    monkeypatch.setattr(w6_fit.w6_tools, "gpu_free_mb", free if callable(free) else lambda: float(seen.pop(0) if len(seen) > 1 else seen[0]))
+    monkeypatch.setattr(w6_fit.w6_tools, "start", _trainer(started, events))
     doc = w6_fit.build(st, cfg, run_dir)
     try:
         w6_fit.gate(st, cfg, run_dir)
@@ -119,17 +128,38 @@ def test_micro_fallback_refuses_an_arm_that_still_does_not_fit(tmp_path, monkeyp
     assert g["status"] == "fail"
 
 
+def _never_during_a_training(events):
+    """Every arm: no preflight once its training started, and the micro-batch its configuration says at the end of the
+    training equal to the one it started with."""
+    for k, e in enumerate(events):
+        if e[0] == "fit":
+            assert ("preflight", e[1]) not in events[k + 1:], (e, events)
+            end = [x for x in events[k + 1:] if x[0] == "end" and x[1] == e[1]]
+            assert end and end[0][2] == e[2], (e, end)
+
+
 def test_micro_fallback_acts_before_a_training_starts_never_during_one(tmp_path, monkeypatch):
-    """The arm starts at its micro-batch of 4 and the memory then drops while it trains: nothing is preflighted again,
-    its configuration and preflight are never touched, and it ends with the micro-batch it started with. A run of more
-    than one arm cannot turn micro_fallback on (arms compared in one run train under one micro-batch)."""
-    started = []
-    doc, g, run_dir = _fit(tmp_path, monkeypatch, free=[36100, 36100, 36100, 9000], started=started, micro_fallback=True, arms=C0T.ARMS[:1])
-    v = doc["variants"][0]
-    assert [c["micro"] for c in started] == [4] and v["info"]["micro_fallback"] is None and v["info"]["micro"] == 4 and g["status"] == "pass"
-    folder = os.path.join(run_dir, v["info"]["folder"])
-    assert not os.path.exists(os.path.join(folder, "preflight_first.json"))
-    with open(os.path.join(folder, "conf.json")) as f:
-        assert json.load(f)["micro"] == 4
-    with pytest.raises(SystemExit):
-        _fit(tmp_path / "two", monkeypatch, free=[36100], micro_fallback=True)
+    """micro_fallback acts in the scheduling, before a training starts, never during a training. One arm with the
+    switch on: preflighted again before it starts (the memory dropped since its preflight), then started at 2; the
+    memory drops again while it trains and nothing is preflighted or changed. Two arms at once (the switch cannot be on
+    there): the memory drops while the first trains, the second waits and starts once the first has ended; neither arm
+    is preflighted after its training started, and each ends with the micro-batch it started with."""
+    events = []
+    doc, g, run_dir = _fit(tmp_path / "one", monkeypatch, free=[36100, 36100, 20918, 20918, 9000], events=events, micro_fallback=True,
+                           arms=C0T.ARMS[:1])
+    assert [e[0] for e in events] == ["preflight", "preflight", "fit", "end"] and events[2][2] == 2 and g["status"] == "pass"
+    _never_during_a_training(events)
+    events = []
+
+    def free():                                                       # 36,100 MB until a training runs, 9,000 while one does, 20,000 after
+        fits, ends = sum(e[0] == "fit" for e in events), sum(e[0] == "end" for e in events)
+        return 36100.0 if not fits else (9000.0 if fits > ends else 20000.0)
+    doc, g, run_dir = _fit(tmp_path / "two", monkeypatch, free=free, parallel=2, events=events)
+    assert [e[:2] for e in events if e[0] != "preflight"] == [("fit", REF), ("end", REF), ("fit", "w6-ref10m-s1"), ("end", "w6-ref10m-s1")]
+    assert [x["beside"] for x in doc["schedule"]] == [0, 0] and g["status"] == "pass"
+    _never_during_a_training(events)
+    for v in doc["variants"]:
+        with open(os.path.join(run_dir, v["info"]["folder"], "conf.json")) as f:
+            assert json.load(f)["micro"] == v["info"]["micro"] == 4
+    with pytest.raises(SystemExit):                                   # arms compared in one run train under one micro-batch
+        _fit(tmp_path / "refused", monkeypatch, free=[36100], micro_fallback=True)

@@ -19,8 +19,10 @@ through common.read_tableset), processes (8), chunk (64 tables per task).
 Outputs under data/rel_w18/offline/: the placements (w18_passes.offline_arrays: has.npy, <family>.col.npy,
 W.frame_row.npy, W.frame_len.npy) and offline.json (written last: the ruler set, the plan, the aligner, every file with
 its sha256, the fourth test, counts per family). run_ruler reads them (w18_passes.load_offline) for a leak-free reading.
-Gate G4_rel_w18_offline: the files are the ones offline.json names, they cover every table of the ruler set, and no
-table failed the fourth test.
+Gate G4_rel_w18_offline: the files are the ones offline.json names, they cover every table of the ruler set, every
+table holds the placement of every mask family its passes use and of no other (the plan recomputed table by table), and
+no table failed the fourth test. What the test does not cover (VALIDITY_LIMITS): which rows a block holds, their kinds
+and stretch lengths come from the search, which saw the hidden gene; only the presence passes measure them.
 """
 from __future__ import annotations
 
@@ -149,7 +151,7 @@ def build(st, cfg, run_dir):
                 aligner=dict(version=AL.VERSION, module="seeddrift/train/rel/tables/align.py", strict="align.strict (T, C, H1, H2)",
                              whole="align.frame_layout (W)"),
                 render=dict(version=RD.VERSION, layout=RD.LEAKFREE),
-                fourth_test=dict(failures=int(failures), checked=int(done)),
+                fourth_test=dict(failures=int(failures), checked=int(done)), validity_limits=VALIDITY_LIMITS,
                 families_report=report, files=files, seconds=round(time.time() - t0, 1))
     p = os.path.join(base, P.OFFLINE_FILE)
     write_json(p, head)
@@ -187,13 +189,33 @@ def _collect(results, arrays, report, N, say):
     return done
 
 
+VALIDITY_LIMITS = ("W3's fourth test covers the placement only (col, frame_row, frame_len and the cells laid by extension): which rows a block "
+                   "holds, their kinds and the lengths of their stretches come from the search, which was run with the hidden gene, and stay "
+                   "as they are in the test; only the presence passes measure what they carry (protocol w3-offline-v0 version 3, validity_limits)")
+
+
+def missing_families(ts, meta, has, chunk=256):
+    """[(table, family)] where the plan of the passes makes a family whose placement `has` (offline arrays' has) lacks,
+    or holds a placement of a family the plan does not make: every table and every mask family (protocol w18-v3)."""
+    out = []
+    for a in range(0, ts.tables, chunk):
+        b = min(a + chunk, ts.tables)
+        got = ts.load(a, b, FIELDS)
+        for k in range(b - a):
+            t = a + k
+            planned = set(P.family_passes({f: got[f][k] for f in FIELDS}, meta["row_tier"][t], t, int(meta["parent"][t])))
+            held = {f for i, f in enumerate(P.FAMILIES) if has[t, i]}
+            out += [(int(t), f) for f in sorted(planned ^ held)]
+    return out
+
+
 def gate(st, cfg, run_dir):
     s = settings(cfg)
     p = os.path.join(run_dir, OUT, P.OFFLINE_FILE)
     problems = []
     with open(p) as f:
         head = json.load(f)
-    doc, ts, _ = ruler(s)
+    doc, ts, meta = ruler(s)
     try:
         arrays, _, _ = P.load_offline(run_dir, doc.get("sha256"))
     except ValueError as err:
@@ -202,8 +224,11 @@ def gate(st, cfg, run_dir):
     if arrays is not None:
         if arrays["has"].shape[0] != ts.tables or arrays["T.col"].shape[0] != ts.tables:
             problems.append(dict(error="the placements do not cover every table of the ruler set"))
-        if not arrays["has"][:, P.FAMILIES.index("T")].all() or not arrays["has"][:, P.FAMILIES.index("W")].all():
-            problems.append(dict(error="a table without its placement of family T or W (every table has both)"))
+        else:
+            miss = missing_families(ts, meta, np.asarray(arrays["has"]))
+            if miss:
+                problems.append(dict(error="tables whose placements are not those of the families their passes use", tables=len({t for t, _ in miss}),
+                                     first=miss[:10]))
     if int((head.get("fourth_test") or {}).get("failures", -1)) != 0:
         problems.append(dict(error="a placement failed W3's fourth validity test"))
     require(GateResult("G4_rel_w18_offline", "fail" if problems else "pass", dict(problems=problems[:20], tables=(head.get("ruler") or {}).get("tables"),
@@ -219,7 +244,8 @@ def summary(run_dir):
               head["ruler"]["name"], head["ruler"]["tables"], head["fourth_test"]["checked"]),
           "Stored pairs kept by the aligner (T, C, H1, H2): " + "; ".join(
               "%s %s" % (f, ("%.3f" % (fam[f]["stored_pairs_kept"] / fam[f]["stored_pairs"])) if fam[f]["stored_pairs"] else "-")
-              for f in P.FAMILIES if f != "W")]
+              for f in P.FAMILIES if f != "W"),
+          "What the test does not cover: " + VALIDITY_LIMITS + "."]
     return dict(json=dict(ruler=head["ruler"], fourth_test=head["fourth_test"]), md=md)
 
 

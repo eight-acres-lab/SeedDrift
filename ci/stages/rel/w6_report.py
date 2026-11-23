@@ -72,6 +72,7 @@ NO_REL = "+" + cond.NO_RELATIVES
 NONE_BIN = SC.FINE[-1]
 WITH_RELATIVES = getattr(SC, "RELATIVES", (None,))[0]               # the stratum of the tables with a relative on the target
 WITHOUT_RELATIVES = getattr(SC, "RELATIVES", (None, None))[1]
+GROUP_FLOOR = 0.02                    # the least threshold of a group's own reading (the programme lead, 2026-11-23)
 BLOCK_OF = getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
 BLOCKS = getattr(SC, "BLOCKS", ("eukaryotes", "prokaryotes, plasmids, viruses"))
 CAVEATS = [
@@ -685,6 +686,7 @@ def build(st, cfg, run_dir):
             nxt = pts[k + 1] if k + 1 < len(pts) else None
             rise = pts[-1][1] - y0 if k + 1 < len(pts) else None
             gn = group_spread.get(g)
+            gn = dict(gn, bits=max(gn["bits"], GROUP_FLOOR)) if gn else None        # a pair of seeds can differ by 0 in a group by chance
             said = ("no rise after it (the last node)" if rise is None else
                     (("rose by more than the group's seeds' difference" if rise > gn["bits"] else "within the group's seeds' difference")
                      if gn else "no seeds' difference of the group"))
@@ -858,7 +860,8 @@ def build(st, cfg, run_dir):
                                                       ", ".join("%s %.3f" % (c, v) for c, v in f["bits"].items() if v is not None))]
         if o.get("groups"):
             md += ["", "By group (scattered; each group on its own first held-out tables at the nodes, so a group's reading is noisier than "
-                   "the mean's; its threshold is the seeds' largest difference in that group at the last node they all reached): the node of "
+                   "the mean's; its threshold is the seeds' largest difference in that group at the last node they all reached, at least "
+                   "0.02 bits): the node of "
                    "the group's lowest held-out bits, the change to the next node and to the last node. A rise beyond the group's seeds' "
                    "difference while the training loss falls is the group's over-fitting; the end is read on all held-out tables of the "
                    "group (other tables than the nodes').", ""]

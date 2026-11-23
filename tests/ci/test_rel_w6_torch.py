@@ -423,6 +423,18 @@ def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
     assert out["status"] == "ok" and out["conditions"] == four
     assert [e["tables_seen"] for e in out["evals"]] == [0, 4, 8, 12] and out["node_weights"] == [4, 8, 12]   # doubling, and every 4 from 8
     assert all(os.path.exists(os.path.join(cfg["out"], "ema_tables%d.pt" % t)) for t in (4, 8, 12))
+    nc = np.load(os.path.join(cfg["out"], "node_cells.npz"))                # every node's bits per table, for paired intervals
+    held_group = T.open_split(root, tables, 1).group[nc["tables"]]
+    for t in (0, 4, 8, 12):
+        for c in four:
+            key = "t%d_%s" % (t, c.replace("+", "__"))
+            got = {r["group"]: float(r["bits"]) for r in SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+                   if r["weights"] == "ema@tables=%d" % t and r["condition"] == c and r["stratum"] == SC.ALL and r["group"] != SC.ALL}
+            for g in np.unique(held_group):
+                m = held_group == g
+                if nc[key + "_cells"][m].sum():
+                    name = cfg["group_names"].get(str(int(g)), str(int(g)))
+                    assert abs(nc[key + "_bits"][m].sum() / nc[key + "_cells"][m].sum() - got[name]) < 1e-9, (key, g)
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     lay = {}
     for r in rows:

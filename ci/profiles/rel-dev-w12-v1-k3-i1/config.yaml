@@ -1,0 +1,41 @@
+# Machine i-1: the tables of version 1 on corpus medium-k3 (stages w12_v1 and w12_islands; package W12): rows from the
+# full uncapped search of run 20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1 over the training data of run B of the W13 build (medium and 526 close
+# relatives). Training tables 33,600 per group (the programme lead, 2026-11-23: about 400,000, so training repeats
+# itself less; each genome's target genes in a shuffled order, a gene again only after all of its genome's), held-out
+# tables 250 per group, and the island set's tables (the 24 development chromosomes as row 0, never for training).
+# 32 rows, 8 processes; about 45 GB of training tables (110,919 bytes each), about 0.5-1.5 hours. Never beside a
+# search on the same machine. CPU only (the select lock). Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 50
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w12_v1, w12_islands]
+rel_w12_v1:
+  search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  rows: 32
+  train_per_group: 33600
+  heldout_per_group: 250
+  shard_tables: 2400
+  processes: 8
+  seed: 1
+rel_w12_islands:
+  search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  rows: 32
+  per_chromosome: 500
+  shard_tables: 2400
+  processes: 8
+  seed: 1
+train:
+  gpu_lease: false
+  device: cpu

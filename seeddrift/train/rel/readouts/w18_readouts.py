@@ -53,6 +53,7 @@ MIN_GROUP, MIN_GROUPS, MIN_TRIPLES, MIN_UNITS = 10, 3, 30, 8
 NEAREST_BINS = ((0.0, 0.3, "<0.3"), (0.3, 0.5, "0.3-0.5"), (0.5, 0.7, "0.5-0.7"), (0.7, 1.01, ">=0.7"))
 FILL_BINS = ((0, 0, "0"), (1, 1, "1"), (2, 3, "2-3"), (4, 7, "4-7"), (8, 99, "8-15"))
 RATIO_BINS = ((0.0, 0.8, "<0.8"), (0.8, 1.25, "0.8-1.25"), (1.25, np.inf, ">=1.25"))
+LAYERS = ("other_genome_rows", "self_copies_only", "none")   # protocol w18-v3: a triple's relatives layer, by its rows
 T0_, T1_ = P.T0_, P.T1_
 BLOCK_OF, OFFSET_OF = P.BLOCK_OF, P.OFFSET_OF
 CLASS = {"archaea": "prokaryote", "bacteria": "prokaryote", "mobile.plasmid": "prokaryote"}
@@ -139,12 +140,21 @@ def _gain(cells, n, keep, value, target_len, prefix, w, h1, h2):
         return np.where(ok, ((w1 - a1) + (w2 - a2)) / (2 * np.maximum(c1 + c2, 1)), np.nan)
 
 
+SHIFT_OK, SHIFT_UNDEFINED, SHIFT_FAILED = 0, 1, 2
+
+
 def _shift(t_all, c_all, removed_t, removed_c, tiers):
+    """(shift [N], state [N]): SHIFT_OK with its value; SHIFT_UNDEFINED by w18-v0's threshold (no other-genome tier, or a
+    block relying on no tier: positive costs below UNDEFINED); SHIFT_FAILED when it cannot be computed (a pass missing, a
+    non-finite mean; protocol w18-v3 version 4: never ranked)."""
     n = len(t_all)
-    shift = np.full(n, np.nan)
+    shift, state = np.full(n, np.nan), np.full(n, SHIFT_FAILED, dtype=np.int8)
     for t in range(n):
         present = sorted({int(x) for x in tiers[t][1:] if x >= 0})
-        if not present or not np.isfinite(t_all[t]) or not np.isfinite(c_all[t]):
+        if not present:
+            state[t] = SHIFT_UNDEFINED
+            continue
+        if not np.isfinite(t_all[t]) or not np.isfinite(c_all[t]):
             continue
         dT = np.array([removed_t[k][t] - t_all[t] for k in present])
         dC = np.array([removed_c[k][t] - c_all[t] for k in present])
@@ -152,14 +162,18 @@ def _shift(t_all, c_all, removed_t, removed_c, tiers):
             continue
         pT, pC = np.maximum(dT, 0), np.maximum(dC, 0)
         if pT.sum() < UNDEFINED or pC.sum() < UNDEFINED:
+            state[t] = SHIFT_UNDEFINED
             continue
         shift[t] = 0.0 if len(present) == 1 else 0.5 * np.abs(pT / pT.sum() - pC / pC.sum()).sum()
-    return shift
+        state[t] = SHIFT_OK
+    return shift, state
 
 
 def readouts(cells, meta, n0, prefix=""):
     """{score: [N]} from the cells of one arm with relatives (prefix "P:" reads its presence passes): source_shift,
-    source_shift_top (undefined at the top), gain, gain_norel, gain_rel, the _aa version of each, and abstain."""
+    source_shift_top (undefined by the threshold at the top, +inf; a table that could not be computed nan, never ranked),
+    source_shift_defined (1 defined, 0 undefined, nan not computed), gain, gain_norel, gain_rel, the _aa version of each,
+    and abstain."""
     n = len(meta["triple"])
     keep = kept(cells, meta, n0)
     out = {}
@@ -168,16 +182,17 @@ def readouts(cells, meta, n0, prefix=""):
         t_all, c_all = _mean(sums, prefix + "T", n), _mean(sums, prefix + "C", n)
         rt = {k: _mean(sums, "%sT-t%d" % (prefix, k), n) for k in range(P.MAX_TIERS)}
         rc = {k: _mean(sums, "%sC-t%d" % (prefix, k), n) for k in range(P.MAX_TIERS)}
-        shift = _shift(t_all, c_all, rt, rc, meta["row_tier"])
+        shift, state = _shift(t_all, c_all, rt, rc, meta["row_tier"])
         gain = _gain(cells, n, keep, value, meta["target_len"], prefix, "W", "H1", "H2")
         out["source_shift" + suffix] = shift
-        out["source_shift_top" + suffix] = np.where(np.isnan(shift), np.inf, shift)
+        out["source_shift_top" + suffix] = np.where(state == SHIFT_OK, shift, np.where(state == SHIFT_UNDEFINED, np.inf, np.nan))
+        out["source_shift_defined" + suffix] = np.where(state == SHIFT_FAILED, np.nan, (state == SHIFT_OK).astype(np.float64))
         out["gain" + suffix] = gain
         if not prefix:
             norel = _gain(cells, n, keep, value, meta["target_len"], "", "W0", "H10", "H20")
             out["gain_norel" + suffix] = norel
             out["gain_rel" + suffix] = gain - norel
-        if not prefix and not suffix:
+        if not suffix:                                              # T0 (row 0 alone) has no presence version: the same pass
             t0 = _mean(sums, "T0", n)
             ab = np.where(np.isfinite(t0), (t0 - t_all) < ABSTAIN, True).astype(np.float64)
             ab[~np.isfinite(t_all)] = np.nan
@@ -231,18 +246,23 @@ def calibration(cells, meta, n0, names=("W", "H1", "H2")):
     return out
 
 
-def controls(tables, meta):
+def controls(tables, meta, shown=None):
     """{best_similarity, rows_on_target, covered_share, coverage_shift, host_codon, host_codon_rel: [N]} (tables: tok, n,
-    col, kind of every table [N, R, ...])."""
+    col, kind of every table [N, R, ...]). shown: (on_t, on_c) [N, R], the cells of every row shown on the target block
+    under pass T and on the context blocks under pass C as rendered for the layout being read (w18_passes.shown_cells;
+    protocol w18-v3 version 4); default the stored layout's (a codon with a column in row 0's frame)."""
     from seeddrift.train import source_model as S            # the genetic code, for the classical controls only
     code = np.asarray(S.CODE)
     cls, deg = _classes()
     tok, n, col, kind = (np.asarray(tables[k]) for k in ("tok", "n", "col", "kind"))
     N, R = tok.shape[:2]
     tb = P.TARGET_BLOCK
-    placed = (col >= 0) & (OFFSET_OF[None, None, :] < n[:, :, BLOCK_OF])   # (N, R, L) a codon placed in row 0's frame
-    on_t = placed[:, :, T0_:T1_].sum(axis=2)
-    on_c = placed[:, :, :T0_].sum(axis=2)
+    if shown is None:
+        placed = (col >= 0) & (OFFSET_OF[None, None, :] < n[:, :, BLOCK_OF])   # (N, R, L) a codon placed in row 0's frame
+        on_t = placed[:, :, T0_:T1_].sum(axis=2)
+        on_c = placed[:, :, :T0_].sum(axis=2)
+    else:
+        on_t, on_c = (np.asarray(x) for x in shown)
     best, cshift = np.zeros(N), np.full(N, np.nan)
     for t in range(N):
         own = tok[t, 0, T0_:T1_].astype(np.int64)
@@ -327,13 +347,16 @@ class Triples:
         self.group = np.asarray(group)[imp].astype(np.int64)
         self.unit_a, self.unit_d = meta["unit_a"][imp].astype(np.int64), meta["unit_d"][imp].astype(np.int64)
         self.scenario, self.tier, self.rows = meta["scenario"][imp], meta["donor_tier"][imp], meta["on_target"][imp]
+        self.self_rows = meta["self_rows"][imp].astype(np.int64) if "self_rows" in meta else np.zeros(len(imp), dtype=np.int64)
+        self.layer = np.where(self.rows > 0, LAYERS[0], np.where(self.self_rows > 0, LAYERS[1], LAYERS[2]))
         self.phase, self.context = meta["phase"][imp], meta["context_homolog"][imp]
         self.group_names = list(group_names)
         self.block = np.array([SC.block_of(group_names[g]) for g in self.group])
         dg = np.asarray(donor_group)[imp]
         self.direction = np.array([direction(d, group_names[g]) for d, g in zip(dg, self.group)])
         self.donor_block_same = np.array([SC.block_of(d) for d in dg]) == self.block
-        self.nearest = SC.nearest_identity(np.asarray(identity)[imp])
+        ident = np.where(np.asarray(meta["row_tier"]) == P.SELF_TIER, np.nan, np.asarray(identity, dtype=np.float64))   # never another lineage
+        self.nearest = SC.nearest_identity(ident[imp])
         ri = meta["row_tier"][imp]
         self.tiers_present = np.array([len({int(x) for x in r[1:] if x >= 0}) for r in ri])
         cov = meta["covered"].astype(np.float64)
@@ -361,6 +384,8 @@ class Triples:
             out[("shared_homolog", name)] = self.shared == name
         out[("donor_block", "same")] = self.donor_block_same
         out[("donor_block", "other")] = ~self.donor_block_same
+        for name in LAYERS:
+            out[("relatives_layer", name)] = self.layer == name
         out[("phase", "n=256")] = self.phase == 1
         out[("phase", "matched")] = self.phase == 2
         for d in sorted(set(self.direction.tolist())):
@@ -540,6 +565,237 @@ def defined_share_rows(shift, tr, population, boot, label="", tag=None):
             row["value"], row["lo"], row["hi"], _ = _agg([(x[0], x[1]) for x in items])
         rows.append(row)
     return rows
+
+
+def paired_share_rows(name, x, y, tr, population, boot, variant=OWN, label="", reference="", tag=None):
+    """The paired difference of a per-table share (x of an arm, y of a control, 0/1 or nan per table) on the tables of one
+    variant (the own control by default), per block: per group the mean over its triples where both are defined of
+    x - y, then the mean over the groups with MIN_GROUP triples, its interval from the same replicates; readable as
+    stat_rows reads a block (protocol w18-v3's criterion)."""
+    xv = np.asarray(x, dtype=np.float64)[tr.table[:, variant]]
+    yv = np.asarray(y, dtype=np.float64)[tr.table[:, variant]]
+    ok = population & np.isfinite(xv) & np.isfinite(yv)
+    rows = []
+    for block in SC.BLOCKS:
+        pb = ok & (tr.block == block)
+        items = []
+        for g in sorted(set(tr.group[pb].tolist())):
+            sel = np.flatnonzero(pb & (tr.group == g))
+            if len(sel) < MIN_GROUP:
+                continue
+            w = boot.weights(sel)
+            den = w.sum(axis=1)
+            d = xv[sel] - yv[sel]
+            with np.errstate(invalid="ignore", divide="ignore"):
+                items.append((float(d.mean()), np.where(den > 0, (w @ d) / np.where(den > 0, den, 1), np.nan), sel, float(xv[sel].mean()), float(yv[sel].mean())))
+        n_tr = sum(len(x_[2]) for x_ in items)
+        units = len({int(u) for x_ in items for u in tr.unit_a[x_[2]]})
+        row = dict(tag or {}, score=name, label=label, reference=reference, statistic="paired_share_difference", variant=("implant", "original", "own")[variant],
+                   block=block, groups=len(items), triples=n_tr, units=units,
+                   readable=bool(len(items) >= MIN_GROUPS and n_tr >= MIN_TRIPLES and units >= MIN_UNITS), value=None, lo=None, hi=None,
+                   arm_share=None, reference_share=None)
+        if items:
+            row["value"], row["lo"], row["hi"], _ = _agg([(x_[0], x_[1]) for x_ in items])
+            row["arm_share"], row["reference_share"] = float(np.mean([x_[3] for x_ in items])), float(np.mean([x_[4] for x_ in items]))
+        rows.append(row)
+    return rows
+
+
+CRITERION = ("defined_share", "abstention", "gain_rel_aa")
+SEE = "the readouts see the relatives"
+NOT_SHOWN = "not shown"
+CRITERION_STRATUM = ("relatives_layer", LAYERS[0])
+CRITERION_POPULATION = dict(scenario="in_place", rule9="on")
+
+
+def _part(rows, want, refs):
+    """(holds, readable, detail) of one part from its rows {reference: row}: every reference's paired difference has its
+    95% interval above 0 (want "above") or below 0 ("below")."""
+    holds, readable, detail = True, True, []
+    for ref in refs:
+        r = rows.get(ref)
+        if r is None or not r.get("readable") or r.get("lo") is None:
+            holds, readable = False, False
+            detail.append("%s: too few to read" % ref if r is not None else "%s: not read" % ref)
+            continue
+        ok = r["lo"] > 0 if want == "above" else r["hi"] < 0
+        holds = holds and ok
+        detail.append("%s: %+.3f [%+.3f, %+.3f]%s" % (ref, r["value"], r["lo"], r["hi"], "" if ok else " (fails)"))
+    return holds, readable, "; ".join(detail)
+
+
+def verdicts(stats, shares, arms):
+    """Protocol w18-v3's first verdict per arm with relatives (trained) and block, never pooled ("the readouts see the
+    relatives" when its three parts hold: the defined share of the source shift above the untrained model's and the
+    arm's presence passes', the abstention below both, the paired win rate of gain_rel_aa above the untrained model's;
+    every interval the 95% interval of a paired difference). stats: stat_rows' rows; shares: paired_share_rows' rows
+    (scores source_shift_aa_defined and abstain, references untrained and presence). Read in the population in place,
+    rule 9 on, the relatives layer of other-genome rows, no near-tier donor. The second verdict: second_verdict."""
+    out = []
+    pop = lambda r: all(r.get(k) == v for k, v in CRITERION_POPULATION.items())          # noqa: E731
+
+    def win(arm, block, score):
+        got = [r for r in stats if r["label"] == arm and r["block"] == block and r["score"] == score and r["statistic"] == "win" and r["comparison"] == "own"
+               and (r["stratum_kind"], r["stratum"]) == CRITERION_STRATUM and pop(r)]
+        if not got:
+            return {}
+        r = got[0]
+        return {ref: dict(readable=r["readable"], **r["vs_" + ref]) for ref in ("untrained", "presence") if r.get("vs_" + ref)}
+    for arm in arms:
+        for block in SC.BLOCKS:
+            parts = {}
+            for part, score, want in (("defined_share", "source_shift_aa_defined", "above"), ("abstention", "abstain", "below")):
+                rows = {r["reference"]: r for r in shares if r["label"] == arm and r["block"] == block and r["score"] == score and pop(r)}
+                parts[part] = _part(rows, want, ("untrained", "presence"))
+            g = win(arm, block, "gain_rel_aa")
+            parts["gain_rel_aa"] = _part({k: dict(v, value=v["diff"]) for k, v in g.items()}, "above", ("untrained",))
+            failed = [p for p in CRITERION if not parts[p][0]]
+            out.append(dict(arm=arm, block=block, verdict=SEE if not failed else NOT_SHOWN, failed=failed,
+                            readable=all(parts[p][1] for p in CRITERION), parts={p: dict(holds=parts[p][0], readable=parts[p][1], detail=parts[p][2]) for p in CRITERION}))
+    return out
+
+
+# ---- protocol w18-v3 version 4: the second verdict ----
+NEAR_TIERS = (0, 1)                                  # donors in these tiers of the distance D to A: the near-tier section only
+
+
+def tier_span(meta, kind, min_tiers=2):
+    """bool [N tables]: the table carries, on the target block, KIND_PRESENT rows of other genomes in min_tiers tiers or
+    more of the rows' distance to A (meta row_tier 0..; self-copy rows have none): a property of the ruler alone."""
+    rt = np.asarray(meta["row_tier"]).astype(np.int64)[:, 1:]
+    k = np.asarray(kind)[:, 1:, P.TARGET_BLOCK]
+    ok = (k == api.KIND_PRESENT) & (rt >= 0)
+    return np.array([len(set(rt[t][ok[t]].tolist())) >= int(min_tiers) for t in range(len(rt))], dtype=bool)
+
+
+def second_population(tr, meta, kind, base):
+    """bool [triples]: the second verdict's population: base (the criterion's: in place, rule 9 on, other-genome rows,
+    no near-tier donor), the triples without self-copy rows whose three tables each span two tiers or more (tier_span)."""
+    span = tier_span(meta, kind)
+    return base & span[tr.table].all(axis=1) & (tr.self_rows == 0)
+
+
+def triple_mean(x, tr, sel, boot):
+    """w18-v0's aggregation of a per-triple quantity x on the triples sel: inside every group with MIN_GROUP triples or
+    more the mean with the replicate weights, then the plain mean over those groups. dict(value, lo, hi, reps, groups,
+    triples, units, readable, units_by_group)."""
+    x = np.asarray(x, dtype=np.float64)
+    sel = np.asarray(sel, dtype=bool) & np.isfinite(x)
+    items, by, entered = [], {}, []
+    for g in sorted(set(tr.group[sel].tolist())):
+        idx = np.flatnonzero(sel & (tr.group == g))
+        if len(idx) < MIN_GROUP:
+            continue
+        w = boot.weights(idx)
+        den = w.sum(axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            items.append((float(x[idx].mean()), np.where(den > 0, (w @ x[idx]) / np.where(den > 0, den, 1), np.nan)))
+        by[tr.group_names[g]] = len({int(u) for u in tr.unit_a[idx]})
+        entered.append(idx)
+    idx = np.concatenate(entered) if entered else np.zeros(0, dtype=np.int64)
+    units = len({int(u) for u in tr.unit_a[idx]})
+    out = dict(value=None, lo=None, hi=None, reps=None, groups=len(items), triples=int(len(idx)), units=units, units_by_group=by,
+               readable=bool(len(items) >= MIN_GROUPS and len(idx) >= MIN_TRIPLES and units >= MIN_UNITS))
+    if items:
+        out["value"], out["lo"], out["hi"], out["reps"] = _agg(items)
+    return out
+
+
+def _scaled(m, k):
+    """m (triple_mean) times the constant k, its interval re-ordered."""
+    if m.get("value") is None:
+        return dict(m)
+    lo, hi = sorted((k * m["lo"], k * m["hi"])) if m["lo"] is not None else (None, None)
+    return dict(m, value=k * m["value"], lo=lo, hi=hi, reps=None if m.get("reps") is None else k * m["reps"])
+
+
+def _wins(a, b):
+    a, b = np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64)
+    with np.errstate(invalid="ignore"):
+        return np.where(np.isnan(a) | np.isnan(b), np.nan, (a > b) + 0.5 * (a == b))
+
+
+def _public(m):
+    return {k: v for k, v in m.items() if k != "reps"}
+
+
+SECOND_HOLDS = "holds"
+SECOND_DEFINEDNESS = "through definedness (the relatives help less on the implant), not through the shift"
+SECOND_TOO_FEW = "too few to read"
+
+
+def second_verdict(top, cov, tr, pop, boot, block, controls=None, best=None, strata=None):
+    """Protocol w18-v3 version 4's second verdict of one arm in one block, on the population pop (second_population).
+    top: the arm's source_shift_top_aa [N tables] (+inf undefined, nan not computed); cov: coverage_shift [N] as rendered
+    for the layout being read; controls: {name: top of the untrained model or the presence passes}, beside it; best:
+    best_similarity [N]; strata: {name: bool [triples]} (coverage ratio, host codon quartiles), beside it.
+    Per triple win = P(implant > own) on the ranked tables, s = 1[both defined] (win - 1/2), u = defined(implant) -
+    defined(own): win_top - 1/2 = mean(s) - (1/2) mean(u). Holds when the shift term mean(s) and, on the same triples,
+    1[both defined] (win - win of coverage_shift) both have their 95% intervals above 0."""
+    top = np.asarray(top, dtype=np.float64)
+    ti, to = top[tr.table[:, IMPLANT]], top[tr.table[:, OWN]]
+    inb = pop & (tr.block == block)
+    ranked = inb & ~np.isnan(ti) & ~np.isnan(to)
+    di, do = np.isfinite(ti), np.isfinite(to)
+    win = _wins(ti, to)
+    both = (di & do).astype(np.float64)
+    s_ = both * (win - 0.5)
+    u_ = di.astype(np.float64) - do.astype(np.float64)
+    wt = triple_mean(win, tr, ranked, boot)
+    shift = triple_mean(s_, tr, ranked, boot)
+    definedness = _scaled(triple_mean(u_, tr, ranked, boot), -0.5)
+    cv = np.asarray(cov, dtype=np.float64)
+    ci, co = cv[tr.table[:, IMPLANT]], cv[tr.table[:, OWN]]
+    cov_ok = ranked & np.isfinite(ci) & np.isfinite(co)
+    wcov = _wins(ci, co)
+    bar = triple_mean(both * (win - wcov), tr, cov_ok, boot)
+    beside_cov = triple_mean(win - wcov, tr, cov_ok, boot)
+    z = np.where(np.isfinite(top), top, 0.0)                         # the sensitivity line: undefined counted as no shift
+    zero = triple_mean(_wins(z[tr.table[:, IMPLANT]], z[tr.table[:, OWN]]), tr, ranked, boot)
+    out = dict(block=block, population=int(inb.sum()), ranked=int(ranked.sum()), left_out_failed=int((inb & ~ranked).sum()),
+               win_top=_public(wt), shift_term=_public(shift), definedness_term=_public(definedness),
+               coverage_bar=_public(bar), coverage_bar_left_out=int((ranked & ~cov_ok).sum()), win_top_minus_coverage=_public(beside_cov),
+               both_defined=float(both[ranked].mean()) if ranked.any() else None,
+               win_both_defined=float(win[ranked & (both > 0)].mean()) if (ranked & (both > 0)).any() else None,
+               only_implant_undefined=float((~di & do)[ranked].mean()) if ranked.any() else None,
+               only_own_undefined=float((di & ~do)[ranked].mean()) if ranked.any() else None,
+               sensitivity_undefined_as_zero=_public(zero))
+    if best is not None:
+        b = np.asarray(best, dtype=np.float64)
+        out["best_similarity"] = _public(triple_mean(_wins(b[tr.table[:, IMPLANT]], b[tr.table[:, OWN]]), tr, ranked, boot))
+    out["controls"] = {}
+    for name, ctop in (controls or {}).items():
+        c = np.asarray(ctop, dtype=np.float64)
+        a, o = c[tr.table[:, IMPLANT]], c[tr.table[:, OWN]]
+        ok = inb & ~np.isnan(a) & ~np.isnan(o)
+        out["controls"][name] = dict(win_top=_public(triple_mean(_wins(a, o), tr, ok, boot)), left_out_failed=int((inb & ~ok).sum()),
+                                     defined_implant=float(np.isfinite(a)[ok].mean()) if ok.any() else None,
+                                     defined_own=float(np.isfinite(o)[ok].mean()) if ok.any() else None)
+    out["strata"] = {name: dict(win_top=_public(triple_mean(win, tr, ranked & m, boot)), shift_term=_public(triple_mean(s_, tr, ranked & m, boot)))
+                     for name, m in (strata or {}).items()}
+    readable = shift["readable"] and bar["readable"]
+    if not readable:
+        label, failed = SECOND_TOO_FEW, []
+    else:
+        c1 = shift["lo"] is not None and shift["lo"] > 0
+        c2 = bar["lo"] is not None and bar["lo"] > 0
+        failed = [n for n, ok in (("shift term above 0", c1), ("beats coverage_shift", c2)) if not ok]
+        if not failed:
+            label = SECOND_HOLDS
+        elif wt["lo"] is not None and wt["lo"] > 0.5 and not c1:
+            label = SECOND_DEFINEDNESS
+        else:
+            label = NOT_SHOWN
+    out.update(label=label, failed=failed, readable=bool(readable))
+    return out
+
+
+def multiplicity(verdicts, n_arms, key="label", holds=(SECOND_HOLDS,), too_few=(SECOND_TOO_FEW,)):
+    """"k of the m readable verdicts hold, (2 n_arms) - m too few to read" (four arms, two blocks in protocol w18-v3)."""
+    total = 2 * int(n_arms)
+    m = sum(1 for v in verdicts if v.get(key) not in too_few)
+    k = sum(1 for v in verdicts if v.get(key) in holds)
+    return dict(readable=m, hold=k, too_few=total - m, total=total, text="%d of the %d readable verdicts hold, %d too few to read" % (k, m, total - m))
 
 
 def coverage_table(tr, population, min_triples=MIN_GROUP):

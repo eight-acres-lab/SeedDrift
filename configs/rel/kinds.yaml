@@ -129,6 +129,20 @@ kinds:
         gates: [G4_rel_w12_islands]
         side: data
         produces: tableset
+      w12_tstats:
+        package: W12
+        rule: rel_w12_tstats
+        output: data/rel_w12/tstats/report.json
+        module: ci.stages.rel.w12_tstats
+        gates: [G4_rel_w12_tstats]
+        side: eval
+      w12_compo:
+        package: W12
+        rule: rel_w12_compo
+        output: data/rel_w12/compo/report.json
+        module: ci.stages.rel.w12_compo
+        gates: [G4_rel_w12_compo]
+        side: eval
       w18_rulers:
         package: W18
         rule: rel_w18_rulers
@@ -137,12 +151,27 @@ kinds:
         gates: [G4_rel_w18_rulers]
         side: eval
         produces: tableset
+      w18_offline:
+        package: W18
+        rule: rel_w18_offline
+        output: data/rel_w18/offline/offline.json
+        module: ci.stages.rel.w18_offline
+        gates: [G4_rel_w18_offline]
+        side: eval
+        reads: [ruler]
   rel_traineval:
     purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
       (W5) of the arms of a round; today's slice of W4 and W6 runs as the stages of package W6
     lock: gpu
     target: rel_all
     stages:
+      w5_sources:
+        package: W5
+        rule: rel_w5_sources
+        output: data/rel_w5/sources/report.json
+        module: ci.stages.rel.w5_sources
+        gates: [G4_rel_w5_sources]
+        side: eval
       w6_selftest:
         package: W6
         rule: rel_w6_selftest
@@ -259,6 +288,13 @@ kinds:
         output: data/rel_w13/census/report.json
         module: ci.stages.rel.w13_census
         gates: [G4_rel_w13_census]
+        side: data
+      w13_supply:
+        package: W13
+        rule: rel_w13_supply
+        output: data/rel_w13/supply/report.json
+        module: ci.stages.rel.w13_supply
+        gates: [G4_rel_w13_supply]
         side: data
       w13_pick:
         package: W13

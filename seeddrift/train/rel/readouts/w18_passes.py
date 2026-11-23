@@ -8,7 +8,9 @@ this module, so the plan is the same in every numpy and never depends on the con
 (the ruler set's `parent`: the triple, shared by its three variants and its scenario copies) and the slot, so the three
 tables of a triple, whose target blocks have the same length, hide exactly the same cells.
 
-Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the examined genome, from the ruler set's meta):
+Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the examined genome, from the ruler set's meta;
+a self-copy row of protocol w18-v3, row_tier SELF_TIER, has no tier: no tier pass removes it, "every other row removed"
+removes it, a presence pass hides it):
   T      the target block of row 0 scattered (rate 0.15, at least one cell), every row
   T-t<t> as T, the rows of tier t removed (one pass per tier present among the other rows)
   T0     as T, every other row removed (only when the table has other rows)
@@ -33,6 +35,9 @@ Passes (the protocol w18-v0 names them; t is a distance tier of the rows to the 
                                                        tables of version 0 (adapt_v0): see adapt_rows
   plan_digest(source, relatives, presence)             the digest run gives, without a model (the readout stage checks
                                                        that an evaluation scored this module's plan)
+  family_of, family_passes, strict_placement,          the strict offline rendering of protocol w18-v3 (stage
+  fourth_test, offline_arrays, offline_put,            rel_w18_offline builds it with W3's aligner; run_ruler's offline
+  offline_place, load_offline                          renders a leak-free reading on it)
 
 `render(tab, visible, target) -> (grid, truth)` or `(grid, truth, ext)` is the caller's (the stored layout is
 data/tables.render; the leak-free renderer when it exists; ext marks cells placed by extension); `score([(grid, truth[,
@@ -58,9 +63,10 @@ from seeddrift.train.rel.evalh import conditions as cond
 VERSION = 1
 SEED = cond.SEED
 RATE = 0.15
-STREAM_TARGET, STREAM_CONTEXT, STREAM_ADAPT = 21, 22, 23
+STREAM_TARGET, STREAM_CONTEXT, STREAM_ADAPT, STREAM_FOURTH = 21, 22, 23, 24
 V0_ROWS = 16                                        # the rows an arm trained on tables of version 0 has seen at most
 MAX_TIERS = 8                                       # tiers 0..7 may be named; the protocol's edges give 0..5
+SELF_TIER = -2                                      # row_tier of a self-copy row (A itself, protocol w18-v3): no tier, never removed
 SLICES = api.block_slices()
 B, L = api.N_BLOCKS, api.ROW_LEN
 TARGET_BLOCK = B - 1
@@ -104,8 +110,10 @@ def scattered(cells, table_id, stream, seed=SEED, rate=RATE):
 
 
 def tiers_present(row_tier, keep):
-    """The tiers of the other rows kept, sorted. A kept other row without a tier (< 0) is an error of the ruler set."""
+    """The tiers of the other rows kept, sorted; self-copy rows (SELF_TIER) have none. A kept other row without a tier
+    (another value below 0) is an error of the ruler set."""
     t = np.asarray(row_tier)[1:][np.asarray(keep)[1:]]
+    t = t[t != SELF_TIER]
     if (t < 0).any() or (t >= MAX_TIERS).any():
         raise ValueError("an other row without a distance tier in 0..%d" % (MAX_TIERS - 1))
     return sorted({int(x) for x in t})
@@ -179,10 +187,89 @@ def plan(tab, row_tier, table_id, relatives=True, presence=False, seed=SEED, mas
 
 
 def take(tab, keep):
-    """The fields of the kept rows (frame_len and every field without a row axis carried as they are)."""
+    """The fields of the kept rows (frame_len and every field without a row axis carried as they are); frame_row, where
+    given, renumbered to the kept rows (a block's frame row other than row 0 must be kept)."""
     keep = np.asarray(keep, dtype=bool)
     R = keep.shape[0]
-    return {k: (np.asarray(v)[keep] if np.ndim(v) >= 1 and np.shape(v)[0] == R and k != "frame_len" else v) for k, v in tab.items()}
+    out = {k: (np.asarray(v)[keep] if np.ndim(v) >= 1 and np.shape(v)[0] == R and k not in ("frame_len", "frame_row") else v)
+           for k, v in tab.items()}
+    if "frame_row" in tab:
+        fr = np.asarray(tab["frame_row"]).astype(np.int64).reshape(-1)
+        if not keep[np.clip(fr, 0, R - 1)].all():
+            raise ValueError("a block's frame row is not among the kept rows")
+        out["frame_row"] = (np.cumsum(keep) - 1)[np.clip(fr, 0, R - 1)].astype(np.int8)
+    return out
+
+
+# ---- the strict offline rendering (protocol w18-v3): W3's aligner, one placement per mask family ----
+FAMILIES = ("T", "C", "H1", "H2", "W")
+ROW0_ONLY = ("T0", "W0", "H10", "H20", "N")
+PLACE = "_place"                                    # the key of a table's offline placements in the tables of tables_of
+
+
+def family_of(name):
+    """The mask family whose placement renders a pass (T, C, H1, H2, W); None for a pass of row 0 alone (its placement
+    is the stored one: row 0 keeps its own columns). A presence pass and a tier pass take their base pass's family."""
+    base = name[len(PRESENCE):] if name.startswith(PRESENCE) else name
+    if base in ROW0_ONLY:
+        return None
+    fam = base.split("-t")[0]
+    if fam not in FAMILIES:
+        raise ValueError("pass %s has no mask family" % name)
+    return fam
+
+
+def strict_placement(tab, family, visible):
+    """dict(col, frame_row, frame_len) of one table under the visibility of one mask family, by package W3's functions
+    (seeddrift/train/rel/tables/align.py; no second aligner): W lays the target block on its frame relative
+    (align.frame_layout); T, C, H1 and H2 align every other row to row 0 again wherever row 0 has hidden residues, those
+    residues unknown (align.strict). Every other row is aligned to row 0 or to the frame relative alone, so a pass that
+    removes rows keeps the placement of the rows it keeps."""
+    from seeddrift.train.rel.tables import align as AL
+    if family == "W":
+        col, fr, fl = AL.frame_layout(tab)
+    elif family in FAMILIES:
+        col = AL.strict(tab, visible)
+        fr = np.array(tab.get("frame_row", np.zeros(B)), dtype=np.int8, copy=True).reshape(-1)
+        fl = np.array(tab["frame_len"], dtype=np.int16, copy=True)
+    else:
+        raise ValueError("unknown mask family %r" % family)
+    return dict(col=np.asarray(col, dtype=np.int16), frame_row=np.asarray(fr, dtype=np.int8), frame_len=np.asarray(fl, dtype=np.int16))
+
+
+def family_passes(tab, row_tier, table_id, mask_id=None, seed=SEED):
+    """{family: its base pass (every row kept)} of the families the plan of one table makes."""
+    ps = {p.name: p for p in plan(tab, row_tier, table_id, True, False, seed, mask_id)}
+    return {f: ps[f] for f in FAMILIES if f in ps}
+
+
+def leakfree(tab, visible, target):
+    """W3's leak-free renderer (seeddrift/train/rel/tables/render.py): grid, truth, ext."""
+    from seeddrift.train.rel.tables import render as RD
+    return RD.render(tab, visible, target, RD.LEAKFREE)
+
+
+def fourth_test(tab, family, p, placement, table_id, seed=SEED):
+    """W3's fourth validity test of one table and mask family: the hidden residues replaced by random codons (drawn by
+    the evaluator's hash on the table and family, the same in every numpy), every stored position of a block where row 0
+    has a hidden residue erased, the placement made again: the leak-free grid and its extension marks must be the same
+    cell for cell. Returns (passed, grid, ext) of the placement given."""
+    t1 = dict(tab, **placement)
+    grid, _, ext = leakfree(t1, p.visible, p.target)
+    hidden = residue(tab) & ~p.visible
+    u = cond.hash_u01(seed, STREAM_FOURTH, np.array([int(table_id)]), np.arange(hidden.size)[None, :] + FAMILIES.index(family) * hidden.size)[0]
+    rand = (1 + np.floor(u * 65)).astype(np.int64).reshape(hidden.shape)            # tokens 1..65
+    tok = np.where(hidden, rand, np.asarray(tab["tok"])).astype(np.uint8)
+    gone = np.array(tab["col"], dtype=np.int16, copy=True)
+    for b, (_, s0, e0) in enumerate(SLICES):
+        f0 = int(np.asarray(tab["frame_len"])[b])
+        if f0 and not p.visible[0, s0:s0 + f0].all():
+            gone[1:, s0:e0] = -1
+    other = dict(tab, tok=tok, col=gone)
+    t2 = dict(other, **strict_placement(other, family, p.visible))
+    g2, _, e2 = leakfree(t2, p.visible, p.target)
+    return bool(np.array_equal(grid, g2) and np.array_equal(ext, e2)), grid, ext
+
 
 
 class PlanDigest:
@@ -209,7 +296,11 @@ def run(source, render, score, relatives=True, presence=False, max_rows=64, seed
     """Every pass of every table of `source` rendered and scored.
 
     source: iterable of (table_id, tab, row_tier[, mask_id[, presence]]); tab holds tok, n, col, kind (rows first) and
-    frame_len; a fifth element overrides `presence` for that table.
+    frame_len; a fifth element overrides `presence` for that table. tab[PLACE] (tables_of with offline placements): the
+    strict offline rendering of protocol w18-v3, {family: dict(col, frame_row, frame_len)}; every pass with other rows is
+    then rendered on its family's placement (render: the leak-free renderer), and a presence pass on its base pass's
+    visibility with every codon of the other rows shown as MASK after the layout (their pattern kept, their content gone;
+    a frame relative's codons too, unlike render's control "presence", which spares a block's frame row).
     Returns dict of per-cell arrays (one entry per scored cell): table (int64), pass_id (int16, into PASS_NAMES), slot
     (int16, row 0's own slot), truth (uint8), bits, aa_bits, entropy (float32); and pass_names, digest, tables, passes."""
     cols = {k: [] for k in ("table", "pass_id", "slot", "truth", "bits", "aa_bits", "entropy")}
@@ -242,10 +333,28 @@ def run(source, render, score, relatives=True, presence=False, max_rows=64, seed
         tid, tab, row_tier = item[:3]
         mid = item[3] if len(item) > 3 else None
         pres = bool(item[4]) if len(item) > 4 else presence
+        place = tab.get(PLACE)
+        if place is not None:
+            tab = {k: v for k, v in tab.items() if k != PLACE}
+            res = residue(tab)
         for p in plan(tab, row_tier, tid, relatives, pres, seed, mid):
-            sub = take(tab, p.keep)
-            got = render(sub, p.visible[p.keep], p.target[p.keep])
+            fam = family_of(p.name)
+            masked = place is not None and p.name.startswith(PRESENCE)
+            vis = p.visible
+            if place is not None and fam is not None and p.keep[1:].any():
+                if fam not in place:
+                    raise ValueError("table %d: no offline placement of mask family %s" % (int(tid), fam))
+                sub = take(dict(tab, **place[fam]), p.keep)
+            else:
+                sub = take(tab, p.keep)
+            if masked:                                              # strict: the base pass's layout, the other rows' codons then MASK
+                vis = p.visible.copy()
+                vis[1:] = res[1:]
+            got = render(sub, vis[p.keep], p.target[p.keep])
             grid, truth, ext = (tuple(got) + (None,))[:3]
+            if masked:
+                g = grid[1:]
+                g[(g >= api.TARGET_MIN) & (g <= api.TARGET_MAX)] = api.MASK
             want = int((p.target[0] & (np.asarray(tab["col"])[0] >= 0)).sum())
             if int((truth > 0).sum()) != want:
                 raise ValueError("table %d pass %s: the grid scores %d cells, the plan %d" % (int(tid), p.name, int((truth > 0).sum()), want))
@@ -267,6 +376,127 @@ def run(source, render, score, relatives=True, presence=False, max_rows=64, seed
 META_FILE = "w18_meta.npz"
 FIELDS = ("tok", "n", "col", "kind", "frame_len")
 
+# ---- the offline placements of a ruler set (stage rel_w18_offline writes them, run_ruler reads them) ----
+OFFLINE_DIR = os.path.join("data", "rel_w18", "offline")
+OFFLINE_FILE = "offline.json"
+OFFLINE_FORMAT = "rel-w18-offline-1"
+LT, LC = T1_ - T0_, T0_                             # the target block's slots, the context blocks' slots
+
+
+def offline_arrays(n_tables, rows):
+    """Empty arrays of the offline placements: has [N, families]; <family>.col of the slots the family aligns again
+    (T, H1, H2, W: the target block [N, R, LT]; C: the context blocks [N, R, LC]); W.frame_row, W.frame_len [N] (the
+    target block's frame relative and frame length)."""
+    N, R = int(n_tables), int(rows)
+    out = {"has": np.zeros((N, len(FAMILIES)), dtype=bool), "W.frame_row": np.zeros(N, dtype=np.int8), "W.frame_len": np.zeros(N, dtype=np.int16)}
+    for f in FAMILIES:
+        out[f + ".col"] = np.full((N, R, LC if f == "C" else LT), -1, dtype=np.int16)
+    return out
+
+
+def offline_put(arrays, t, family, placement, tab):
+    """Table t's placement of one family into the arrays; every slot outside the family's blocks must be as stored."""
+    col, stored = np.asarray(placement["col"]), np.asarray(tab["col"])
+    inside = np.zeros(L, dtype=bool)
+    inside[(slice(0, T0_) if family == "C" else slice(T0_, T1_))] = True
+    if not (col[:, ~inside] == stored[:, ~inside]).all():
+        raise AssertionError("table %d: family %s moved a cell outside its blocks" % (int(t), family))
+    fr, fl = np.asarray(placement["frame_row"]).reshape(-1), np.asarray(placement["frame_len"]).reshape(-1)
+    other = np.arange(B) != TARGET_BLOCK
+    if family != "W" and (fr.any() or (fl != np.asarray(tab["frame_len"])).any()) or family == "W" and (fr[other].any() or (fl[other] != np.asarray(tab["frame_len"])[other]).any()):
+        raise AssertionError("table %d: family %s changed a frame outside the target block's frame relative" % (int(t), family))
+    arrays["has"][t, FAMILIES.index(family)] = True
+    arrays[family + ".col"][t] = col[:, inside]
+    if family == "W":
+        arrays["W.frame_row"][t], arrays["W.frame_len"][t] = int(fr[TARGET_BLOCK]), int(fl[TARGET_BLOCK])
+
+
+def offline_place(arrays, t, tab):
+    """{family: dict(col, frame_row, frame_len)} of table t (tab: its stored fields), from the offline arrays."""
+    col0 = np.asarray(tab["col"])
+    if col0.shape[0] != arrays["T.col"].shape[1]:
+        raise ValueError("table %d has %d rows, the offline placements %d" % (int(t), col0.shape[0], arrays["T.col"].shape[1]))
+    out = {}
+    for k, f in enumerate(FAMILIES):
+        if not arrays["has"][t, k]:
+            continue
+        col = np.array(col0, dtype=np.int16, copy=True)
+        fr = np.array(tab.get("frame_row", np.zeros(B)), dtype=np.int8, copy=True).reshape(-1)
+        fl = np.array(tab["frame_len"], dtype=np.int16, copy=True)
+        if f == "C":
+            col[:, :T0_] = arrays["C.col"][t]
+        else:
+            col[:, T0_:T1_] = arrays[f + ".col"][t]
+        if f == "W":
+            fr[TARGET_BLOCK], fl[TARGET_BLOCK] = arrays["W.frame_row"][t], arrays["W.frame_len"][t]
+        out[f] = dict(col=col, frame_row=fr, frame_len=fl)
+    return out
+
+
+def shown_cells(tab, row_tier, table_id, mask_id, place):
+    """(on_t [R], on_c [R]): the cells of every row the leak-free renderer shows on the target block under pass T and on
+    the neighbour and relation blocks under pass C, each on its offline placement (place: offline_place); the cells
+    coverage_shift counts for the strict reading (protocol w18-v3 version 4). A family the plan does not make counts 0."""
+    from seeddrift.train.rel.tables import render as RD
+    R = np.asarray(tab["tok"]).shape[0]
+    on_t, on_c = np.zeros(R, dtype=np.int64), np.zeros(R, dtype=np.int64)
+    fams = family_passes(tab, row_tier, table_id, mask_id)
+    for fam, out, lo, hi in (("T", on_t, T0_, T1_), ("C", on_c, 0, T0_)):
+        if fam not in fams or fam not in place:
+            continue
+        slot, _, _ = RD.placement(dict(tab, **place[fam]), fams[fam].visible, RD.LEAKFREE)
+        out[:] = ((slot >= lo) & (slot < hi)).sum(axis=1)
+    return on_t, on_c
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 22), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def load_offline(run_dir, ruler_sha256, passed=True):
+    """(arrays, head, sha256 of offline.json) of the offline placements a run of stage rel_w18_offline wrote, every file
+    checked against the size and sha256 its manifest gives; the manifest must name the ruler set (ruler_sha256: the
+    sha256 of the ruler set's manifest, as run_ruler records it) and this module's plan. passed (a reading): the run
+    passed and its record of stage rel_w18_offline lists offline.json with this content (the stage's own gate reads
+    its run before it has passed)."""
+    import json
+    p = os.path.join(run_dir, OFFLINE_DIR, OFFLINE_FILE)
+    if passed:
+        rp = os.path.join(run_dir, "record.json")
+        rec = {}
+        if os.path.exists(rp):
+            with open(rp) as f:
+                rec = json.load(f)
+        if rec.get("status") != "passed":
+            raise ValueError("the offline placements of %s: the run has not passed" % os.path.basename(os.path.normpath(run_dir)))
+        listed = [o for st in rec.get("stages") or [] for o in st.get("outputs") or [] if os.path.normpath(o.get("path", "")) == os.path.join(OFFLINE_DIR, OFFLINE_FILE)]
+        if not listed or any(o.get("sha256") != _sha256(p) for o in listed):
+            raise ValueError("%s is not the file the run's record of stage rel_w18_offline lists" % OFFLINE_FILE)
+    with open(p) as f:
+        head = json.load(f)
+    if head.get("format") != OFFLINE_FORMAT:
+        raise ValueError("%s is not a file of offline placements (%s)" % (p, OFFLINE_FORMAT))
+    if str((head.get("ruler") or {}).get("sha256")) != str(ruler_sha256):
+        raise ValueError("the offline placements are of another ruler set")
+    if head.get("plan") != dict(version=VERSION, seed=SEED, rate=RATE):
+        raise ValueError("the offline placements were made for another plan of the passes")
+    if int((head.get("fourth_test") or {}).get("failures", -1)) != 0:
+        raise ValueError("the offline placements did not pass W3's fourth validity test")
+    arrays = {}
+    for e in head["files"]:
+        q = os.path.join(run_dir, e["path"])
+        if os.path.getsize(q) != e["bytes"] or _sha256(q) != e["sha256"]:
+            raise ValueError("%s is not the file the offline manifest names" % e["path"])
+        arrays[e["name"]] = np.load(q, mmap_mode="r")
+    want = set(offline_arrays(0, 1))
+    if set(arrays) != want:
+        raise ValueError("the offline placements hold %s, not %s" % (sorted(arrays), sorted(want)))
+    return arrays, head, _sha256(p)
+
 
 def load_meta(run_dir, manifest):
     """{name: array over the tables of the set} of the W18 meta file a ruler set's manifest lists (role meta), checked
@@ -285,13 +515,16 @@ def load_meta(run_dir, manifest):
     raise ValueError("the manifest lists no %s (not a ruler set of package W18)" % META_FILE)
 
 
-def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=None, presence_scenarios=None, adapt=None):
+def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=None, presence_scenarios=None, adapt=None, offline=None):
     """(table id, {tok, n, col, kind, frame_len} of one table, its row tiers, its mask id) for the tables first..last-1
     of a ruler set (ts: an evalh/shards.TableSet; meta: load_meta), in storage order; the table id is the position in
     the set, the mask id the triple it belongs to (meta parent). scenarios: only the tables of these scenarios (meta
     scenario; None: all). presence (not None): a fifth element, whether the table has the presence passes (presence, and
     its scenario among presence_scenarios unless that is None). adapt (rows): every table adapted for an arm trained on
-    tables of version 0 (adapt_table)."""
+    tables of version 0 (adapt_table). offline (the arrays of load_offline): every table carries its offline placements
+    under PLACE (run renders on them)."""
+    if offline is not None and adapt:
+        raise ValueError("an adapted reading renders the stored layout; the offline placements are for the leak-free one")
     last = ts.tables if last is None else int(last)
     want = None if scenarios is None else {int(x) for x in scenarios}
     pwant = None if presence_scenarios is None else {int(x) for x in presence_scenarios}
@@ -307,13 +540,16 @@ def tables_of(ts, meta, first=0, last=None, chunk=64, scenarios=None, presence=N
             tab, tier = {f: got[f][k] for f in FIELDS}, meta["row_tier"][a + k]
             if adapt:
                 tab, tier, _ = adapt_table(tab, tier, int(meta["parent"][a + k]), int(adapt))
+            if offline is not None:
+                tab[PLACE] = offline_place(offline, a + k, tab)
             item = (a + k, tab, tier, int(meta["parent"][a + k]))
             yield item if presence is None else item + (bool(presence) and (pwant is None or sc in pwant),)
 
 
 CELL_FORMAT = "rel-w18-cells-1"
 CELL_INFO = ("arm", "weights", "relatives", "presence", "layout", "render_version", "tableset_sha256", "run", "commit")
-CELL_OPTIONAL = ("scenarios", "presence_scenarios", "adapt_v0")  # None: every table; adapt_v0 None: not adapted, else its rows
+CELL_OPTIONAL = ("scenarios", "presence_scenarios", "adapt_v0",  # None: every table; adapt_v0 None: not adapted, else its rows
+                 "offline", "offline_sha256")                    # the offline placements rendered on (strict, leak-free): run, sha256
 
 
 def save_cells(path, cells, **info):
@@ -384,7 +620,7 @@ def flat_scorer(scorer):
 
 
 def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None, scenarios=None, presence_scenarios=None,
-              adapt_v0=None):
+              adapt_v0=None, offline=None):
     """One arm on a ruler set, for the evaluation stage: every table of `tables` (data/tables.Tables of the set, kind
     ruler; its TableSet and manifest) through the passes of the arm (info["relatives"] False: pass N only; presence: the
     presence passes too), rendered by `render` (default: the stored layout of data/tables.render, for info["layout"] ==
@@ -393,14 +629,24 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
     tables of these scenarios; presence_scenarios: the presence passes on these scenarios' tables only (protocol w18-v0:
     when a reading would take over 5 GPU hours, the untrained arm takes scenarios [0] and the presence arm
     presence_scenarios [0]); None: every table. adapt_v0 (True, or the rows): an arm trained on tables of version 0 reads
-    implant tables of version 1 adapted (adapt_table; V0_ROWS rows for True). Writes <out_dir>/ruler_cells.npz; returns
-    its head (save_cells)."""
+    implant tables of version 1 adapted (adapt_table; V0_ROWS rows for True). offline (a run directory of stage
+    rel_w18_offline on this ruler set): the strict offline rendering of protocol w18-v3, for info["layout"] "leakfree"
+    (which needs it); render defaults to W3's leak-free renderer. Writes <out_dir>/ruler_cells.npz; returns its head
+    (save_cells)."""
     missing = [k for k in INFO_KEYS + ("root",) if k not in info]
     if missing:
         raise ValueError("run_ruler needs info %s" % ", ".join(missing))
     man = tables.manifest
     if man.get("kind") != api.TABLE_RULER:
         raise ValueError("run_ruler reads ruler sets only, not kind %r" % man.get("kind"))
+    off, off_sha = None, None
+    if info["layout"] == api.LAYOUT_LEAKFREE:
+        if offline is None:
+            raise ValueError("a leak-free reading of a ruler set renders strictly offline (protocol w18-v3): give the run of stage rel_w18_offline")
+        off, _, off_sha = load_offline(offline, str(man.get("sha256", "")))
+        render = leakfree if render is None else render
+    elif offline is not None:
+        raise ValueError("the offline placements are for the leak-free layout, not %r" % info["layout"])
     if render is None:
         if info["layout"] != api.LAYOUT_STORED:
             raise ValueError("layout %r needs its renderer" % info["layout"])
@@ -411,11 +657,12 @@ def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_ro
     pres = bool(presence and info["relatives"])
     psc = None if presence_scenarios is None or not pres else sorted({int(x) for x in presence_scenarios})
     adapt = None if not adapt_v0 else (V0_ROWS if adapt_v0 is True else int(adapt_v0))
-    cells = run(tables_of(tables.ts, meta, scenarios=scen, presence=pres, presence_scenarios=psc, adapt=adapt), render, flat_scorer(scorer),
+    cells = run(tables_of(tables.ts, meta, scenarios=scen, presence=pres, presence_scenarios=psc, adapt=adapt, offline=off), render, flat_scorer(scorer),
                 relatives=bool(info["relatives"]), presence=pres, max_rows=max_rows, progress=progress)
     os.makedirs(out_dir, exist_ok=True)
     return save_cells(os.path.join(out_dir, RULER_CELLS), cells, presence=pres, tableset_sha256=str(man.get("sha256", "")), scenarios=scen,
-                      presence_scenarios=psc, adapt_v0=adapt, **{k: info[k] for k in INFO_KEYS})
+                      presence_scenarios=psc, adapt_v0=adapt, offline=None if offline is None else os.path.basename(os.path.normpath(str(offline))),
+                      offline_sha256=off_sha, **{k: info[k] for k in INFO_KEYS})
 
 
 def adapt_rows(row_tier, mask_id, max_rows=V0_ROWS, seed=SEED):

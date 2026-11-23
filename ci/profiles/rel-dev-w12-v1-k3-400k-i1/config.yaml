@@ -1,0 +1,43 @@
+# Machine i-1: the second, larger training set of tables of version 1 on corpus medium-k3 (stage w12_v1; package W12;
+# the programme lead, 2026-11-23: for round 2, built during round 1): from the same search (run 20261123T061001), seed
+# and code as profile rel-dev-w12-v1-k3-i1, the training targets drawn over all the genes of a group without
+# replacement (train_sampling: gene: every gene of a group once before any twice), each group at most 33,600 tables and
+# at most 5 per gene that can be a target (max_uses_per_target: 5; a group that has fewer genes takes fewer tables, and
+# no other group takes them: by the census of round 1's tables, eukaryotic viruses about 9,020, every other group
+# 33,600). The training tables are drawn anew: not a superset of the 201,600; the manifest gives each group's tables.
+# The 3,000 held-out tables (250 per group) are drawn as before and must be those of run 20261123T122205 byte for byte
+# (heldout_equals: the gate hashes every held-out file again and fails on any difference). No island tables (built
+# once). 32 rows, 8 processes, about 42 GB, about 1-2 hours; CPU priority below the training beside it. Development
+# diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 55
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w12_v1]
+rel_w12_v1:
+  search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  rows: 32
+  train_per_group: 33600
+  heldout_per_group: 250
+  shard_tables: 2400
+  processes: 8
+  seed: 1
+  name: w12-v1-r32-s1-n33600-bygene
+  train_sampling: gene
+  max_uses_per_target: 5
+  heldout_equals:
+    run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+    sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1
+train:
+  gpu_lease: false
+  device: cpu

@@ -1,0 +1,96 @@
+# Protocol round1: the first selection round of the relational-model line, on tables of version 1 under the leak-free
+# layout. Written by the programme lead on 2026-11-23 and revised after an independent review the same day; committed
+# before any arm of the round starts. The coordinator writes the round's profiles from it. Version 3 (2026-11-23, also
+# before any arm starts) changes only the number of training tables: the combined search left too little disk on i-1
+# for 403,200 tables with the reserve, so round 1 uses 201,600; the larger set is for the next round. Version 4 (2026-11-23,
+# before batch 3 and before any arm starts) states how batch 3 counts compute: tables, analytic FLOPs, wall clock as cost.
+# Version 5 (2026-11-23, before batch 3) writes down, before it is read, where D7's arms are expected to differ from the
+# reference (readings.d7_by_distance); prompted by an early development comparison on tables of version 0. Version 6
+# (2026-11-23, before batch 1 starts) lets the micro-batch be lowered when the shared GPU lacks memory (model_common).
+# Version 7 (2026-11-23) names the HGT protocol as w18-v3 in its latest version, not its revision 3.
+name: round1
+version: 7
+what: >
+  The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
+  training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
+  equal tables seen (version 1 against version 0, same size, rate and layout); (2) how large the noise between seeds is
+  on these tables; (3) what the value of relatives is without the placement leak. Batch 2 answers (4), whether a larger
+  model helps on version 1. The HGT capability check is read on version 1 under protocol w18-v3 in its latest version (to be committed
+  before it is read). This is a development diagnosis (charter section 8, 2026-11-17 and 2026-11-22): weights are never
+  carried into another round, and promotions or eliminations are confirmed by the user.
+
+coverage:
+  groups: the 12 groups of the kingdom map, equal shares of training tables per group
+  scenarios: pretraining on genomes with their relatives as context; no transfer scenario is trained or scored here
+  not_covered:
+    - "evaluation with close relatives of a held-out genome as rows (the context rule D5 keeps held-out tables to training rows)"
+    - "close relatives of eukaryotes beyond the medium corpus (planned 2026-12-20)"
+    - "prokaryote assemblies below chromosome level (the scaffold count is pending the user)"
+    - "the sealed test split (never opened)"
+
+requires:                                 # gates that must pass before batch 1 starts
+  - "the version-1 table set of stage w12_v1 built on the combined search 20261123T061001 (201,600 training tables, 16,800 per group, as its manifest states)"
+  - "the strict offline rendering of the version-1 held-out set (stage w3_offline; parts scattered, suffix, whole_gene; the fourth validity test on every table)"
+  - "a 50-step probe of each batch-1 variant on real version-1 tables on the machine it will run on: finite loss, peak memory, tables per second"
+
+tables:
+  training: the training table set named in requires; 32 rows
+  heldout: the held-out set of the same stage, 250 per group (3,000)
+  items: "the evaluator's plan (seed 20261122) on the version-1 held-out set, rendered strictly offline by package W3"
+  fill: tables without other rows at most 5% of a group's training draws (alone_share 0.05) for arms with relatives
+
+layout:
+  training: "leak-free for every scheme: scattered and span through the online renderer; the whole gene placed on the frame relative with W3's strict aligner (tables/align.py frame_layout), the same function the evaluation uses. No stored layout in training"
+  evaluation: "the strict offline rendering for scored conditions; in-loop nodes may use the online renderer (results labelled leakfree-online); the two no-relatives conditions read the tables as they are"
+  self_copies: "rows of the examined genome's own copies (KIND_SELF_COPY) are rows like any other in training; every reading of 'relatives' is reported in three strata: other-genome rows present, self copies only, none"
+
+model_common:
+  trunk: the reference axial trunk of rounds 1a and 1b, unchanged (pre-norm, row and column attention, a learned no-source key, no row index, rotary positions inside a locus, role and block-slot embeddings, 65-way output head)
+  genome_of_row: "not used by any arm of batches 1 and 2, so that they stay comparable with rounds 1a and 1b; a same-genome bias is a separate arm of batch 3, with a row-permutation equivariance test"
+  rows_per_sample: 4 to 32 rows drawn at random per table (row 0 always kept)
+  masks: one scheme per table with equal chances (scattered 15% of every kept row; one span of 8-128 codons in one random row; row 0's whole target gene); the loss is the mean over all hidden cells of a step; the realised share of each scheme in cells and in loss is logged and reported
+  optimiser: AdamW (0.9, 0.98), weight decay 0.01 on matrices, clip 1.0, 4 tables per step accumulated in micro-batches (10 M 4, 30 M 2, 100 M 1), bf16 trunk, fp32 head
+  micro_when_short: "the micro-batch may be lowered when the GPU lacks memory at launch (free memory below 1.1 x the sum of the arms' measured peaks + 6 GB): still 4 tables and one clip per step at the same rate; arms read against each other inside one batch use the same micro; the realised micro is recorded in every result row and named in every reading"
+  schedule: 1,000 warm-up steps, then constant; evaluation on the moving average of the weights
+  learning_rate: "half the width rule of 2026-11-22: 30 M 1.5e-4, 100 M 1e-4, 10 M 2e-4. These are the lowest rates tried for 30 M and 100 M (round 1a), so every reading says 'at the lowest rates tried; not bracketed'"
+  preflight: 200 steps; a non-finite value or no fall stops the arm and is reported, never an automatic change of rate
+  checkpoints: final, best, and the moving-average weights at every evaluation node (kept on the machine that trained them)
+
+evaluation:
+  nodes: "0 tables, then every doubling from 1,000; for the long arm also every 50,000 tables after 100,000"
+  in_loop: "the first 50 held-out tables of every group (600); conditions scattered, whole_gene, scattered+no_relatives, whole_gene+no_relatives"
+  final: "the 600-table subset in the run (final_per_group 50); all 3,000 tables afterwards with stage w6_eval on the final and best weights, on the machine that trained the arm; conditions scattered, suffix, whole_gene, scattered+no_relatives, whole_gene+no_relatives, whole_gene+repaired; and the two render-mode controls on scattered and whole_gene (scattered@shuffle, scattered@presence, whole_gene@shuffle, whole_gene@presence)"
+  metric: bits per codon of row 0's hidden residues; mean over the groups of a block, the two blocks (eukaryotes; prokaryotes, plasmids and viruses) always apart; strata by the identity of the nearest other-genome row and by the three relatives strata
+  intervals: a paired bootstrap over the held-out split units inside each group (2,000 replicates, seed 20261123); a difference counts only when it exceeds the threshold and its 95% interval excludes 0
+  same_cells: the scored cells of every arm and condition are checked equal by digest
+
+arms:
+  batch_1:                               # from about 23:00 on 2026-11-23 (i-1) and after the tables reach i-2 (i-2)
+    - {name: ref30m-long, machine: i2, size: 30M, lr: 1.5e-4, seed: 1, wall_s: 39600, note: "the long curve on version 1; read against round 1b's leak-free long arm on version 0 (same size, rate, layout) at equal tables seen"}
+    - {name: ref30m-s2, machine: i1, size: 30M, lr: 1.5e-4, seed: 2, wall_s: 21600}
+    - {name: ref30m-s3, machine: i1, size: 30M, lr: 1.5e-4, seed: 3, wall_s: 21600}
+    - {name: norel30m, machine: i1, size: 30M, lr: 1.5e-4, seed: 2, wall_s: 21600, relatives: false}
+  batch_2:                               # on i-1 alone after batch 1 (about 05:30 on 11-24)
+    - {name: ref100m-long, machine: i1, size: 100M, lr: 1.0e-4, seed: 1, wall_s: 39600, note: "alone on i-1 (no other arm of ours); read against ref30m-long at common nodes"}
+  batch_3:                               # from 2026-11-25, after their smoke tests; machine and window shared with a fresh reference seed
+    - {name: ref30m-s4, size: 30M, lr: 1.5e-4, seed: 4, note: "the reference of batch 3, same machine and window"}
+    - {name: source-path30m, size: 30M, lr: 1.5e-4, seed: 4, note: "D7 arm S1 (task breakdown 8.14)"}
+    - {name: copy30m, size: 30M, lr: 1.5e-4, seed: 4, note: "D7 arm S2"}
+    - {name: ref30m-wholegene, size: 30M, lr: 1.5e-4, seed: 4, mask_weights: [0.3, 0.2, 0.5], note: "scheme probabilities scattered, span, whole gene"}
+    - {name: ref30m-samegenome, size: 30M, lr: 1.5e-4, seed: 4, note: "the same-genome bias of genome_of_row"}
+  drop_order: "if memory or time is short on i-1: keep ref30m-s2 and ref30m-s3 (they make the threshold) and move norel30m to batch 2"
+
+readings:
+  threshold: "per condition and block, max(|ref30m-s2 - ref30m-s3| at their last common node, 0.008); |ref30m-long - ref30m-s2| at common nodes is reported as a seed-plus-machine check, never as the threshold"
+  data: "ref30m-long against round 1b's leak-free 30 M long arm (version 0) at equal tables seen, per condition: version 1 better by more than the threshold at the last common node, or not read. The held-out sets differ between versions, so this compares curves, not cells; stated as such"
+  relatives: "norel30m against ref30m-s2 and ref30m-s3 (same machine and window), at common nodes and end against end, on the tables with other-genome rows on the target block; beside it the same model with rows removed; the loss shares of the schemes of both arms reported, because they optimise different mixtures"
+  scale: "batch 2: ref100m-long against ref30m-long at common nodes, per condition: 'bigger is better' only when it is lower by more than the threshold under scattered and whole_gene; otherwise 'cannot be read'; always with 'at the lowest rates tried; not bracketed' and the machines named. The user's rule (2026-11-22): a direction that shows scaling is scaled up"
+  controls: "the shuffle and presence readings of every arm with relatives against its plain reading: a model that uses the correspondence loses bits under the shuffle"
+  over_fitting: "expected passes from the probe's throughput; below 2.5 passes the reading is 'not reached', never 'no over-fitting'; above, the node with the lowest held-out bits is the reading and the best weights are scored on all 3,000 tables (a slight selection, stated)"
+  hgt: "protocol w18-v3 in its latest version (4 on 2026-11-23), committed before it is read: the version-1 ruler tables rendered strictly offline (and the stored layout as the second column of the 2 x 2 table); arms read at a common node checkpoint; a pre-declared criterion for 'the readouts see the relatives' against the untrained model and the presence-only control"
+  batch_3: "each arm against ref30m-s4 in the same window. Budgets by tables: every arm runs to the same number of tables (wall_s set from each arm's seconds per table). Two readings: at equal tables seen (the primary; when an arm's FLOPs per table differ from the reference's, the ratio is stated beside it) and at equal training FLOPs, counted with the contract's analytic flops_per_cell over the parameters each model uses (the same formula for every arm), at the nearest common node or by a stated interpolation; a measured count of matrix-multiply FLOPs for one 32-row table, forward and backward, beside it as a calibration. Seconds per table from a solo run on one machine are reported as cost, never as the basis. Parameter counts listed, all and used"
+  d7_by_distance: "written before batch 3 is read. For source-path30m and copy30m, S minus ref30m-s4 under scattered and whole_gene, per stratum of the nearest other-genome row's identity (the ten bins and none) and per relatives stratum (other-genome rows present, self copies only, none), with the paired interval of the evaluation section. D7 expects the arms to be at least as good as the reference where the nearest other-genome row has identity 0.8 or more, or where only self copies are present, and behind at middle identities (0.2 to 0.6), where pooling across rows rather than copying one row is what the reference can use. The expectation is reported as met, not met, or not readable (fewer than 30 tables in a stratum); it chooses nothing. The classic switching-copy baseline (W5's switch_copy) on the same tables is listed beside them"
+
+not_concluded: >
+  no promotion, elimination or change of the reference before the user confirms it; batch 3 enters the comparison only
+  as stated under readings.batch_3.

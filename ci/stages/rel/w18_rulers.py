@@ -28,6 +28,13 @@ Profile block rel_w18_rulers:
   edges              the tier edges of the distance ([0.05, 0.2, 0.5, 1.0]; the protocol's)
   k                  the k-mer length of the distance matrix read (the distance run's primary k, 6)
   min_codons, length_tol, attempts, donor_cap, min_aligned, aligned_share    the generator's draws (64, 0.15, 40, 3, 10, 0.3)
+  self_copies        (version 1; protocol w18-v3) up to this many self-copy rows per table (0, at most the contract's
+                     MAX_SELF_COPY_ROWS; bench/rel/implant.py says how they are drawn)
+  donor_search       (version 1; default true with self_copies) every implanted D:j searched against the proteins of
+                     its A once the triples are drawn (W12's DIAMOND, cfg tools.diamond, with the search run's settings;
+                     the protein files checked against the source's corpus manifest): A's homologs of D:j, which W12's
+                     search cannot hold (its database is the training genomes), for the implant's self-copy rows and
+                     rule 9's first bit; the index records it (donor_search, rule9_bit1)
   shard_tables, processes, max_left_out
 Outputs under data/rel_w18/rulers/: tables/ (the shards: the contract's fields written by W2's writer, and beside each
 shard W18's meta fields <shard>.w18_<name>.npy, role meta), index.json (the genome list, groups, edges, the triples and
@@ -59,7 +66,7 @@ from seeddrift.train.rel.tables import v0_io as IO
 
 OUT = os.path.join("data", "rel_w18", "rulers")
 KEYS = {"version", "search_from", "source", "dist", "expect", "rows", "per_tier", "group_tier_cap", "scenarios", "edges", "k", "min_codons", "length_tol", "attempts",
-        "donor_cap", "min_aligned", "aligned_share", "shard_tables", "processes", "max_left_out"}
+        "donor_cap", "min_aligned", "aligned_share", "shard_tables", "processes", "max_left_out", "self_copies", "donor_search"}
 COVERAGE_NOTE = ("Implant tables (ruler, evaluation only): the target block of a held-out genome A replaced by a gene of another held-out genome D of "
                  "the standard code, with two controls at the same locus (A's own gene, another gene of A). Rows are training genomes with a homolog row "
                  "on all three target genes; before the corpus is searched again without caps, having such a row is decided by a similarity ranking, "
@@ -81,9 +88,14 @@ def settings(cfg) -> dict:
                edges=[float(x) for x in c.get("edges") or [0.05, 0.2, 0.5, 1.0]], k=int(c.get("k", 6)), min_codons=int(c.get("min_codons", 64)),
                length_tol=float(c.get("length_tol", 0.15)), attempts=int(c.get("attempts", 40)), donor_cap=int(c.get("donor_cap", 3)),
                shard_tables=int(c.get("shard_tables", 720)), processes=int(c.get("processes", 4)), max_left_out=int(c.get("max_left_out", 20)),
-               seed=int(cfg.get("seed", 1)))
+               self_copies=int(c.get("self_copies", 0)), donor_search=bool(c.get("donor_search", int(c.get("self_copies", 0)) > 0)), seed=int(cfg.get("seed", 1)))
     if out["version"] not in (0, 1) or (out["version"] == 1 and not out["search_from"]):
         raise SystemExit("rel_w18_rulers: version is 0 or 1, and version 1 needs search_from")
+    most = int(getattr(api, "MAX_SELF_COPY_ROWS", 2))
+    if not 0 <= out["self_copies"] <= most or (out["self_copies"] and out["version"] != 1):
+        raise SystemExit("rel_w18_rulers: self_copies is 0..%d, and only tables of version 1 have self-copy rows" % most)
+    if out["donor_search"] and out["version"] != 1:
+        raise SystemExit("rel_w18_rulers: the donor search (protocol w18-v3) is for tables of version 1")
     if not (2 <= out["rows"] <= 64 and 1 <= out["per_tier"] <= 10 and 1 <= out["group_tier_cap"] <= 1000 and out["edges"] == sorted(out["edges"])
             and 1 <= out["min_codons"] <= 256 and 1 <= out["min_aligned"] and 0 <= out["aligned_share"] < 1
             and 0 < out["length_tol"] < 1 and 1 <= out["attempts"] <= 1000 and 1 <= out["donor_cap"] and 3 <= out["shard_tables"] <= 20000
@@ -190,6 +202,92 @@ def search_source(s, smeta, metas):
     return sgen, rows_of, prov
 
 
+def donor_search(cfg, s, src, smeta, sgen, need, work, say):
+    """The donor search of protocol w18-v3: every implanted donor gene D:j against the proteins of the held-out genome A
+    it was implanted into, with package W12's DIAMOND call and the settings of the search run (threads: this stage's
+    processes). need: [(D, j, A)]. Returns ({D: v1_hits arrays of D's genes against those A, the search's genome
+    numbers}, the record): only pairs (D:j, a gene of the A of one of its triples) are kept. Every protein file is
+    checked against the source's corpus manifest; the genomes read are open genomes the stage's sealed record covers."""
+    from ci.stages.common import read_fasta
+    from ci.stages.rel import w12_search as S12
+    from ci.stages.search import gene_ids
+    from seeddrift.train.rel.tables import v1_hits as H
+    t0 = time.time()
+    if not need:
+        return {}, dict(queries=0, pairs=0, seconds=0.0)
+    man = smeta[0]
+    ss = dict(man.get("settings") or {})
+    opts = dict(sensitivity=str(ss.get("sensitivity", "sensitive")), evalue=float(ss.get("evalue", 1e-5)), block_size=float(ss.get("block_size", 4)),
+                threads=int(s["processes"]))
+    diamond = cfg["tools"]["diamond"]
+    run = src["run"]
+    split = {g["id"]: g["split"] for g in sgen}
+    gids = sorted({d for d, _, _ in need} | {a for _, _, a in need})
+    if any(split.get(g) != "heldout" for g in gids):
+        raise SystemExit("rel_w18_rulers: the donor search reads held-out genomes only")
+    files = []
+    for g in gids:
+        ent = {os.path.basename(f["path"]): f for f in src["corpus"][g].get("files") or []}
+        for name in ("genes.tsv", "proteins.faa"):
+            if name not in ent:
+                raise SystemExit("rel_w18_rulers: the corpus manifest names no %s of %s" % (name, g))
+            files.append((ent[name]["path"], ent[name]["sha256"]))
+    bad = [q for (q, want), got in zip(files, V.hash_files([os.path.join(run, q) for q, _ in files], min(s["processes"], 8))) if got != want]
+    if bad:
+        raise SystemExit("rel_w18_rulers: corpus files of %s differ from its manifest: %s" % (run, bad[:5]))
+    names, prots = {}, {}
+    for g in gids:
+        folder = os.path.join(run, "data", "corpus", g)
+        names[g] = gene_ids(folder)
+        fa = read_fasta(os.path.join(folder, "proteins.faa"))
+        prots[g] = [fa["%s__%s" % (g, x)] for x in names[g]]
+    oix = {x["id"]: k for k, x in enumerate(sgen)}
+    n_genes = {x["id"]: int(x["genes"]) for x in sgen}
+    if any(len(names[g]) != n_genes[g] for g in gids):
+        raise SystemExit("rel_w18_rulers: a genome of the donor search has another gene count than the search's list")
+    targets = sorted({a for _, _, a in need})
+    queries = {}
+    for d, j, a in need:
+        queries.setdefault(d, set()).add(int(j))
+    allowed = {(oix[d], int(j), oix[a]) for d, j, a in need}
+    os.makedirs(work, exist_ok=True)
+    db = os.path.join(work, "donor_targets.dmnd")
+    db_s = S12.makedb(diamond, [("%s__%s" % (g, x), q) for g in targets for x, q in zip(names[g], prots[g])], os.path.join(work, "donor_targets.faa"), db)
+    qf = os.path.join(work, "donor_queries.faa")
+    with open(qf + ".part", "w") as f:
+        for d in sorted(queries):
+            for j in sorted(queries[d]):
+                f.write(">%s__%s\n%s\n" % (d, names[d][j], prots[d][j]))
+    os.replace(qf + ".part", qf)
+    gene_index = {g: {x: i for i, x in enumerate(names[g])} for g in gids}
+    searched = {d: np.isin(np.arange(n_genes[d]), sorted(queries[d])).astype(np.uint8) for d in queries}
+    got = {}
+
+    def write(gid, arrays):
+        got[gid] = arrays
+    keep = lambda qg, qi, tg, tj: (qg, qi, tg) in allowed            # noqa: E731 - D:j against the A of one of its triples
+    sec, _ = S12.diamond_search(diamond, qf, db, opts, lambda lines: H.stream(lines, oix, gene_index, keep, write, n_genes, searched))
+    for d in queries:
+        if d not in got:
+            got[d] = H.empty(n_genes[d], searched[d])
+        bad = H.check(got[d], len(sgen))
+        if bad:
+            raise SystemExit("rel_w18_rulers: the donor search's arrays of %s are not sound: %s" % (d, bad))
+    for x in (qf, db, os.path.join(work, "donor_targets.faa")):
+        if os.path.exists(x):
+            os.remove(x)
+    def found(d, j, a):
+        x = got[d]
+        return bool((np.asarray(x["tgenome"])[int(x["off"][j]):int(x["off"][j + 1])] == oix[a]).any())
+    rec = dict(queries=len(need), donors=len(queries), targets=len(targets), pairs=int(sum(len(x["tgenome"]) for x in got.values())),
+               found=int(sum(found(d, j, a) for d, j, a in need)),
+               settings=dict(opts, k=0, max_hsps=0, source="the settings of the search run %s" % os.path.basename(os.path.normpath(s["search_from"]))),
+               db_s=round(db_s, 1), seconds=round(time.time() - t0, 1), search_s=round(sec, 1))
+    say("donor search: %d donor genes against %d genomes, %d pairs (%d of the (D:j, A) with a homolog), %.0f s" % (
+        rec["queries"], rec["targets"], rec["pairs"], rec["found"], rec["seconds"]))
+    return got, rec
+
+
 def mask_digests(out, meta):
     """({triple: the sha256 of the cells its passes hide}, [triples whose three tables differ]): the masks are hashed on
     the triple, so the three tables of a triple hide the same cells (the target blocks have one length)."""
@@ -273,9 +371,14 @@ def build(st, cfg, run_dir):
         imp = I.Implanter(SS.Pairs(run), genomes, train, ids, dist, dist_ids, s["edges"], eligible, units, **draws)
     else:
         sgen, rows_of, st.extra["search"] = search_source(s, smeta, metas)
-        imp = I.ImplanterV1(sgen, genomes, rows_of, train, ids, dist, dist_ids, s["edges"], eligible, units, **draws)
+        imp = I.ImplanterV1(sgen, genomes, rows_of, train, ids, dist, dist_ids, s["edges"], eligible, units, self_copies=s["self_copies"], **draws)
+    donor = None
+    if s["version"] == 1 and s["donor_search"]:
+        def donor(need):
+            got, st.extra["donor_search"] = donor_search(cfg, s, src, smeta, sgen, need, os.path.join(run_dir, OUT, "donor_search.tmp"), say)
+            return got
     out, meta, triples, counts, capacity = imp.build(metas, groups, s["seed"], per_tier=s["per_tier"], group_tier_cap=s["group_tier_cap"],
-                                                     scenarios=s["scenarios"], progress=say)
+                                                     scenarios=s["scenarios"], progress=say, donor_pairs=donor)
     gix = {g: i for i, g in enumerate(ids)}
     problems = I.verify(out, meta, {gix[g] for g in eligible}, {gix[g] for g in train}, {gix[g]: u for g, u in units.items()})
     digests, unequal = mask_digests(out, meta)
@@ -299,14 +402,16 @@ def build(st, cfg, run_dir):
         f.update(sha256=sha, bytes=os.path.getsize(os.path.join(run_dir, f["path"])))
     used = sorted({int(x) for x in np.unique(out["genome"]) if x >= 0} | {int(x) for x in np.unique(meta["donor"])})
     present = sorted({t["group"] for t in triples})
-    tver = I.TABLE_VERSION + ("-v1" if s["version"] else "")
+    tver = (I.TABLE_VERSION_SELF if s["self_copies"] else I.TABLE_VERSION) + ("-v1" if s["version"] else "")
     index = dict(format="rel-w18-rulers-index", version=1, table_version=tver, tables_of_version=s["version"], api_version=V.API_VERSION, rows=s["rows"], groups=groups,
                  edges=s["edges"], tiers=["<%g" % s["edges"][0]] + ["%g-%g" % (a, b) for a, b in zip(s["edges"], s["edges"][1:])] + [">=%g" % s["edges"][-1], "no shared k-mer"],
                  k=s["k"], variants=list(I.VARIANTS), meta_fields={k: v[2] for k, v in I.FIELDS.items()}, settings=s, counts=counts,
                  triples=[dict(t, a=gix[t["a"]], d=gix[t["d"]]) for t in triples], units=imp.unit_names, capacity=capacity,
                  tier_expectation=tier_expectation(capacity, groups, s["edges"]),
                  left_out_by_code={g: len(v) for g, v in by_code.items()}, code_detail=by_code, eligible=sorted(gix[g] for g in eligible),
-                 meta_file="w18_meta.npz",
+                 meta_file="w18_meta.npz", donor_search=st.extra.get("donor_search"),
+                 rule9_bit1=("read: the donor search gives A's homologs of D:j" if st.extra.get("donor_search") else
+                             "never set: the search holds no pair of a donor gene with A's genes, so rule 9 rests on its second bit alone"),
                  genomes=[dict(id=m["id"], group=m["group"], split=m["split"], taxid=int(m["taxid"])) for m in metas],
                  distance_run=(dict(run_id=os.path.basename(os.path.normpath(s["dist"])), report_sha256=sha256_file(os.path.join(s["dist"], "data", "rel_w2", "dist", "report.json"), use_sidecar=False))
                                if s["dist"] else dict(computed="here, as stage w12_v1 computes them", k=s["k"], size=4096)))
@@ -396,7 +501,8 @@ def summary(run_dir):
     js = dict(name=doc["name"], tables=doc["tables"], triples=c.get("triples"), copies=c.get("copies"), failed=c.get("failed"), zero_rows=c.get("zero_rows"),
               phases={k: c.get(k) for k in ("phase1", "phase2", "phase3")}, context_homolog=c.get("context_homolog"),
               donor_tiers={str(k): v for k, v in sorted(tiers.items())}, rows_on_target={str(k): v for k, v in sorted(rows.items())},
-              tier_expectation=index.get("tier_expectation"), left_out_by_code=index.get("left_out_by_code"), tableset_sha256=doc["sha256"], folder=OUT)
+              tier_expectation=index.get("tier_expectation"), left_out_by_code=index.get("left_out_by_code"), tableset_sha256=doc["sha256"], folder=OUT,
+              self_rows=c.get("self_rows"), self_triples=c.get("self_triples"), donor_search=index.get("donor_search"), rule9_bit1=index.get("rule9_bit1"))
     md = ["Implant tables (`%s`, kind ruler, construct only): %d triples in place and %d copies with the donor's lineage unsampled, %d tables; "
           "phases (n = 256 / matched / zero rows) %s; failed %s; triples flagged by rule 9 %s." % (
               doc["name"], c.get("triples", 0), c.get("copies", 0), doc["tables"], "/".join(str(c.get(k)) for k in ("phase1", "phase2", "phase3")),

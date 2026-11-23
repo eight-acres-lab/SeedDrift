@@ -1,0 +1,24 @@
+# Round 1 (protocol configs/rel/protocols/round1.yaml, version 2): the reference trunk of rounds 1a and 1b, unchanged
+# (genome_of_row not read: the same-genome bias is an arm of batch 3), on tables of version 1 (32 rows, 4 to 32 kept,
+# row 0 always; KIND_ABSENT an input; self-copy rows in). Every mask scheme leak-free: scattered and span through the
+# online renderer, the whole gene laid on its frame relative by package W3's strict aligner (tables/align.py
+# frame_layout, after the rows are drawn; the function the evaluation uses). 4 tables per step.
+# 30 M at 1.5e-4 (half the width rule; the lowest rate round 1a tried for 30 M). Arms ref30m-long (i-2), ref30m-s2
+# and ref30m-s3 (i-1).
+name: w6-ref30m-v1
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: leakfree
+whole_gene_layout: frame                  # W3's strict aligner on the rows drawn, then rendered leak-free
+rows: [4, 32]
+columns: 1024
+size: {layers: 12, width: 384}
+relatives: true
+optimizer: {lr: 1.5e-4}
+micro: 2
+gpu_mb: 28000                             # micro-batches of 2 tables (64 rows) as the protocol says; beside i-2's vLLM the preflight halves them to 1 if 2 do not fit (the probe measures it)
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws (arms with relatives)
+tables: real

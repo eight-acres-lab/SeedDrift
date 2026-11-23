@@ -31,5 +31,5 @@ rel_w6_eval:
 train:
   gpu_lease: false
   device: auto
-  python: /usr/local/bin/python3
-  python_lock: ci/envs/model-torch.pip.txt
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

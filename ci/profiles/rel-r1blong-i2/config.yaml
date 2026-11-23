@@ -13,7 +13,7 @@ cores: 4
 blas_threads: 2
 disk_gb: 10
 disk_reserve_gb: 30
-gpu_mem_min_mb: 27000
+gpu_mem_min_mb: 19000           # i-2's A100 has 40 GB and the vLLM service holds about 18 GB (as rel-r1along30m-i2)
 corpus_spec: configs/corpus/medium.yaml
 taxdump: /hy-tmp/seeddrift-store/reference/taxdump
 extra_exclusions: [configs/exclusions/pilot_recipients.tsv]

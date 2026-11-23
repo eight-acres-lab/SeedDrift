@@ -4,7 +4,7 @@
 # purpose ruler, never a training table. The source is the one the search read; the distances are computed in the stage
 # as stage w12_v1 computes them. The search reads corpus medium-k3 (medium with 526 close relatives, W13), so donors of
 # the near tiers exist; rows stay training genomes outside the split units of A and D. search_from names W12's full
-# search run once it has passed (until then this profile stops at its first check). CPU only (the select lock), 4 processes. Development diagnosis only.
+# search run (20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1); run this profile once that run has passed. CPU only (the select lock), 4 processes. Development diagnosis only.
 pipeline: rel_tables
 needs_gpu: false
 tier: medium
@@ -21,7 +21,7 @@ rel:
   stages: [w18_rulers]
 rel_w18_rulers:
   version: 1
-  search_from: /hy-tmp/seeddrift-ci/runs/W12-FULL-SEARCH-RUN-NOT-SET
+  search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
   rows: 32
   per_tier: 2
   group_tier_cap: 30

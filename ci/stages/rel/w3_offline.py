@@ -19,8 +19,17 @@ stored position of a block with a hidden residue is erased, the correspondence i
 and the table is rendered: the grid and the cells laid by extension must be the same, cell for cell.
 
 Profile block rel_w3_offline: tables_from (the run directory of the passed tables run), tablesets [{path, sha256}] (its
-manifest), conditions (default [scattered, suffix]), seed (the plan's, default conditions.SEED), check_seed (the random
-codons of the test), shard_tables (2400).
+manifest), conditions (default [scattered, suffix, whole_gene]), seed (the plan's, default conditions.SEED), check_seed
+(the random codons of the test, drawn per table), shard_tables (2400), allow_kinds (default [real]; [synthetic] for
+tests; a ruler set is refused), processes (1: the tables of a part rendered by that many processes; the output is the
+same whatever the number). Ruler sets (W18's implant tables) are rendered by stage rel_w18_offline alone: its passes have
+masks of their own (hashed on the triple), which the plans of this stage do not reproduce.
+Tables of version 0 and 1 alike (32 rows, ABSENT and TRUNCATED blocks, self-copy rows, the fields the contract adds):
+every row with codons on a block (KIND_PRESENT or KIND_SELF_COPY) is a relative to align and may be the frame relative;
+a block without codons is rendered by its kind. Every field the source holds is copied (with the added fields of
+version 1, written as version 1), and every other file its manifest lists (the source's index and census, say) is
+copied unchanged under source/ (manifest key source_files: where each came from). The manifest takes the source's
+name (w3-strict-<source>-s<seed>), kind, purpose and group names.
 Outputs under data/rel_w3/offline/: <condition>/ the shards of each part (the shard and meta fields of the contract, the
 disk layout of seeddrift/train/rel/tables/v0_io.py), report.json, and tableset.json (written last: the table-set
 manifest, kind real, one part per condition with its plan and the digest of its scored cells, the sealed record).
@@ -31,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 
 import numpy as np
@@ -48,8 +58,11 @@ from seeddrift.train.rel.tables import v0_io as IO
 
 STAGE = "rel_w3_offline"
 OUT = os.path.join("data", "rel_w3", "offline")
-KEYS = {"tables_from", "tablesets", "conditions", "seed", "check_seed", "shard_tables", "allow_kinds"}
+KEYS = {"tables_from", "tablesets", "conditions", "seed", "check_seed", "shard_tables", "allow_kinds", "processes"}
 FIELDS = tuple(api.SHARD_FIELDS) + tuple(api.META_FIELDS)
+KINDS = (api.TABLE_REAL, api.TABLE_SYNTHETIC)                     # a ruler set is W18's (stage rel_w18_offline)
+RULER_REFUSED = ("a ruler set is rendered by stage rel_w18_offline, with the masks of W18's passes (hashed on the triple); "
+                 "the plans of this stage would place other cells")
 TABLE_VERSION = "w3-strict-%s" % AL.VERSION
 CHUNK = 64
 
@@ -65,9 +78,12 @@ def settings(cfg) -> dict:
         if mode:
             raise SystemExit("%s: a part is rendered for a mask (scattered, suffix, whole_gene), not for %r: re-paired and "
                              "no-relatives conditions take the whole_gene part and the stored tables" % (STAGE, x))
+    kinds = list(c.get("allow_kinds") or [api.TABLE_REAL])
+    if any(k not in KINDS for k in kinds):
+        raise SystemExit("%s: allow_kinds takes %s, not %s: %s" % (STAGE, list(KINDS), kinds, RULER_REFUSED))
     return dict(tables_from=str(c["tables_from"]), tablesets=list(c["tablesets"]), conditions=conds, seed=int(c.get("seed", cond.SEED)),
                 check_seed=int(c.get("check_seed", 20261123)), shard_tables=int(c.get("shard_tables", 2400)),
-                allow_kinds=list(c.get("allow_kinds") or [api.TABLE_REAL]))
+                allow_kinds=kinds, processes=max(1, int(c.get("processes", 1))))
 
 
 def heldout(s):
@@ -78,6 +94,8 @@ def heldout(s):
             doc = handoff.from_run(s["tables_from"], t["path"], t.get("sha256"))
         except handoff.HandoffError as err:
             raise SystemExit("%s: %s" % (STAGE, err))
+        if doc["kind"] == api.TABLE_RULER:
+            raise SystemExit("%s: table set %s is a ruler set: %s" % (STAGE, doc["name"], RULER_REFUSED))
         if doc["kind"] not in s["allow_kinds"]:
             raise SystemExit("%s: table set %s is %s; this profile accepts %s" % (STAGE, doc["name"], doc["kind"], s["allow_kinds"]))
         docs.append(doc)
@@ -109,53 +127,103 @@ def render_strict(tab, visible, target, condition=cond.SCATTERED):
     return strict, grid, truth, ext
 
 
+def render_tables(arrays, condition, seed, check_seed, first, last):
+    """The strict rendering of tables first..last-1 of a part under one condition, with the fourth test on each: the
+    new col, frame_row and frame_len, the tables that failed the test and the counts of the report. The test's random
+    codons are drawn per table (check_seed, table), so the result does not depend on how the tables are split."""
+    n = last - first
+    col = np.array(arrays["col"][first:last], copy=True)
+    frame_row, frame_len = np.array(arrays["frame_row"][first:last], copy=True), np.array(arrays["frame_len"][first:last], copy=True)
+    out = dict(failures=[], kept=0, anchors=0, dropped=0, ext=0, codons=0)
+    for a in range(first, last, CHUNK):
+        b = min(a + CHUNK, last)
+        batch = cond.materialise({f: arrays[f][a:b] for f in ("tok", "n", "col", "kind")}, np.arange(a, b), condition, seed)
+        for k in range(b - a):
+            t = a + k
+            tab = one(arrays, t)
+            vis, target = batch["visible"][k], batch["target"][k]
+            strict, grid, truth, ext = render_strict(tab, vis, target, condition)
+            new = strict["col"]
+            col[t - first], frame_row[t - first], frame_len[t - first] = new, strict.get("frame_row", tab["frame_row"]), strict["frame_len"]
+            out["dropped"] += RD.dropped(strict, vis, target)
+            out["ext"] += int(ext[1:].sum())
+            out["codons"] += int(((grid[1:] >= api.TARGET_MIN) & (grid[1:] <= api.TARGET_MAX)).sum())
+            old_anchor, new_anchor = _anchors(tab["col"], tab, vis), _anchors(new, strict, vis)
+            out["anchors"] += int(old_anchor.sum())
+            out["kept"] += int((old_anchor & new_anchor & (tab["col"] == new)).sum())
+            gone = np.array(tab["col"], copy=True)                               # the fourth test: the hidden residues changed and
+            for bb, (_, s0, e0) in enumerate(api.block_slices()):               # every stored position of a block with any of them
+                f0 = int(tab["frame_len"][bb])
+                if f0 and not vis[0, s0:s0 + f0].all():
+                    gone[1:, s0:e0] = -1
+            rng = np.random.default_rng([int(check_seed), int(t)])
+            other = dict(tab, tok=np.where(target, rng.integers(1, 66, tab["tok"].shape), tab["tok"]).astype(np.uint8), col=gone)
+            _, g2, _, e2 = render_strict(other, vis, target, condition)
+            if not (np.array_equal(grid, g2) and np.array_equal(ext, e2)):
+                out["failures"].append(t)
+    out.update(col=col, frame_row=frame_row, frame_len=frame_len, tables=n)
+    return out
+
+
+_SHARED = {}
+
+
+def _render_unit(args):
+    return render_tables(_SHARED["arrays"], *args)
+
+
+def render_part(arrays, condition, seed, check_seed, processes=1):
+    """render_tables over every table of a part, in `processes` processes (forked, the arrays shared): the same result
+    whatever the number."""
+    N = int(arrays["tok"].shape[0])
+    if processes <= 1 or N <= CHUNK:
+        return render_tables(arrays, condition, seed, check_seed, 0, N)
+    import multiprocessing as mp
+    step = max(CHUNK, -(-N // (4 * processes)))
+    units = [(condition, seed, check_seed, a, min(a + step, N)) for a in range(0, N, step)]
+    _SHARED["arrays"] = arrays
+    try:
+        with mp.get_context("fork").Pool(processes) as pool:
+            got = pool.map(_render_unit, units)
+    finally:
+        _SHARED.clear()
+    out = dict(failures=sorted(t for g in got for t in g["failures"]))
+    for k in ("kept", "anchors", "dropped", "ext", "codons"):
+        out[k] = sum(g[k] for g in got)
+    for k in ("col", "frame_row", "frame_len"):
+        out[k] = np.concatenate([g[k] for g in got])
+    return out
+
+
 def build(st, cfg, run_dir):
     s = settings(cfg)
     t0 = time.time()
     docs, held = heldout(s)
     genomes = {g["id"]: g for d in docs for g in d.get("genomes") or []}
     record = common.sealed_record(cfg, list(genomes.values()), splits={k: g.get("split") for k, g in genomes.items()}) if genomes else None
-    arrays = held.load(0, held.tables, [f for f in held.fields if f in FIELDS or f in shards.ADDED])   # every field the set holds
+    arrays = held.load(0, held.tables, list(held.fields))                # every field the set holds
     if (arrays["split"] != shards.SPLIT_HELDOUT).any():
         raise SystemExit("%s: a table to render is not a held-out table" % STAGE)
+    added = [f for f in arrays if f in shards.ADDED]
+    version = 1 if added else 0
+    if added and sorted(added) != sorted(shards.ADDED):
+        raise SystemExit("%s: the set holds some of the fields of table version 1 and not the others: %s" % (STAGE, sorted(added)))
+    kinds = {d["kind"] for d in docs}
+    if len(kinds) != 1:
+        raise SystemExit("%s: the table sets read are of different kinds: %s" % (STAGE, sorted(kinds)))
     base = os.path.join(run_dir, OUT)
-    rng = np.random.default_rng(s["check_seed"])
     parts, files, report = {}, [], dict(conditions={})
-    for c in s["conditions"]:
+    for ci, c in enumerate(s["conditions"]):
         tc = time.time()
-        col = np.array(arrays["col"], copy=True)
-        frame_row, frame_len = np.array(arrays["frame_row"], copy=True), np.array(arrays["frame_len"], copy=True)
         digest = cond.ItemsDigest(c, s["seed"])
-        failures, kept, anchors, dropped, ext_cells, codons = [], 0, 0, 0, 0, 0
-        for a in range(0, held.tables, CHUNK):
-            b = min(a + CHUNK, held.tables)
-            batch = cond.materialise({f: arrays[f][a:b] for f in ("tok", "n", "col", "kind")}, np.arange(a, b), c, s["seed"])
-            digest.add(batch)
-            for k in range(b - a):
-                t = a + k
-                tab = one(arrays, t)
-                vis, target = batch["visible"][k], batch["target"][k]
-                strict, grid, truth, ext = render_strict(tab, vis, target, c)
-                new = strict["col"]
-                col[t], frame_row[t], frame_len[t] = new, strict.get("frame_row", tab["frame_row"]), strict["frame_len"]
-                dropped += RD.dropped(strict, vis, target)
-                ext_cells += int(ext[1:].sum())
-                codons += int(((grid[1:] >= api.TARGET_MIN) & (grid[1:] <= api.TARGET_MAX)).sum())
-                old_anchor, new_anchor = _anchors(tab["col"], tab, vis), _anchors(new, strict, vis)
-                anchors += int(old_anchor.sum())
-                kept += int((old_anchor & new_anchor & (tab["col"] == new)).sum())
-                gone = np.array(tab["col"], copy=True)                           # the fourth test: the hidden residues changed and
-                for bb, (_, s0, e0) in enumerate(api.block_slices()):           # every stored position of a block with any of them
-                    f0 = int(tab["frame_len"][bb])
-                    if f0 and not vis[0, s0:s0 + f0].all():
-                        gone[1:, s0:e0] = -1
-                other = dict(tab, tok=np.where(target, rng.integers(1, 66, tab["tok"].shape), tab["tok"]).astype(np.uint8), col=gone)
-                _, g2, _, e2 = render_strict(other, vis, target, c)
-                if not (np.array_equal(grid, g2) and np.array_equal(ext, e2)):
-                    failures.append(t)
+        for a in range(0, held.tables, 512):
+            digest.add(cond.materialise({f: arrays[f][a:a + 512] for f in ("tok", "n", "col", "kind")}, np.arange(a, min(a + 512, held.tables)), c, s["seed"]))
+        got = render_part(arrays, c, s["seed"], s["check_seed"] + 1000003 * ci, s["processes"])
+        col, frame_row, frame_len = got["col"], got["frame_row"], got["frame_len"]
+        failures, kept, anchors, dropped, ext_cells, codons = (got[k] for k in ("failures", "kept", "anchors", "dropped", "ext", "codons"))
         out = dict(arrays, col=col.astype(np.int16), frame_row=frame_row.astype(np.int8), frame_len=frame_len.astype(np.int16))
         folder = os.path.join(base, c)
-        written = IO.write(folder, out, s["shard_tables"])
+        written = IO.write(folder, out, s["shard_tables"], version)
         for name, _ in written:
             for f in arrays:
                 p = IO.shard_path(folder, name, f)
@@ -168,12 +236,27 @@ def build(st, cfg, run_dir):
                                        dropped_targets=int(dropped), stored_anchors=int(anchors), stored_anchors_kept=int(kept),
                                        other_row_codons_shown=int(codons), cells_laid_by_extension=int(ext_cells),
                                        items_sha256=digest.hexdigest(), seconds=round(time.time() - tc, 1))
+    source_files = []
+    for d in docs:                                                       # the source's other files, unchanged
+        for e in d.get("files") or []:
+            if e.get("role") == "shard" or (e.get("role") == "meta" and e["path"].endswith(".npy") and len(os.path.basename(e["path"]).split(".")) == 3):
+                continue
+            to = os.path.join(base, "source", d["name"], e["path"])
+            os.makedirs(os.path.dirname(to), exist_ok=True)
+            shutil.copyfile(os.path.join(s["tables_from"], e["path"]), to)
+            files.append(dict(path=os.path.relpath(to, run_dir), sha256=sha256_file(to, use_sidecar=False), bytes=os.path.getsize(to), role=e["role"]))
+            if files[-1]["sha256"] != e.get("sha256", files[-1]["sha256"]):
+                raise SystemExit("%s: %s of %s is not the file its manifest lists" % (STAGE, e["path"], d["name"]))
+            source_files.append(dict(path=files[-1]["path"], source=e["path"], tableset=d["name"], role=e["role"]))
     src = docs[0]
+    left = [] if cond.WHOLE_GENE in s["conditions"] else ["the whole gene hidden (no part rendered on the frame relative)"]
     doc = handoff.finish(dict(
-        format="rel-tableset", format_version=1, name="w3-strict-v0-s%d" % s["seed"], kind=api.TABLE_REAL, api_version=api.API,
+        format="rel-tableset", format_version=1, name="w3-strict-%s-s%d" % ("+".join(d["name"] for d in docs), s["seed"]), kind=src["kind"],
+        api_version=api.API, rows=int(arrays["tok"].shape[1]), source_table_version=version, source_files=source_files,
+        **{k: src[k] for k in ("purpose", "not_for_training", "group_names") if src.get(k) is not None},
         table_version="%s on %s" % (TABLE_VERSION, src["table_version"]), layout=api.LAYOUT_LEAKFREE,
         coverage=dict(groups=list((src.get("coverage") or {}).get("groups") or []), scenarios=list((src.get("coverage") or {}).get("scenarios") or []),
-                      not_covered=list((src.get("coverage") or {}).get("not_covered") or []) + ["the whole gene hidden (step two: the frame relative)"],
+                      not_covered=list((src.get("coverage") or {}).get("not_covered") or []) + left,
                       note="the held-out tables of %s, one part per evaluation condition, their correspondence aligned with the condition's hidden "
                            "residues unknown; render with the leak-free layout and the same plan" % src["name"]),
         tables=int(held.tables) * len(parts), parts=parts, files=files, genomes=list(genomes.values()),

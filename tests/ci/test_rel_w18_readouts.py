@@ -6,6 +6,7 @@ import sys
 import tempfile
 
 import numpy as np
+import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -304,3 +305,126 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+
+
+def test_layers_shares_and_the_two_verdicts_of_protocol_w18_v3():
+    meta, group, names = _triples(n_tr=80)
+    n_tr = len(np.unique(meta["triple"]))
+    meta["self_rows"] = np.repeat(np.where(np.arange(n_tr) % 4 == 0, 1, 0), 3).astype(np.int8)
+    meta["on_target"] = np.repeat(np.where(np.arange(n_tr) % 8 <= 1, 0, 3), 3).astype(np.int8)
+    meta["row_tier"][:, 1] = np.where(meta["self_rows"] > 0, P.SELF_TIER, meta["row_tier"][:, 1])
+    ident = np.where(meta["row_tier"] == P.SELF_TIER, 0.99, 0.4)
+    tr = R.Triples(meta, group, ident, ["bacteria"] * len(group), names)
+    assert set(tr.layer.tolist()) == set(R.LAYERS)
+    assert (tr.layer == "self_copies_only").sum() == ((np.arange(n_tr) % 8 == 0) & (np.arange(n_tr) % 4 == 0)).sum()
+    assert np.nanmax(tr.nearest) == 0.4                                # a self copy is never the nearest lineage
+    boot = R.Bootstrap(tr, reps=50)
+    pop = np.ones(n_tr, bool)
+    strata = {k: v for k, v in tr.strata().items() if k[0] in ("all", "relatives_layer")}
+    own = meta["variant"] == 2
+    arm = np.where(own, 1.0, 0.0)                                       # defined on every own table; the control on none
+    rows = R.paired_share_rows("source_shift_aa_defined", arm, np.zeros(len(arm)), tr, pop, boot, label="a", reference="untrained", tag=dict(scenario="in_place", rule9="on"))
+    euk = [r for r in rows if r["block"] == "eukaryotes"][0]
+    assert euk["value"] == 1.0 and euk["lo"] == 1.0 and euk["readable"] and euk["arm_share"] == 1.0 and euk["reference_share"] == 0.0
+    shares = rows + R.paired_share_rows("source_shift_aa_defined", arm, np.zeros(len(arm)), tr, pop, boot, label="a", reference="presence",
+                                        tag=dict(scenario="in_place", rule9="on"))
+    for ref in ("untrained", "presence"):
+        shares += R.paired_share_rows("abstain", 1 - arm, np.ones(len(arm)), tr, pop, boot, label="a", reference=ref, tag=dict(scenario="in_place", rule9="on"))
+    score = np.where(meta["variant"] == 0, 1.0, 0.0)
+    tag = dict(scenario="in_place", rule9="on")
+    stats = R.stat_rows(dict(gain_rel_aa=score, source_shift_aa=score), tr, pop, strata, boot, label="a", stats=("win",), tag=tag,
+                        reference=dict(untrained=np.zeros(len(score)), presence=np.zeros(len(score))))
+    v = {x["block"]: x for x in R.verdicts(stats, shares, ["a"])}
+    assert v["eukaryotes"]["verdict"] == R.SEE and v["eukaryotes"]["failed"] == [] and "source_shift" not in v["eukaryotes"]   # the second verdict: second_verdict
+    assert v["prokaryotes, plasmids, viruses"]["verdict"] == R.NOT_SHOWN and not v["prokaryotes, plasmids, viruses"]["readable"]   # one group
+    worse = [dict(r, lo=-0.1) if r["score"] == "abstain" else r for r in shares]                  # abstention not below a control
+    w = {x["block"]: x for x in R.verdicts(stats, [dict(r, hi=0.2) if r["score"] == "abstain" else r for r in worse], ["a"])}
+    assert w["eukaryotes"]["verdict"] == R.NOT_SHOWN and w["eukaryotes"]["failed"] == ["abstention"]
+
+
+def test_the_status_line_names_the_tables_and_the_rendering():
+    from ci.stages.rel import w18_readout as RO
+    assert RO.status_of(True, None, 1) == RO.STATUS_V3
+    a = RO.status_of(False, 16, 1)
+    assert a.startswith("ADAPTED") and "version 0 (rows chosen" not in a and a.endswith(RO.TAIL)
+    assert RO.status_of(False, 16, 0).endswith(RO.STATUS) and RO.status_of(False, None, 0) == RO.STATUS
+    assert "stored layout" in RO.status_of(False, None, 1) and "version 1" in RO.status_of(False, None, 1)
+
+
+def _v4(n_tr=80):
+    meta, group, names = _triples(n_tr=n_tr)
+    N = len(group)
+    meta["self_rows"] = np.zeros(N, np.int8)
+    tr = R.Triples(meta, group, np.full((N, 4), np.nan), ["bacteria"] * N, names)
+    return meta, group, names, tr, R.Bootstrap(tr, reps=50)
+
+
+def test_undefined_and_failed_shifts_are_apart():
+    tiers = [np.array([-1, 0, 1])] * 3
+    t_all, c_all = np.array([1.0, 1.0, 1.0]), np.array([1.0, np.nan, 1.0])
+    rt = {0: np.array([1.5, 1.5, 1.0]), 1: np.array([1.2, 1.2, 1.0])}
+    rc = {0: np.array([1.3, 1.3, 1.0]), 1: np.array([1.1, 1.1, 1.0])}
+    shift, state = R._shift(t_all, c_all, rt, rc, tiers)
+    assert state.tolist() == [R.SHIFT_OK, R.SHIFT_FAILED, R.SHIFT_UNDEFINED] and np.isfinite(shift[0]) and np.isnan(shift[1:]).all()
+    shift, state = R._shift(np.ones(1), np.ones(1), {}, {}, [np.array([-1, R.P.SELF_TIER])])
+    assert state.tolist() == [R.SHIFT_UNDEFINED]                        # self copies only: no tier to rely on, no error
+    assert P.tiers_present(np.array([-1, P.SELF_TIER, 2, 3]), np.ones(4, bool)) == [2, 3]
+
+
+def test_second_population_comes_from_the_ruler_alone():
+    meta, group, names = _triples(n_tr=80)
+    N = len(group)
+    kind = np.zeros((N, 4, P.B), np.int8)
+    kind[:, 1:3, P.TARGET_BLOCK] = api.KIND_PRESENT
+    meta["row_tier"][:, 1:3] = np.array([3, 4])
+    meta["row_tier"][meta["triple"] % 5 == 0, 2] = 3                   # one tier only: out
+    kind[(meta["triple"] % 7 == 0) & (meta["variant"] == 2), 2, P.TARGET_BLOCK] = api.KIND_ABSENT   # the own table loses a tier: out
+    meta["self_rows"] = np.where(meta["triple"] % 11 == 0, 1, 0).astype(np.int8)                   # self-copy rows: out
+    tr = R.Triples(meta, group, np.full((N, 4), np.nan), ["bacteria"] * N, names)
+    span = R.tier_span(meta, kind)
+    pop = R.second_population(tr, meta, kind, np.ones(len(tr.ids), bool))
+    ids = np.unique(meta["triple"])
+    expect = sum(1 for s_ in ids if s_ % 5 and s_ % 7 and s_ % 11)
+    assert int(pop.sum()) == expect and span.sum() < N
+
+
+def test_the_second_verdict_decomposes_and_reads_its_bar():
+    meta, group, names, tr, boot = _v4()
+    N = len(group)
+    v = meta["variant"]
+    pop = np.ones(len(tr.ids), bool)
+    top = np.where(v == 0, 0.9, 0.1)                                     # defined everywhere, implant above own
+    cov_same = np.where(v == 0, 0.8, 0.2)                                # the coverage pattern ranks the same way
+    cov_none = np.where(v == 0, 0.2, 0.8)
+    a = R.second_verdict(top, cov_none, tr, pop, boot, "eukaryotes")
+    assert a["label"] == R.SECOND_HOLDS and np.isclose(a["shift_term"]["value"], 0.5) and np.isclose(a["definedness_term"]["value"], 0.0)
+    assert np.isclose(a["coverage_bar"]["value"], 1.0) and a["readable"]
+    b = R.second_verdict(top, cov_same, tr, pop, boot, "eukaryotes")
+    assert b["label"] == R.NOT_SHOWN and b["failed"] == ["beats coverage_shift"]
+    c = R.second_verdict(np.where(v == 0, np.inf, 0.1), cov_none, tr, pop, boot, "eukaryotes")      # undefined on the implant only
+    assert c["label"] == R.SECOND_DEFINEDNESS and np.isclose(c["definedness_term"]["value"], 0.5) and np.isclose(c["shift_term"]["value"], 0.0)
+    assert np.isclose(c["win_top"]["value"] - 0.5, c["shift_term"]["value"] + c["definedness_term"]["value"])
+    assert np.isclose(c["sensitivity_undefined_as_zero"]["value"], 0.0)            # undefined as no shift: the implant ranks lowest
+    failed = np.where((v == 0) & (meta["triple"] % 4 == 0), np.nan, top)          # computation failures: left out, counted
+    d = R.second_verdict(failed, cov_none, tr, pop, boot, "eukaryotes")
+    assert d["left_out_failed"] == int(((np.unique(meta["triple"]) % 4 == 0) & (tr.block == "eukaryotes")).sum()) and d["ranked"] == d["population"] - d["left_out_failed"]
+    e = R.second_verdict(top, np.where(meta["triple"] % 3 == 0, np.nan, cov_none), tr, pop, boot, "eukaryotes")
+    assert e["coverage_bar_left_out"] > 0 and e["coverage_bar"]["triples"] < a["coverage_bar"]["triples"]
+    f = R.second_verdict(top, cov_none, tr, pop, boot, "prokaryotes, plasmids, viruses")      # one group: too few, never "not shown"
+    assert f["label"] == R.SECOND_TOO_FEW and not f["readable"]
+    g = R.second_verdict(top, cov_none, tr, pop, boot, "eukaryotes", controls=dict(untrained=np.full(N, np.inf)))
+    assert np.isclose(g["controls"]["untrained"]["win_top"]["value"], 0.5) and g["controls"]["untrained"]["defined_implant"] == 0.0
+    m = R.multiplicity([a, f], 1)
+    assert m["text"] == "1 of the 1 readable verdicts hold, 1 too few to read"
+
+
+def test_one_untrained_control_for_every_arm():
+    from ci.stages.rel import w18_readout as RO
+    arms = [dict(label="ref30m-s2", weights="final", relatives=True), dict(label="untrained:ref30m", weights="untrained", relatives=True),
+            dict(label="ref100m-long", weights="final", relatives=True)]
+    assert RO.untrained_control(arms) == "untrained:ref30m"            # mapped to every arm, whatever its name
+    two = arms + [dict(label="untrained:ref100m", weights="untrained", relatives=True)]
+    with pytest.raises(SystemExit, match="name the control"):
+        RO.untrained_control(two)
+    assert RO.untrained_control(two, "ref30m") == "untrained:ref30m"
+    assert RO.untrained_control(arms[:1]) is None

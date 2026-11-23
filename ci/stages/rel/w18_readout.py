@@ -28,11 +28,29 @@ trained on tables of version 0 reading implant tables of version 1), the stage a
 (w18_passes.adapt_arrays) before every readout, control and plan digest, and the page says so first; every arm of one
 reading must have read the tables the same way.
 
+Protocol w18-v3, version 4 (a leak-free reading, rendered on the strict offline placements of stage rel_w18_offline): one rendering
+per reading (the per-cell files' layout and placements, recorded as `layout`); arms labelled by their weights
+(arm@node@N beside final); every reading also per relatives layer (other-genome rows on the target, self copies only,
+none); the criterion "the readouts see the relatives" (defined share of source_shift_aa above the untrained model's and
+the arm's presence passes', abstention below both, the win rate of gain_rel_aa above the untrained model's; paired
+differences, 95% intervals) and the second verdict (the win rate of source_shift_aa above both), per arm with relatives
+and block, in place, rule 9 on, the layer of other-genome rows, near-tier donors (tiers 0 and 1) left out (criterion.tsv,
+report.json verdicts). The second verdict (report.json second_verdicts): source_shift_top_aa (an undefined shift
+ranked the most foreign, a table that could not be computed left out and counted) on a population the ruler fixes (no
+self-copy rows, every table with other-genome rows of two tiers or more on the target), decomposed per triple into a
+shift term and a definedness term, against the model-free coverage_shift counted on the cells of passes T and C as
+rendered (setting offline: the run of the placements, for a strict reading); labels holds / through definedness /
+not shown / too few to read; the untrained model, the presence passes, best_similarity, the primary subset, the
+strata of coverage ratio and host codon quartiles beside it; both verdicts counted per reading ("k of the m readable
+verdicts hold"). The untrained control is the reading's one untrained model with relatives, mapped to every arm
+(setting untrained names it when there are several), never paired by name.
+
 Profile block rel_w18_readout: tables, eval_run (optional; a run directory or a list), arms (optional: the arms to read, default every file
-found), reps (2,000), seed (20261124).
+found), reps (2,000), seed (20261124), compare (other readings, the 2 x 2 table), untrained (the untrained control's
+name, when there are several), offline (the run of stage rel_w18_offline of a strict reading).
 Outputs under data/rel_w18/readout/: scores.tsv (every score of every table), stats.tsv (the win rates and AUCs),
-defined.tsv (the defined share of the source shift, implant minus own), coverage.tsv (charter rule 7's table), report.md,
-report.json (written last).
+defined.tsv (the defined share of the source shift, implant minus own), coverage.tsv (charter rule 7's table),
+criterion.tsv (protocol w18-v3's paired share differences), report.md, report.json (written last).
 Gate G4_rel_w18_readout: every per-cell file read was checked, at least one trained arm with relatives was read, every
 value is in [0, 1], no coverage cell is marked evaluated, and the report names the run and the tables of every number.
 """
@@ -56,7 +74,7 @@ from seeddrift.train.rel.readouts import w18_readouts as R
 
 OUT = os.path.join("data", "rel_w18", "readout")
 EVAL = os.path.join("data", "rel_w6", "eval")
-KEYS = {"tables", "eval_run", "arms", "reps", "seed"}
+KEYS = {"tables", "eval_run", "arms", "reps", "seed", "compare", "untrained", "offline"}
 STATUS = ("preliminary: tables of version 0 (rows chosen among the 64 nearest genomes of a gene) and the stored layout, which places relatives by the "
           "hidden residues; the counting reading is on tables of version 1, the leak-free reading with a model retrained leak-free (protocol w18-v0). "
           "A ruler, not a transfer label: these numbers choose no arm, head, threshold or readout.")
@@ -69,7 +87,67 @@ def settings(cfg) -> dict:
     if unknown or not t.get("run") or not t.get("path"):
         raise SystemExit("rel_w18_readout: needs tables {run, path[, sha256]}; unknown keys %s" % sorted(unknown))
     return dict(tables=dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256")), eval_run=c.get("eval_run"),
-                arms=[str(a) for a in c.get("arms") or []], reps=int(c.get("reps", R.BOOT)), seed=int(c.get("seed", R.BOOT_SEED)))
+                arms=[str(a) for a in c.get("arms") or []], reps=int(c.get("reps", R.BOOT)), seed=int(c.get("seed", R.BOOT_SEED)),
+                compare=[str(x) for x in c.get("compare") or []], untrained=c.get("untrained"), offline=c.get("offline"))
+
+
+TRAIN_ROWS = ("leak-free, tables of version 1", "stored, tables of version 0, adapted")
+EVAL_COLS = ("strict offline (leak-free)", "stored")
+TWO_SCORES = ("gain_rel_aa", "source_shift_aa", "gain_aa")
+
+
+TAIL = "A ruler, not a transfer label: these numbers choose no arm, head, threshold, readout or node."
+STORED_V1 = ("implant tables of version 1 under the stored layout, which places relatives by the hidden residues: a diagnosis or the "
+             "stored column of protocol w18-v3's 2 x 2 table, never the counting reading. Construct only.")
+
+
+def status_of(strict, adapt, version):
+    """The page's status line: the counting reading (strict), an adapted diagnosis, the stored layout on tables of
+    version 1, or the preliminary reading of version 0."""
+    if strict:
+        return STATUS_V3
+    if adapt:
+        return (ADAPTED % int(adapt)) + " " + ((STORED_V1 + " " + TAIL) if version else STATUS)
+    return (STORED_V1 + " " + TAIL) if version else STATUS
+
+
+def cell_of(rep):
+    """(training layout, evaluation layout) of a reading: adapted arms were trained on tables of version 0 under the
+    stored layout, the others are round 1's (version 1, leak-free); the evaluation layout is the reading's rendering."""
+    lay = (rep.get("layout") or {}).get("layout") or (rep.get("arms") or [{}])[0].get("layout")
+    return TRAIN_ROWS[1] if rep.get("adapt_v0") else TRAIN_ROWS[0], EVAL_COLS[0] if lay == "leakfree" else EVAL_COLS[1]
+
+
+def compared(runs):
+    """[report] of other readings of stage rel_w18_readout (compare: their run directories), each file the one its run's
+    stage record lists."""
+    out = []
+    for run in runs:
+        p = os.path.join(run, OUT, "report.json")
+        rec = os.path.join(run, "stages", "rel_w18_readout.json")
+        with open(rec) as f:
+            listed = {os.path.normpath(os.path.join(run, o["path"]) if not os.path.isabs(o["path"]) else o["path"]): o.get("sha256")
+                      for o in json.load(f).get("outputs") or []}
+        if listed.get(os.path.normpath(p)) != sha256_file(p, use_sidecar=False):
+            raise SystemExit("rel_w18_readout: %s is not the report its run's record of stage rel_w18_readout lists" % p)
+        with open(p) as f:
+            out.append(json.load(f))
+    return out
+
+
+def two_by_two(reps):
+    """Protocol w18-v3's 2 x 2 table (training layout x evaluation layout): per cell, arm and block the paired win rate
+    against own (in place, rule 9 on, all tiers) of the lineage readings, from this reading and the compared ones; a
+    cell no reading fills is "not read"."""
+    rows = []
+    for rep in reps:
+        tr_, ev_ = cell_of(rep)
+        for h in rep.get("headline") or []:
+            if h["stratum"] == "all" and h["score"] in TWO_SCORES and h["label"] != "control" and not h["label"].startswith(("untrained:", "presence:")):
+                rows.append(dict(training=tr_, evaluation=ev_, run=rep["run"], arm=h["label"], score=h["score"], block=h["block"], value=h["value"],
+                                 lo=h["lo"], hi=h["hi"], triples=h["triples"], readable=h["readable"]))
+    filled = {(r["training"], r["evaluation"]) for r in rows}
+    return rows, [dict(training=a, evaluation=b) for a in TRAIN_ROWS for b in EVAL_COLS if (a, b) not in filled]
 
 
 def ruler(s):
@@ -120,6 +198,12 @@ def cell_files(s, run_dir):
     return out
 
 
+RULE9_UNSET = ("its first bit (A's homolog of D:j among the context genes) was never set on this ruler set: the search holds no pair of a donor "
+               "gene with A's genes, so the triples left out by rule 9 are those of its second bit alone (a row's homolog of D:j is its homolog on a "
+               "context block)")
+STATUS_V3 = ("the counting reading (protocol w18-v3): round 1's arms, trained on tables of version 1 under the leak-free layout, on implant tables "
+             "of version 1 rendered strictly offline (W3's aligner, the fourth validity test passed on every table and mask). Construct only. "
+             "A ruler, not a transfer label: these numbers choose no arm, head, threshold, readout or node.")
 ADAPTED = ("ADAPTED: the arms were trained on tables of version 0 and read implant tables of version 1 adapted for them "
            "(%d rows taken tier by tier, KIND_ABSENT read as KIND_NOT_SEARCHED; the programme lead's diagnosis of 2026-11-23), "
            "never the counting reading.")
@@ -127,10 +211,60 @@ LINEAGE = ("source_shift_aa", "gain_aa", "gain_rel_aa")          # the lineage r
 POOLED_STRATA = ("all", "donor_tier", "host_codon_quartile")
 
 
+def untrained_control(arms, named=None):
+    """The label of the reading's one untrained model with relatives, the control of every arm (protocol w18-v3 version
+    4: the ref30m variant with seed 1, mapped here, never paired by name); `named` (setting untrained: its arm name or
+    label) chooses among several; None without one."""
+    labels = [a["label"] for a in arms if a["weights"] == "untrained" and a["relatives"]]
+    if named:
+        got = [x for x in labels if x in (str(named), "untrained:" + str(named))]
+        if len(got) != 1:
+            raise SystemExit("rel_w18_readout: the untrained control %r is not one untrained arm of this reading (%s)" % (named, labels))
+        return got[0]
+    if len(labels) > 1:
+        raise SystemExit("rel_w18_readout: %d untrained arms (%s); name the control of every arm (setting untrained)" % (len(labels), labels))
+    return labels[0] if labels else None
+
+
+def criterion_rows(scores, trained, untrained_of, tr, crit, full, boot):
+    """The rows the first verdict reads its gain_rel_aa part from: the paired win rate against own on the criterion's
+    population (in place, rule 9 on, other-genome rows, no near-tier donor), against the untrained control."""
+    rows = []
+    for label in trained:
+        ref = {}
+        u = untrained_of(label)
+        if u and (u, "gain_rel_aa") in scores:
+            ref["untrained"] = scores[(u, "gain_rel_aa")]
+        rows += R.stat_rows({"gain_rel_aa": scores[(label, "gain_rel_aa")]}, tr, crit, {R.CRITERION_STRATUM: full[R.CRITERION_STRATUM]}, boot, label=label,
+                            reference=ref, stats=("win",), tag=dict(R.CRITERION_POPULATION))
+    return rows
+
+
+def strict_shown(s, doc, lay, ts, meta, fields, say):
+    """(on_t, on_c) [N, R] of the strict reading: the cells every row shows under passes T and C on the offline
+    placements the arms were rendered on (setting offline: the run of stage rel_w18_offline; its offline.json must be the
+    one the per-cell files name). Adapted tables are never strict."""
+    if not s["offline"]:
+        raise SystemExit("rel_w18_readout: a strict reading needs the run of its offline placements (setting offline) for coverage_shift")
+    arrays, _, sha = P.load_offline(s["offline"], doc["sha256"])
+    if sha != lay["offline_sha256"]:
+        raise SystemExit("rel_w18_readout: the offline placements given are not the ones the arms were rendered on")
+    N, R = fields["tok"].shape[:2]
+    on_t, on_c = np.zeros((N, R), dtype=np.int64), np.zeros((N, R), dtype=np.int64)
+    for t in range(N):
+        tab = {f: fields[f][t] for f in P.FIELDS}
+        on_t[t], on_c[t] = P.shown_cells(tab, meta["row_tier"][t], t, int(meta["parent"][t]), P.offline_place(arrays, t, tab))
+    say("coverage_shift on the strict placements of %s" % os.path.basename(os.path.normpath(s["offline"])))
+    return (on_t, on_c), os.path.basename(os.path.normpath(s["offline"]))
+
+
 def build(st, cfg, run_dir):
     s, t0 = settings(cfg), time.time()
     say = lambda text: print("rel_w18_readout: " + text, flush=True)          # noqa: E731
     doc, ts, meta, fields, groups, index = ruler(s)
+    others = compared(s["compare"])
+    if any((o.get("tables") or {}).get("sha256") != doc["sha256"] for o in others):
+        raise SystemExit("rel_w18_readout: a compared reading read another ruler set")
     genomes = index["genomes"]
     n = ts.tables
     loaded = [(arm, path, sha) + P.load_cells(path) for arm, path, sha in cell_files(s, run_dir)]
@@ -138,6 +272,13 @@ def build(st, cfg, run_dir):
     if len(adapts) != 1:
         raise SystemExit("rel_w18_readout: the arms read the tables adapted in different ways (%s); one reading reads one way" % sorted(map(str, adapts)))
     adapt = adapts.pop()
+    layouts = {(head.get("layout"), head.get("offline"), head.get("offline_sha256")) for _, _, _, _, head in loaded}
+    if len(layouts) != 1:
+        raise SystemExit("rel_w18_readout: the arms were rendered in different ways (%s); one reading renders one way" % sorted(map(str, layouts)))
+    lay = dict(zip(("layout", "offline", "offline_sha256"), layouts.pop()))
+    strict = lay["layout"] == "leakfree"
+    if strict and not lay["offline_sha256"]:
+        raise SystemExit("rel_w18_readout: a leak-free reading without the strict offline placements (protocol w18-v3)")
     meta_stored = meta                                              # the plan digest adapts the stored tables itself (tables_of)
     if adapt:                                                       # arms of tables of version 0 on implant tables of version 1
         fields, meta = P.adapt_arrays(fields, meta, int(adapt))
@@ -154,8 +295,10 @@ def build(st, cfg, run_dir):
             plans[key] = P.plan_digest(P.tables_of(ts, meta_stored, scenarios=key[2], presence=key[1], presence_scenarios=key[3], adapt=adapt), key[0], key[1])
         if cells["digest"] != plans[key][0]:
             raise SystemExit("rel_w18_readout: %s scored another plan than the passes of this commit" % path)
-        tag = ("untrained:" if head["weights"] == "untrained" else "") + head["arm"]
-        info = dict(arm=head["arm"], folder=arm, file=os.path.relpath(path, run_dir) if path.startswith(run_dir) else path, sha256=sha, weights=head["weights"],
+        tag = ("untrained:" if head["weights"] == "untrained" else "") + head["arm"] + ("" if head["weights"] in ("final", "untrained") else "@" + str(head["weights"]))
+        if any(a["label"] == tag for a in arms):
+            raise SystemExit("rel_w18_readout: arm %s at weights %s read twice" % (head["arm"], head["weights"]))
+        info = dict(arm=head["arm"], label=tag, folder=arm, file=os.path.relpath(path, run_dir) if path.startswith(run_dir) else path, sha256=sha, weights=head["weights"],
                     relatives=head["relatives"], presence=head["presence"], layout=head["layout"], render_version=head["render_version"],
                     eval_run=head["run"], eval_commit=head["commit"], cells=int(len(cells["bits"])), passes=head["passes"], scenarios=scen, presence_scenarios=psc)
         if head["relatives"]:
@@ -174,22 +317,32 @@ def build(st, cfg, run_dir):
                 scores[(tag, k)] = v
         arms.append(info)
         say("%s (%s): %d cells read" % (arm, head["weights"], info["cells"]))
-    ctl = R.controls(fields, meta)
+    shown, off_run = None, None
+    if strict:                                                      # coverage_shift on the cells of T and C as rendered strictly
+        shown, off_run = strict_shown(s, doc, lay, ts, meta_stored, fields, say)
+    ctl = R.controls(fields, meta, shown=shown)
     for k, v in ctl.items():
         if not k.startswith("x_"):                                    # x_gc, x_aa_distance: strata, not scores
             scores[("control", k)] = v
-    has_rows = tr.phase != 3
+    has_rows = (tr.phase != 3) | (tr.self_rows > 0)                 # phase 3: no common row of another genome (self copies may remain)
+    control = untrained_control(arms, s["untrained"])
+
+    def untrained_of(base):
+        """The untrained control of every arm (protocol w18-v3 version 4: one untrained model, mapped to every arm here,
+        never paired by name)."""
+        return control
     rule9 = tr.context == 0
     pops = {("in_place", "on"): (tr.scenario == 0) & rule9, ("in_place", "off"): tr.scenario == 0,
             ("donor_unsampled", "on"): (tr.scenario == 1) & rule9, ("donor_unsampled", "off"): tr.scenario == 1}
     full = tr.strata()
     full.update(tr.host_quartiles(ctl["host_codon"]))
     full.update(tr.exploratory(ctl["x_gc"], ctl["x_aa_distance"]))      # exploratory strata (kinds x_...), outside the protocol
-    short = {k: v for k, v in full.items() if k[0] in ("all", "donor_tier")}
+    short = {k: v for k, v in full.items() if k[0] in ("all", "donor_tier", "relatives_layer")}
     expected = tuple("tier=%s" % t for t, e in (index.get("tier_expectation") or {}).items() if e == "expected too few")
     rows, defined = [], []
+    span = R.tier_span(meta, fields["kind"])[tr.table].all(axis=1) & (tr.self_rows == 0)      # the ruler's: every table spans two tiers
     for (label, name), v in sorted(scores.items()):
-        if name == "abstain":
+        if name == "abstain" or name.startswith("source_shift_defined"):
             continue
         base = label.split(":", 1)[-1]
         ref = {}
@@ -201,14 +354,16 @@ def build(st, cfg, run_dir):
                 ref["host_codon"] = ctl["host_codon_rel" if name.endswith("_rel") else "host_codon"]
             if name.startswith("gain") and name.endswith("_aa"):
                 ref["host_aa"] = ctl["host_aa"]                             # exploratory: is gain_aa only "unlike A's amino acids"?
-            for other in ("untrained:" + base, "presence:" + base):
-                if (other, name) in scores and other != label:
+            for other in (untrained_of(base), "presence:" + base):
+                if other and (other, name) in scores and other != label and not label.startswith("untrained:"):
                     ref[other.split(":")[0]] = scores[(other, name)]
         for (scen, r9), pop in pops.items():
             pop = pop & (has_rows if not name.startswith(("composition", "host_codon")) else True)
-            if name.startswith("source_shift") and label != "control":
+            if name.startswith("source_shift_top") and label != "control":
+                pop = pop & span                                            # w18-v3 version 4: the ruler decides, never the definedness
+            elif name.startswith("source_shift") and label != "control":
                 d = np.isfinite(v)
-                if name in ("source_shift", "source_shift_aa"):            # the _top versions share their defined share
+                if name in ("source_shift", "source_shift_aa"):
                     defined += R.defined_share_rows(v, tr, pop, boot, label=label, tag=dict(scenario=scen, rule9=r9, of=name))
                 pop = pop & d[tr.table].all(axis=1) & (tr.tiers_present >= 2)
             strata = full if (scen, r9) == ("in_place", "on") else short
@@ -216,7 +371,36 @@ def build(st, cfg, run_dir):
             rows += R.stat_rows({name: v}, tr, pop, strata, boot, label=label, reference=ref, stats=("win",), expected_too_few=expected, tag=tag)
             rows += R.stat_rows({name: v}, tr, pop, {k: m for k, m in strata.items() if k[0] in POOLED_STRATA}, boot, label=label, reference=ref,
                                 stats=("pooled",), expected_too_few=expected, tag=tag)
-    say("%d result rows, %.0f s" % (len(rows), time.time() - t0))
+    shares, trained = [], [a["label"] for a in arms if a["relatives"] and a["weights"] != "untrained"]
+    near = np.isin(tr.tier, R.NEAR_TIERS)
+    crit = pops[("in_place", "on")] & has_rows & full[R.CRITERION_STRATUM] & ~near     # near-tier donors: the near-tier section only
+    for label in trained:
+        controls_ = dict(untrained=untrained_of(label), presence="presence:" + label)
+        for score, kind, pop in (("source_shift_aa_defined", "source_shift_defined_aa", crit & (tr.tiers_present >= 2)), ("abstain", "abstain", crit)):
+            x = scores[(label, kind)]
+            for ref, other in controls_.items():
+                if other is None or (other, kind) not in scores:
+                    continue
+                shares += R.paired_share_rows(score, x, scores[(other, kind)], tr, pop, boot, label=label, reference=ref, tag=dict(R.CRITERION_POPULATION))
+    verdict = R.verdicts(criterion_rows(scores, trained, untrained_of, tr, crit, full, boot), shares, trained)
+    pop2 = R.second_population(tr, meta, fields["kind"], crit)
+    strata2 = {"coverage ratio 0.8-1.25": (tr.coverage_ratio >= 0.8) & (tr.coverage_ratio < 1.25)}
+    strata2.update({"host codon %s" % q: m for (k, q), m in full.items() if k == "host_codon_quartile"})
+    second = []
+    for label in trained:
+        cons = {k: scores[(v, "source_shift_top_aa")] for k, v in (("untrained", untrained_of(label)), ("presence", "presence:" + label)) if v and (v, "source_shift_top_aa") in scores}
+        for block in SC.BLOCKS:
+            second.append(dict(arm=label, **R.second_verdict(scores[(label, "source_shift_top_aa")], ctl["coverage_shift"], tr, pop2, boot, block,
+                                                             controls=cons, best=ctl["best_similarity"], strata=strata2)))
+    second_pop = {block: dict(triples=int((pop2 & (tr.block == block)).sum()),
+                              by_group={tr.group_names[g]: int((pop2 & (tr.group == g)).sum()) for g in sorted(set(tr.group[pop2 & (tr.block == block)].tolist()))})
+                  for block in SC.BLOCKS}
+    counted = dict(first=R.multiplicity(verdict, len(trained), key="verdict", holds=(R.SEE,), too_few=()),
+                   second=R.multiplicity(second, len(trained)))
+    counted["first"] = dict(counted["first"], too_few=sum(1 for v in verdict if not v["readable"]), readable=sum(1 for v in verdict if v["readable"]))
+    counted["first"]["text"] = "%d of the %d readable verdicts hold, %d too few to read" % (
+        sum(1 for v in verdict if v["readable"] and v["verdict"] == R.SEE), counted["first"]["readable"], counted["first"]["too_few"])
+    say("%d result rows, %d criterion rows, %.0f s" % (len(rows), len(shares), time.time() - t0))
     cover = R.coverage_table(tr, pops[("in_place", "on")] & has_rows)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
@@ -230,25 +414,33 @@ def build(st, cfg, run_dir):
                         int(meta["donor_tier"][t]), int(meta["on_target"][t]), int(meta["context_homolog"][t])]
                        + ["%.6g" % scores[k][t] if np.isfinite(scores[k][t]) else ("inf" if np.isinf(scores[k][t]) else "") for k in keys])
     os.replace(sp + ".part", sp)
-    ap, dp, cp = (os.path.join(folder, x) for x in ("stats.tsv", "defined.tsv", "coverage.tsv"))
+    ap, dp, cp, kp = (os.path.join(folder, x) for x in ("stats.tsv", "defined.tsv", "coverage.tsv", "criterion.tsv"))
     write_rows(ap, rows)
     write_rows(dp, defined)
     write_rows(cp, cover)
-    status = STATUS if not adapt else (ADAPTED % int(adapt)) + " " + STATUS
-    rep = dict(format="rel-w18-readout", version=2, protocol="w18-v0", status=status, adapt_v0=adapt, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
+    write_rows(kp, shares)
+    status = status_of(strict, adapt, int(doc.get("tables_of_version", 0)))
+    rep = dict(format="rel-w18-readout", version=3, protocol="w18-v3" if strict else "w18-v0", status=status, adapt_v0=adapt, layout=lay,
+               run=os.path.basename(run_dir), commit=cfg["git"]["sha"], verdicts=verdict, second_verdicts=second, second_population=second_pop,
+               multiplicity=counted, untrained_control=control, coverage_shift_cells=("strict offline placements of %s" % off_run) if off_run else "stored layout",
+               layers=list(R.LAYERS),
+               layer_triples={name: int(((tr.layer == name) & pops[("in_place", "on")]).sum()) for name in R.LAYERS},
+               rule9=index.get("rule9_bit1") or RULE9_UNSET,
                tables=dict(run=os.path.basename(os.path.normpath(s["tables"]["run"])), name=doc["name"], sha256=doc["sha256"], tables=n,
+                           tables_of_version=int(doc.get("tables_of_version", 0)),
                            triples=int(len(tr.ids)), in_place=int((tr.scenario == 0).sum()), donor_unsampled=int((tr.scenario == 1).sum()), layout=doc.get("layout")),
                arms=arms, groups=groups, tiers=index.get("tiers"), tier_expectation=index.get("tier_expectation"), reps=s["reps"], seed=s["seed"],
                passes_version=P.VERSION, readouts_version=R.VERSION, lineage=list(LINEAGE),
                readable=dict(min_group=R.MIN_GROUP, min_groups=R.MIN_GROUPS, min_triples=R.MIN_TRIPLES, min_units=R.MIN_UNITS),
-               headline=headline(rows), coverage=cover, defined=defined,
-               files={os.path.relpath(p, run_dir): sha256_file(p, use_sidecar=False) for p in (sp, ap, dp, cp)})
+               headline=headline(rows), coverage=cover, defined=defined, compared=[dict(run=r["run"], cell=list(cell_of(r))) for r in others],
+               files={os.path.relpath(p, run_dir): sha256_file(p, use_sidecar=False) for p in (sp, ap, dp, cp, kp)})
+    rep["two_by_two"], rep["not_read"] = two_by_two([rep] + others)
     page = os.path.join(folder, "report.md")
     with open(page + ".part", "w") as f:
         f.write(page_of(rep, rows))
     os.replace(page + ".part", page)
     st.output("w18_readout_page", page)
-    for name, p in (("w18_scores", sp), ("w18_stats", ap), ("w18_defined", dp), ("w18_coverage", cp)):
+    for name, p in (("w18_scores", sp), ("w18_stats", ap), ("w18_defined", dp), ("w18_coverage", cp), ("w18_criterion", kp)):
         st.output(name, p)
     p = os.path.join(folder, "report.json")
     write_json(p, rep)
@@ -312,6 +504,113 @@ def _table(rows, block, scenario, rule9, statistic, comparison, tiers, expectati
     return md
 
 
+def _ci(m):
+    """value [lo, hi] (triples, groups) of a triple_mean, or its counts when it is not readable."""
+    if not m or m.get("value") is None:
+        return "none (%d triples)" % ((m or {}).get("triples") or 0)
+    txt = "%s [%s, %s] n=%d, %d groups" % (_f(m["value"]), _f(m["lo"]), _f(m["hi"]), m["triples"], m["groups"])
+    return txt if m.get("readable") else "too few (%s)" % txt
+
+
+def criterion_md(rep):
+    """Protocol w18-v3's two verdicts, per arm with relatives and block (never pooled)."""
+    lay = rep.get("layout") or {}
+    v3 = rep.get("protocol") == "w18-v3"
+    head = ("## Criterion (protocol w18-v3): do the readouts see the relatives?" if v3 else
+            "## Protocol w18-v3's criterion applied to this reading (a diagnosis, not the counting reading)")
+    mult = rep.get("multiplicity") or {}
+    md = [head, "",
+          "Read once, in place, rule 9 on, the triples with other-genome rows on the target, without the triples whose donor lies in tier 0 or 1 "
+          "(those are read in the near-tier section). Every part compares the arm with controls that share its tables, masks and cells: the "
+          "untrained model (`%s`, the control of every arm; no learning, no content) and the arm's own presence passes (the relatives' pattern "
+          "without their content). Parts: the defined share of the source shift (amino-acid bits; a table that could not be computed left out) on "
+          "the own-control tables whose rows span two tiers or more, above both; the abstention on the own-control tables, below both; the paired "
+          "win rate of gain_rel_aa (implant against own) above the untrained model's. Each holds when the 95%% interval of its paired difference "
+          "(the same bootstrap replicates) excludes 0 on the right side. Rendering: %s%s. A verdict describes the ruler; it selects nothing." % (
+              rep.get("untrained_control"), lay.get("layout"),
+              ", offline placements of run `%s` (offline.json %s)" % (lay["offline"], str(lay["offline_sha256"])[:16]) if lay.get("offline") else ""),
+          "", "What the strict rendering does not rule out: W3's fourth test covers the placement only; which rows a block holds, their kinds "
+          "and stretch lengths come from the search, which was run with the hidden gene, and only the presence passes measure what they "
+          "carry (protocol w3-offline-v0 version 3, validity_limits).",
+          "", "First verdict, counted: %s." % ((mult.get("first") or {}).get("text") or "none"), "",
+          "| arm | block | verdict | defined share | abstention | gain_rel_aa |", "|---|---|---|---|---|---|"]
+    for v in rep.get("verdicts") or []:
+        cells = [("%s%s" % ("holds: " if v["parts"][p]["holds"] else "fails: ", v["parts"][p]["detail"])) for p in R.CRITERION]
+        md.append("| %s | %s | %s%s | %s |" % (v["arm"], v["block"], v["verdict"], "" if v["readable"] else " (a part too few to read)", " | ".join(cells)))
+    md += [""] + second_md(rep)
+    return md + [""]
+
+
+def second_md(rep):
+    """The second verdict (protocol w18-v3 version 4): its labels, decomposition, coverage bar and the rows beside it."""
+    pop = rep.get("second_population") or {}
+    mult = rep.get("multiplicity") or {}
+    md = ["### Second verdict: the source shift detects implants beyond chance and beyond the ruler's coverage pattern", "",
+          "Score source_shift_top_aa (w18-v0's secondary ordering: a table whose shift is undefined by the threshold ranked as the most foreign; a "
+          "table that could not be computed is not ranked, and its triple is left out of that model's reading). Population, fixed by the ruler: the "
+          "criterion's, without self-copy rows, every table carrying other-genome rows of two tiers or more on the target (%s). Per triple, "
+          "win - 1/2 = s - u/2 with s = 1[both tables defined] (win - 1/2) and u = defined(implant) - defined(own): the shift term mean(s) and "
+          "the definedness term -(1/2) mean(u). It holds when the shift term and, on the same triples, 1[both defined] (win - win of "
+          "coverage_shift) both have 95%% intervals above 0; coverage_shift counts the cells of passes T and C as rendered (%s). Counted: %s. "
+          "At these counts \"not shown\" is not evidence of absence." % (
+              "; ".join("%s %d triples" % (b, x["triples"]) for b, x in pop.items()), rep.get("coverage_shift_cells"),
+              (mult.get("second") or {}).get("text") or "none"),
+          "", "| arm | block | label | win_top | shift term | definedness term | beats coverage_shift | left out (failed / coverage undefined) |",
+          "|---|---|---|---|---|---|---|---|"]
+    for v in rep.get("second_verdicts") or []:
+        lab = v["label"] + (" (%s)" % ", ".join(v["failed"]) if v["label"] == R.NOT_SHOWN and v["failed"] else "")
+        md.append("| %s | %s | %s | %s | %s | %s | %s | %d / %d |" % (v["arm"], v["block"], lab, _ci(v["win_top"]), _ci(v["shift_term"]), _ci(v["definedness_term"]),
+                                                                   _ci(v["coverage_bar"]), v["left_out_failed"], v["coverage_bar_left_out"]))
+    md += ["", "Beside the verdict (descriptions; they decide nothing):", "",
+           "| arm | block | untrained: win_top, defined implant/own | presence: win_top, defined implant/own | best_similarity | win_top - coverage_shift "
+           "| both defined; win on them (selected by the arm's own definedness) | only implant / only own undefined | undefined as no shift (sensitivity) "
+           "| A units per entering group |", "|---|---|---|---|---|---|---|---|---|---|"]
+    for v in rep.get("second_verdicts") or []:
+        cons = []
+        for name in ("untrained", "presence"):
+            c = (v.get("controls") or {}).get(name)
+            cons.append("not read" if c is None else "%s; %s / %s (about 1/2 through ties where undefined)" % (
+                _ci(c["win_top"]), _f(c["defined_implant"]), _f(c["defined_own"])))
+        md.append("| %s | %s | %s | %s | %s | %s | %s; %s | %s / %s | %s | %s |" % (
+            v["arm"], v["block"], cons[0], cons[1], _ci(v.get("best_similarity")), _ci(v["win_top_minus_coverage"]), _f(v["both_defined"]),
+            _f(v["win_both_defined"]), _f(v["only_implant_undefined"]), _f(v["only_own_undefined"]), _ci(v["sensitivity_undefined_as_zero"]),
+            ", ".join("%s %d" % kv for kv in (v["shift_term"].get("units_by_group") or {}).items()) or "none"))
+    md += ["", "| arm | block | stratum | win_top | shift term |", "|---|---|---|---|---|"]
+    for v in rep.get("second_verdicts") or []:
+        for name, x in (v.get("strata") or {}).items():
+            md.append("| %s | %s | %s | %s | %s |" % (v["arm"], v["block"], name, _ci(x["win_top"]), _ci(x["shift_term"])))
+    return md
+
+
+def two_by_two_md(rep):
+    md = ["## Training layout x evaluation layout (2 x 2)", "",
+          "The paired win rate against another gene of A (in place, rule 9 on, all tiers) of the lineage readings in every cell this reading and the "
+          "readings it compares fill (%s). The adapted row is the diagnosis of 2026-11-23, labelled as such; it is never the counting reading." % (
+              ", ".join("`%s`" % c["run"] for c in rep.get("compared") or []) or "no other reading"),
+          "", "| training | evaluation | run | arm | readout | block | win rate |", "|---|---|---|---|---|---|---|"]
+    for r in rep.get("two_by_two") or []:
+        md.append("| %s | %s | %s | %s | %s | %s | %s |" % (r["training"], r["evaluation"], r["run"], r["arm"], r["score"], r["block"], _cell(r) or "none"))
+    for c in rep.get("not_read") or []:
+        md.append("| %s | %s | - | - | - | - | not read |" % (c["training"], c["evaluation"]))
+    return md + [""]
+
+
+def layers_md(rep, rows):
+    """The headline readouts per relatives layer (protocol w18-v3: every reading per layer)."""
+    md = ["## By relatives layer, in place, rule 9 on (implant against another gene of A)", "",
+          "Layers: " + "; ".join("%s %d triples" % (k, n) for k, n in (rep.get("layer_triples") or {}).items()), "",
+          "| readout | block | " + " | ".join(R.LAYERS) + " |", "|---|---|" + "---|" * len(R.LAYERS)]
+    by = {}
+    for r in rows:
+        if r.get("scenario") == "in_place" and r.get("rule9") == "on" and r["statistic"] == "win" and r["comparison"] == "own" \
+                and r["stratum_kind"] == "relatives_layer" and r["score"] in HEAD_SCORES:
+            by.setdefault((r["label"], r["score"], r["block"]), {})[r["stratum"]] = r
+    order = {x: k for k, x in enumerate(HEAD_SCORES)}
+    for (label, score, block), cells in sorted(by.items(), key=lambda kv: (kv[0][2], kv[0][0] != "control", order.get(kv[0][1], 99), kv[0][0])):
+        md.append("| %s %s | %s | %s |" % (label, score, block, " | ".join(_cell(cells.get(k)) or "none" for k in R.LAYERS)))
+    return md + [""]
+
+
 def page_of(rep, rows):
     tiers, exp = rep.get("tiers") or [], rep.get("tier_expectation") or {}
     md = ["# W18 HGT capability check: readouts on implant tables (construct only)", "",
@@ -319,18 +618,42 @@ def page_of(rep, rows):
           "unsampled; layout %s." % (rep["run"], rep["commit"][:12], rep["tables"]["name"], rep["tables"]["run"], rep["tables"]["sha256"][:16],
                                      rep["tables"]["tables"], rep["tables"]["in_place"], rep["tables"]["donor_unsampled"], rep["tables"]["layout"]),
           "", "**Status.** " + rep["status"], "",
+          "**Rule 9.** " + (rep.get("rule9") or RULE9_UNSET) + ".", "",
           "Primary statistic: the paired win rate inside a triple, P(implant > another gene of A) + 1/2 P(tie), per group of A, then the mean over the "
           "readable groups of a block; 95%% intervals from %d replicates of a two-level bootstrap (A's split units inside each group, D's split units). "
           "A group enters with at least %d triples; a block's stratum is read with %d groups, %d triples and %d units of A, otherwise \"too few\". "
           "Lineage readings use the amino-acid bits alone (%s). Tiers marked * were pre-declared \"expected too few\"." % (
               rep["reps"], R.MIN_GROUP, R.MIN_GROUPS, R.MIN_TRIPLES, R.MIN_UNITS, ", ".join(rep["lineage"])), "",
-          "Arms: " + "; ".join("%s (%s, %s%s)" % (a["arm"], a["weights"], "relatives" if a["relatives"] else "no relatives", ", presence passes" if a["presence"] else "")
+          "Arms: " + "; ".join("%s (%s, %s%s)" % (a.get("label", a["arm"]), a["weights"], "relatives" if a["relatives"] else "no relatives", ", presence passes" if a["presence"] else "")
                                for a in rep["arms"]), ""]
+    if rep.get("protocol") == "w18-v3" or rep.get("verdicts"):
+        md += criterion_md(rep) + layers_md(rep, rows)
+    if rep.get("compared") or rep.get("protocol") == "w18-v3":
+        md += two_by_two_md(rep)
     for block in SC.BLOCKS:
         md += ["## %s: implant against another gene of A, in place, rule 9 on" % block, ""] + _table(rows, block, "in_place", "on", "win", "own", tiers, exp) + [""]
         md += ["## %s: the donor's lineage unsampled, rule 9 on" % block, ""] + _table(rows, block, "donor_unsampled", "on", "win", "own", tiers, exp,
                                                                                          scores=("source_shift_aa", "gain_aa", "gain_rel_aa", "composition",
                                                                                                  "best_similarity")) + [""]
+    near = [r for r in rows if r.get("scenario") == "in_place" and r.get("rule9") == "on" and r["statistic"] == "win" and r["comparison"] == "own"
+            and r["stratum_kind"] == "donor_tier" and r["stratum"] in ("tier=0", "tier=1")]
+    if rep["tables"].get("tables_of_version") or any(r["triples"] for r in near):
+        md += ["## Near-tier donors without near reference rows (construct only)", "",
+               "Donor tiers 0 and 1: D close to A, often of A's own split unit (the search of version 1 read the corpus with the close "
+               "relatives, and a held-out genome's close relatives are held out with it). The other rows leave out the split units of A "
+               "and D, so no row is near either of them: seen from afar the two lineages are one, and only the gene's mismatch with A's "
+               "own context can tell them apart, with no relative as a reference. This section is not the close-transfer scenario (that "
+               "one needs near reference rows, which the context rule D5 does not give a held-out A). The protocol pre-declared these "
+               "tiers \"expected too few\"; they are read here as their counts allow.", "",
+               "| readout | block | tier 0 | tier 1 |", "|---|---|---|---|"]
+        by = {}
+        for r in near:
+            if r["score"] in HEAD_SCORES:
+                by.setdefault((r["label"], r["score"], r["block"]), {})[r["stratum"]] = r
+        order = {x: k for k, x in enumerate(HEAD_SCORES)}
+        for (label, score, block), cells in sorted(by.items(), key=lambda kv: (kv[0][2], kv[0][0] != "control", order.get(kv[0][1], 99), kv[0][0])):
+            md.append("| %s %s | %s | %s | %s |" % (label, score, block, _cell(cells.get("tier=0")) or "none", _cell(cells.get("tier=1")) or "none"))
+        md.append("")
     md += ["## Exploratory, outside the pre-registered protocol", "",
            "The programme lead's additions of 2026-11-23, never to change a conclusion or choose anything: the host amino-acid "
            "model (control host_aa) and the strata by the implant's own composition (x_implant_gc, x_gc_minus_own, x_aa_distance; "

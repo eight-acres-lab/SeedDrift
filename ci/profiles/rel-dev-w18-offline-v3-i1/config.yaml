@@ -1,0 +1,29 @@
+# Machine i-1: the strict offline rendering (protocol w18-v3) of the ruler set of profile rel-dev-w18-rulers-v3-i1 (stage
+# w18_offline): for every table and mask family of the passes, the other rows placed by W3's aligner (align.strict; the
+# whole target on its frame relative, align.frame_layout) and W3's fourth validity test on each. Read by run_ruler for
+# the leak-free counting reading. CPU only (the select lock), 8 processes. tables.run: the passed run of
+# rel-dev-w18-rulers-v3-i1 (not set until it has passed).
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 4
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_offline]
+rel_w18_offline:
+  tables:
+    run: /hy-tmp/seeddrift-ci/runs/20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1
+    path: data/rel_w18/rulers/tableset.json
+    sha256: 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3
+  processes: 8
+  chunk: 64
+train:
+  gpu_lease: false
+  device: cpu

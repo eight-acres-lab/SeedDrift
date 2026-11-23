@@ -19,13 +19,15 @@ manifest (the digest of the cells scored under every condition is in evals.jsonl
 Files in cfg["out"]: preflight.json; steps.csv (every step: tables, cells and target cells seen, loss in bits per
 target cell, learning rate, cells per second, memory, gradient norm, wall time, the loss of every mask scheme);
 evals.jsonl (every evaluation); results.tsv; summary.json; heldout_final.npz (every scored cell of the final
-evaluation); final.pt (the raw and the averaged weights at the end) and best.pt (the averaged weights at the node
+evaluation); node_cells.npz (at every node, per held-out table of the nodes' subset and condition: the summed bits
+and the number of scored cells, keys t<tables>_<condition>_bits and _cells, "+" written "__"; tables: their ids); final.pt (the raw and the averaged weights at the end) and best.pt (the averaged weights at the node
 with the lowest bits under the arm's main condition). No checkpoint in probe mode, which takes only tables that are
 not real; every other run takes only real tables. This module never imports a generator of synthetic tables or rulers.
 """
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import math
 import os
@@ -42,6 +44,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.models.common import layers as C
+from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.trainer import heldout as E
 
 TRAINER_VERSION = "2"
@@ -52,8 +55,14 @@ DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask
                 eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
                 preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
-                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False)
+                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False,
+                pair_index=None, eval_online=False, end_controls=[], keep_node_weights=False, nodes_every=None, nodes_every_from=100000,
+                data_workers=0)
+CONTROLS = ("shuffle", "presence")              # package W3's controls of the renderer, read at the final evaluation
 TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
+FRAME = S.FRAME                                 # whole_gene_layout: the whole gene laid by W3's strict aligner (align.frame_layout)
+ONLINE = "leakfree-online"                      # the layout column of rows rendered leak-free online (not W3's offline rendering)
+NODE_WEIGHTS = "ema_tables%d.pt"                # keep_node_weights: the moving average at a node of that many tables seen
 # the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
 OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",
                 getattr(cond, "SUFFIX", "suffix"): "suffix"}
@@ -70,10 +79,73 @@ def settings(cfg):
         raise SystemExit("the trainer's configuration lacks %s" % ", ".join(missing))
     if int(out.get("api", T.API_VERSION)) != T.API_VERSION:
         raise SystemExit("variant %s is written for contract version %s; this trainer has version %s" % (out["name"], out.get("api"), T.API_VERSION))
-    if out["layout"] not in TRAINED_LAYOUTS or (out["whole_gene_layout"] or out["layout"]) not in TRAINED_LAYOUTS or int(out["columns"]) != A.ROW_LEN:
-        raise SystemExit("variant %s: this trainer renders the layouts %s on %d columns (given %s, whole gene %s)"
-                         % (out["name"], TRAINED_LAYOUTS, A.ROW_LEN, out["layout"], out["whole_gene_layout"]))
+    if out["layout"] not in TRAINED_LAYOUTS or (out["whole_gene_layout"] or out["layout"]) not in TRAINED_LAYOUTS + (FRAME,) or int(out["columns"]) != A.ROW_LEN:
+        raise SystemExit("variant %s: this trainer renders the layouts %s on %d columns, the whole gene also %s (given %s, whole gene %s)"
+                         % (out["name"], TRAINED_LAYOUTS, A.ROW_LEN, FRAME, out["layout"], out["whole_gene_layout"]))
+    if out["whole_gene_layout"] == FRAME and out["layout"] == A.LAYOUT_STORED:
+        raise SystemExit("variant %s: the whole gene on its frame relative is read leak-free; the variant's layout is leakfree" % out["name"])
+    if out["nodes_every"] is not None and (int(out["nodes_every"]) <= 0 or int(out["nodes_every_from"]) <= 0):
+        raise SystemExit("nodes_every and nodes_every_from are positive numbers of tables (given %s, %s)" % (out["nodes_every"], out["nodes_every_from"]))
     return out
+
+
+def node_after(cfg, tables):
+    """The next evaluation node after `tables` tables seen: eval_first, then every doubling; with nodes_every also every
+    nodes_every tables from nodes_every_from on (the long arms of round 1: every 50,000 after 100,000)."""
+    nxt = int(cfg["eval_first"])
+    while nxt <= tables:
+        nxt *= 2
+    if cfg["nodes_every"]:
+        every, start = int(cfg["nodes_every"]), int(cfg["nodes_every_from"])
+        nxt = min(nxt, start if tables < start else start + ((tables - start) // every + 1) * every)
+    return nxt
+
+
+def _same(x):
+    return x
+
+
+class Feed:
+    """The examples of steps start, start + 1, ... in order: drawn here (workers 0), or ahead by `workers` background
+    processes of torch's data loader (each draws every workers-th step; a step's examples depend on (seed, step) only,
+    so they are the same either way). wait_s: the seconds the trainer waited for them."""
+
+    def __init__(self, sampler, start=0, workers=0):
+        self.sampler, self.next_step, self.workers, self.wait_s = sampler, int(start), int(workers), 0.0
+        self._it = None
+        if self.workers > 0:
+            self._it = iter(torch.utils.data.DataLoader(_Steps(sampler, self.next_step, self.workers), batch_size=None, num_workers=self.workers,
+                                                        collate_fn=_same, prefetch_factor=4, multiprocessing_context="fork"))
+
+    def get(self, step):
+        if int(step) != self.next_step:
+            raise RuntimeError("the feed is at step %d, step %d was asked" % (self.next_step, step))
+        t = time.time()
+        if self._it is None:
+            out = self.sampler.draw(self.next_step)
+        else:
+            got, out = next(self._it)
+            if got != self.next_step:
+                raise RuntimeError("the data worker sent step %d for step %d" % (got, self.next_step))
+        self.wait_s += time.time() - t
+        self.next_step += 1
+        return out
+
+    def close(self):
+        self._it = None                                                # the loader's workers stop with their iterator
+
+
+class _Steps(torch.utils.data.IterableDataset):
+    def __init__(self, sampler, start, workers):
+        self.sampler, self.start, self.workers = sampler, int(start), int(workers)
+
+    def __iter__(self):
+        info = torch.utils.data.get_worker_info()
+        w = info.id if info is not None else 0
+        s = self.start + w
+        while True:
+            yield s, self.sampler.draw(s)
+            s += self.workers
 
 
 def layouts_of(cfg):
@@ -138,8 +210,21 @@ class Run:
             if bool(cfg["probe"]) == (ts.kind == A.TABLE_REAL):
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
                                  % (ts.name, ts.kind))
+        self.frame_index = None                                         # the pair index of W12's uncapped search
+        self.frame_strict = layouts_of(cfg).get("whole_gene") == FRAME   # the whole gene laid by W3's strict aligner instead
+        self._frames = {}                                               # its layouts of the held-out tables, (table, condition) -> arrays
+        if layouts_of(cfg).get("whole_gene", A.LAYOUT_STORED) not in (A.LAYOUT_STORED, FRAME):
+            if cfg["pair_index"]:
+                from seeddrift.train.rel.tables import v1_hits
+                ix = cfg["pair_index"]                                  # a folder of W12's run; an index object in the tests
+                self.frame_index = v1_hits.Index(ix) if isinstance(ix, str) else ix
+            elif not cfg["probe"]:
+                raise SystemExit("variant %s lays the whole gene on its frame relative online: the pair index of the search (pair_index)" % cfg["name"])
+        if set(cfg["end_controls"] or []) - set(CONTROLS):
+            raise SystemExit("end_controls are among %s, not %s" % (CONTROLS, cfg["end_controls"]))
         self.sampler = S.Sampler(self.train, cfg["seed"], masks=cfg["masks"], weights=cfg["mask_weights"], rows=cfg["rows"],
-                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"], layouts=layouts_of(cfg))
+                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"], layouts=layouts_of(cfg),
+                                 frame_index=self.frame_index)
         self.module = registry.load("model", cfg["model"])
         self.objective = registry.load("objective", cfg["objective"])
         self.size = size_of(self.module, cfg)
@@ -181,24 +266,27 @@ class Run:
             self._held = (data, np.asarray(meta["identity"]), E.other_rows(data["kind"]))
         return self._held
 
-    def eval_source(self, condition):
-        """(layout, arrays of every held-out table) a condition is scored in: an arm trained in the stored layout, and
-        the conditions without relatives, read the stored tables in the stored layout; an arm trained leak-free reads
-        the other conditions in the leak-free layout, from the part of the strict offline rendering made for that
-        condition's mask (OFFLINE_PART) when the run names one, else from the stored tables rendered online (probe and
-        tests only: the online anchors are the stored pairs)."""
+    def eval_source(self, condition, at_node=False):
+        """(layout, arrays of every held-out table, label) a condition is scored in, label the result rows' layout
+        column: an arm trained in the stored layout, and the conditions without relatives, read the stored tables in
+        the stored layout; an arm trained leak-free reads the other conditions in the leak-free layout, from the part of
+        the strict offline rendering made for that condition's mask (OFFLINE_PART, label leakfree) when the run names
+        one, except at the nodes with eval_online; else from the stored tables rendered online (label leakfree-online:
+        the anchors of scattered and span the stored pairs; the whole gene laid as the arm was trained, by W3's strict
+        aligner with whole_gene_layout frame)."""
         data = self.held_data()[0]
         if self.cfg["layout"] == A.LAYOUT_STORED or cond.NO_RELATIVES in condition:
-            return A.LAYOUT_STORED, data
+            return A.LAYOUT_STORED, data, A.LAYOUT_STORED
         part = OFFLINE_PART.get(condition)
-        if self.offline is None or part is None:
-            if not self.cfg["probe"] and part is not None:
-                raise SystemExit("a leak-free arm is scored under %s on the strict offline rendering (heldout_offline_tables)" % condition)
-            return A.LAYOUT_LEAKFREE, data
+        if self.offline is None or part is None or (at_node and self.cfg["eval_online"]):
+            if not self.cfg["probe"] and part is not None and not self.cfg["eval_online"]:
+                raise SystemExit("a leak-free arm is scored under %s on the strict offline rendering (heldout_offline_tables), or "
+                                 "online where the run says so (eval_online)" % condition)
+            return A.LAYOUT_LEAKFREE, data, ONLINE
         if part not in self._parts:
             ts = self.offline["parts"][part]
             self._parts[part] = ts.load(0, ts.tables, E.PLAN_FIELDS, verify=False)
-        return A.LAYOUT_LEAKFREE, self._parts[part]
+        return A.LAYOUT_LEAKFREE, self._parts[part], A.LAYOUT_LEAKFREE
 
     def peak_mb(self):
         if self.device.type != "cuda":
@@ -250,7 +338,7 @@ class Run:
         """The columns of a result row that are the same for every row of one evaluation; budget: the point of the
         weights evaluated, tables seen and wall seconds since the start of the training."""
         cfg = self.cfg
-        budget = "tables=%d;wall_s=%d" % (int(tables_seen), int(round(wall_s)))
+        budget = "tables=%d;wall_s=%d;micro=%d" % (int(tables_seen), int(round(wall_s)), self.micro)   # the tables per micro-batch trained with
         return dict(run=cfg["run"], commit=cfg["commit"], variant=cfg["name"], author=cfg["author"], module="models." + self.info["module"],
                     params=self.params, seed=int(cfg["seed"]), table_set=self.held.name, table_kind=self.held.kind, items_sha256=self.held.sha256,
                     item_half=item_half, layout=A.LAYOUT_STORED, budget=budget, weights=weights, cells_seen=int(cells_seen),
@@ -258,35 +346,88 @@ class Run:
                     versions=versions())
 
     def eval_plan(self, at_node=False):
-        """[(key, condition, layout, arrays)]: every condition of the arm in the layout eval_source gives it; an arm
-        trained leak-free also reads the whole gene (and its re-pairing) in the stored layout it was trained in (key
-        "<condition>@stored"; the programme lead's ruling for round 1b: that reading is a reference only). The
-        references (those, and the extra conditions such as suffix) are read at the final evaluation only, not at the
-        nodes, unless references_at_nodes (the ruling of 2026-11-23, from round 1 on)."""
+        """[(key, condition, layout, arrays, control, label)]: every condition of the arm in the layout eval_source
+        gives it (label: the rows' layout column); an arm trained leak-free with the whole gene stored also reads the
+        whole gene (and its re-pairing) in the stored layout it was trained in (key "<condition>@stored"; the programme
+        lead's ruling for round 1b: that reading is a reference only). The references (those, and the extra conditions
+        such as suffix) are read at the final evaluation only, not at the nodes, unless references_at_nodes (the ruling
+        of 2026-11-23). The controls of end_controls: at the final evaluation only, under scattered and whole_gene (key
+        "<condition>@<control>", label "<label>+<control>")."""
         refs = not at_node or bool(self.cfg["references_at_nodes"])
         out = []
         for c in self.conditions:
             if c not in cond.CONDITIONS and not refs:
                 continue
-            layout, data = self.eval_source(c)
-            out.append((c, c, layout, data))
-            if refs and layout != A.LAYOUT_STORED and c in STORED_TOO:
-                out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0]))
+            layout, data, label = self.eval_source(c, at_node)
+            out.append((c, c, layout, data, None, label))
+            if refs and layout != A.LAYOUT_STORED and c in STORED_TOO and self.cfg["whole_gene_layout"] in (None, A.LAYOUT_STORED):
+                out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0], None, A.LAYOUT_STORED))
+            if not at_node and layout != A.LAYOUT_STORED and c in (cond.SCATTERED, cond.WHOLE_GENE):
+                for ctl in self.cfg["end_controls"] or []:               # the controls: at the final evaluation only
+                    out.append(("%s@%s" % (c, ctl), c, layout, data, ctl, "%s+%s" % (label, ctl)))
         return out
+
+    def held_meta(self):
+        """The meta fields of every held-out table the online frame layout reads (read once)."""
+        if getattr(self, "_meta", None) is None:
+            self._meta = self.held.load(T.FRAME_META)
+        return self._meta
+
+    def frame_tiers(self, which="heldout", examples=None):
+        """{label: tables}: the frame relative of the whole gene by its distance to row 0 (round 1's ruling of 2026-11-23,
+        to set the training's frames beside the evaluation's): self_copy (a row of the examined genome's own copies),
+        tier_<t> (the row's distance tier, META tier; -1 not defined), none (no other row has a stretch in the target
+        block). heldout: every held-out table laid whole (align.frame_relative of the stored table); train: the
+        examples' frame_from (the rows drawn)."""
+        ts = self.held if which == "heldout" else self.train
+        if getattr(self, "_tiers", {}).get(which) is None:
+            self._tiers = dict(getattr(self, "_tiers", {}), **{which: (np.asarray(ts.load(("tier",))["tier"]), np.asarray(ts.load(("kind",))["kind"]))})
+        tier, kind = self._tiers[which]
+
+        def label(i, r):
+            if r is None or r < 0:
+                return "none"
+            if (kind[i, r] == A.KIND_SELF_COPY).any():
+                return "self_copy"
+            return "tier_%d" % int(tier[i, r])
+        out = {}
+        if which == "heldout":
+            n = self.held_data()[0]["n"]
+            pairs = [(i, AL.frame_relative(dict(n=n[i]))) for i in range(len(self.held))]
+        else:
+            pairs = [(int(e["table"]), int(e["frame_from"])) for e in examples or [] if "frame_from" in e]
+        for i, r in pairs:
+            k = label(i, r)
+            out[k] = out.get(k, 0) + 1
+        return out
+
+    def strata(self, ids):
+        """The evaluator's strata of the held-out tables ids; with the kinds of their rows where the evaluator reads them
+        (the three relatives strata of round 1: other-genome rows, self copies only, none)."""
+        _, identity, n_other = self.held_data()
+        if "kind" in inspect.signature(SC.strata_of).parameters:
+            return SC.strata_of(identity[ids], n_other[ids], np.asarray(self.held_data()[0]["kind"])[ids])
+        return SC.strata_of(identity[ids], n_other[ids])
 
     def evaluate(self, ids, fixed, path, at_node=False):
         """The held-out tables ids under every condition of this arm (eval_plan), read by the moving average. The rows
         go to self.rows and the whole table to path after every condition; their layout column says how the grids were
         rendered. Returns {key: bits over all groups and strata, None when nothing was scored}, {key: (bits,
         cell_table)} and {key: items digest}, the keys of eval_plan."""
-        _, identity, n_other = self.held_data()
-        strata = SC.strata_of(identity[ids], n_other[ids])
+        strata = self.strata(ids)
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
-        for key, c, layout, data in self.eval_plan(at_node):
+        for key, c, layout, data, ctl, label in self.eval_plan(at_node):
             part = {f: v[ids] for f, v in data.items()}
-            fixed = dict(fixed, layout=layout)
-            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout)
+            fixed = dict(fixed, layout=label)
+            frame = None
+            online = data is self.held_data()[0]                         # rendered here, not W3's offline rendering
+            if online and self.frame_strict and layout != A.LAYOUT_STORED and cond.parse(c)[0] == cond.WHOLE_GENE:
+                frame = dict(strict=True, cache=self._frames)            # as the arm was trained: W3's strict aligner
+            elif online and self.frame_index is not None and layout != A.LAYOUT_STORED and cond.parse(c)[0] == cond.WHOLE_GENE:
+                frame = dict(index=self.frame_index, meta={f: np.asarray(v)[ids] for f, v in self.held_meta().items()})
+            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout,
+                                                   frame=frame, control=ctl)
             agg = SC.aggregate(bits, cell_table, groups, strata, self.n_groups, self.group_names)
             for label, b in zip(SC.PARTS, (aa, bits - aa)):           # the two parts of the bits, per group and over the groups
                 agg += [dict(r, stratum=label) for r in SC.aggregate(b, cell_table, groups, [], self.n_groups, self.group_names) if r["stratum"] == SC.ALL]
@@ -304,7 +445,7 @@ def worst_case(examples, rows):
     out = []
     for e in examples:
         k = -(-rows // e["grid"].shape[0])
-        grown = {f: np.concatenate([e[f]] * k)[:rows] for f in ("grid", "truth", "ext") if f in e}   # every per-row array of the example
+        grown = {f: np.concatenate([e[f]] * k)[:rows] for f in ("grid", "truth", "ext", "genome_of_row") if f in e}   # every per-row array
         out.append(dict(e, **grown))
     return out
 
@@ -356,13 +497,22 @@ def preflight(cfg):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         run = Run(dict(cfg, micro=micro))                              # the guard on a fresh model
+        t1 = time.time()                                                # the sampler's cost, drawn here: 20 steps past the guard's
+        f0 = (run.sampler.frame_s, run.sampler.frame_tables)
+        for s in range(20):
+            run.sampler.draw(int(cfg["preflight_steps"]) + s)
+        t1, nf = time.time() - t1, run.sampler.frame_tables - f0[1]
+        out.update(sampler=dict(steps=20, s_per_step=round(t1 / 20, 4), frame_tables=nf,
+                                frame_s_per_table=round((run.sampler.frame_s - f0[0]) / nf, 4) if nf else None, data_workers=int(cfg["data_workers"])))
         peak, warm, losses = float(cfg["lr"]), max(1, int(cfg["preflight_warmup"])), []
         t0, cells, timed = None, 0, 0
+        feed = Feed(run.sampler, 0, int(cfg["data_workers"]))
         try:
             for s in range(1, int(cfg["preflight_steps"]) + 1):
                 if s == 6:
                     t0 = time.time()                                    # the first steps warm the kernels up
-                ex = run.sampler.draw(s - 1)
+                    w0 = feed.wait_s
+                ex = feed.get(s - 1)
                 bits, _, _, _ = run.step(ex, peak * min(1.0, s / warm))
                 run.update_ema(s)
                 losses.append(bits)
@@ -371,6 +521,7 @@ def preflight(cfg):
                     timed += 1
         except FloatingPointError:
             losses.append(float("nan"))
+        feed.close()
         start, end = float(np.mean(losses[:5])), float(np.mean(losses[-20:]))
         bad = not all(math.isfinite(x) for x in losses) or not end < start
         if cfg["preflight_guard"] not in ("stop", "reduce"):
@@ -380,7 +531,9 @@ def preflight(cfg):
         alloc, reserved = run.peak_mb()
         out.update(guard=dict(steps=len(losses), warmup=warm, start_bits=round(start, 4), end_bits=round(end, 4) if math.isfinite(end) else None,
                               failed=bad, lr=lr), lr=lr, lr_reduced=bad, cells_per_s=round(cells / took, 1) if took > 0 else None,
-                   steps_per_s=round(timed / took, 3) if took > 0 else None, peak_mb=max(round(alloc), max(t.get("peak_mb", 0) for t in tried)),
+                   steps_per_s=round(timed / took, 3) if took > 0 else None, tables_per_s=round(timed * int(cfg["per_step"]) / took, 3) if took > 0 else None,
+                   data_wait_s_per_step=round((feed.wait_s - w0) / timed, 4) if timed else None,
+                   peak_mb=max(round(alloc), max(t.get("peak_mb", 0) for t in tried)),
                    reserved_mb=max(round(reserved), max(t.get("reserved_mb", 0) for t in tried)))
         if bad and cfg["preflight_guard"] == "stop":
             raise SystemExit("the preflight's %d steps did not train: the loss went from %.4f to %s bits (finite: %s); stopped, the learning rate is "
@@ -408,10 +561,12 @@ def evaluate_checkpoints(cfg):
     """The held-out evaluation of an arm's saved weights, again: the moving average of final.pt (rows "ema@final") and,
     when cfg["best"] names it, of best.pt (rows "ema@best"), on the first final_per_group tables of every group (0: all),
     under the arm's conditions, with the evaluator's plan, strata and rows. For an arm whose final evaluation the wall
-    limit cut short. cfg: the arm's training configuration plus final (the path of final.pt), best (that of best.pt or
-    None), out (an empty folder), and the training's tables seen, cells seen and wall seconds at the end
-    (final_tables, final_cells, final_wall_s) and at its best node (best_tables, best_cells, best_wall_s). Writes
-    results.tsv, heldout_final.npz and summary.json in out."""
+    limit cut short, or for all held-out tables after a training that scored a subset. cfg: the arm's training
+    configuration plus final (the path of the weights read: final.pt, or with weights "best" or "node@<tables>"
+    best.pt or ema_tables<tables>.pt, rows "ema@best" or "ema@tables=<n>"), best (that of best.pt or None), out (an
+    empty folder), and the tables seen, cells seen and wall seconds of the weights read (final_tables, final_cells,
+    final_wall_s) and of the best node (best_tables, best_cells, best_wall_s). Writes results.tsv, heldout_final.npz
+    and summary.json in out."""
     began = time.time()
     run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
@@ -426,8 +581,10 @@ def evaluate_checkpoints(cfg):
     final_ids = E.subset(run.held, int(cfg["final_per_group"]))
     half = "all" if len(final_ids) == len(run.held) else "subset"
     reader = run.reader()
+    weights = str(cfg.get("weights") or "final")                      # the weights in cfg["final"]: final, best or node@<tables>
+    label = "tables=%s" % weights.split("@")[1] if weights.startswith("node@") else weights
     state = dict(name=cfg["name"], status="evaluating", conditions=run.conditions, main_condition=run.main, versions=versions(), params=run.params,
-                 eval_final=len(final_ids), weights_read="ema")
+                 eval_final=len(final_ids), weights_read="ema", weights=weights)
     for which, key in (("final", "final"), ("best", "best")):
         path = cfg.get(key)
         if not path:
@@ -435,8 +592,8 @@ def evaluate_checkpoints(cfg):
         t = time.time()
         ck = torch.load(path, map_location=run.device, weights_only=True)
         reader.load_state_dict(ck["ema"])
-        fixed = run.fixed_columns("ema@%s" % which, half, int(cfg["%s_cells" % which]), 0.0, "ok", int(cfg["%s_tables" % which]),
-                                  float(cfg["%s_wall_s" % which]))
+        fixed = run.fixed_columns("ema@%s" % (label if which == "final" else which), half, int(cfg["%s_cells" % which]), 0.0, "ok",
+                                  int(cfg["%s_tables" % which]), float(cfg["%s_wall_s" % which]))
         main, cells, digests = run.evaluate(final_ids, fixed, results)
         if which == "final":
             np.savez(os.path.join(out_dir, "heldout_final.npz"),
@@ -479,6 +636,9 @@ def read_ruler(run, cfg, began):
     layout = str(ro.get("layout") or A.LAYOUT_STORED)
     if layout == A.LAYOUT_STORED:
         render, version = None, T.RENDER_VERSION
+    elif ro.get("offline"):                                           # W18's strict offline rendering: the module renders (W3, leak-free)
+        from seeddrift.train.rel.tables import render as RD
+        render, version = None, "w3-%s" % RD.VERSION
     else:
         from seeddrift.train.rel.tables import render as RD
         with_ext = getattr(reader, "ext", None) is not None            # an arm trained on stored tables reads no ext cells
@@ -488,18 +648,21 @@ def read_ruler(run, cfg, began):
             return (grid, truth, ext) if with_ext else (grid, truth)
         version = "w3-%s" % RD.VERSION
     max_rows = int(ro.get("max_rows", 32))
-    info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else "final", relatives=bool(cfg["relatives"]), layout=layout, render_version=version,
+    info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else str(cfg.get("weights") or "final"), relatives=bool(cfg["relatives"]), layout=layout,
+                render_version=version,
                 run=cfg["run"], commit=cfg["commit"], root=cfg["heldout_root"])
     extra = {}
     if ro.get("in_place_only"):                                       # the protocol's switch of compute: in-place implants only
         extra = dict(scenarios=[0]) if untrained else (dict(presence_scenarios=[0]) if ro.get("presence") else {})
     if ro.get("adapt_v0"):                                            # tables of version 1 read by an arm trained on version 0
         extra["adapt_v0"] = True
+    if ro.get("offline"):                                             # the run of stage rel_w18_offline on this ruler set
+        extra["offline"] = str(ro["offline"])
     head = importlib.import_module(str(ro["module"])).run_ruler(lambda examples: E.score_cells(reader, examples, run.device, max_rows=max_rows),
                                                                 run.held, info, out_dir, render=render, presence=bool(ro.get("presence")),
                                                                 max_rows=max_rows, **extra)
     state = dict(name=cfg["name"], status="ok", readout=str(ro["module"]), weights=info["weights"], layout=layout, presence=bool(ro.get("presence")),
-                 in_place_only=extra,
+                 in_place_only={k: v for k, v in extra.items() if k != "offline"}, offline=extra.get("offline"),
                  tables=len(run.held), table_set=run.held.name, table_kind=run.held.kind, versions=versions(), params=run.params,
                  step=int(ck["step"]) if ck else 0, tables_seen=int(ck["tables_seen"]) if ck else 0, cells_seen=int(ck["cells_seen"]) if ck else 0,
                  ruler={k: v for k, v in (head or {}).items() if isinstance(v, (str, int, float, bool)) or v is None},
@@ -538,11 +701,19 @@ def fit(cfg):
         torch.save(body, p + ".part")
         os.replace(p + ".part", p)
 
+    node_cells = {}                                                    # node_cells.npz: tables (ids), t<n>_<condition>_bits / _cells
+
     def node():
         t = time.time()
         rate = k["cells"] / k["train_s"] if k["train_s"] > 0 else 0.0
         fixed = run.fixed_columns("%s@tables=%d" % (reads, k["tables"]), "subset", k["cells"], rate, "running", k["tables"], time.time() - began)
-        main, _, digests = run.evaluate(sub, fixed, results, at_node=True)
+        main, cells_n, digests = run.evaluate(sub, fixed, results, at_node=True)
+        for key, (b, tb) in cells_n.items():                           # every node's bits per held-out table (paired intervals between nodes)
+            c = key.replace("+", "__")
+            node_cells["t%d_%s_bits" % (k["tables"], c)] = np.bincount(tb, weights=b, minlength=len(sub))
+            node_cells["t%d_%s_cells" % (k["tables"], c)] = np.bincount(tb, minlength=len(sub)).astype(np.int64)
+        np.savez(os.path.join(out_dir, "node_cells.npz.part.npz"), tables=sub, **node_cells)
+        os.replace(os.path.join(out_dir, "node_cells.npz.part.npz"), os.path.join(out_dir, "node_cells.npz"))
         took = time.time() - t
         k["eval_s"] += took
         rec = dict(tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"], wall_s=round(time.time() - began, 1),
@@ -554,6 +725,9 @@ def fit(cfg):
         if m is not None and k["step"] and (state["best"] is None or m < state["best"]["bits"]):
             state["best"] = dict(step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], bits=m, condition=run.main, wall_s=rec["wall_s"])
             save("best.pt", ema_only=True)
+        if cfg["keep_node_weights"] and k["step"]:                    # the moving average at every node (for readings at a common node)
+            save(NODE_WEIGHTS % k["tables"], ema_only=True)
+            state.setdefault("node_weights", []).append(k["tables"])
         write_json(summary, state)
         return took
 
@@ -569,11 +743,18 @@ def fit(cfg):
     state.update(final_eval_reserve_s=round(reserve, 1), deadline_s=round(deadline - began, 1))
     budget = float(cfg["budget_cells"]) if cfg["budget_cells"] else None
     peak, warm = float(cfg["lr"]), max(1, int(cfg["warmup_steps"]))
-    next_node = int(cfg["eval_first"])
+    next_node = node_after(cfg, 0)
     names = run.sampler.masks
+    shares = {m: dict(tables=0, target_cells=0, bits=0.0) for m in names}  # what every mask scheme took of the cells and of the loss
+    framed = run.frame_strict and cfg["relatives"]
+    frames = {}                                                         # the whole gene's frame relatives in training, by distance
+    if framed:
+        state["frame_tiers"] = dict(heldout=run.frame_tiers("heldout"), train=frames)
     log = open(os.path.join(out_dir, "steps.csv"), "w")
-    log.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s," + ",".join("bits_" + m for m in names) + "\n")
+    log.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s," + ",".join("bits_" + m for m in names) +
+              "," + ",".join("cells_" + m for m in names) + ",data_wait_s\n")
     ended_by, last_flush = None, time.time()
+    feed = Feed(run.sampler, 0, int(cfg["data_workers"]))
     try:
         while True:
             now = time.time()
@@ -586,8 +767,18 @@ def fit(cfg):
             if ended_by:
                 break
             k["lr"] = lr = peak * min(1.0, (k["step"] + 1) / warm)
-            examples = run.sampler.draw(k["step"])
+            waited = feed.wait_s
+            examples = feed.get(k["step"])
+            waited = feed.wait_s - waited
             bits, norm, sb, sc = run.step(examples, lr)
+            for e in examples:
+                shares[names[e["scheme"]]]["tables"] += 1
+            if framed:
+                for lab, n in run.frame_tiers("train", examples).items():
+                    frames[lab] = frames.get(lab, 0) + n
+            for m, b, c in zip(names, sb, sc):
+                shares[m]["target_cells"] += int(c)
+                shares[m]["bits"] += float(b)
             k["step"] += 1
             run.update_ema(k["step"])
             took = time.time() - now
@@ -597,24 +788,31 @@ def fit(cfg):
             k["cells"] += cells
             k["targets"] += int(sum(sc))
             k["train_s"] += took
-            log.write("%d,%d,%d,%d,%d,%.5f,%.4g,%.0f,%.0f,%.4g,%.1f,%s\n" % (k["step"], k["tables"], k["cells"], k["targets"], k["alone"], bits, lr, cells / took,
-                                                                       run.peak_mb()[0], norm, time.time() - began,
-                                                                       ",".join("%.5f" % (b / c) if c else "" for b, c in zip(sb, sc))))
+            log.write("%d,%d,%d,%d,%d,%.5f,%.4g,%.0f,%.0f,%.4g,%.1f,%s,%s,%.4f\n" % (k["step"], k["tables"], k["cells"], k["targets"], k["alone"], bits, lr,
+                                                                                 cells / took, run.peak_mb()[0], norm, time.time() - began,
+                                                                                 ",".join("%.5f" % (b / c) if c else "" for b, c in zip(sb, sc)),
+                                                                                 ",".join("%d" % c for c in sc), waited))
             if time.time() - last_flush > 30:
                 log.flush()
                 last_flush = time.time()
             if k["tables"] >= next_node:
                 node()
-                while next_node <= k["tables"]:
-                    next_node *= 2
+                next_node = node_after(cfg, k["tables"])
     except FloatingPointError as err:
         log.close()
+        feed.close()
         state.update(status="diverged", error=str(err), steps=k["step"], tables_seen=k["tables"], cells_seen=k["cells"])
         write_json(summary, state)
         raise SystemExit("arm %s diverged at step %d: %s" % (cfg["name"], k["step"], err))
     log.close()
+    feed.close()
     rate = k["cells"] / k["train_s"] if k["train_s"] > 0 else 0.0
     alloc, reserved = run.peak_mb()
+    cells_all, bits_all = sum(x["target_cells"] for x in shares.values()), sum(x["bits"] for x in shares.values())
+    state["schemes"] = {m: dict(tables=x["tables"], target_cells=x["target_cells"], cell_share=round(x["target_cells"] / cells_all, 4) if cells_all else None,
+                                loss_share=round(x["bits"] / bits_all, 4) if bits_all else None,
+                                bits_per_cell=round(x["bits"] / x["target_cells"], 4) if x["target_cells"] else None) for m, x in shares.items()}
+    state.update(data_workers=int(cfg["data_workers"]), data_wait_s=round(feed.wait_s, 1))
     state.update(status="evaluating", ended_by=ended_by, steps=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], target_cells=k["targets"],
                  cells_per_s=round(rate, 1), tables_per_s=round(k["tables"] / k["train_s"], 3) if k["train_s"] > 0 else None, train_s=round(k["train_s"], 1),
                  eval_s=round(k["eval_s"], 1), eval_overhead=round(k["eval_s"] / k["train_s"], 4) if k["train_s"] > 0 else None,

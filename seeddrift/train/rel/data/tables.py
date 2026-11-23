@@ -24,9 +24,11 @@ import numpy as np
 
 from seeddrift.train.rel import api as A
 from seeddrift.train.rel.evalh import shards
+from seeddrift.train.rel.tables import render as _RD       # package W3's renderer (numpy only): its version is recorded
 
 READER_VERSION = "2"
-RENDER_VERSION = "stored-w3"                   # the stored layout of package W3's renderer (tables/render.py)
+RENDER_VERSION = "stored-w3-%s" % _RD.VERSION   # the stored layout of package W3's renderer (tables/render.py), with the
+                                                # renderer's version, so every run's versions record it (protocol)
 API_VERSION = getattr(A, "API", None) or getattr(A, "API_VERSION", None)          # the version of the contract loaded
 
 L, B = A.ROW_LEN, A.N_BLOCKS
@@ -46,7 +48,8 @@ WITH_CODONS = (A.KIND_PRESENT, A.KIND_SELF_COPY)
 FILL = np.full(256, A.PAD, dtype=np.uint8)          # the token of a block without codons, by its kind
 FILL[A.KIND_ABSENT], FILL[A.KIND_NOT_SEARCHED], FILL[A.KIND_TRUNCATED] = A.ABSENT, A.NOT_SEARCHED, A.TRUNCATED
 
-MODEL_FIELDS = ("tok", "n", "col", "kind", "frame_len", "frame_row")
+MODEL_FIELDS = ("tok", "n", "col", "kind", "frame_len", "frame_row", "genome_of_row")   # genome_of_row: tables v1 (v0: the default)
+FRAME_META = ("genome", "row_gene", "row_first")         # the meta fields the online frame layout of the whole gene reads
 
 
 class Tables:
@@ -67,6 +70,11 @@ class Tables:
         """The model fields of table i, without the leading axis."""
         got = self.ts.load(int(i), int(i) + 1, MODEL_FIELDS, verify=False)
         return {f: got[f][0] for f in MODEL_FIELDS}
+
+    def meta(self, i, fields=FRAME_META):
+        """Metadata fields of table i (never a model input; the online frame layout of package W3 reads them)."""
+        got = self.ts.load(int(i), int(i) + 1, tuple(fields), verify=False)
+        return {f: got[f][0] for f in fields}
 
     def load(self, fields, first=0, last=None):
         return self.ts.load(int(first), len(self) if last is None else int(last), tuple(fields), verify=False)
@@ -106,7 +114,15 @@ def take_rows(tab, rows):
     if "frame_row" in tab:
         where = {int(r): k for k, r in enumerate(rows.tolist())}
         out["frame_row"] = np.asarray([where.get(int(f), -1) for f in np.asarray(tab["frame_row"]).reshape(-1)], dtype=np.int64)
+    if "genome_of_row" in tab:
+        out["genome_of_row"] = np.asarray(tab["genome_of_row"])[rows]
     return out
+
+
+def take_meta(meta, rows):
+    """The metadata of the rows kept (every field with a leading axis of rows)."""
+    rows = np.asarray(rows, dtype=np.int64)
+    return {k: np.asarray(v)[rows] for k, v in meta.items()}
 
 
 def inside(tab):

@@ -277,6 +277,13 @@ def test_a_block_laid_on_another_frame_row():
     assert all(np.array_equal(a, b) for a, b in zip(RD.placement(tab, vis), RD.placement_reference(tab, vis)))
     gone = dict(tab, frame_row=np.full(A.N_BLOCKS, 9, np.int8))                  # a frame row that is not in the table: row 0
     assert RD.frame_rows(gone).tolist() == [0] * A.N_BLOCKS
+    pr = RD.render(tab, vis, hide, control="presence")[0]                       # the controls act on every row but row 0:
+    assert (pr[1:, T0:T0 + 8][(grid[1:, T0:T0 + 8] >= 1) & (grid[1:, T0:T0 + 8] <= 65)] == A.MASK).all()      # the frame relative too
+    assert np.array_equal(pr[0], grid[0]) and ((pr[1:] == A.MASK) == ((grid[1:] >= 1) & (grid[1:] <= 65) | (grid[1:] == A.MASK))).all()
+    sh, st, _ = RD.render(tab, vis, hide, control="shuffle", key=5)
+    assert np.array_equal(sh[0], grid[0]) and np.array_equal(st[0], truth[0])  # row 0 stays where it is
+    perm = np.argsort(__import__("seeddrift.train.rel.evalh.conditions", fromlist=["x"]).hash_u01(5, RD.STREAM_SHUFFLE, TB, np.arange(8)), kind="stable")
+    assert not np.array_equal(perm, np.arange(8)) and np.array_equal(sh[1:, T0:T0 + 8], grid[1:, T0 + perm])   # both relatives, one permutation
 
 
 def test_the_two_controls_and_the_reporting_helpers():

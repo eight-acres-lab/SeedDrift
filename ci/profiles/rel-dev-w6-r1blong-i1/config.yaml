@@ -1,0 +1,54 @@
+# Machine i-1: the report of round 1b's long arm (task-breakdown section 8.6; stage w6_report of package W6, alone): 30 M
+# at 1.5e-4 with the scattered and span samples leak-free and the whole gene stored, read leak-free on W3's strict
+# offline rendering (run 20261123T035654-exp-rel-48d1de93-rel-r1blong-i2, i-2 alone, wall limit 11 h, the references at
+# every node; copied to i-1 without checkpoints), over passes of the training tables beside round 1a's long arm (30 M at
+# 3e-4, stored; run 20261122T162214, "w6-ref30m-s1 @long") and seed 2 of the evening (run 20261122T114919). The leak of
+# the stored layout at the same rate: round 1a's short 30 M arm at 1.5e-4 (stored; run 20261122T164736) against the long
+# leak-free arm, at every node both reached (the main reading) and at the end (a side reading). Beside round 1b's short
+# arms (run 20261122T220626) and the evening's arm without relatives (run 20261122T071504), for what relatives are worth
+# leak-free. The leak-free arms are left out of the reading of scale only. Reads result rows, model indexes, preflight
+# records and the arms' steps.csv only; CPU only. Development diagnosis only. Run after the long arm has passed and been
+# copied to i-1.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261122T071504-exp-rel-3382ed5e-rel-d1-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2
+    - /hy-tmp/seeddrift-ci/runs/20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1
+    - {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T162214-exp-rel-r1a-098d93a7-rel-r1along30m-i2, label: long}
+    - /hy-tmp/seeddrift-ci/runs/20261122T220626-exp-rel-0294e09d-rel-r1bshort-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261123T035654-exp-rel-48d1de93-rel-r1blong-i2
+  seeds: [[w6-ref30m-s1, w6-ref30m-s2]]
+  scale_exclude: [w6-ref10m-leakfree-s1, w6-ref30m-leakfree-s1, w6-ref30m-leakfree-hier-s1, w6-ref30m-leakfree-lr1.5e-4-s1]
+  readings_exclude: [w6-ref30m-leakfree-hier-s1, w6-ref30m-lr1.5e-4-s1, w6-ref30m-lr6e-4-s1, w6-ref100m-lr1e-4-s1, "w6-ref30m-s1 @long"]
+  leak_pairs: [[w6-ref30m-leakfree-lr1.5e-4-s1, w6-ref30m-lr1.5e-4-s1], [w6-ref30m-leakfree-s1, w6-ref30m-s1]]
+  passes: [w6-ref30m-leakfree-lr1.5e-4-s1, "w6-ref30m-s1 @long", w6-ref30m-s2]
+  notes:
+    - >-
+      The threshold is borrowed: the two seeds' difference is that of the 30 M arm trained and read in the stored layout
+      (about 0.007 to 0.008 bits at 32,000 tables); the leak-free arms have no seed of their own.
+    - >-
+      The long leak-free arm (1.5e-4) and the stored arm it is paired with (round 1a's short arm at 1.5e-4) ran on
+      different machines (i-2 alone; i-1 with two other arms) and for different wall limits: the leak is read at the nodes
+      both reached (up to 32,000 tables), at equal tables seen; the curves over passes are set side by side, not paired.
+    - >-
+      The leak-free arms were trained on the whole gene in the stored layout: their whole_gene and whole_gene+repaired
+      rows read leak-free on the frame relative are a layout they were not trained on, a reference only.
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

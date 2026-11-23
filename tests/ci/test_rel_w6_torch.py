@@ -146,7 +146,7 @@ def test_leakfree_layout_trains():
     for r in rows:
         if r["weights"] == "ema@final":
             lay.setdefault(r["condition"], set()).add(r["layout"])
-    assert lay == {"scattered": {"leakfree"}, "whole_gene": {"leakfree", "stored"}, "whole_gene+repaired": {"leakfree", "stored"},
+    assert lay == {"scattered": {"leakfree-online"}, "whole_gene": {"leakfree-online", "stored"}, "whole_gene+repaired": {"leakfree-online", "stored"},
                    "scattered+no_relatives": {"stored"}, "whole_gene+no_relatives": {"stored"}}           # the whole gene in both layouts
     assert {"whole_gene@stored", "whole_gene+repaired@stored"} <= set(out["final"])
     assert all(set(e["bits"]) == set(cond.CONDITIONS) for e in out["evals"])                                    # the nodes: the main readings
@@ -155,7 +155,8 @@ def test_leakfree_layout_trains():
     assert out["final_items"]["whole_gene@stored"] == out["final_items"]["whole_gene"]
     real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
     try:
-        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))
+        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=1,
+                         eval_first=4))
     except SystemExit as err:
         assert "offline" in str(err)
     else:
@@ -225,6 +226,16 @@ def test_saved_weights_evaluated_again():
     rows = SC.read_rows(os.path.join(folder, "results.tsv"))
     assert {r["weights"] for r in rows} == {"ema@final", "ema@best"} and {r["item_half"] for r in rows} == {"all"}
     assert {r["budget"].split(";")[0] for r in rows if r["weights"] == "ema@final"} == {"tables=%d" % out["tables_seen"]}
+    kept = tempfile.mkdtemp()                                    # a node's moving average (keep_node_weights), read again as node@<tables>
+    cfg2 = _config(kept, kind=A.TABLE_REAL, probe=False, relatives=False, max_steps=4, per_step=4, micro=4, eval_first=4, keep_node_weights=True)
+    out2 = loop.fit(cfg2)
+    node = next(e for e in out2["evals"] if e["tables_seen"] == 4)
+    folder = os.path.join(kept, "node")
+    got = loop.evaluate_checkpoints(dict(cfg2, out=folder, final=os.path.join(kept, "out", "ema_tables4.pt"), weights="node@4", best=None,
+                                         final_per_group=cfg2["eval_per_group"], final_tables=4, final_cells=node["cells_seen"], final_wall_s=node["wall_s"]))
+    rows = SC.read_rows(os.path.join(folder, "results.tsv"))
+    assert got["weights"] == "node@4" and {r["weights"] for r in rows} == {"ema@tables=4"}            # (one table per group: all 12 here)
+    assert all(abs(got["final"][c] - node["bits"][c]) < 1e-5 for c in node["bits"])             # the node's own reading on the same tables
 
 
 def test_saved_weights_read_on_a_ruler_set_and_never_trained_on():
@@ -324,6 +335,139 @@ def test_extra_and_only_conditions():
     loop.fit(cfg)
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     assert {r["condition"] for r in rows if r["weights"].startswith("ema@tables=")} == set(cond.CONDITIONS) | {cond.SUFFIX}
+
+
+def test_v1_tables_train_with_the_frame_layout_the_genome_bias_and_the_end_controls():
+    """Tables of version 1: every mask leak-free, the whole gene on its frame relative through the pair index, the
+    same-genome bias; at the end the two controls of the renderer under scattered and whole_gene; the cells scored are
+    the evaluator's whatever the layout and control."""
+    root = tempfile.mkdtemp()
+    train, held = D.v1_tables(24, rows=8, seed=11), D.v1_tables(12, rows=8, seed=12, split=1)
+    tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)])
+    ix = D.frame_index_of(held, D.frame_index_of(train))
+    cfg = _config(root, train_tables=tables, heldout_tables=tables, rows=[2, 8], layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_LEAKFREE,
+                  pair_index=ix, size=dict(layers=1, width=256, genome_bias=True), end_controls=["shuffle", "presence"], max_steps=3, eval_first=4)
+    axial = loop.registry.load("model", "axial")
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256 + 1 * 2       # the ext vector, one bias per column head
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and {"scattered@shuffle", "whole_gene@presence"} <= set(out["final"])
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    lay = {}
+    for r in rows:
+        if r["weights"] == "ema@final":
+            lay.setdefault(r["condition"], set()).add(r["layout"])
+    full = {"leakfree-online", "leakfree-online+shuffle", "leakfree-online+presence"}
+    assert lay == {"scattered": full, "whole_gene": full, "whole_gene+repaired": {"leakfree-online"}, "scattered+no_relatives": {"stored"},
+                   "whole_gene+no_relatives": {"stored"}}
+    assert all(set(e["bits"]) == set(cond.CONDITIONS) for e in out["evals"])                     # the controls at the end only
+    for c in cond.CONDITIONS:
+        assert out["final_items"][c] == _digest(cfg, root, c), c
+    assert out["final_items"]["scattered@shuffle"] == out["final_items"]["scattered"]
+    assert out["final"]["scattered@presence"] != out["final"]["scattered"]
+    kept = tempfile.mkdtemp()                                    # keep_node_weights: the moving average of every node, outside probes
+    kt = D.write_tableset(kept, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
+    got = loop.fit(dict(cfg, train_tables=kt, heldout_tables=kt, train_root=kept, heldout_root=kept, probe=False, keep_node_weights=True, eval_online=True,
+                        out=os.path.join(kept, "out")))
+    assert got["node_weights"] == [4] and os.path.exists(os.path.join(kept, "out", "ema_tables4.pt"))
+    assert "model" not in torch.load(os.path.join(kept, "out", "ema_tables4.pt"), map_location="cpu", weights_only=True)
+    real = tempfile.mkdtemp()                                    # outside probe mode the whole gene needs the pair index
+    rt = D.write_tableset(real, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
+    try:
+        loop.Run(dict(cfg, train_tables=rt, heldout_tables=rt, train_root=real, heldout_root=real, pair_index=None, probe=False,
+                      out=os.path.join(real, "x")))
+    except SystemExit as err:
+        assert "pair index" in str(err) or "pair_index" in str(err)
+    else:
+        raise AssertionError("an arm laid the whole gene on its frame relative without the pair index")
+
+
+def _offline(root, held):
+    """A strict offline rendering of the held-out tables as package W3 writes it (one part per mask, layout leakfree):
+    scattered and suffix the stored tables, whole_gene every table laid on its frame relative by align.frame_layout."""
+    from seeddrift.train.rel.tables import align as AL
+    framed = {f: np.array(v, copy=True) for f, v in held.items()}
+    for i in range(len(held["tok"])):
+        tab = {f: held[f][i] for f in ("tok", "n", "col", "kind", "frame_len", "frame_row")}
+        present = T.present_rows(tab)
+        col, frame_row, frame_len = AL.frame_layout(T.take_rows(tab, present))
+        frame_row = np.where(frame_row >= 0, present[np.clip(frame_row, 0, None)], frame_row)    # back to the stored rows' numbers
+        framed["col"][i][present], framed["frame_row"][i], framed["frame_len"][i] = col, frame_row, frame_len
+    path = D.write_tableset(root, [("scattered/s0000", held), ("suffix/s0000", held), ("whole_gene/s0000", framed)], kind=A.TABLE_REAL,
+                            name="w3-offline", sub="offline")
+    with open(path) as f:
+        doc = json.load(f)
+    doc.update(layout=A.LAYOUT_LEAKFREE, parts={p: dict(folder="offline/" + p) for p in ("scattered", "suffix", "whole_gene")})
+    with open(path, "w") as f:
+        json.dump(doc, f)
+    return path
+
+
+def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
+    """Round 1 (protocol round1): the whole gene laid by W3's strict aligner after the rows are drawn (no pair index);
+    the nodes read four conditions rendered online (rows leakfree-online), the end the strict offline rendering (rows
+    leakfree), the controls keyed <condition>@<control>; nodes also every nodes_every tables, the moving average of
+    each kept as ema_tables<n>.pt; the mask schemes' shares of cells and loss; the examples drawn by a background
+    process are those drawn in the training's process."""
+    root = tempfile.mkdtemp()
+    train, held = D.v1_tables(24, rows=8, seed=11), D.v1_tables(12, rows=8, seed=12, split=1)
+    tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL, sub="v1")   # beside _config's own set
+    off = _offline(root, held)
+    four = [cond.SCATTERED, cond.WHOLE_GENE, cond.SCATTERED + "+" + cond.NO_RELATIVES, cond.WHOLE_GENE + "+" + cond.NO_RELATIVES]
+    cfg = _config(root, train_tables=tables, heldout_tables=tables, probe=False, rows=[2, 8], layout=A.LAYOUT_LEAKFREE, whole_gene_layout="frame",
+                  eval_online=True, heldout_offline_tables=off, heldout_offline_root=root, only_conditions=four, end_controls=["shuffle", "presence"],
+                  keep_node_weights=True, nodes_every=4, nodes_every_from=8, max_steps=6, eval_first=4)
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["sampler"]["frame_tables"] > 0 and pre["sampler"]["frame_s_per_table"] > 0 and pre["tables_per_s"] > 0
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and out["conditions"] == four
+    assert [e["tables_seen"] for e in out["evals"]] == [0, 4, 8, 12] and out["node_weights"] == [4, 8, 12]   # doubling, and every 4 from 8
+    assert all(os.path.exists(os.path.join(cfg["out"], "ema_tables%d.pt" % t)) for t in (4, 8, 12))
+    nc = np.load(os.path.join(cfg["out"], "node_cells.npz"))                # every node's bits per table, for paired intervals
+    held_group = T.open_split(root, tables, 1).group[nc["tables"]]
+    for t in (0, 4, 8, 12):
+        for c in four:
+            key = "t%d_%s" % (t, c.replace("+", "__"))
+            got = {r["group"]: float(r["bits"]) for r in SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+                   if r["weights"] == "ema@tables=%d" % t and r["condition"] == c and r["stratum"] == SC.ALL and r["group"] != SC.ALL}
+            for g in np.unique(held_group):
+                m = held_group == g
+                if nc[key + "_cells"][m].sum():
+                    name = cfg["group_names"].get(str(int(g)), str(int(g)))
+                    assert abs(nc[key + "_bits"][m].sum() / nc[key + "_cells"][m].sum() - got[name]) < 1e-4, (key, g)   # rows round the bits
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    lay = {}
+    for r in rows:
+        lay.setdefault((r["weights"] == "ema@final", r["condition"]), set()).add(r["layout"])
+    assert lay[(False, cond.SCATTERED)] == lay[(False, cond.WHOLE_GENE)] == {"leakfree-online"}
+    assert lay[(True, cond.SCATTERED)] == lay[(True, cond.WHOLE_GENE)] == {"leakfree", "leakfree+shuffle", "leakfree+presence"}
+    assert lay[(True, four[2])] == lay[(True, four[3])] == lay[(False, four[2])] == {"stored"}
+    assert {"scattered@shuffle", "scattered@presence", "whole_gene@shuffle", "whole_gene@presence"} <= set(out["final"])
+    for c in four:                                               # the cells scored are the evaluator's, online and offline
+        assert out["final_items"][c] == _digest(cfg, root, c), c
+    sch = out["schemes"]
+    assert set(sch) == {"scattered", "span", "whole_gene"} and sum(x["tables"] for x in sch.values()) == 12
+    ft = out["frame_tiers"]                                      # the frame relatives of training and evaluation, by distance
+    assert sum(ft["heldout"].values()) == 12 and sum(ft["train"].values()) == sch["whole_gene"]["tables"] > 0
+    assert set(ft["heldout"]) | set(ft["train"]) <= {"none", "self_copy"} | {"tier_%d" % t for t in range(-1, 8)}
+    assert {r["budget"].split(";")[-1] for r in rows} == {"micro=1"}                                # the micro-batch trained with
+    assert abs(sum(x["cell_share"] for x in sch.values()) - 1) < 1e-3 and abs(sum(x["loss_share"] for x in sch.values()) - 1) < 1e-3
+    with open(os.path.join(cfg["out"], "steps.csv")) as f:
+        steps = list(csv.DictReader(f))
+    assert {"cells_scattered", "cells_whole_gene", "data_wait_s"} <= set(steps[0])
+    assert sum(int(r["cells_whole_gene"] or 0) for r in steps) == sch["whole_gene"]["target_cells"]
+    run = loop.Run(dict(cfg, out=os.path.join(root, "again")))     # the whole gene online by the strict aligner = W3's offline part
+    data, ids = run.held_data()[0], np.arange(len(run.held))
+    ts = run.offline["parts"]["whole_gene"]
+    offline = ts.load(0, ts.tables, loop.E.PLAN_FIELDS, verify=False)
+    b_on = loop.E.score(run.reader(), data, ids, cond.WHOLE_GENE, run.device, layout=A.LAYOUT_LEAKFREE, frame=dict(strict=True, cache=None))[0]
+    b_off = loop.E.score(run.reader(), offline, ids, cond.WHOLE_GENE, run.device, layout=A.LAYOUT_LEAKFREE)[0]
+    assert len(b_on) and np.allclose(b_on, b_off)
+    w1 = loop.fit(dict(cfg, data_workers=1, keep_node_weights=False, out=os.path.join(root, "workers")))   # drawn ahead in a background process
+    with open(os.path.join(root, "workers", "steps.csv")) as f:
+        again = list(csv.DictReader(f))
+    assert [r["loss_bits"] for r in again] == [r["loss_bits"] for r in steps] and w1["data_workers"] == 1
+    assert w1["final"] == out["final"]
 
 
 def test_split_and_gradient_checks():

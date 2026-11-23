@@ -584,6 +584,30 @@ def test_the_subset_is_the_same_cells_as_its_tables_scored_alone():
     assert "On the subset" in brun.subset_markdown(rows, 6)
 
 
+def test_strata_of_tables_with_self_copies():
+    """Round 1's strata: with the kinds given, the nearest identity is that of the nearest other-genome row (a self copy,
+    however close, is left out) and every table falls in one of three relatives strata."""
+    from seeddrift.train.rel import api as A
+    B = A.N_BLOCKS
+    kind = np.zeros((4, 4, B), np.uint8)
+    kind[:, 0] = A.KIND_PRESENT
+    kind[0, 1] = A.KIND_SELF_COPY                                                # self copy 0.97 and another genome 0.4
+    kind[0, 2] = A.KIND_PRESENT
+    kind[1, 1] = A.KIND_SELF_COPY                                                # a self copy only, its context blocks absent
+    kind[1, 1, :3] = A.KIND_ABSENT
+    kind[3, 1] = A.KIND_ABSENT                                                   # another genome without the target gene's homolog
+    identity = np.array([[1.0, 0.97, 0.4, np.nan], [1.0, 0.99, np.nan, np.nan], [1.0, np.nan, np.nan, np.nan], [1.0, np.nan, np.nan, np.nan]])
+    assert np.isclose(score.nearest_identity(identity)[0], 0.97) and np.isclose(score.nearest_identity(identity, kind)[0], 0.4)
+    assert np.isnan(score.nearest_identity(identity, kind)[1]) and np.isclose(score.nearest_identity(identity)[1], 0.99)
+    assert score.relative_kinds(kind).tolist() == [0, 1, 2, 0]
+    strata = score.strata_of(identity, [2, 1, 0, 1], kind)
+    labels = {lab[0]: [lab[k] for k in idx] for lab, idx in strata}
+    assert labels[score.FINE[0]] == ["nearest_identity=0.4-0.5", "nearest_identity=none", "nearest_identity=none", "nearest_identity=none"]
+    assert labels[score.RELATIVE_KINDS[0]] == ["relatives=other_genomes", "relatives=self_copies_only", "relatives=none", "relatives=other_genomes"]
+    assert labels[score.RELATIVES[0]] == ["relatives_on_target=yes", "relatives_on_target=no", "relatives_on_target=no", "relatives_on_target=no"]
+    assert len(score.strata_of(identity)) == 2 and score.fine_stratum(identity).tolist()[:2] == [9, 9]     # without kinds: as before
+
+
 def test_aggregate_is_the_mean_of_the_group_means():
     bits = np.array([1.0, 3.0, 10.0, 20.0, 30.0, 7.0])
     cell_table = np.array([0, 0, 1, 1, 1, 2])

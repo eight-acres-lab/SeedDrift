@@ -171,3 +171,75 @@ def test_placement_keeps_collinear_alignments_and_drops_the_rest():
     assert q.tolist() == list(range(4, 15)) + list(range(19, 25)) and t.tolist() == list(range(19, 30)) + list(range(39, 45))
     q2, t2, _ = V1.placement(hits, 8, 100)                              # only the query columns inside the frame
     assert q2.tolist() == list(range(4, 8)) and t2.tolist() == list(range(19, 23))
+
+
+def test_a_gene_is_the_target_again_only_after_every_gene_of_its_genome(setup, tmp_path):
+    genomes = setup["genomes"]
+    plan = V1.plan_set(genomes, GROUPS, "train", 30, 11)
+    assert len(plan) == 4 and all(plan[3][t] == sum(1 for u in range(t) if plan[0][u] == plan[0][t]) for t in range(len(plan[0])))
+    shards, _ = V1.build_set(setup["builder"], GROUPS, "train", plan, str(tmp_path / "t"), shard_tables=50, seed=11, processes=2)
+    gene = np.concatenate([np.load(os.path.join(tmp_path, "t", "%s.gene.npy" % n))[:, V1.TARGET] for n, _ in shards])
+    gid = {g["id"]: i for i, g in enumerate(genomes)}
+    for g in set(plan[0]):
+        a = setup["arrays"][g]
+        ok = {int(j) for j in np.flatnonzero(np.diff(a.coff) > 0)}
+        mine = [int(gene[t]) for t in range(len(plan[0])) if plan[0][t] == g]       # in the order of the plan
+        n = len(ok)
+        for x in range(0, len(mine), n):
+            chunk = mine[x:x + n]
+            assert len(set(chunk)) == len(chunk) and set(chunk) <= ok              # no repeat inside one pass over the genome
+        assert set(mine[:n]) == (ok if len(mine) >= n else set(mine[:n]))
+    del gid
+    again = V1.build_set(setup["builder"], GROUPS, "train", plan, str(tmp_path / "u"), shard_tables=50, seed=11, processes=1)[0]
+    g2 = np.concatenate([np.load(os.path.join(tmp_path, "u", "%s.gene.npy" % n))[:, V1.TARGET] for n, _ in again])
+    assert np.array_equal(gene, g2)
+
+
+def test_a_larger_set_holds_the_smaller_one_table_for_table(setup, tmp_path):
+    """Same search, seed and code: the tables of a set with more tables per group begin with those of the smaller set,
+    byte for byte (a table depends on its number alone), and the held-out tables are the same."""
+    genomes = setup["genomes"]
+    small, big = V1.plan_set(genomes, GROUPS, "train", 6, 5), V1.plan_set(genomes, GROUPS, "train", 12, 5)
+    n = len(small[0])
+    assert [x[:n] for x in (big[0], big[1], big[3])] == [small[0], small[1], small[3]]
+    a, _ = V1.build_set(setup["builder"], GROUPS, "train", small, str(tmp_path / "s"), shard_tables=len(GROUPS) * 2, seed=5, processes=2)
+    b, _ = V1.build_set(setup["builder"], GROUPS, "train", big, str(tmp_path / "b"), shard_tables=len(GROUPS) * 2, seed=5, processes=2)
+    assert [x[0] for x in b[:len(a)]] == [x[0] for x in a]
+    for name, _ in a:
+        for f in V1.fields(32):
+            x, y = (open(os.path.join(tmp_path, d, "%s.%s.npy" % (name, f)), "rb").read() for d in ("s", "b"))
+            assert x == y, (name, f)
+    h1, h2 = V1.plan_set(genomes, GROUPS, "heldout", 2, 5), V1.plan_set(genomes, GROUPS, "heldout", 2, 5)
+    assert h1 == h2
+
+
+def test_plan_by_gene_uses_every_gene_of_a_group_before_any_twice(setup):
+    genomes = setup["genomes"]
+    valid = {g["id"]: np.flatnonzero(np.diff(setup["arrays"][g["id"]].coff) > 0) for g in genomes if g["split"] == "train"}
+    plan = V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid)
+    assert plan[3] is None and len(plan[4]) == 50 * len(GROUPS) and plan == V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid)
+    for gi, g in enumerate(GROUPS):
+        mine = [(plan[0][t], plan[4][t]) for t in range(len(plan[0])) if plan[1][t] == gi]
+        n = sum(len(valid[x["id"]]) for x in genomes if x["split"] == "train" and x["group"] == g)
+        for x in range(0, len(mine), n):                                  # one pass over the group's genes: no repeat
+            assert len(set(mine[x:x + n])) == len(mine[x:x + n])
+        assert all(j in set(valid[gid].tolist()) for gid, j in mine)
+
+
+def test_a_group_takes_at_most_max_uses_tables_per_gene(setup):
+    genomes = setup["genomes"]
+    valid = {g["id"]: np.flatnonzero(np.diff(setup["arrays"][g["id"]].coff) > 0) for g in genomes if g["split"] == "train"}
+    free = V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid)
+    capped = V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid, max_uses=1)
+    for gi, g in enumerate(GROUPS):
+        n = sum(len(valid[x["id"]]) for x in genomes if x["split"] == "train" and x["group"] == g)
+        if not n:
+            continue
+        mine = [(capped[0][t], capped[4][t]) for t in range(len(capped[0])) if capped[1][t] == gi]
+        assert len(mine) == min(50, n) == capped[5][g] and len(set(mine)) == len(mine)       # every gene once at most
+        assert sum(1 for x in free[1] if x == gi) == 50                                    # without the cap: the group's share
+    small = [g for g in GROUPS if capped[5].get(g, 50) < 50]
+    assert small and len(capped[0]) == sum(capped[5].values()) < len(free[0])              # no group takes the tables another leaves
+    order = [(free[0][t], free[1][t], free[4][t]) for t in range(len(free[0]))]
+    assert order == [(a, b, c) for a, b, c in zip(*V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid, max_uses=10 ** 6)[:2],
+                                                    V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid, max_uses=10 ** 6)[4])]

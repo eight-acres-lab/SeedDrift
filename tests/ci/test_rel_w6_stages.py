@@ -61,6 +61,14 @@ def test_every_variant_file_loads_and_round_1a_changes_one_key():
         assert load(n)["optimizer"] == {"lr": lr} and rest(load(n), "optimizer") == rest(load(base), "optimizer"), n
     assert load("w6-ref30m-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-hier"), "size") == rest(load("w6-ref30m"), "size")
+    for n, lr, size, micro, rel in (("w6-ref30m-v1", 1.5e-4, (12, 384), 2, True), ("w6-ref30m-norel-v1", 1.5e-4, (12, 384), 2, False),
+                                    ("w6-ref100m-v1", 1e-4, (12, 768), 1, True)):
+        v = load(n)                                                   # round 1 (protocol round1): version 1, every mask leak-free
+        assert v["optimizer"] == {"lr": lr} and v["size"] == {"layers": size[0], "width": size[1]} and v["micro"] == micro   # no genome_of_row
+        assert v["layout"] == api.LAYOUT_LEAKFREE and v["whole_gene_layout"] == w6_fit.FRAME and v["rows"] == [4, 32] and v["relatives"] is rel
+        assert v["alone_share"] == 0.05 and v["masks"] == ["scattered", "span", "whole_gene"] and v.get("mask_weights") is None
+    assert rest(load("w6-ref30m-norel-v1"), "relatives") == rest(load("w6-ref30m-v1"), "relatives")
+    assert not os.path.exists(os.path.join(folder, "w6-ref10m-v1.yaml"))                         # 10 M is not run in round 1
     assert load("w6-ref30m-leakfree-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-leakfree-hier"), "size") == rest(load("w6-ref30m-leakfree"), "size")
     assert rest(load("w6-ref30m-leakfree"), "layout", "whole_gene_layout") == rest(load("w6-ref30m"), "layout")
@@ -197,12 +205,50 @@ def test_model_index_and_gate_of_a_finished_training(tmp_path):
     assert "out of memory" in doc["variants"][1]["error"] and doc["tablesets"][0]["run_id"] == "tables" and doc["groups"] == list(GROUPS)
     assert doc["variants"][0]["info"]["tables_seen"] == 4000 and doc["variants"][0]["info"]["final_items"]["scattered"] == "digest-scattered"
     assert {o["name"] for o in st.outputs} >= {"models", "results", "summary_w6-ref30m-s1"}
-    w6_fit.gate(st, cfg, run_dir)                                       # one arm trained, one failed: recorded, not a failure
+    from ci.gates import GateFailure
+    with pytest.raises(GateFailure):                                    # one arm trained, one failed: recorded, and the run fails
+        w6_fit.gate(st, cfg, run_dir)
     g = _gate(run_dir, "G4_rel_w6_fit")
-    assert g["status"] == "pass" and g["evidence"]["trained"] == ["w6-ref30m-s1", "w6-ref10m-s1"] and "w6-ref30m-norel-s1" in g["evidence"]["failed"]
+    assert g["status"] == "fail" and g["evidence"]["trained"] == ["w6-ref30m-s1", "w6-ref10m-s1"] and "w6-ref30m-norel-s1" in g["evidence"]["failed"]
+    assert any(e.get("arm") == "w6-ref30m-norel-s1" and "out of memory" in e["error"] for e in g["evidence"]["problems"])
     part = w6_fit.summary(run_dir)
     assert part["json"]["arms"]["w6-ref30m-s1"]["cells_per_s"] == 12.5 and part["json"]["arms"]["w6-ref30m-s1"]["tables_seen"] == 4000
     assert any("failed" in line for line in part["md"]) and len(json.dumps(part["json"])) < 20000
+    run_dir, cfg, doc, st = _finished_fit(tmp_path / "all", statuses=("ok", "ok", "ok"))
+    w6_fit.gate(st, cfg, run_dir)                                       # every arm trained to its budget (the wall limit here)
+    assert _gate(run_dir, "G4_rel_w6_fit")["status"] == "pass"
+
+
+def test_preflight_only_probes_index_their_preflights(tmp_path):
+    """Round 1's probes: every arm preflighted on the real tables, nothing trained; the index lists each arm with its
+    preflight (tables per second, the sampler's cost) and no checkpoint, and the gate passes on the preflights."""
+    st0 = Stage.__new__(Stage)
+    four = ["scattered", "whole_gene", "scattered+no_relatives", "whole_gene+no_relatives"]
+    s = w6_fit.settings(st0, dict(rel_w6_fit=_block(preflight_only=True, preflight_steps=50, only_conditions=four, data_workers=1, nodes_every=50000,
+                                                   keep_node_weights=True)))
+    assert s["preflight_only"] is True and s["passed_on"] == dict(preflight_steps=50, only_conditions=four, data_workers=1, nodes_every=50000,
+                                                                  keep_node_weights=True)
+    run_dir, cfg = RF.rel_run(tmp_path, kind="rel_traineval", stages=STAGES)
+    st = Stage(run_dir, "rel_w6_fit")
+    name = "w6-ref30m-v1-s2"
+    folder = os.path.join(run_dir, w6_fit.OUT, name)
+    os.makedirs(folder)
+    pre = dict(ok=True, params=28_000_000, micro=2, peak_mb=9, reserved_mb=11, cells_per_s=20.0, flops_per_cell=1, lr=1.5e-4, lr_reduced=False,
+               guard=dict(failed=False, steps=50), steps_per_s=0.8, tables_per_s=3.2, data_wait_s_per_step=0.001,
+               sampler=dict(steps=20, s_per_step=0.05, frame_tables=27, frame_s_per_table=0.012, data_workers=1))
+    with open(os.path.join(folder, "preflight.json"), "w") as f:
+        json.dump(pre, f)
+    variant = yaml.safe_load(open(os.path.join(ROOT, "configs", "rel", "variants", "w6-ref30m-v1.yaml")))
+    arms = {name: dict(arm=dict(name=name, file="configs/rel/variants/w6-ref30m-v1.yaml", sha256="1" * 64, seed=2, budget_cells=None, lr=1.5e-4,
+                                variant=variant), folder=folder, preflight=pre, status="ok", summary={}, error=None)}
+    sets = {k: dict(doc=dict(name="v1", sha256="2" * 64), groups=list(GROUPS), row_groups=dict(enumerate(GROUPS))) for k in ("train", "heldout")}
+    s.update(tables=dict(train=dict(run="/x/runs/tables", split=0), heldout=dict(run="/x/runs/tables", split=1)))
+    doc = w6_fit.finish(st, cfg, run_dir, s, sets, arms, [], 60000.0, dict(python="py"))
+    v = doc["variants"][0]
+    assert doc["preflight_only"] is True and v["status"] == "ok" and v["checkpoints"] == []
+    assert v["info"]["preflight"]["tables_per_s"] == 3.2 and v["info"]["preflight"]["sampler"]["frame_s_per_table"] == 0.012
+    w6_fit.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_fit")["status"] == "pass"
 
 
 def test_training_gate_fails_without_a_trained_arm_or_its_final_rows(tmp_path):
@@ -366,6 +412,107 @@ def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
     assert "## Learning rates of fixture" in text and "over passes of the training tables" in text and "- A note of the profile." in text
     with pytest.raises(SystemExit):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
+
+
+def test_report_reads_over_fitting_group_by_group(tmp_path):
+    """The curve over passes read group by group: each group's lowest node and its change after it, against that group's
+    seeds' difference; a group that rose beyond it is a key point (the programme lead's ruling for round 1)."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    conds = list(cond.CONDITIONS)
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")              # the second seed 0.2 above the first at every node, every group
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.2) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
+    # one node more for the first seed: the first group still falls (5.2 to 4.9), the second rises by 0.5 (5.7 to 6.2)
+    later = [r for r in _rows(os.path.basename(run_dir), "w6-ref30m-s1", [(4000, 40000, 4.9)], 4.9, conds) if r["weights"] == "ema@tables=4000"]
+    later = [dict(r, bits=6.2) if r["group"] == GROUPS[1] and r["condition"] == cond.SCATTERED and r["stratum"] == SC.ALL else r for r in later]
+    q = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    SC.write_rows(q, SC.read_rows(q) + later)
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"]))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    by = {r[0]: r for r in rep["passes"][0]["groups"]}
+    g0, g1 = by[GROUPS[0]], by[GROUPS[1]]
+    assert g0[2] == 4000 and g0[8] is None and g0[11] == "no rise after it (the last node)"
+    assert g1[2] == 2000 and abs(g1[4] - 5.7) < 1e-9 and g1[5] == 4000 and abs(g1[6] - 0.5) < 1e-9 and abs(g1[8] - 0.5) < 1e-9
+    assert g1[9] == "0.200 (at 2,000 tables)" and abs(g1[3] - 2000 / 100800) < 1e-12
+    # no bits per table at the nodes (arms trained before node_cells.npz): no interval, so beyond the threshold only, no key point
+    assert g1[10].startswith("no bits per table at the nodes") and g1[11] == "beyond the threshold only"
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "Over-fitting by group" not in text and "lowest at (tables)" in text and "95% interval of that change" in text
+
+
+def test_report_over_fitting_by_group_needs_its_threshold_and_its_interval(tmp_path, monkeypatch):
+    """With the trainer's bits per table at the nodes and the split units: the paired bootstrap of the change from the
+    group's lowest node to the last, on that group's tables (the evaluator's intervals, faked here so that the reading
+    is tested on its own); beyond the threshold with its interval above 0 is a key point, either alone is listed only."""
+    import sys
+    import types
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    conds = list(cond.CONDITIONS)
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.2) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
+    later = [r for r in _rows(os.path.basename(run_dir), "w6-ref30m-s1", [(4000, 40000, 4.9)], 4.9, conds) if r["weights"] == "ema@tables=4000"]
+    later = [dict(r, bits=6.2) if r["group"] == GROUPS[1] and r["condition"] == cond.SCATTERED and r["stratum"] == SC.ALL else r for r in later]
+    q = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    SC.write_rows(q, SC.read_rows(q) + later)
+    folder = os.path.join(run_dir, w6_fit.OUT, "w6-ref30m-s1")         # the nodes' bits per table: tables 0..3, groups alternating
+    np = pytest.importorskip("numpy")
+    cells = np.array([10, 20, 30, 40])
+    np.savez(os.path.join(folder, "node_cells.npz"), tables=np.arange(4), t2000_scattered_bits=np.array([52.0, 114.0, 156.0, 228.0]),
+             t2000_scattered_cells=cells, t4000_scattered_bits=np.array([49.0, 124.0, 147.0, 248.0]), t4000_scattered_cells=cells)
+    with open(os.path.join(folder, "conf.json"), "w") as f:
+        json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
+    monkeypatch.setattr(w6_report, "held_units", lambda conf, source: ([GROUPS[0], GROUPS[1]] * 2, ["u1", "u2", "u3", "u4"]))
+    seen = []
+
+    def boot(diff_sum, cells, group, unit, replicates=2000, seed=20261123, level=0.95, blocks=True):
+        seen.append(dict(diff=list(diff_sum), cells=list(cells), group=list(group), unit=list(unit), blocks=blocks))
+        lo = 0.1 if len(seen) == 1 else -0.1                           # the first call: above 0; a later one would straddle 0
+        return {"all": dict(estimate=0.5, low=lo, high=0.9, excludes_zero=lo > 0, units=len(set(unit)), groups=1, tables=len(unit))}
+    fake = types.SimpleNamespace(paired_bootstrap=boot)
+    monkeypatch.setitem(sys.modules, "seeddrift.train.rel.evalh.intervals", fake)
+    import seeddrift.train.rel.evalh as evalh_pkg                     # the real module, once imported, is the package's attribute
+    monkeypatch.setattr(evalh_pkg, "intervals", fake, raising=False)
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"],
+                                       units_source="/x/runs/source"))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    by = {r[0]: r for r in rep["passes"][0]["groups"]}
+    assert len(seen) == 1 and seen[0]["group"] == [GROUPS[1]] * 2 and seen[0]["unit"] == ["u2", "u4"] and seen[0]["blocks"] is False
+    assert seen[0]["diff"] == [10.0, 20.0] and seen[0]["cells"] == [20, 40]          # the second group's tables: node 4,000 minus node 2,000
+    g1 = by[GROUPS[1]]
+    assert g1[10] == "0.100 to 0.900 (2 units)" and g1[11] == "over-fits: beyond the threshold, its interval above 0"
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "Over-fitting by group (w6-ref30m-s1): %s lowest at 2,000 tables" % GROUPS[1] in text
+
+
+def test_held_units_are_the_split_units_of_the_examined_genomes(tmp_path, monkeypatch):
+    """held_units: every held-out table's group (by the index's names) and the split unit of its row-0 genome, by the
+    genome list of the table set's index and train_data's rule (bench/rel/implant.split_units) on the source's index:
+    two genomes of one group that share a genus are one unit."""
+    import hashlib
+    import test_rel_w6_data as D
+    from ci.stages.rel import w2_v0
+    held = D.random_tables(24, rows=4, seed=3, split=1)                 # table t: row 0 is genome t of the list, group t % 12
+    man = D.write_tableset(str(tmp_path), [("heldout/s0000", held)], kind="real")
+    names = ["g%02d" % g for g in range(12)]
+    ip = os.path.join(str(tmp_path), "tables", "index.json")
+    with open(ip, "w") as f:
+        json.dump(dict(groups=names, genomes=[dict(id="G%d" % t, group=names[t % 12], split="heldout") for t in range(24)]), f)
+    with open(man) as f:
+        doc = json.load(f)
+    for e in doc["files"]:
+        if e["path"].endswith("index.json"):
+            e["sha256"], e["bytes"] = hashlib.sha256(open(ip, "rb").read()).hexdigest(), os.path.getsize(ip)
+    with open(man, "w") as f:
+        json.dump(doc, f)
+    # genomes 0 and 12 (group g00) share genus 7; every other genome has a genus of its own
+    metas = [dict(id="G%d" % t, group=names[t % 12], split="heldout", ranks=[0, 0, 0, 0, 7 if t in (0, 12) else 100 + t, 0]) for t in range(24)]
+    monkeypatch.setattr(w2_v0, "source", lambda run, pairs=True: dict(index=dict(genomes=metas)))
+    group, unit = w6_report.held_units(dict(heldout_tables=man, heldout_root=str(tmp_path)), "/x/runs/source")
+    assert group == [names[t % 12] for t in range(24)] and unit[0] == unit[12] == "g00|g:7" and unit[1] == "g01|g:101"
+    assert len(set(unit)) == 23
 
 
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
@@ -559,9 +706,24 @@ def test_evaluation_again_settings_and_source():
     ro = w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **{"from": ["/x/runs/a", "/x/runs/b"]},
                                                 arms=["w6-ref30m-s1", dict(name="w6-ref30m-s1", untrained=True)],
                                                 readout=dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"]))))
-    assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True)
+    assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True, weights="final")
+    w = w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], best="all", end_controls=["shuffle", "presence"],
+                                               arms=["w6-ref30m-s1", dict(name="w6-ref30m-s1", weights="best"), dict(name="w6-ref30m-s1", weights="node@65536")],
+                                               tables=dict(good["rel_w6_eval"]["tables"], heldout_offline=dict(run="/x/runs/w3", path="offline.json")))))
+    assert [a["weights"] for a in w["arms"]] == ["final", "best", "node@65536"] and w["best"] == "all" and w["end_controls"] == ["shuffle", "presence"]
+    assert w["heldout_offline"] == dict(run="/x/runs/w3", path="offline.json", sha256=None)
+    assert w6_eval.weights_label("node@65536") == "tables=65536" and w6_eval.weights_label("best") == "best"
+    rd = dict(module="seeddrift.train.rel.readouts.w18_passes", layout="leakfree", offline="/x/runs/w18-offline")
+    assert w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], readout=rd)))["readout"]["offline"] == "/x/runs/w18-offline"
+    with pytest.raises(SystemExit):                                     # the offline rendering of a ruler set is read leak-free
+        w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], readout=dict(rd, layout="stored"))))
+    for bad in (dict(arms=[dict(name="w6-ref30m-s1", weights="node@x")]), dict(arms=[dict(name="w6-ref30m-s1", weights="last")]),
+                dict(arms=[dict(name="w6-ref30m-s1", weights="best")] * 2), dict(best="some"), dict(end_controls=["sideways"]),
+                dict(tables=dict(good["rel_w6_eval"]["tables"], other=dict(run="/x", path="p")))):
+        with pytest.raises(SystemExit):
+            w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **bad)))
     assert ro["readout"] == dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"], max_rows=32, layout="stored",
-                                 in_place_only=False, adapt_v0_arms=False)
+                                 in_place_only=False, adapt_v0_arms=False, offline=None)
     assert w6_eval.variant_of_arm("w6-ref100m-lr4e-4-s1") == "w6-ref100m-lr4e-4" and w6_eval.variant_of_arm("w6-ref30m-s12") == "w6-ref30m"
 
 
@@ -618,6 +780,75 @@ def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):
         f.write(" ")
     with pytest.raises(SystemExit):                                     # changed after its stage recorded it
         w6_eval.source_index(run_dir)
+
+
+def test_evaluation_again_reads_the_weights_each_entry_names(tmp_path, monkeypatch):
+    """w6_eval in rows mode on a finished training: the final weights (with the best of every arm under best: all), the
+    best weights and a node's moving average (keep_node_weights) of one arm, each in its own folder with its rows
+    (ema@final, ema@best, ema@tables=<n>), the tables seen of the weights read, the offline rendering and the controls
+    named by the profile; the gate reads the rows of the weights each entry read."""
+    from ci.record import Record, stage_report
+    from ci.stages.rel import w6_eval, w6_tools
+    run_dir, cfg, doc, st = _finished_fit(tmp_path, statuses=("ok", "failed", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "models.json")
+    stage_report(run_dir, "rel_w6_fit", "", 0.0, [dict(name="models", path=os.path.join(w6_fit.OUT, "models.json"), sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+    arm = os.path.join(run_dir, w6_fit.OUT, "w6-ref30m-s1")
+    with open(os.path.join(arm, "summary.json")) as f:
+        summ = json.load(f)
+    summ["evals"] = [dict(tables_seen=t, cells_seen=c, wall_s=10.0 * t) for t, c, _ in ARMS[0][3]]
+    with open(os.path.join(arm, "summary.json"), "w") as f:
+        json.dump(summ, f)
+    with open(os.path.join(arm, "conf.json"), "w") as f:
+        json.dump(dict(name="w6-ref30m-s1", relatives=True, layout="leakfree", only_conditions=["scattered"], heldout_offline_tables="/old/offline.json"), f)
+    with open(os.path.join(arm, w6_eval.NODE_WEIGHTS % 1000), "wb") as f:
+        f.write(b"node")
+    monkeypatch.setattr(w6_tools, "interpreter", lambda st, cfg: ("py", "lock", {}))
+    # the held-out set's manifest counts the training tables too (204,600), the offline rendering the held-out split (3,000)
+    monkeypatch.setattr(w6_eval, "heldout_set", lambda spec, verify: dict(doc=dict(name="v1-held", sha256="3" * 64, layout="leakfree", parts={
+        "scattered": {}, "suffix": {}, "whole_gene": {}}, tables=3000 if "offline" in spec["path"] else 204600), groups=list(GROUPS),
+        row_groups=dict(enumerate(GROUPS)), kind="real"))
+    seen = []
+
+    class Done:
+        returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def start(py, mode, conf, log, env):                               # the model interpreter's evaluation, faked: rows of the weights read
+        with open(conf) as f:
+            c = json.load(f)
+        seen.append(c)
+        conds = ["scattered", "whole_gene"]
+        label = "ema@" + w6_eval.weights_label(c["weights"])
+        rows = [dict(r, weights=label) for r in _rows("ev", c["name"], [(0, 0, 6.0)], 5.0, conds) if r["weights"].endswith("@final")]
+        SC.write_rows(os.path.join(c["out"], "results.tsv"), rows)
+        with open(os.path.join(c["out"], "summary.json"), "w") as f:
+            json.dump(dict(status="ok", conditions=conds, final={x: 5.0 for x in conds}, final_items={}, eval_final=12), f)
+        return Done(), None
+
+    monkeypatch.setattr(w6_tools, "start", start)
+    monkeypatch.setattr(w6_tools, "stop", lambda proc, lg: None)
+    cfg = dict(cfg, rel_w6_eval={"from": run_dir, "best": "all", "end_controls": ["shuffle", "presence"],
+                                 "arms": ["w6-ref30m-s1", dict(name="w6-ref30m-s1", weights="best"), dict(name="w6-ref30m-s1", weights="node@1000")],
+                                 "tables": dict(heldout=dict(run="/x/runs/tables", path="h.json", split=1),
+                                                heldout_offline=dict(run="/x/runs/w3", path="offline.json"))})
+    ev = Stage(run_dir, "rel_w6_eval")
+    index = w6_eval.build(ev, cfg, run_dir)
+    by = {v["name"]: v for v in index["variants"]}
+    assert set(by) == {"w6-ref30m-s1", "w6-ref30m-s1.best", "w6-ref30m-s1.node@1000"} and all(v["status"] == "ok" for v in by.values()), by
+    assert [(c["which"], c["budget"]) for c in by["w6-ref30m-s1"]["checkpoints"]] == [("final", None), ("best", None)]   # best: all
+    assert [(c["which"], c["budget"]) for c in by["w6-ref30m-s1.node@1000"]["checkpoints"]] == [("ema", "tables=1000")]
+    assert by["w6-ref30m-s1.node@1000"]["info"]["tables_seen"] == 1000 and by["w6-ref30m-s1.best"]["info"]["tables_seen"] == 2000
+    c = {x["weights"]: x for x in seen}
+    assert c["node@1000"]["final"].endswith(os.path.join("w6-ref30m-s1.node@1000", "ema_tables1000.pt")) and c["node@1000"]["final_wall_s"] == 10000.0
+    assert c["final"]["best"] and c["best"]["best"] is None and c["final"]["only_conditions"] is None
+    assert all(x["heldout_offline_tables"] == os.path.join("/x/runs/w3", "offline.json") and x["end_controls"] == ["shuffle", "presence"] for x in seen)
+    w6_eval.gate(ev, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_eval")["status"] == "pass"
 
 
 def test_selftest_verdict():

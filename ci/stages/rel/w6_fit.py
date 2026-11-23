@@ -7,17 +7,40 @@ Profile block rel_w6_fit:
   tables     train and heldout, each {run, path, sha256, split}: a table-set manifest (path, relative) of a passed run
              of this machine (run, its directory), the manifest's sha256 when it is to be pinned, and the metadata
              split to take (0 train, 1 held out; omitted: every table). Both may name the same manifest.
-  arms       [{variant, seed, budget_cells, lr}]: a variant file (configs/rel/variants/<author>-<name>.yaml), a seed, and
-             optionally a budget in cells seen (without it the wall limit is the budget) and a peak learning rate that
-             replaces the variant's. The arm is <name>-s<seed>.
+  arms       [{variant, seed, budget_cells, lr, micro}]: a variant file (configs/rel/variants/<author>-<name>.yaml), a seed, and
+             optionally a budget in cells seen (without it the wall limit is the budget), a peak learning rate that
+             replaces the variant's, and a micro-batch (tables per micro-batch, 1 to the variant's) that replaces the
+             variant's: the tables per step stay the same, only fewer are run at once (less GPU memory; the programme
+             lead's margin rule of 2026-11-23 on a shared GPU). The micro-batch trained with is in the rows and the index.
+             The arm is <name>-s<seed>.
   wall_s     wall-clock limit of one training, its evaluations included (default 16200); a training ends in the
              normal way at its budget or at this limit, whichever comes first
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
+  micro_fallback  true: an arm that no longer fits the GPU memory free when its training is to start (another user's
+             process grew since its preflight) is preflighted again within what is free then, its micro-batch halved
+             until it fits (the tables per step unchanged; the micro-batch used is in its rows and in the index); default
+             false: the arm is refused and the run fails at its gate. It acts only in the scheduling, before a training
+             starts, never during a training, and only while none of the run's arms is training (an arm that does not
+             fit beside them waits): a training runs to its end with the micro-batch it started with. Runs of one arm only (the programme
+             lead's rule of 2026-11-23: round 1's ref30m-long and ref100m-long; arms compared in one run train under one
+             micro-batch); refused with more than one arm
+  preflight_only  true: every arm preflighted on the real tables and nothing trained (round 1's probes: preflight_steps
+             steps, the loss, the memory, tables per second, the sampler's cost); the index lists the arms with their
+             preflight and no checkpoint
   optional   eval_per_group (50), eval_first (1000 tables), final_per_group (0: all), eval_max_rows, warmup_steps (1000),
              ema (true), preflight_steps (200), preflight_guard (stop), max_steps, threads, preflight_wall_s, verify_files (default true: every
              file of the table sets is hashed against its manifest before any training starts), extra_conditions (evaluator
              conditions scored besides today's five, e.g. [suffix]), references_at_nodes (false: the extra conditions
-             and a leak-free arm's stored readings at the final evaluation only)
+             and a leak-free arm's stored readings at the final evaluation only), eval_online (true: a leak-free arm
+             without a strict offline rendering is scored online, the anchors the stored pairs), end_controls ([shuffle,
+             presence]: package W3's controls of the renderer, at the final evaluation, scattered and whole_gene),
+             keep_node_weights (false; true: the moving average of every node kept, ema_tables<tables seen>.pt, for
+             readings of two arms at a node both reached), only_conditions (the conditions alone, e.g. round 1's four in
+             the loop), nodes_every and nodes_every_from (nodes also every nodes_every tables from nodes_every_from on,
+             default 100000), data_workers (0: the examples drawn in the training's process; n: by n background processes)
+  tables     ... pair_index {run, path}: the pair index of the uncapped search (package W12, a folder of a passed run),
+             for arms that lay the whole gene on its frame relative online by the stored pairs (whole_gene_layout
+             leakfree); whole_gene_layout frame (W3's strict aligner) needs none
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
 What the stage does:
@@ -30,13 +53,16 @@ What the stage does:
      fall: the preflight fails and the arm is not trained; the learning rate is never lowered on its own unless the
      profile sets preflight_guard: reduce), 72 held-out tables scored (an evaluation batch at its largest);
   3. the arms that passed are trained, largest declared memory first, at most rel.parallel at once and only while the
-     memory their preflights measured fits beside what was free at the start;
+     memory their preflights measured fits beside what was free at the start and what is free when each is to start
+     (measured again then: another user's process on a shared GPU moves it);
   4. an arm that fails (preflight, training, its wall limit) is recorded with the end of its log and does not stop
-     the others.
+     the others; the run then fails at its gate (below), its files kept for reading.
 Outputs under data/rel_w6/fit/: <arm>/ (preflight.json, steps.csv, results.tsv, summary.json, heldout_final.npz, the
 checkpoints final.pt and best.pt, logs), results.tsv (the result rows of every arm, api.RESULT_ROW), models.json (the
-model index of the hand-off, written last). Gate G4_rel_w6_fit: the index is well-formed, at least one arm trained,
-and every trained arm has its final rows under each of its conditions.
+model index of the hand-off, written last). Gate G4_rel_w6_fit: the index is well-formed; every arm trained (a
+preflight-only run: preflighted) and ended at its budget (arm_problems: its budget_cells where it has one, max_steps
+where the profile sets it, otherwise the wall limit), so a run with an arm refused for memory, failed or ended early
+fails and hands nothing off; and every trained arm has its final rows under each of its conditions.
 """
 from __future__ import annotations
 
@@ -58,8 +84,11 @@ from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
 PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
-           "extra_conditions", "references_at_nodes")
-BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
+           "extra_conditions", "only_conditions", "references_at_nodes", "eval_online", "end_controls", "keep_node_weights", "nodes_every",
+           "nodes_every_from", "data_workers")
+BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files", "preflight_only", "micro_fallback"} | set(PASS_ON)
+FRAME = "frame"                                                   # whole_gene_layout: W3's strict aligner (tables/align.py frame_layout)
+NODE_WEIGHTS = "ema_tables%d.pt"                                  # the trainer's keep_node_weights files
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
 VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share", "whole_gene_layout")
@@ -88,10 +117,16 @@ def settings(st, cfg) -> dict:
     if unknown or not sc.get("tables") or not sc.get("arms"):
         raise SystemExit("rel_w6_fit: tables and arms are needed; unknown keys %s" % sorted(unknown))
     out = dict(wall_s=int(sc.get("wall_s", 16200)), probe=bool(sc.get("probe", False)), threads=int(sc.get("threads", 4)),
+               preflight_only=bool(sc.get("preflight_only", False)), micro_fallback=bool(sc.get("micro_fallback", False)),
                preflight_wall_s=int(sc.get("preflight_wall_s", 900)), verify_files=bool(sc.get("verify_files", True)),
                passed_on={k: sc[k] for k in PASS_ON if sc.get(k) is not None}, tables={}, arms=[])
-    if set(sc["tables"]) - {"train", "heldout", "heldout_offline"}:
-        raise SystemExit("rel_w6_fit.tables: train, heldout and optionally heldout_offline: %r" % sorted(sc["tables"]))
+    if set(sc["tables"]) - {"train", "heldout", "heldout_offline", "pair_index"}:
+        raise SystemExit("rel_w6_fit.tables: train, heldout and optionally heldout_offline and pair_index: %r" % sorted(sc["tables"]))
+    pi = sc["tables"].get("pair_index")
+    if pi is not None:                                                # the pair index of W12's uncapped search (a folder of a passed run)
+        if set(pi) - {"run", "path"} or not pi.get("run") or not pi.get("path"):
+            raise SystemExit("rel_w6_fit.tables.pair_index: {run, path}: %r" % (pi,))
+        out["pair_index"] = dict(run=str(pi["run"]), path=str(pi["path"]))
     for which in ("train", "heldout", "heldout_offline"):
         t = sc["tables"].get(which) or {}
         if which == "heldout_offline" and not t:
@@ -100,17 +135,22 @@ def settings(st, cfg) -> dict:
             raise SystemExit("rel_w6_fit.tables.%s: run, path, and optionally sha256 and split (0 or 1): %r" % (which, t))
         out["tables"][which] = dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256"), split=t.get("split"))
     for a in sc["arms"]:
-        if set(a) - {"variant", "seed", "budget_cells", "lr"} or not a.get("variant") or "seed" not in a:
-            raise SystemExit("rel_w6_fit.arms: each has a variant file and a seed, and optionally budget_cells and lr: %r" % (a,))
+        if set(a) - {"variant", "seed", "budget_cells", "lr", "micro"} or not a.get("variant") or "seed" not in a:
+            raise SystemExit("rel_w6_fit.arms: each has a variant file and a seed, and optionally budget_cells, lr and micro: %r" % (a,))
         v = load_variant(st, a["variant"])
         lr = float(a["lr"]) if a.get("lr") is not None else float(v["optimizer"]["lr"])
         if not 0 < lr < 0.1:
             raise SystemExit("rel_w6_fit.arms: a peak learning rate in (0, 0.1): %r" % (a,))
+        micro = a.get("micro")
+        if micro is not None and (isinstance(micro, bool) or not isinstance(micro, int) or not 1 <= micro <= int(v.get("micro", 4))):
+            raise SystemExit("rel_w6_fit.arms: a micro-batch from 1 to the variant's (%s): %r" % (v.get("micro", 4), a))
         out["arms"].append(dict(name="%s-s%d" % (v["name"], int(a["seed"])), file=str(a["variant"]), sha256=sha256_file(st.repo(a["variant"]), use_sidecar=False),
-                                seed=int(a["seed"]), budget_cells=int(a["budget_cells"]) if a.get("budget_cells") else None, lr=lr, variant=v))
+                                seed=int(a["seed"]), budget_cells=int(a["budget_cells"]) if a.get("budget_cells") else None, lr=lr, micro=micro, variant=v))
     names = [a["name"] for a in out["arms"]]
     if len(set(names)) != len(names):
         raise SystemExit("rel_w6_fit.arms: an arm (variant and seed) is listed twice: %s" % names)
+    if out["micro_fallback"] and len(names) > 1:                      # arms compared in one run train under one micro-batch
+        raise SystemExit("rel_w6_fit.micro_fallback: runs of one arm only (the programme lead's rule of 2026-11-23); this run has %s" % names)
     return out
 
 
@@ -143,7 +183,7 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     tc = cfg.get("train") or {}
     conf = dict(name=arm["name"], author=v["author"], api=v["api"], model=v["model"], size=v["size"], objective=v["objective"], masks=v["masks"],
                 mask_weights=v.get("mask_weights"), layout=v["layout"], whole_gene_layout=v.get("whole_gene_layout"), rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
-                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
+                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(arm.get("micro") or v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
                 wall_s=s["wall_s"], probe=s["probe"], threads=s["threads"], device="cpu" if tc.get("device") == "cpu" else "auto",
                 out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
                 group_names={str(k): v for k, v in ((sets or {}).get("heldout") or {}).get("row_groups", {}).items()})
@@ -153,6 +193,8 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     off = s["tables"].get("heldout_offline")
     if off and v["layout"] != api.LAYOUT_STORED:                      # a leak-free arm is scored on the strict offline rendering
         conf.update(heldout_offline_tables=os.path.join(off["run"], off["path"]), heldout_offline_root=off["run"])
+    if s.get("pair_index") and (v.get("whole_gene_layout") or v["layout"]) not in (api.LAYOUT_STORED, FRAME):
+        conf.update(pair_index=os.path.join(s["pair_index"]["run"], s["pair_index"]["path"]))
     conf.update(s["passed_on"])
     return conf
 
@@ -178,14 +220,23 @@ def build(st, cfg, run_dir):
     if any(v["variant"]["tables"] != sets["train"]["doc"]["kind"] for v in s["arms"]):
         raise SystemExit("rel_w6_fit: a variant is written for another kind of tables than %s" % sets["train"]["doc"]["kind"])
     leakfree = [a["name"] for a in s["arms"] if a["variant"]["layout"] != api.LAYOUT_STORED]
+    framed = [a["name"] for a in s["arms"] if (a["variant"].get("whole_gene_layout") or a["variant"]["layout"]) not in (api.LAYOUT_STORED, FRAME)]
+    if framed and not s["probe"]:                                     # the whole gene on its frame relative: W12's pair index
+        pi = s.get("pair_index")
+        rec = read_json(os.path.join(pi["run"], "record.json")) if pi else None
+        if not pi or (rec or {}).get("status") != "passed" or not os.path.isdir(os.path.join(pi["run"], pi["path"])):
+            raise SystemExit("rel_w6_fit: the arms %s lay the whole gene on its frame relative: tables.pair_index, a folder of a passed run "
+                             "(given %s)" % (framed, pi))
+        st.extra.update(pair_index=dict(run=os.path.basename(pi["run"]), path=pi["path"]))
     if s["tables"].get("heldout_offline"):
         off = table_set(cfg, s["tables"]["heldout_offline"], s["verify_files"])
         if off["doc"].get("layout") != api.LAYOUT_LEAKFREE or set(off["doc"].get("parts") or {}) < {"scattered", "whole_gene"}:
             raise SystemExit("rel_w6_fit.tables.heldout_offline: the strict offline rendering (layout leakfree, parts scattered and whole_gene), "
                              "not %s with parts %s" % (off["doc"].get("layout"), sorted(off["doc"].get("parts") or {})))
         st.extra.update(heldout_offline=dict(name=off["doc"]["name"], sha256=off["doc"]["sha256"], run=os.path.basename(s["tables"]["heldout_offline"]["run"])))
-    elif leakfree and not s["probe"]:
-        raise SystemExit("rel_w6_fit: the leak-free arms %s are scored on the strict offline rendering: tables.heldout_offline" % leakfree)
+    elif leakfree and not s["probe"] and not s["passed_on"].get("eval_online"):
+        raise SystemExit("rel_w6_fit: the leak-free arms %s are scored on the strict offline rendering (tables.heldout_offline), or online "
+                         "where the profile says so (eval_online: true)" % leakfree)
     st.extra.update(sealed_record={k: t["sealed"] for k, t in sets.items()}, tablesets={k: dict(name=t["doc"]["name"], sha256=t["doc"]["sha256"],
                     kind=t["doc"]["kind"], tables=t["doc"]["tables"], run=os.path.basename(s["tables"][k]["run"])) for k, t in sets.items()},
                     model_env=py, parallel=parallel, device="cpu" if cpu else "auto")
@@ -193,22 +244,27 @@ def build(st, cfg, run_dir):
     os.makedirs(root, exist_ok=True)
     env = w6_tools.environment(s["threads"], hide_gpu=cpu)
     arms = {}
+    # the memory allowance of a preflight: the variant's, or less where the GPU has less free than the training of the
+    # arm would need beside nothing else (the scheduler below asks 1.1 times the measured reserve and 500 MB more), so
+    # that an arm preflighted at a micro-batch is never refused its training for memory (i-2 beside its vLLM service)
+    free_pre = None if cpu else w6_tools.gpu_free_mb()
+    cap = None if free_pre is None else int((float(free_pre) - 500.0) / 1.1)
+    st.extra.update(gpu_free_mb_at_preflight=free_pre, gpu_mb_cap=cap)
     for a in s["arms"]:                                                # every arm alone, before any training starts
         folder = os.path.join(root, a["name"])
         os.makedirs(folder, exist_ok=True)
         conf = os.path.join(folder, "conf.json")
-        write_json(conf, trainer_conf(cfg, s, a, sets, folder, run_dir))
-        log = os.path.join(folder, "preflight.log")
-        proc, lg = w6_tools.start(py, "preflight", conf, log, env)
-        try:
-            code = proc.wait(timeout=s["preflight_wall_s"])
-        except Exception:  # noqa: BLE001 - a preflight over its limit is a failed preflight
-            code = "over its limit of %d s" % s["preflight_wall_s"]
-        w6_tools.stop(proc, lg)
-        pre = read_json(os.path.join(folder, "preflight.json")) or {}
-        ok = code == 0 and pre.get("ok") is True
-        arms[a["name"]] = dict(arm=a, folder=folder, conf=conf, preflight=pre, status="preflighted" if ok else "failed",
-                               error=None if ok else "preflight (%s): %s" % (code, pre.get("error") or w6_tools.tail(log)))
+        c = trainer_conf(cfg, s, a, sets, folder, run_dir)
+        if cap is not None and cap < float(c["gpu_mb"]):
+            c.update(gpu_mb=cap, gpu_mb_variant=c["gpu_mb"])
+        write_json(conf, c)
+        ok, pre, error = preflight(py, env, s, folder, conf, "preflight.log")
+        arms[a["name"]] = dict(arm=a, folder=folder, conf=conf, preflight=pre, status="preflighted" if ok else "failed", error=error)
+    if s["preflight_only"]:                                           # the probes: nothing is trained
+        for x in arms.values():
+            x.update(status="ok" if x["status"] == "preflighted" else "failed")
+        return finish(st, cfg, run_dir, s, sets, arms, [], None if cpu else w6_tools.gpu_free_mb(),
+                      dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)))
     # the trainings: largest declared memory first, at most `parallel` at once, each beside what the others were measured to take
     free0 = None if cpu else w6_tools.gpu_free_mb()
     need = {n: float(x["preflight"].get("reserved_mb") or 0) * 1.1 + 500 for n, x in arms.items()}
@@ -233,11 +289,32 @@ def build(st, cfg, run_dir):
         while pending and len(running) < parallel:
             n = pending[0]
             taken = sum(need[m] for m in running)
-            if free0 is not None and free0 - taken < need[n]:
+            avail = None
+            if free0 is not None:                                       # measured again: another user's process on a shared GPU moves it
+                now = w6_tools.gpu_free_mb()
+                avail = free0 - taken if now is None else min(free0 - taken, float(now))
+            if avail is not None and avail < need[n]:
                 if running:
                     break                                               # wait for memory
+                x = arms[n]
+                if s["micro_fallback"] and int(x["preflight"].get("micro") or 1) > 1 and not x.get("fallback"):
+                    # the profile's micro_fallback: preflighted again within what is free now, the micro-batch halved until it fits
+                    cap_now = int((avail - 500.0) / 1.1)
+                    c = read_json(x["conf"])
+                    c.update(gpu_mb=cap_now, gpu_mb_variant=c.get("gpu_mb_variant", c["gpu_mb"]))
+                    write_json(x["conf"], c)
+                    os.replace(os.path.join(x["folder"], "preflight.json"), os.path.join(x["folder"], "preflight_first.json"))
+                    ok, pre, error = preflight(py, env, s, x["folder"], x["conf"], "preflight_fallback.log")
+                    x["fallback"] = dict(free_mb=round(avail), needed_mb=round(need[n]), gpu_mb=cap_now, micro_from=int(x["preflight"].get("micro") or 0),
+                                         micro_to=pre.get("micro") if ok else None, ok=ok)
+                    if ok:
+                        x["preflight"] = pre
+                        need[n] = float(pre.get("reserved_mb") or 0) * 1.1 + 500
+                        continue                                        # decided again with the new need
                 pending.pop(0)
-                arms[n].update(status="failed", error="not enough GPU memory: %.0f MB free at the start, %.0f MB needed" % (free0, need[n]))
+                arms[n].update(status="failed", error="not enough GPU memory: %.0f MB free now (%.0f MB when the trainings began, less %.0f MB taken by "
+                                                      "the arms running), %.0f MB needed%s" % (
+                                                          avail, free0, taken, need[n], "; micro_fallback: %s" % x["fallback"] if x.get("fallback") else ""))
                 continue
             pending.pop(0)
             x = arms[n]
@@ -250,6 +327,20 @@ def build(st, cfg, run_dir):
     return finish(st, cfg, run_dir, s, sets, arms, schedule, free0, dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)))
 
 
+def preflight(py, env, s, folder, conf, log_name):
+    """One preflight of an arm in the model interpreter: (ok, preflight.json, error)."""
+    log = os.path.join(folder, log_name)
+    proc, lg = w6_tools.start(py, "preflight", conf, log, env)
+    try:
+        code = proc.wait(timeout=s["preflight_wall_s"])
+    except Exception:  # noqa: BLE001 - a preflight over its limit is a failed preflight
+        code = "over its limit of %d s" % s["preflight_wall_s"]
+    w6_tools.stop(proc, lg)
+    pre = read_json(os.path.join(folder, "preflight.json")) or {}
+    ok = code == 0 and pre.get("ok") is True
+    return ok, pre, None if ok else "preflight (%s): %s" % (code, pre.get("error") or w6_tools.tail(log))
+
+
 def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
     root = os.path.join(run_dir, OUT)
     results = os.path.join(root, "results.tsv")
@@ -259,9 +350,12 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
     for n, x in arms.items():
         a, pre, summ = x["arm"], x["preflight"], x.get("summary") or {}
         info = dict(seed=a["seed"], budget_cells=a["budget_cells"], params=pre.get("params"), flops_per_cell=pre.get("flops_per_cell"), micro=pre.get("micro"),
+                    micro_profile=a.get("micro"),
                     lr_peak=a["lr"], lr=pre.get("lr"), lr_reduced=pre.get("lr_reduced"),
                     preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory"),
-                                   guard=pre.get("guard")),
+                                   guard=pre.get("guard"), steps_per_s=pre.get("steps_per_s"), tables_per_s=pre.get("tables_per_s"),
+                                   data_wait_s_per_step=pre.get("data_wait_s_per_step"), sampler=pre.get("sampler"), gpu=pre.get("gpu")),
+                    schemes=summ.get("schemes"), data_wait_s=summ.get("data_wait_s"), micro_fallback=x.get("fallback"),
                     steps=summ.get("steps"), tables_seen=summ.get("tables_seen"), cells_seen=summ.get("cells_seen"), target_cells=summ.get("target_cells"),
                     cells_per_s=summ.get("cells_per_s"), tables_per_s=summ.get("tables_per_s"), train_s=summ.get("train_s"), eval_s=summ.get("eval_s"),
                     eval_overhead=summ.get("eval_overhead"), peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"),
@@ -275,12 +369,18 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
             p = os.path.join(x["folder"], which + ".pt")
             if x["status"] == "ok" and os.path.exists(p):
                 cks.append(dict(which=which, budget=None, path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p)))
+        for t in (summ.get("node_weights") or []) if x["status"] == "ok" else []:    # keep_node_weights: the moving average of every node
+            p = os.path.join(x["folder"], NODE_WEIGHTS % int(t))
+            if os.path.exists(p):
+                cks.append(dict(which="ema", budget="tables=%d" % int(t), path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False),
+                                bytes=os.path.getsize(p)))
         variants.append(dict(name=n, variant_file=a["file"], variant_sha256=a["sha256"], api_version=a["variant"]["api"],
                              status="ok" if x["status"] == "ok" else "failed", error=x.get("error"), info=info, checkpoints=cks))
     doc = handoff.finish(dict(format="rel-models", format_version=1,
                               tablesets=[dict(run_id=os.path.basename(s["tables"][k]["run"]), name=t["doc"]["name"], sha256=t["doc"]["sha256"], use=k,
                                               split=s["tables"][k]["split"]) for k, t in sets.items()],
-                              variants=variants, probe=s["probe"], wall_s=s["wall_s"], schedule=schedule, gpu_free_mb_at_start=free0, model_env=env_info,
+                              variants=variants, probe=s["probe"], preflight_only=bool(s.get("preflight_only")), wall_s=s["wall_s"], schedule=schedule,
+                              gpu_free_mb_at_start=free0, model_env=env_info,
                               groups=sets["heldout"].get("groups") or [], row_groups={str(k): v for k, v in (sets["heldout"].get("row_groups") or {}).items()},
                               producer=dict(stage="w6_fit", package="W6", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     st.output("results", results)
@@ -306,17 +406,37 @@ def final_rows(run_dir):
     return out
 
 
+def arm_problems(doc, cfg) -> list:
+    """Every arm of the run trained (a preflight-only run: preflighted) and, trained, ended at its budget: its budget in
+    cells where it has one, max_steps where the profile sets it, otherwise the wall limit. An arm that did not (refused
+    for GPU memory, failed, ended by its wall limit before its budget) fails the run: a reading of several arms, whose
+    differences are the thresholds, never goes on without one of them."""
+    out, only = [], bool(doc.get("preflight_only"))
+    max_steps = (cfg.get("rel_w6_fit") or {}).get("max_steps")
+    for v in doc.get("variants") or []:
+        if v.get("status") != "ok":
+            out.append(dict(arm=v.get("name"), error="the arm was not %s: %s" % ("preflighted" if only else "trained",
+                                                                                 " ".join(str(v.get("error") or "no reason recorded").split())[-400:])))
+        elif not only:
+            info = v.get("info") or {}
+            want = (["budget"] if info.get("budget_cells") else []) + (["max_steps"] if max_steps else []) or ["wall"]
+            if info.get("ended_by") not in want:
+                out.append(dict(arm=v.get("name"), error="the arm ended by %s, not at its budget (%s)" % (info.get("ended_by"), " or ".join(want))))
+    return out
+
+
 def gate(st, cfg, run_dir):
     p = os.path.join(run_dir, OUT, "models.json")
     with open(p) as f:
         doc = json.load(f)
-    probe = bool(doc.get("probe"))
-    problems = [e for e in handoff.models_problems(doc, run_dir) if not (probe and "checkpoints are" in str(e.get("error")))]
+    probe, only = bool(doc.get("probe")), bool(doc.get("preflight_only"))
+    problems = [e for e in handoff.models_problems(doc, run_dir) if not ((probe or only) and "checkpoints are" in str(e.get("error")))]
     ok = [v for v in doc.get("variants") or [] if v.get("status") == "ok"]
     if not ok:
-        problems.append(dict(error="no arm was trained"))
-    final = final_rows(run_dir)
-    for v in ok:
+        problems.append(dict(error="no arm was %s" % ("preflighted" if only else "trained")))
+    problems += arm_problems(doc, cfg)
+    final = {} if only else final_rows(run_dir)
+    for v in [] if only else ok:
         want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)
         have = final.get(v["name"], {})
         lack = [c for c in want if c not in have or not 0 < have[c] < 20]

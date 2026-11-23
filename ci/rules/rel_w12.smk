@@ -22,3 +22,17 @@ rule rel_w12_islands:
     input: "gates/pre.ok"
     output: "data/rel_w12/islands/tableset.json"
     shell: STAGE.format(name="rel.w12_islands")
+
+# w12_tstats: how often the target genes of a built set of tables are used, per group (ci/stages/rel/w12_tstats.py;
+# reads the tables, writes none)
+rule rel_w12_tstats:
+    input: "gates/pre.ok"
+    output: "data/rel_w12/tstats/report.json"
+    shell: STAGE.format(name="rel.w12_tstats")
+
+# w12_compo: who the training and held-out genomes of a few groups are, with each held-out genome's nearest training
+# genome (ci/stages/rel/w12_compo.py; reads table sets, the taxonomy and codon arrays; writes no table)
+rule rel_w12_compo:
+    input: "gates/pre.ok"
+    output: "data/rel_w12/compo/report.json"
+    shell: STAGE.format(name="rel.w12_compo")

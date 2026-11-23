@@ -7,21 +7,28 @@ exist, so that the table has between rows[0] and rows[1] rows (with relatives = 
 Mask scheme: one per table, drawn among `masks` (modules of seeddrift.train.rel.data.masks) with `weights`
 (uniform when not given). Layout: per mask scheme (`layouts`, default stored for every scheme): the stored placement
 (tables.render) or another layout of package W3's renderer (tables/render.py, e.g. leakfree), which also marks the
-cells it laid by extension (ext).
+cells it laid by extension (ext); or frame (whole gene only): the table, after its rows are drawn, laid on its frame
+relative by package W3's strict aligner (tables/align.py frame_layout, the function the evaluation uses), then
+rendered leak-free (the example's frame_from: the stored row its frame relative is, -1 for none). The sampler counts
+the seconds it spends in frame_layout and the tables it laid (frame_s, frame_tables), in the process that draws.
 
 An example is a dict: grid uint8 [R, ROW_LEN] (what the model reads), truth uint8 [R, ROW_LEN] (0 = no target),
 scheme (index into masks), table, group, layout; and ext bool [R, ROW_LEN] when the layout is not stored.
 """
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 from seeddrift.train.rel import api as A
 from seeddrift.train.rel import registry
 from seeddrift.train.rel.data import tables as T
+from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.tables import render as RD
 
-SAMPLER_VERSION = "2"
+SAMPLER_VERSION = "4"
+FRAME = "frame"                 # the whole gene laid on its frame relative by W3's strict aligner, then rendered leak-free
 
 
 def mask_scheme(name):
@@ -30,12 +37,18 @@ def mask_scheme(name):
 
 class Sampler:
     def __init__(self, tables, seed, masks=("scattered", "span", "whole_gene"), weights=None, rows=(4, 16), relatives=True, per_step=4, alone_share=None,
-                 layouts=None):
+                 layouts=None, frame_index=None):
+        """frame_index: the pair index of the uncapped search (package W2's v1_hits.Index): a whole-gene sample in a
+        layout other than stored is placed on its frame relative online (package W3's align.frame_layout_online), after
+        the rows are drawn; without it such a sample is laid from the first column of the block (W3's fallback)."""
         self.tables, self.seed, self.per_step, self.relatives = tables, int(seed), int(per_step), bool(relatives)
+        self.frame_index = frame_index
         self.masks = [str(m) for m in masks]
         self.layouts = [str((layouts or {}).get(m, A.LAYOUT_STORED)) for m in self.masks]
-        if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS):
-            raise ValueError("layouts %r: a layout of %s for mask schemes among %r" % (layouts, RD.LAYOUTS, self.masks))
+        if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS) - {FRAME} or \
+                any(x == FRAME and m != "whole_gene" for m, x in zip(self.masks, self.layouts)):
+            raise ValueError("layouts %r: a layout of %s for mask schemes among %r (frame: whole_gene only)" % (layouts, RD.LAYOUTS, self.masks))
+        self.frame_s, self.frame_tables = 0.0, 0
         modules = [mask_scheme(m) for m in self.masks]
         self.plans = [m.plan for m in modules]
         weighted = {bool(getattr(m, "WEIGHTED", False)) for m in modules}
@@ -96,13 +109,28 @@ class Sampler:
             if lay == A.LAYOUT_STORED:
                 grid, truth = T.render(tab, visible, target)
                 ext = None
+            elif lay == FRAME:                                          # W3's strict aligner on the rows drawn, then leak-free
+                t0 = time.perf_counter()
+                col, frame_row, frame_len = AL.frame_layout(tab)
+                self.frame_s += time.perf_counter() - t0
+                self.frame_tables += 1
+                grid, truth, ext = RD.render(dict(tab, col=col, frame_row=frame_row, frame_len=frame_len), visible, target, layout=A.LAYOUT_LEAKFREE)
+                fr = AL.frame_relative(tab)                             # the frame relative of the target block, as a row of the stored table
+                frame_from = int(chosen[fr]) if fr is not None else -1
             else:
+                if self.masks[s] == "whole_gene" and self.frame_index is not None:   # the whole gene on its frame relative
+                    col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(self.tables.meta(i), chosen), self.frame_index)
+                    tab = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)
                 grid, truth, ext = RD.render(tab, visible, target, layout=lay)
             if truth.any():
                 out = dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others),
                            cells=int(T.inside(tab).sum()), layout=lay, rows=chosen)
                 if ext is not None:
                     out["ext"] = ext
+                if lay == FRAME:
+                    out["frame_from"] = frame_from                       # -1: no other row has a stretch in the target block
+                if "genome_of_row" in tab:
+                    out["genome_of_row"] = np.asarray(tab["genome_of_row"]).astype(np.int64)
                 return out
         raise RuntimeError("sixteen tables in a row gave no target cell: the table set or the mask schemes are wrong")
 
@@ -129,6 +157,8 @@ def collate(examples):
     first = np.cumsum([0] + sizes)
     example = (np.searchsorted(first, row, side="right") - 1).astype(np.int64)
     out = dict(grid=grid, sizes=sizes, row=row.astype(np.int64), col=col.astype(np.int64), token=truth[row, col].astype(np.int64), example=example)
+    if all("genome_of_row" in e for e in examples):                 # the genome of every row (read as equal or not only)
+        out["genome"] = np.concatenate([np.asarray(e["genome_of_row"], dtype=np.int64) for e in examples])
     if any("ext" in e for e in examples):                            # the cells a renderer laid by extension
         out["ext"] = np.concatenate([np.asarray(e["ext"], dtype=bool) if "ext" in e else np.zeros(e["grid"].shape, dtype=bool) for e in examples], axis=0)
     if all("weight" in e for e in examples):

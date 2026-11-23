@@ -1,0 +1,24 @@
+# Machine i-1: how often the target genes of round 1's tables of version 1 are used, per group (stage w12_tstats;
+# package W12; the programme lead, 2026-11-23, for round 1's report): the 201,600 training and 3,000 held-out tables of
+# run 20261123T122205 (rel-dev-w12-v1-k3-i1). Reads the tables and the codon offsets of the training data; writes no
+# table. A few minutes, 2 cores (beside a training). CPU only (the select lock). Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w12_tstats]
+rel_w12_tstats:
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+  which: v1
+train:
+  gpu_lease: false
+  device: cpu

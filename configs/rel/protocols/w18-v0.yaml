@@ -78,7 +78,7 @@ tables:
   three_tables_per_triple:
     implant: target block = the first n codons of D:j; the rows' target cells are their homolog rows of D:j, placed on D:j
     original: target block = A:i (the position control)
-    own: target block = A:k, its rows' cells placed on A:k (the primary control: it breaks the synteny as the implant does, not the genome of origin)
+    own: "target block = A:k, its rows' cells placed on A:k (the primary control: it breaks the synteny as the implant does, not the genome of origin)"
   position_fields: start, strand and replicon of the target block are unknown (-1, 0, -1) in every row of the three tables
   scenario_donor_unsampled: >
     a copy of every triple in place without its rows closer to D than to A (distance(row, D) < distance(row, A)), made
@@ -108,10 +108,10 @@ passes:                                 # seeddrift/train/rel/readouts/w18_passe
   H1:  the first half of the target (offsets below n // 2) hidden, the second half visible
   H2:  the second half hidden, the first half visible
   W0, H10, H20: W, H1, H2 with every other row removed
-  N:   the whole target block hidden, every other row removed (arms without relatives: their only pass)
+  N: "the whole target block hidden, every other row removed (arms without relatives: their only pass)"
   presence: every pass with rows but T0 again with every cell of the other rows hidden and unscored (shown as MASK), as package W3 decided its presence-only control; the renderer's own mode replaces it when it exists
   layout: the stored layout for the first reading; the leak-free renderer when it exists, chosen by the evaluation's configuration
-  per_cell_output: bits = -log2 p(truth), amino-acid bits (the evaluator's classes: 20 amino acids, the stops, OTHER), entropy of the distribution in bits
+  per_cell_output: "bits = -log2 p(truth), amino-acid bits (the evaluator's classes: 20 amino acids, the stops, OTHER), entropy of the distribution in bits"
 
 # ---------------------------------------------------------------------------------------------------------------------
 readouts:                               # seeddrift/train/rel/readouts/w18_readouts.py; every score higher = more foreign
@@ -122,7 +122,7 @@ readouts:                               # seeddrift/train/rel/readouts/w18_reado
       tiers present among the table's rows, pT = max(dT, 0) / sum, pC = max(dC, 0) / sum; source shift = 1/2 sum |pT - pC|
       (0 to 1). One tier present: 0. Grouping is by the distance of the rows to A, never by anything read from the hidden
       target.
-    lineage_version: source_shift_aa, the same from the amino-acid bits alone (free of the donor's codon usage): the primary reading when the readout speaks of lineage
+    lineage_version: "source_shift_aa, the same from the amino-acid bits alone (free of the donor's codon usage): the primary reading when the readout speaks of lineage"
     undefined: when sum max(dT, 0) or sum max(dC, 0) is below 0.02 bits per codon (the block relies on no tier)
     primary_subset: the triples whose three tables all define it and whose rows span two tiers or more
     defined_share: defined(implant) - defined(own) per triple, a readout of its own, with its interval

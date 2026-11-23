@@ -1,0 +1,27 @@
+# Machine i-1: the readouts of the first reading of the HGT capability check (protocol w18-v0, package W18) over both of
+# its evaluations, stage w18_readout alone (CPU; no model is run): the arms scored on i-1 (run
+# 20261122T205238-exp-rel-9aa2c8c0-rel-w18v0-i1) and the 100 M arm at the width rule scored on i-2 (run 20261123T033808-exp-rel-6223f4ce-rel-w18v0-i2, copied back
+# to imports/runs/ without the checkpoints), on the implant tables of run 20261122T144049-exp-rel-8192bedc-rel-dev-w18-rulers-i1.
+# With the exploratory host amino-acid model and the strata by the implant's own composition (outside the protocol).
+# Tables of version 0, the stored layout: a preliminary reading. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 2
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_readout]
+rel_w18_readout:
+  tables: {run: /hy-tmp/seeddrift-ci/runs/20261122T144049-exp-rel-8192bedc-rel-dev-w18-rulers-i1, path: data/rel_w18/rulers/tableset.json, sha256: be8111fb152b47669b99cce3dda9f8095fc1cd217448374ef67dd69191509cac}
+  eval_run: [/hy-tmp/seeddrift-ci/runs/20261122T205238-exp-rel-9aa2c8c0-rel-w18v0-i1, /hy-tmp/seeddrift-ci/imports/runs/20261123T033808-exp-rel-6223f4ce-rel-w18v0-i2]
+  reps: 2000
+train:
+  gpu_lease: false
+  device: cpu

@@ -1,0 +1,7 @@
+package: W12
+kind: cpu_run
+to: C0
+what: register stage w12_tstats in kind rel_tables of configs/rel/kinds.yaml (rule rel_w12_tstats in ci/rules/rel_w12.smk, output data/rel_w12/tstats/report.json, module ci.stages.rel.w12_tstats, gates [G4_rel_w12_tstats], side eval); W12 then pushes profile rel-dev-w12-tstats-i1 (tables_from run 20261123T122205, the 201,600 tables of round 1) - reads the tables and the codon offsets of the training data, writes none, a few minutes, 2 cores, select lock
+why: the programme lead (2026-11-23) wants, for round 1's report, per group the share of tables whose target gene is used ten times or more and the genomes they come from
+size: {hours: 0.2, threads: 2, disk_gb: 0.1, gpu_mem_gb: 0}
+by: 2026-11-24

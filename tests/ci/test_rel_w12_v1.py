@@ -193,3 +193,21 @@ def test_a_gene_is_the_target_again_only_after_every_gene_of_its_genome(setup, t
     again = V1.build_set(setup["builder"], GROUPS, "train", plan, str(tmp_path / "u"), shard_tables=50, seed=11, processes=1)[0]
     g2 = np.concatenate([np.load(os.path.join(tmp_path, "u", "%s.gene.npy" % n))[:, V1.TARGET] for n, _ in again])
     assert np.array_equal(gene, g2)
+
+
+def test_a_larger_set_holds_the_smaller_one_table_for_table(setup, tmp_path):
+    """Same search, seed and code: the tables of a set with more tables per group begin with those of the smaller set,
+    byte for byte (a table depends on its number alone), and the held-out tables are the same."""
+    genomes = setup["genomes"]
+    small, big = V1.plan_set(genomes, GROUPS, "train", 6, 5), V1.plan_set(genomes, GROUPS, "train", 12, 5)
+    n = len(small[0])
+    assert [x[:n] for x in (big[0], big[1], big[3])] == [small[0], small[1], small[3]]
+    a, _ = V1.build_set(setup["builder"], GROUPS, "train", small, str(tmp_path / "s"), shard_tables=len(GROUPS) * 2, seed=5, processes=2)
+    b, _ = V1.build_set(setup["builder"], GROUPS, "train", big, str(tmp_path / "b"), shard_tables=len(GROUPS) * 2, seed=5, processes=2)
+    assert [x[0] for x in b[:len(a)]] == [x[0] for x in a]
+    for name, _ in a:
+        for f in V1.fields(32):
+            x, y = (open(os.path.join(tmp_path, d, "%s.%s.npy" % (name, f)), "rb").read() for d in ("s", "b"))
+            assert x == y, (name, f)
+    h1, h2 = V1.plan_set(genomes, GROUPS, "heldout", 2, 5), V1.plan_set(genomes, GROUPS, "heldout", 2, 5)
+    assert h1 == h2

@@ -1,0 +1,34 @@
+# Machine i-1: the second, larger training set of tables of version 1 on corpus medium-k3 (stage w12_v1; package W12;
+# the programme lead, 2026-11-23: for round 2, built during round 1): 33,600 training tables per group, 403,200 in all,
+# from the same search (run 20261123T061001) with the same seed and code as profile rel-dev-w12-v1-k3-i1 (16,800 per
+# group): a table's content depends on its number alone, so the first 201,600 tables (shards 0-83 of 2,400) are that
+# set's, byte for byte, and the held-out tables (250 per group) are the same 3,000 tables. No island tables (that set
+# is built once). 32 rows, 8 processes, about 45 GB, about 1-2 hours; CPU priority below the training beside it.
+# Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 55
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w12_v1]
+rel_w12_v1:
+  search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  rows: 32
+  train_per_group: 33600
+  heldout_per_group: 250
+  shard_tables: 2400
+  processes: 8
+  seed: 1
+  name: w12-v1-r32-s1-n33600
+train:
+  gpu_lease: false
+  device: cpu

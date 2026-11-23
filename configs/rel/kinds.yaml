@@ -282,6 +282,13 @@ kinds:
         module: ci.stages.rel.w13_census
         gates: [G4_rel_w13_census]
         side: data
+      w13_supply:
+        package: W13
+        rule: rel_w13_supply
+        output: data/rel_w13/supply/report.json
+        module: ci.stages.rel.w13_supply
+        gates: [G4_rel_w13_supply]
+        side: data
       w13_pick:
         package: W13
         rule: rel_w13_pick

@@ -19,7 +19,7 @@ import numpy as np
 
 from seeddrift.train.rel import api as A
 
-VERSION = "1"
+VERSION = "2"                                  # 2: strict also aligns a row again where only it hides residues
 GAP_OPEN, GAP_EXTEND = 11, 1
 UNKNOWN = -1
 NEG = -10 ** 9
@@ -139,9 +139,12 @@ def align(frame, others):
 
 
 def strict(tab, visible):
-    """col [R, ROW_LEN] of a table whose correspondence is aligned again in every block where the frame row has a hidden
-    residue, those residues unknown (and any hidden residue of another row); other blocks keep the stored col. The
-    result depends on the lengths of the hidden stretches and on the visible residues only."""
+    """col [R, ROW_LEN] of a table whose correspondence is aligned again wherever a hidden residue could have shaped it,
+    every hidden residue unknown to the aligner: in a block where the frame row (row 0) hides a residue, every other row
+    is aligned to it again; in a block where only another row hides residues, that row is (training hides cells of every
+    row: scattered 15% of each, a span in any row). Every other pair keeps the stored col. The result depends on the
+    lengths of the hidden stretches and on the visible residues only. Version 1 aligned only the blocks where the frame
+    row hides a residue: the same wherever only row 0 is hidden (every evaluation condition)."""
     tok = np.asarray(tab["tok"])
     n = np.asarray(tab["n"]).astype(np.int64)
     frame_len = np.asarray(tab["frame_len"]).astype(np.int64)
@@ -149,15 +152,19 @@ def strict(tab, visible):
     col = np.array(tab["col"], dtype=np.int16, copy=True)
     for b, (_, s, e) in enumerate(A.block_slices()):
         f = int(frame_len[b])
-        if f == 0 or vis[0, s:s + f].all():
+        if f == 0:
             continue
         rows = [r for r in range(1, tok.shape[0]) if n[r, b] > 0]
-        if not rows:
+        if not vis[0, s:s + f].all():
+            redo = rows
+        else:
+            redo = [r for r in rows if not vis[r, s:s + n[r, b]].all()]
+        if not redo:
             continue
         frame = residues(tok[0, s:s + f], vis[0, s:s + f])
-        others = [residues(tok[r, s:s + n[r, b]], vis[r, s:s + n[r, b]]) for r in rows]
+        others = [residues(tok[r, s:s + n[r, b]], vis[r, s:s + n[r, b]]) for r in redo]
         cols, _ = align(frame, others)
-        for r, c in zip(rows, cols):
+        for r, c in zip(redo, cols):
             col[r, s:s + n[r, b]] = c.astype(np.int16)
     return col
 

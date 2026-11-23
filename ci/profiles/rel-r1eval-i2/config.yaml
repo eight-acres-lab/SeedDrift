@@ -27,6 +27,7 @@ rel_w6_eval:
   best: all
   extra_conditions: [suffix]
   end_controls: [shuffle, presence]
+  online_too: [scattered, suffix]   # the final weights again under the online rendering (protocol round1 version 8: the gap between the two renderings)
   final_per_group: 0
   eval_max_rows: 32
   threads: 4

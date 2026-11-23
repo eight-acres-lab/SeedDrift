@@ -54,6 +54,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.tables import render as RD
+from seeddrift.train.rel.tables import strict as ST
 from seeddrift.train.rel.tables import v0_io as IO
 
 STAGE = "rel_w3_offline"
@@ -115,16 +116,11 @@ def one(tables, k):
 
 
 def render_strict(tab, visible, target, condition=cond.SCATTERED):
-    """The strict rendering of one table: with the whole gene hidden, the target block laid on its frame relative
-    (AL.frame_layout); otherwise the correspondence aligned with the hidden residues unknown (AL.strict). Then leak-free.
-    Returns the strict table and grid, truth, ext."""
-    if cond.parse(condition)[0] == cond.WHOLE_GENE:
-        col, frame_row, frame_len = AL.frame_layout(tab)
-        strict = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)
-    else:
-        strict = dict(tab, col=AL.strict(tab, visible))
-    grid, truth, ext = RD.render(strict, visible, target, RD.LEAKFREE)
-    return strict, grid, truth, ext
+    """The strict rendering of one table (seeddrift/train/rel/tables/strict.py, the one the training uses): with the
+    whole gene hidden, the target block laid on its frame relative; otherwise the correspondence aligned with the hidden
+    residues unknown. Then leak-free. Returns the strict table and grid, truth, ext."""
+    grid, truth, ext, placed = ST.render(tab, visible, target, whole_gene=cond.parse(condition)[0] == cond.WHOLE_GENE)
+    return placed, grid, truth, ext
 
 
 def render_tables(arrays, condition, seed, check_seed, first, last):
@@ -151,16 +147,8 @@ def render_tables(arrays, condition, seed, check_seed, first, last):
             old_anchor, new_anchor = _anchors(tab["col"], tab, vis), _anchors(new, strict, vis)
             out["anchors"] += int(old_anchor.sum())
             out["kept"] += int((old_anchor & new_anchor & (tab["col"] == new)).sum())
-            gone = np.array(tab["col"], copy=True)                               # the fourth test: the hidden residues changed and
-            for bb, (_, s0, e0) in enumerate(api.block_slices()):               # every stored position of a block with any of them
-                f0 = int(tab["frame_len"][bb])
-                if f0 and not vis[0, s0:s0 + f0].all():
-                    gone[1:, s0:e0] = -1
-            rng = np.random.default_rng([int(check_seed), int(t)])
-            other = dict(tab, tok=np.where(target, rng.integers(1, 66, tab["tok"].shape), tab["tok"]).astype(np.uint8), col=gone)
-            _, g2, _, e2 = render_strict(other, vis, target, condition)
-            if not (np.array_equal(grid, g2) and np.array_equal(ext, e2)):
-                out["failures"].append(t)
+            if not ST.fourth_test(tab, vis, target, whole_gene=cond.parse(condition)[0] == cond.WHOLE_GENE, key=t, seed=check_seed)["passed"]:
+                out["failures"].append(t)                                       # the fourth test (tables/strict.py)
     out.update(col=col, frame_row=frame_row, frame_len=frame_len, tables=n)
     return out
 

@@ -15,7 +15,7 @@ seed: 1
 cores: 6
 blas_threads: 1
 disk_gb: 2
-disk_reserve_gb: 10
+disk_reserve_gb: 30
 corpus_spec: configs/corpus/medium-k3.yaml
 taxdump: /hy-tmp/seeddrift-store/reference/taxdump
 extra_exclusions: [configs/exclusions/pilot_recipients.tsv]

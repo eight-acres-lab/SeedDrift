@@ -441,6 +441,7 @@ def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkey
     stage reads it and names the placements."""
     from ci.stages.rel import w18_offline, w18_readout
     from seeddrift.train.rel.data import tables as T
+    from seeddrift.train.rel.readouts import w18_readouts as R
     tmp, run_dir, doc = v1stage["tmp"], v1stage["run_dir"], v1stage["doc"]
     patch(monkeypatch, tmp)
     with open(os.path.join(run_dir, "stages", "rel_w18_rulers.json")) as f:
@@ -483,17 +484,49 @@ def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkey
         seen.append(sum(int(e["ext"].sum()) for e in examples if e.get("ext") is not None))
         return w6_form(examples)
     with Stage(ev, "rel_w6_eval") as st:
-        for folder, info in (("lf", dict(base, arm="lf")), ("lf-norel", dict(base, arm="lf-norel", relatives=False))):
+        for folder, info in (("lf", dict(base, arm="lf")), ("lf-norel", dict(base, arm="lf-norel", relatives=False)),
+                             ("seed1", dict(base, arm="ref30m-variant", weights="untrained"))):
             out = os.path.join(ev, "data", "rel_w6", "eval", folder)
-            h = P.run_ruler(watch, tabs, info, out, presence=True, offline=off)
-            assert h["offline"] == os.path.basename(off) and len(h["offline_sha256"]) == 64
+            h0 = P.run_ruler(watch, tabs, info, out, presence=True, offline=off)
+            assert h0["offline"] == os.path.basename(off) and len(h0["offline_sha256"]) == 64
+            if folder == "lf":
+                h = h0
             st.output("ruler_cells_" + folder, os.path.join(out, P.RULER_CELLS))
     assert sum(seen) > 0                                               # cells laid by extension reach the scorer
     ecfg = dict(ecfg, rel=dict(machine="i1", stages=["w6_eval", "w18_readout"]),
                 rel_w18_readout=dict(tables=dict(run=run_dir, path=path), reps=20))
+    with pytest.raises(SystemExit, match="setting offline"):           # the strict coverage_shift needs the placements' run
+        with Stage(ev, "rel_w18_readout") as st:
+            w18_readout.build(st, ecfg, ev)
+    ecfg["rel_w18_readout"]["offline"] = off
     with Stage(ev, "rel_w18_readout") as st:
         rep = w18_readout.build(st, ecfg, ev)
     assert rep["layout"] == dict(layout="leakfree", offline=os.path.basename(off), offline_sha256=h["offline_sha256"])
+    # protocol w18-v3 version 4: one untrained control mapped to every arm (never by name), the second verdict on a
+    # population the ruler fixes, counted from the meta and the kinds alone
+    assert rep["untrained_control"] == "untrained:ref30m-variant" and rep["coverage_shift_cells"].startswith("strict offline placements")
+    meta = P.load_meta(run_dir, doc)
+    kind = shards.by_split(run_dir, [doc])[1].load(0, len(meta["triple"]), ("kind",))["kind"]
+    imp = meta["variant"] == 0
+    per_table = []
+    for t in range(len(meta["triple"])):
+        q = [int(meta["row_tier"][t, r]) for r in range(1, kind.shape[1]) if kind[t, r, -1] == api.KIND_PRESENT and meta["row_tier"][t, r] >= 0]
+        per_table.append(len(set(q)) >= 2)
+    per_table = np.array(per_table)
+    ok = {}
+    for t in np.flatnonzero(imp):
+        s_ = int(meta["triple"][t])
+        three = np.flatnonzero(meta["triple"] == s_)
+        if (meta["scenario"][t] == 0 and meta["context_homolog"][t] == 0 and meta["on_target"][t] > 0 and meta["donor_tier"][t] >= 2
+                and meta["phase"][t] != 3 and (meta["self_rows"][three] == 0).all() and per_table[three].all()):
+            ok[s_] = True
+    assert sum(x["triples"] for x in rep["second_population"].values()) == len(ok)
+    sv = rep["second_verdicts"]
+    assert {v["arm"] for v in sv} == {"lf"} and len(sv) == 2 and all(v["label"] in (R.SECOND_HOLDS, R.SECOND_DEFINEDNESS, R.NOT_SHOWN, R.SECOND_TOO_FEW) for v in sv)
+    assert all(set(v["controls"]) == {"untrained", "presence"} for v in sv)
+    assert rep["multiplicity"]["second"]["total"] == 2 and "too few to read" in rep["multiplicity"]["second"]["text"]
+    page = open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
+    assert "Second verdict" in page and "First verdict, counted" in page
     # the 2 x 2 table: the same arms read under the stored layout in another run, compared
     ev2, ecfg2 = RF.rel_run(tmp_path_factory.mktemp("w18st"), kind="rel_traineval", stages=("w6_eval",), run_id="20261124T000003-exp-rel-00000000-eval")
     with Stage(ev2, "rel_w6_eval") as st:

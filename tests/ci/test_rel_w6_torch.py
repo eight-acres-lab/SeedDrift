@@ -401,7 +401,7 @@ def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
     process are those drawn in the training's process."""
     root = tempfile.mkdtemp()
     train, held = D.v1_tables(24, rows=8, seed=11), D.v1_tables(12, rows=8, seed=12, split=1)
-    tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
+    tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL, sub="v1")   # beside _config's own set
     off = _offline(root, held)
     four = [cond.SCATTERED, cond.WHOLE_GENE, cond.SCATTERED + "+" + cond.NO_RELATIVES, cond.WHOLE_GENE + "+" + cond.NO_RELATIVES]
     cfg = _config(root, train_tables=tables, heldout_tables=tables, probe=False, rows=[2, 8], layout=A.LAYOUT_LEAKFREE, whole_gene_layout="frame",

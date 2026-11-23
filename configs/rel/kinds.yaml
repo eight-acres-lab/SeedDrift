@@ -137,6 +137,14 @@ kinds:
         gates: [G4_rel_w18_rulers]
         side: eval
         produces: tableset
+      w18_offline:
+        package: W18
+        rule: rel_w18_offline
+        output: data/rel_w18/offline/offline.json
+        module: ci.stages.rel.w18_offline
+        gates: [G4_rel_w18_offline]
+        side: eval
+        reads: [ruler]
   rel_traineval:
     purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
       (W5) of the arms of a round; today's slice of W4 and W6 runs as the stages of package W6

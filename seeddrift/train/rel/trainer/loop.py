@@ -566,7 +566,7 @@ def evaluate_checkpoints(cfg):
     best.pt or ema_tables<tables>.pt, rows "ema@best" or "ema@tables=<n>"), best (that of best.pt or None), out (an
     empty folder), and the tables seen, cells seen and wall seconds of the weights read (final_tables, final_cells,
     final_wall_s) and of the best node (best_tables, best_cells, best_wall_s). Writes results.tsv, heldout_final.npz
-    and summary.json in out."""
+    (heldout_best.npz for the best weights) and summary.json in out."""
     began = time.time()
     run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
@@ -595,9 +595,9 @@ def evaluate_checkpoints(cfg):
         fixed = run.fixed_columns("ema@%s" % (label if which == "final" else which), half, int(cfg["%s_cells" % which]), 0.0, "ok",
                                   int(cfg["%s_tables" % which]), float(cfg["%s_wall_s" % which]))
         main, cells, digests = run.evaluate(final_ids, fixed, results)
+        np.savez(os.path.join(out_dir, "heldout_%s.npz" % which),                # the best weights' cells too (paired intervals)
+                 **{"%s_%s" % (x, c.replace("+", "__")): v for c, (b, tb) in cells.items() for x, v in (("bits", b), ("table", final_ids[tb]))})
         if which == "final":
-            np.savez(os.path.join(out_dir, "heldout_final.npz"),
-                     **{"%s_%s" % (x, c.replace("+", "__")): v for c, (b, tb) in cells.items() for x, v in (("bits", b), ("table", final_ids[tb]))})
             state.update(final=main, final_items=digests, final_tables=len(final_ids), final_eval_s=round(time.time() - t, 1), step=int(ck["step"]),
                          tables_seen=int(ck["tables_seen"]), cells_seen=int(ck["cells_seen"]))
         else:

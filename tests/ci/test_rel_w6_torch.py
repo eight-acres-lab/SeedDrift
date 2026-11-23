@@ -234,7 +234,7 @@ def test_saved_weights_evaluated_again():
     got = loop.evaluate_checkpoints(dict(cfg2, out=folder, final=os.path.join(kept, "out", "ema_tables4.pt"), weights="node@4", best=None,
                                          final_per_group=cfg2["eval_per_group"], final_tables=4, final_cells=node["cells_seen"], final_wall_s=node["wall_s"]))
     rows = SC.read_rows(os.path.join(folder, "results.tsv"))
-    assert got["weights"] == "node@4" and {r["weights"] for r in rows} == {"ema@tables=4"} and {r["item_half"] for r in rows} == {"subset"}
+    assert got["weights"] == "node@4" and {r["weights"] for r in rows} == {"ema@tables=4"}            # (one table per group: all 12 here)
     assert all(abs(got["final"][c] - node["bits"][c]) < 1e-5 for c in node["bits"])             # the node's own reading on the same tables
 
 

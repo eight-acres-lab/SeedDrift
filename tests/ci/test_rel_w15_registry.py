@@ -193,3 +193,8 @@ def test_read_skips_comment_lines(tmp_path):
     p = tmp_path / "r.tsv"
     p.write_text("# a comment\n" + buf.getvalue())
     assert [r["event_id"] for r in reg.read(str(p))] == ["E1"]
+
+
+def test_origin_n_or_unknown_may_carry_semicolons_in_its_words():
+    r = _row("E1", "Aphis (genus)", INSECT + ";Aphis", ev_origin="?: resembles the donor; identity not read")
+    assert reg.origin_kinds(r) == set() and reg.check([r]) == ([], [])

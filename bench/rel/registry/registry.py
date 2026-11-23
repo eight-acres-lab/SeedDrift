@@ -80,8 +80,11 @@ def _flag(value):
 
 
 def origin_kinds(r):
-    """The kinds named in ev_origin ('kind: words; kind: words'), or an empty set for 'n' / '?'."""
+    """The kinds named in ev_origin ('kind: words; kind: words'), or an empty set when the field starts with n or ?
+    (the words after it may hold semicolons)."""
     out = set()
+    if _flag(r.get("ev_origin")) in ("n", "?"):
+        return out
     for item in (r.get("ev_origin") or "").split(";"):
         k = item.split(":", 1)[0].strip()
         if k and k not in ("n", "?"):

@@ -129,6 +129,13 @@ kinds:
         gates: [G4_rel_w12_islands]
         side: data
         produces: tableset
+      w12_tstats:
+        package: W12
+        rule: rel_w12_tstats
+        output: data/rel_w12/tstats/report.json
+        module: ci.stages.rel.w12_tstats
+        gates: [G4_rel_w12_tstats]
+        side: eval
       w18_rulers:
         package: W18
         rule: rel_w18_rulers

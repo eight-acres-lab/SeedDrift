@@ -186,8 +186,8 @@ def build(st, cfg, run_dir):
         if off.get("layout") != "leakfree" or not set(off.get("parts") or {}) >= {"scattered", "whole_gene"}:
             raise SystemExit("rel_w6_eval.tables.heldout_offline: the strict offline rendering (layout leakfree, parts scattered and whole_gene), "
                              "not %s with parts %s" % (off.get("layout"), sorted(off.get("parts") or {})))
-        if int(off.get("tables") or 0) and held["doc"].get("tables") and int(off["tables"]) != int(held["doc"]["tables"]):
-            raise SystemExit("rel_w6_eval: the offline rendering holds %s tables, the held-out set %s" % (off.get("tables"), held["doc"].get("tables")))
+        # (the parts' tables are checked against the held-out split itself by the trainer, Run: a manifest's "tables" counts
+        # every split of a set that holds the training tables too)
         st.extra.update(heldout_offline=dict(name=off.get("name"), sha256=off.get("sha256"), run=os.path.basename(s["heldout_offline"]["run"])))
     if ro is not None and ro["offline"] is not None:                  # package W18's strict offline rendering of the ruler set: a passed run
         rec = w6_fit.read_json(os.path.join(ro["offline"], "record.json")) or {}

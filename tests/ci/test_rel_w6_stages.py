@@ -806,8 +806,10 @@ def test_evaluation_again_reads_the_weights_each_entry_names(tmp_path, monkeypat
     with open(os.path.join(arm, w6_eval.NODE_WEIGHTS % 1000), "wb") as f:
         f.write(b"node")
     monkeypatch.setattr(w6_tools, "interpreter", lambda st, cfg: ("py", "lock", {}))
+    # the held-out set's manifest counts the training tables too (204,600), the offline rendering the held-out split (3,000)
     monkeypatch.setattr(w6_eval, "heldout_set", lambda spec, verify: dict(doc=dict(name="v1-held", sha256="3" * 64, layout="leakfree", parts={
-        "scattered": {}, "suffix": {}, "whole_gene": {}}, tables=12), groups=list(GROUPS), row_groups=dict(enumerate(GROUPS)), kind="real"))
+        "scattered": {}, "suffix": {}, "whole_gene": {}}, tables=3000 if "offline" in spec["path"] else 204600), groups=list(GROUPS),
+        row_groups=dict(enumerate(GROUPS)), kind="real"))
     seen = []
 
     class Done:

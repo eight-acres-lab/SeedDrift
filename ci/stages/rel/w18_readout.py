@@ -174,6 +174,9 @@ def cell_files(s, run_dir):
     return out
 
 
+RULE9_UNSET = ("its first bit (A's homolog of D:j among the context genes) was never set on this ruler set: the search holds no pair of a donor "
+               "gene with A's genes, so the triples left out by rule 9 are those of its second bit alone (a row's homolog of D:j is its homolog on a "
+               "context block)")
 STATUS_V3 = ("the counting reading (protocol w18-v3): round 1's arms, trained on tables of version 1 under the leak-free layout, on implant tables "
              "of version 1 rendered strictly offline (W3's aligner, the fourth validity test passed on every table and mask). Construct only. "
              "A ruler, not a transfer label: these numbers choose no arm, head, threshold, readout or node.")
@@ -331,6 +334,7 @@ def build(st, cfg, run_dir):
     rep = dict(format="rel-w18-readout", version=3, protocol="w18-v3" if strict else "w18-v0", status=status, adapt_v0=adapt, layout=lay,
                run=os.path.basename(run_dir), commit=cfg["git"]["sha"], verdicts=verdict, layers=list(R.LAYERS),
                layer_triples={name: int(((tr.layer == name) & pops[("in_place", "on")]).sum()) for name in R.LAYERS},
+               rule9=index.get("rule9_bit1") or RULE9_UNSET,
                tables=dict(run=os.path.basename(os.path.normpath(s["tables"]["run"])), name=doc["name"], sha256=doc["sha256"], tables=n,
                            tables_of_version=int(doc.get("tables_of_version", 0)),
                            triples=int(len(tr.ids)), in_place=int((tr.scenario == 0).sum()), donor_unsampled=int((tr.scenario == 1).sum()), layout=doc.get("layout")),
@@ -465,6 +469,7 @@ def page_of(rep, rows):
           "unsampled; layout %s." % (rep["run"], rep["commit"][:12], rep["tables"]["name"], rep["tables"]["run"], rep["tables"]["sha256"][:16],
                                      rep["tables"]["tables"], rep["tables"]["in_place"], rep["tables"]["donor_unsampled"], rep["tables"]["layout"]),
           "", "**Status.** " + rep["status"], "",
+          "**Rule 9.** " + (rep.get("rule9") or RULE9_UNSET) + ".", "",
           "Primary statistic: the paired win rate inside a triple, P(implant > another gene of A) + 1/2 P(tie), per group of A, then the mean over the "
           "readable groups of a block; 95%% intervals from %d replicates of a two-level bootstrap (A's split units inside each group, D's split units). "
           "A group enters with at least %d triples; a block's stratum is read with %d groups, %d triples and %d units of A, otherwise \"too few\". "

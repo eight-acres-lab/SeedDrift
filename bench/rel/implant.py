@@ -173,6 +173,40 @@ def split_units(metas):
     return out
 
 
+def append_pairs(a, b):
+    """The pairs of b (v1_hits arrays of the same query genome, other target genomes) after a's, gene by gene: one set
+    of arrays, every alignment kept. Used for the donor search of protocol w18-v3, whose targets (held-out A) never
+    occur in a's (the training database and the genome itself)."""
+    n = len(a["off"]) - 1
+    if len(b["off"]) - 1 != n:
+        raise ValueError("appending the pairs of a genome with %d genes to one with %d" % (len(b["off"]) - 1, n))
+    pa, pb = np.diff(np.asarray(a["off"], np.int64)), np.diff(np.asarray(b["off"], np.int64))
+    gene = np.concatenate([np.repeat(np.arange(n), pa) * 2, np.repeat(np.arange(n), pb) * 2 + 1])
+    order = np.argsort(gene, kind="stable")                         # gene by gene, a's pairs first
+    cat = lambda k: np.concatenate([np.asarray(a[k]), np.asarray(b[k])])          # noqa: E731
+
+    def gather(starts, lens, sel):
+        lens = lens[sel]
+        tot = int(lens.sum())
+        if not tot:
+            return np.zeros(0, dtype=np.int64), lens
+        first = np.repeat(starts[sel] - np.concatenate([[0], np.cumsum(lens)[:-1]]), lens)
+        return first + np.arange(tot), lens
+    ha, hb = np.asarray(a["hsp_off"], np.int64), np.asarray(b["hsp_off"], np.int64)
+    hsp_idx, hl = gather(np.concatenate([ha[:-1], hb[:-1] + ha[-1]]), np.concatenate([np.diff(ha), np.diff(hb)]), order)
+    ca, cb = np.asarray(a["cigar_off"], np.int64), np.asarray(b["cigar_off"], np.int64)
+    cig_starts, cig_lens = np.concatenate([ca[:-1], cb[:-1] + ca[-1]]), np.concatenate([np.diff(ca), np.diff(cb)])
+    cig_idx, cl = gather(cig_starts, cig_lens, hsp_idx)
+    out = dict(off=np.concatenate([[0], np.cumsum(pa + pb)]).astype(np.asarray(a["off"]).dtype),
+               tgenome=cat("tgenome")[order], tgene=cat("tgene")[order],
+               hsp_off=np.concatenate([[0], np.cumsum(hl)]).astype(ha.dtype),
+               cigar=cat("cigar")[cig_idx], cigar_off=np.concatenate([[0], np.cumsum(cl)]).astype(ca.dtype),
+               searched=np.maximum(np.asarray(a["searched"]), np.asarray(b["searched"])))
+    for k in ("qs", "qe", "ss", "se"):
+        out[k] = cat(k)[hsp_idx]
+    return out
+
+
 class Implanter:
     """Triples of implant tables (homolog rows of stage pairs; tables of version 0).
 
@@ -455,9 +489,11 @@ class Implanter:
                     n += k
         return plan, capacity, donors
 
-    def build(self, metas, groups, seed, per_tier=2, group_tier_cap=30, scenarios=True, progress=None):
+    def build(self, metas, groups, seed, per_tier=2, group_tier_cap=30, scenarios=True, progress=None, donor_pairs=None):
         """(out, meta, triples, counts, capacity). Triples of scenario 0 first (in the order of the allocation), then
-        their copies of scenario 1; table 3 s + v is variant v of triple s."""
+        their copies of scenario 1; table 3 s + v is variant v of triple s. donor_pairs (ImplanterV1; protocol w18-v3):
+        called once the triples are drawn with [(D, j, A)], returns {D: v1_hits arrays of D's genes against those A}
+        (add_pairs); the self-copy rows and rule 9 are then drawn and read with them."""
         meta_of = {m["id"]: m for m in metas}
         self.unit_names = sorted(set(self.units.values()))
         unit_ix = {u: k for k, u in enumerate(self.unit_names)}
@@ -485,21 +521,31 @@ class Implanter:
             genes = rel + [-1] * (A.N_RELATION - len(rel)) + near + [got["i"]]
             genes = [x if x >= 0 and lens[x] > 0 else -1 for x in genes]
             rows = self.order_rows(a, got["rows"], rng)
-            selfs, self_ctx = ([[], [], []], [])
-            if self.self_copies:
-                selfs, self_ctx = self.draw_selfs(a, got, genes, np.random.default_rng([int(seed), SEED_STREAM, 3, s]))
-                rows = rows[:self.rows - 1 - len(self_ctx)]
             banned = {self.units[a], self.units[got["d"]]}
             if any(self.units[self.order[ti]] in banned for ti in rows):
                 raise AssertionError("a row of the split unit of A or D")
-            flag = self.context_flag(a, got["d"], got["j"], genes, rows)
-            drawn.append(dict(got, group=g, tier=t, a=a, genes=genes, rows=rows, selfs=selfs, self_ctx=self_ctx, scenario=0, parent=len(drawn), context_homolog=flag,
+            drawn.append(dict(got, group=g, tier=t, a=a, genes=genes, rows=rows, scenario=0, parent=len(drawn), plan=s,
                               host=(ga.ccount - ga.gene_count(got["i"]) - ga.gene_count(got["k"]))[1:65].astype(np.int64)))
             self.counts["triples"] += 1
             self.counts["phase%d" % got["phase"]] += 1
             self.counts["attempts"] += got["attempts"]
-            self.counts["zero_rows"] += int(not rows)
+        if donor_pairs is not None:                                 # protocol w18-v3: D:j against A's own proteins
+            need = sorted({(tr["d"], int(tr["j"]), tr["a"]) for tr in drawn})
+            extra = donor_pairs(need)
+            self.add_pairs(extra)
+            self.counts["donor_queries"] = len(need)
+            self.counts["donor_pairs"] = int(sum(len(x["tgenome"]) for x in extra.values()))
+        for tr in drawn:
+            a, genes = tr["a"], tr["genes"]
+            selfs, self_ctx = ([[], [], []], [])
+            if self.self_copies:
+                selfs, self_ctx = self.draw_selfs(a, tr, genes, np.random.default_rng([int(seed), SEED_STREAM, 3, tr["plan"]]))
+                tr["rows"] = tr["rows"][:self.rows - 1 - len(self_ctx)]
+            flag = self.context_flag(a, tr["d"], tr["j"], genes, tr["rows"])
+            tr.update(selfs=selfs, self_ctx=self_ctx, context_homolog=flag)
+            self.counts["zero_rows"] += int(not tr["rows"])
             self.counts["context_homolog"] += int(flag > 0)
+            self.counts["context_homolog_bit1"] = self.counts.get("context_homolog_bit1", 0) + int(flag & 1)
             self.counts["self_rows"] = self.counts.get("self_rows", 0) + len(self_ctx)
             self.counts["self_triples"] = self.counts.get("self_triples", 0) + int(len(self_ctx) > 0)
         if scenarios:
@@ -567,14 +613,26 @@ class ImplanterV1(Implanter):
         self.allowed_ix = {self.oix[x] for x in allowed}
         self.min_codons, self.tol, self.attempts, self.donor_cap = int(min_codons), float(length_tol), int(attempts), int(donor_cap)
         self.min_aligned, self.aligned_share = int(min_aligned), float(aligned_share)
-        self._rows, self._arrays = {}, {}
+        self._rows, self._arrays, self._extra = {}, {}, {}
         self.counts = dict(triples=0, copies=0, zero_rows=0, failed=0, attempts=0, duplicate_rows=0, phase1=0, phase2=0, phase3=0, context_homolog=0,
                            no_donor_left=0, dropped_alignments=0)
 
     def arrays(self, gid):
         if gid not in self._arrays:
-            self._arrays[gid] = self.rows_of(gid)
+            a = self.rows_of(gid)
+            self._arrays[gid] = append_pairs(a, self._extra[gid]) if gid in self._extra else a
         return self._arrays[gid]
+
+    def add_pairs(self, extra):
+        """The donor search's pairs ({donor id: v1_hits arrays of its genes against the held-out A they were implanted
+        into}) joined to the donors' own: A's homologs of D:j for the implant's self-copy rows and rule 9's first bit."""
+        bad = [g for g, x in extra.items() if (np.isin(np.asarray(x["tgenome"]), sorted(self.allowed_ix))).any()]
+        if bad:
+            raise ValueError("the donor search reached training genomes: %s" % bad[:5])
+        for gid, x in extra.items():
+            self._extra[gid] = x
+            self._arrays.pop(gid, None)
+            self._rows = {k: v for k, v in self._rows.items() if k[0] != gid}
 
     def release(self, gid):
         self._arrays.pop(gid, None)

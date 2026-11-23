@@ -1,0 +1,44 @@
+# Machine i-1, round 1 (protocol round1, version 3): the start gate's probe of batch 1's arms of i-1 and of batch 2's
+# arm, 50 steps of the preflight each on the real tables of version 1 (finite loss, peak memory, tables per second,
+# the sampler's and the strict aligner's cost), three at once as batch 1 will run, nothing trained, no checkpoint kept.
+# The tables: the version-1 set of stage w12_v1 on the combined search 20261123T061001 (201,600 training tables) and
+# the strict offline rendering of its held-out set. CI 0.6, round 1's foundation. Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 30000
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_selftest, w6_fit]
+  parallel: 3
+rel_w6_selftest:
+  modules: [seeddrift.train.rel.models.axial, seeddrift.train.rel.models.source]
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 2}
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 3}
+    - {variant: configs/rel/variants/w6-ref30m-norel-v1.yaml, seed: 2}
+    - {variant: configs/rel/variants/w6-ref100m-v1.yaml, seed: 1}
+  preflight_only: true           # round 1's probe: every arm preflighted on the real tables, nothing trained, no checkpoint
+  preflight_steps: 50
+  wall_s: 1800
+  eval_max_rows: 32
+  data_workers: 1
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

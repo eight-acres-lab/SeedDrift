@@ -1,0 +1,43 @@
+# Machine i-1: the ruler set of the counting reading of the HGT capability check (protocol w18-v3): implant tables of
+# version 1 (stage w18_rulers, version 1) on W12's full search of corpus medium-k3, as profile rel-dev-w18-rulers-v1-i1
+# builds them, with up to 2 self-copy rows per table (the contract's MAX_SELF_COPY_ROWS, as round 1 trained on them) and
+# the donor search: every implanted D:j searched against the proteins of its A (W12's DIAMOND, the search run's
+# settings) for the implant's self-copy rows and rule 9's first bit. Evaluation only: kind ruler, purpose ruler, never a
+# training table. CPU only (the select lock), 8 processes (DIAMOND's threads in the donor search). The strict offline
+# rendering follows on this set (stage w18_offline, once registered). Development reading only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 4
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml     # the corpus the search read: medium and its 526 close relatives (W13)
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_rulers]
+rel_w18_rulers:
+  version: 1
+  search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
+  rows: 32
+  per_tier: 2
+  group_tier_cap: 30
+  scenarios: true
+  edges: [0.05, 0.2, 0.5, 1.0]
+  k: 6
+  min_codons: 64
+  length_tol: 0.15
+  attempts: 40
+  donor_cap: 3
+  min_aligned: 10
+  aligned_share: 0.3
+  self_copies: 2
+  donor_search: true
+  shard_tables: 720
+  processes: 8
+train:
+  gpu_lease: false
+  device: cpu

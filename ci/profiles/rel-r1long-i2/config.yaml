@@ -1,0 +1,47 @@
+# Machine i-2, round 1, batch 1 (protocol round1, version 3): ref30m-long, one training of 11 h beside the vLLM service,
+# which is never stopped: 30 M at 1.5e-4, seed 1, on the version-1 tables copied to i-2 over R2 (every file checked by
+# sha256), the leak-free layout for every scheme, nodes also every 50,000 tables from 100,000. On i-2 the micro-batch
+# is 1 table (2 do not fit beside vLLM; the programme lead's approval of 2026-11-23): still 4 tables and one clip per
+# step, the same arithmetic, only slower; set against i-1's two seeds (micro-batches of 2) at equal tables seen. CI 0.6.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 19000
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_selftest, w6_fit]
+  parallel: 1
+rel_w6_selftest:
+  modules: [seeddrift.train.rel.models.axial, seeddrift.train.rel.models.source]
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/imports/runs/RUN-OF-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 1}
+  wall_s: 39600
+  only_conditions: [scattered, whole_gene, scattered+no_relatives, whole_gene+no_relatives]
+  eval_per_group: 50             # the in-loop subset: the first 50 held-out tables of each group (600), online (leakfree-online)
+  final_per_group: 50            # the run's end on the same 600 tables, on the strict offline rendering (leakfree)
+  eval_max_rows: 32
+  eval_online: true
+  keep_node_weights: true        # the moving average at every node (ema_tables<n>.pt), kept on this machine
+  data_workers: 1                # the whole gene's strict alignment in one background process per arm
+  preflight_steps: 200
+  nodes_every: 50000
+  nodes_every_from: 100000
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

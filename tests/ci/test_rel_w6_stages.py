@@ -69,6 +69,13 @@ def test_every_variant_file_loads_and_round_1a_changes_one_key():
         assert v["alone_share"] == 0.05 and v["masks"] == ["scattered", "span", "whole_gene"] and v.get("mask_weights") is None
     assert rest(load("w6-ref30m-norel-v1"), "relatives") == rest(load("w6-ref30m-v1"), "relatives")
     assert not os.path.exists(os.path.join(folder, "w6-ref10m-v1.yaml"))                         # 10 M is not run in round 1
+    # batch 3 (protocol round1, version 9): the reference on W3's strict rendering, and the two arms that change one thing
+    strict = load("w6-ref30m-strict-v1")
+    assert strict["layout"] == "strict" and strict["whole_gene_layout"] == w6_fit.FRAME and rest(strict, "layout") == rest(load("w6-ref30m-v1"), "layout")
+    assert load("w6-ref30m-wholegene-strict-v1")["mask_weights"] == [0.3, 0.2, 0.5]
+    assert rest(load("w6-ref30m-wholegene-strict-v1"), "mask_weights") == rest(strict)
+    assert load("w6-ref30m-samegenome-strict-v1")["size"] == {"layers": 12, "width": 384, "genome_bias": True}
+    assert rest(load("w6-ref30m-samegenome-strict-v1"), "size") == rest(strict, "size")
     assert load("w6-ref30m-leakfree-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-leakfree-hier"), "size") == rest(load("w6-ref30m-leakfree"), "size")
     assert rest(load("w6-ref30m-leakfree"), "layout", "whole_gene_layout") == rest(load("w6-ref30m"), "layout")

@@ -1,0 +1,23 @@
+# Round 1, batch 3 (protocol configs/rel/protocols/round1.yaml, version 9): the reference trunk of rounds 1a and 1b
+# on tables of version 1 (32 rows, 4 to 32 kept, row 0 always; KIND_ABSENT an input; self-copy rows in). Scattered and
+# span trained on package W3's strict rendering (tables/strict.py: aligner version 2 on the rows drawn and the cells
+# hidden, then leak-free; W3's fourth test on one sample in 1,000), the whole gene laid on its frame relative by W3's
+# strict aligner after the rows are drawn. 30 M at 1.5e-4, 4 tables per step.
+# Arm ref30m-s4: the reference of batch 3, in its machine and window (seed 4 from the profile).
+name: w6-ref30m-strict-v1
+author: w6
+api: 1
+model: axial
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table
+layout: strict                            # scattered and span: W3's strict rendering
+whole_gene_layout: frame                  # W3's strict aligner on the rows drawn, then rendered leak-free
+rows: [4, 32]
+columns: 1024
+size: {layers: 12, width: 384}
+relatives: true
+optimizer: {lr: 1.5e-4}
+micro: 2
+gpu_mb: 28000                             # the profile may lower the micro-batch (arms[].micro, the protocol's margin rule)
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws
+tables: real

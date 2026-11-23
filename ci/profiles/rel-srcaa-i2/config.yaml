@@ -13,7 +13,7 @@ cores: 4
 blas_threads: 2
 disk_gb: 10
 disk_reserve_gb: 30
-gpu_mem_min_mb: 19000           # i-2's A100 has 40 GB and the vLLM service holds about 18 GB; S2 peaked at 16.6 GB (preflight)
+gpu_mem_min_mb: 20000           # i-2's A100 has 40 GB, about 21.9 GB free beside the vLLM service; S2 peaked at 16.6 GB at micro 4 (preflight), about 19.2 GB needed with the trainer's margin
 corpus_spec: configs/corpus/medium.yaml
 taxdump: /hy-tmp/seeddrift-store/reference/taxdump
 extra_exclusions: [configs/exclusions/pilot_recipients.tsv]

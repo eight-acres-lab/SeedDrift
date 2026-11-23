@@ -8,3 +8,8 @@
 - New sections: the mask schemes' realised shares of the target cells and of the loss per arm, and the whole gene's
   frame relatives by distance in training and on the held-out tables (the trainer's summary).
 - `evaluate_checkpoints` (stage `w6_eval`) keeps the best weights' cells too (`heldout_best.npz`).
+- `rel_w6_eval.online_too` ([conditions], e.g. [scattered, suffix]): every arm with relatives trained leak-free is read
+  again at its final weights under those conditions on the same tables rendered online (`<arm>.online`, its rows'
+  variant too; no controls, no best), and the report sets the online reading against the strict offline one: the
+  difference and its paired interval over all tables and by the relatives strata (the programme lead's ruling of
+  2026-11-24: the nodes' online rendering of scattered and span reads too low).

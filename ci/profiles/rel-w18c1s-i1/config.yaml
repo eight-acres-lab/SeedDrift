@@ -1,0 +1,42 @@
+# Machine i-1: the stored-layout column of the counting reading of the HGT capability check (protocol w18-v3, version
+# 4), the scoring of round 1's batch 1 (run 20261123T144801: ref30m-s2, ref30m-s3, norel30m) at each arm's last node (its final moving-average
+# weights), on the implant tables of version 1 with self-copy rows (run 20261123T132811 of profile
+# rel-dev-w18-rulers-v3-i1) read under the stored layout (protocol w18-v3, rendering.second_column: the 2 x 2 table's
+# second column). Stage w6_eval in its ruler mode only: the readout (w18_readout) reads this run together with i-2's (ref30m-long and the untrained seed-1
+# variant, the control of every arm) in one reading. The protocol's compute switch is on (over 5 GPU hours in all): the
+# presence passes on the in-place triples only. Runs beside batch 2 on i-1's GPU (the programme lead, 2026-11-23: HGT
+# first; batch 2's report states the sharing). Nothing is trained.
+# Expected time with the GPU free (an estimate, not a measurement): the adapted reading rel-w18v1a-i1 (16 rows, the GPU
+# fully taken by another user's processes) scored the 30 M arm with its presence passes in 34 min; here 32 rows (about twice
+# the work per pass), the presence passes on the in-place tables only (0.73 of them) and a free GPU (about half the time):
+# about 35-40 min per 30 M arm, the strict renderer adding about 0.1 s of CPU per table and arm; norel30m (pass N only) about
+# 5 min. This profile (stored layout): about 1.2 h, after rel-w18c1-i1 (the strict reading first).
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_eval]
+  parallel: 1
+rel_w6_eval:
+  from: /hy-tmp/seeddrift-ci/runs/20261123T144801-exp-rel-6bb5f500-rel-r1short-i1
+  arms: [w6-ref30m-v1-s2, w6-ref30m-v1-s3, w6-ref30m-norel-v1-s2]
+  tables:
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1, path: data/rel_w18/rulers/tableset.json, sha256: 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3, split: 1}
+  readout: {module: seeddrift.train.rel.readouts.w18_passes, presence_arms: [w6-ref30m-v1-s2, w6-ref30m-v1-s3], max_rows: 32, layout: stored, in_place_only: true, adapt_v0_arms: false}
+  best: false                    # the last node: the final moving-average weights (protocol w18-v3)
+  threads: 4
+  wall_s: 14400                  # one arm's scoring
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

@@ -44,7 +44,7 @@ WHICH = dict(v1=dict(block="rel_w12_v1", stage="w12_v1", out=os.path.join("data"
              islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)))
 SEARCH = os.path.join("data", "rel_w12", "search")
 KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed",
-        "frame_index", "name", "train_sampling"}
+        "frame_index", "name", "train_sampling", "heldout_equals"}
 
 
 def settings(cfg, which="v1") -> dict:
@@ -58,7 +58,11 @@ def settings(cfg, which="v1") -> dict:
                per_chromosome=int(c.get("per_chromosome", 500)), shard_tables=int(c.get("shard_tables", 2400)), processes=int(c.get("processes", 8)),
                dist_k=int(c.get("dist_k", 6)), dist_size=int(c.get("dist_size", 4096)), seed=int(c.get("seed", cfg.get("seed", 1))),
                frame_index=str(c.get("frame_index", "none")), name=str(c["name"]) if c.get("name") else None,
-               train_sampling=str(c.get("train_sampling", "genome")), max_left_out=20)
+               train_sampling=str(c.get("train_sampling", "genome")), heldout_equals=dict(c["heldout_equals"]) if c.get("heldout_equals") else None,
+               max_left_out=20)
+    he = out["heldout_equals"]
+    if he is not None and (set(he) != {"run", "sha256"} or "heldout" not in w["parts"]):
+        raise SystemExit("%s: heldout_equals takes {run, sha256} (a table set with a held-out part)" % w["block"])
     if not (2 <= out["rows"] <= 64 and out["shard_tables"] >= 1 and 1 <= out["processes"] <= 16) or out["frame_index"] not in ("none", "target", "all") \
             or out["train_sampling"] not in ("genome", "gene"):
         raise SystemExit("%s: settings out of range: %r" % (w["block"], out))
@@ -329,11 +333,37 @@ def gate(st, cfg, run_dir, which="v1"):
     man, genomes, _, prov = search_run(s["search_from"])
     if doc.get("search") != prov:
         problems.append(dict(error="the manifest names another search than the configured run's"))
+    if s["heldout_equals"]:
+        problems += heldout_problems(run_dir, w, s["heldout_equals"])
     results = [run(GateResult("G4_rel_%s" % w["stage"], "fail" if problems else "pass", dict(problems=problems[:50], tables={k: v["tables"] for k, v in (doc.get("parts") or {}).items()}))
                    , run_dir)]
     if any(r.status == "fail" for r in results):
         raise GateFailure("gates failed: G4_rel_%s" % w["stage"])
     return sha256_json([sha256_file(p, use_sidecar=False)])
+
+
+def heldout_problems(run_dir, w, ref):
+    """Problems unless the held-out part of this run's table set is the reference's, file for file: the reference is
+    the table set of run ref["run"] whose manifest sha256 is ref["sha256"]; every held-out file of it must be here with
+    the same name, and the file here, hashed again, must have the reference's sha256 (the programme lead, 2026-11-23:
+    the 3,000 held-out tables of round 2's training set are round 1's, byte for byte)."""
+    rp = os.path.join(ref["run"], w["out"], "tableset.json")
+    if not os.path.exists(rp):
+        return [dict(check="heldout_equals", error="the reference table set %s is missing" % rp)]
+    with open(rp) as f:
+        rdoc = json.load(f)
+    if rdoc.get("sha256") != ref["sha256"] or handoff.finish(rdoc)["sha256"] != ref["sha256"]:
+        return [dict(check="heldout_equals", error="the reference table set's manifest is not sha256 %s" % ref["sha256"][:12])]
+    mark = "/%s/" % "heldout"
+    want = {os.path.basename(e["path"]): e["sha256"] for e in rdoc.get("files") or [] if mark in "/" + e["path"]}
+    folder = os.path.join(run_dir, w["out"], "heldout")
+    have = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+    differ = sorted(n for n in want if n not in have or sha256_file(os.path.join(folder, n), use_sidecar=False) != want[n])
+    extra = sorted(n for n in have if n.endswith(".npy") and n not in want)
+    if not want or differ or extra:
+        return [dict(check="heldout_equals", error="the held-out tables are not the reference's (%d of %d files differ, %d extra)" % (len(differ), len(want), len(extra)),
+                     files=(differ + extra)[:20])]
+    return []
 
 
 def summary(run_dir, which="v1"):

@@ -470,6 +470,27 @@ def flops_per_cell(params, layers, width, self_layers, rows):
     return 6 * used + 12 * width * (layers * A.ROW_LEN + (layers - self_layers) * int(rows))
 
 
+def measured_flops(model, rows=32, share=0.15, seed=0):
+    """The calibration of the analytic count (protocol round1, batch 3): the floating-point operations PyTorch's
+    FlopCounterMode counts for one table of `rows` rows (a random grid, `share` of its cells hidden and scored),
+    forward and backward through the cross-entropy, on the CPU. The counter counts matrix products only (not the
+    attention kernels, not embedding look-ups), so it is below the analytic count; the ratio of two arms is what is
+    reported beside it. Any model of the registry with the forward of models/axial.py; returns dict(total, by_op)."""
+    from torch.utils.flop_counter import FlopCounterMode
+    g = torch.Generator().manual_seed(int(seed))
+    grid = torch.randint(A.TARGET_MIN, A.TARGET_MAX + 1, (int(rows), A.ROW_LEN), generator=g)
+    m = int(int(rows) * A.ROW_LEN * float(share))
+    row, col = torch.randint(0, int(rows), (m,), generator=g), torch.randint(0, A.ROW_LEN, (m,), generator=g)
+    grid[row, col] = A.MASK
+    token = torch.randint(0, N_OUT, (m,), generator=g)
+    model = model.cpu().train()
+    model.zero_grad(set_to_none=True)
+    with FlopCounterMode(display=False) as fc:
+        F.cross_entropy(model(grid, [int(rows)], row, col), token).backward()
+    model.zero_grad(set_to_none=True)
+    return dict(total=int(fc.get_total_flops()), by_op={str(k): int(v) for k, v in fc.get_flop_counts().get("Global", {}).items()})
+
+
 def info(size, rows=16):
     s = spec_of(size)
     params = count_parameters(s["layers"], s["width"], s["arm"], s["levels"], s["evidence"], s["ext"])
@@ -872,6 +893,18 @@ def test_masked_blocks_stay_finite():
         loss.backward()
         assert torch.isfinite(out).all() and torch.isfinite(loss)
         assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+
+
+def test_measured_flops_calibrate_the_analytic_count():
+    """The calibration counts the matrix products of one table, forward and backward: positive, below the analytic
+    count (which also counts attention and embeddings), and lower for a source arm than for the reference trunk of the
+    same layers and width, as the analytic count is."""
+    torch.manual_seed(46)
+    ref, src = AX.Axial(2, 256), Source(2, 256, "s2", 1)
+    a, b = measured_flops(ref, rows=4), measured_flops(src, rows=4)
+    assert 0 < b["total"] < a["total"] and "aten.mm" in a["by_op"]
+    assert a["total"] < 4 * A.ROW_LEN * AX.info(dict(layers=2, width=256), rows=4)["flops_per_cell"]
+    assert b["total"] < 4 * A.ROW_LEN * info(dict(layers=2, width=256, arm="s2", self_layers=1), rows=4)["flops_per_cell"]
 
 
 def test_sizes_are_checked():

@@ -105,8 +105,17 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
      note: "tables of version 1: the writer opened 84 shards of every field at once over the soft limit of 1,024 open files (Errno 24); fixed in 1f744ad, built again"}
   - {run_id: 20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, machine: i1, profile: rel-dev-w12-v1-k3-i1, commit: c76dd7cdc5bcaccd7f7f34fe6384c069439227f2, status: passed,
      note: "tables of version 1 again, with the writer's fix: 201,600 training and 3,000 held-out tables (16,800 and 250 per group), manifest dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1; the development chromosomes' set, 12,000 tables, manifest dddf1cb361e007fdfcc327798aa08fe2618edfb75f463453a0feac9af72dbd95; 23 GB; rel_w12_v1 958 s"}
-  - {run_id: 20261123T122356-exp-rel-c76dd7cd-rel-srcearlyref-i1, machine: i1, profile: rel-srcearlyref-i1, commit: c76dd7cdc5bcaccd7f7f34fe6384c069439227f2, status: started,
-     note: "the reference arm of 20261123T110619 alone, the same tables, steps, nodes, end and seed; the differences from 632d697 touch no trainer, model or table reading (the writer's open files, a table-set name, profiles)"}
+  - {run_id: 20261123T122356-exp-rel-c76dd7cd-rel-srcearlyref-i1, machine: i1, profile: rel-srcearlyref-i1, commit: c76dd7cdc5bcaccd7f7f34fe6384c069439227f2, status: passed,
+     note: "the reference arm of 20261123T110619 alone, the same tables, steps, nodes, end and seed; the differences from 632d697 touch no trainer, model or table reading (the writer's open files, a table-set name, profiles); 3,500 steps, 2,220 s; its preflight agrees with 110619's within 0.001 bits (not bitwise: GPU)"}
+  - {run_id: 20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, machine: i1, profile: rel-dev-w3-offline-v1-i1, commit: 8015afa8d8c4e5b08b1147c97151af93b278fa47, status: passed,
+     note: "the strict offline rendering of the 3,000 held-out tables of version 1 (scattered, suffix, whole_gene), manifest 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496; 96 s"}
+  - {run_id: 20261123T130420-exp-rel-85c89019-rel-r1probe-i1, machine: i1, profile: rel-r1probe-i1, commit: 85c890199dd69b46d1b21781db1d78542adba270, status: passed,
+     note: "round 1's i-1 probe at the variants' micro-batches: peaks 18,484 (ref30m s2, s3), 1,577 (norel30m), 20,232 MB (ref100m at 1); 35,576 MB free beside another user's processes, below the margin of 48,544 MB: batch 1 goes to micro-batches of 1 (arms[].micro, protocol round1 version 6)"}
+  - {run_id: 20261123T130653-exp-rel-af4ef952-rel-dev-w6-r1a-i1, machine: i1, profile: rel-dev-w6-r1a-i1, commit: af4ef95231ff9e1803046dc1b0addb34757fe5b3, status: passed, note: "round 1a's report"}
+  - {run_id: 20261123T130850-exp-rel-af4ef952-rel-dev-w6-r1b-i1, machine: i1, profile: rel-dev-w6-r1b-i1, commit: af4ef95231ff9e1803046dc1b0addb34757fe5b3, status: passed, note: "round 1b's report (the short arms)"}
+  - {run_id: 20261123T130917-exp-rel-af4ef952-rel-dev-w5-source-selftest-i1, machine: i1, profile: rel-dev-w5-source-selftest-i1, commit: af4ef95231ff9e1803046dc1b0addb34757fe5b3, status: passed}
+  - {run_id: 20261123T131605-exp-rel-878c0c30-rel-dev-w18-rulers-v1-i1, machine: i1, profile: rel-dev-w18-rulers-v1-i1, commit: 878c0c302e6d77f54c03adbf8c34d195f1186385, status: passed,
+     note: "W18's implant tables of version 1: 5,622 tables of 32 rows, manifest bea1f8de5ccf345407c2c19808ba5fbb0e51319c85cc60b11efde277ae749b24; 571 s"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:

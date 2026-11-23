@@ -44,7 +44,7 @@ WHICH = dict(v1=dict(block="rel_w12_v1", stage="w12_v1", out=os.path.join("data"
              islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)))
 SEARCH = os.path.join("data", "rel_w12", "search")
 KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed",
-        "frame_index", "name", "train_sampling", "heldout_equals"}
+        "frame_index", "name", "train_sampling", "heldout_equals", "max_uses_per_target"}
 
 
 def settings(cfg, which="v1") -> dict:
@@ -59,7 +59,10 @@ def settings(cfg, which="v1") -> dict:
                dist_k=int(c.get("dist_k", 6)), dist_size=int(c.get("dist_size", 4096)), seed=int(c.get("seed", cfg.get("seed", 1))),
                frame_index=str(c.get("frame_index", "none")), name=str(c["name"]) if c.get("name") else None,
                train_sampling=str(c.get("train_sampling", "genome")), heldout_equals=dict(c["heldout_equals"]) if c.get("heldout_equals") else None,
+               max_uses_per_target=int(c["max_uses_per_target"]) if c.get("max_uses_per_target") else None,
                max_left_out=20)
+    if out["max_uses_per_target"] is not None and (out["train_sampling"] != "gene" or out["max_uses_per_target"] < 1):
+        raise SystemExit("%s: max_uses_per_target (a positive count) goes with train_sampling gene" % w["block"])
     he = out["heldout_equals"]
     if he is not None and (set(he) != {"run", "sha256"} or "heldout" not in w["parts"]):
         raise SystemExit("%s: heldout_equals takes {run, sha256} (a table set with a held-out part)" % w["block"])
@@ -192,7 +195,7 @@ def build(st, cfg, run_dir, which="v1"):
         mine = [g for g in genomes if g["split"] == part]
         valid = {g["id"]: np.flatnonzero(np.diff(arrays[g["id"]].coff) > 0) for g in mine if g["id"] in arrays}
         by_gene = part == "train" and s["train_sampling"] == "gene"
-        plan = V1.plan_by_gene(genomes, groups, part, per, s["seed"], valid) if by_gene else V1.plan_set(genomes, groups, part, per, s["seed"])
+        plan = V1.plan_by_gene(genomes, groups, part, per, s["seed"], valid, s["max_uses_per_target"]) if by_gene else V1.plan_set(genomes, groups, part, per, s["seed"])
         folder = os.path.join(base, part)
         shards, census = V1.build_set(builder, groups, part, plan, folder, shard_tables=s["shard_tables"], seed=s["seed"], processes=s["processes"], progress=say)
         problems = V1.verify_set(folder, shards, s["rows"], part, {gix[g["id"]] for g in genomes if g["split"] == part}, set(train), len(groups))
@@ -213,6 +216,8 @@ def build(st, cfg, run_dir, which="v1"):
                        note=("target genes drawn over the whole group without replacement: every gene of the group once before any twice (plan_by_gene)"
                              if by_gene else "target genes: each genome's genes in a shuffled order, a gene again only after every gene of its genome"),
                        by_group=V1.target_stats(plan, groups, tgt, {k: v for k, v in rel_of.items() if v}, valid, {g["id"]: g["group"] for g in mine}))
+        targets.update(max_uses_per_target=s["max_uses_per_target"] if by_gene else None,
+                       tables_by_group={groups[i]: sum(1 for x in plan[1] if x == i) for i in sorted(set(plan[1]))})
         parts[part] = dict(split=V1.SPLIT_CODE[part], tables=len(plan[0]), per_group=per, groups_without_a_genome=plan[2], folder=os.path.join(w["out"], part), targets=targets,
                            shards=[dict(name=n, tables=m) for n, m in shards], sha256=sha256_json(sorted([n, f, h["sha256"]] for n, fs in hashes.items() for f, h in fs.items())))
         counts[part] = {k: v.tolist() for k, v in census.to_arrays().items()}

@@ -366,29 +366,31 @@ def plan_set(genomes, groups, split, per_group, seed):
     return genome_of, group_of, [g for g in groups if not by[g]], occ
 
 
-def plan_by_gene(genomes, groups, split, per_group, seed, valid):
+def plan_by_gene(genomes, groups, split, per_group, seed, valid, max_uses=None):
     """The tables of a part with their target genes drawn over the whole group (the programme lead, 2026-11-23): the
     groups take turns as in plan_set, and the k-th table of a group takes the k-th of the group's genes that can be a
     target (`valid`: {genome id: gene indices with a codon}) in an order shuffled once per pass over them, so every gene
-    of the group is a target once before any is twice, and no gene more than once above the mean. Returns
-    (genome_of, group_of, groups without a genome, None, target gene of every table)."""
+    of the group is a target once before any is twice, and no gene more than once above the mean. With `max_uses` a
+    group has at most max_uses tables per gene that can be a target (min(per_group, max_uses x genes)); the tables a
+    group does not take go to no other group. Returns (genome_of, group_of, groups without a genome, None, target gene
+    of every table, {group: tables})."""
     pool = {g: [(x["id"], int(j)) for x in sorted((x for x in genomes if x["split"] == split and x["group"] == g), key=lambda x: x["id"])
                 for j in valid.get(x["id"], ())] for g in groups}
     present = [g for g in groups if pool[g]]
-    genome_of, group_of, gene, perms = [], [], [], {}
-    for t in range(int(per_group) * len(present)):
-        g = present[t % len(present)]
-        k = t // len(present)
-        n = len(pool[g])
-        key = (g, k // n)
-        if key not in perms:
-            perms = {key: np.random.default_rng([int(seed), SPLIT_STREAM[split], 3, groups.index(g), k // n]).permutation(n)} | \
-                {x: v for x, v in perms.items() if x[0] != g}
-        gid, j = pool[g][int(perms[key][k % n])]
-        genome_of.append(gid)
-        group_of.append(groups.index(g))
-        gene.append(j)
-    return genome_of, group_of, [g for g in groups if not pool[g]], None, gene
+    count = {g: int(per_group) if max_uses is None else min(int(per_group), int(max_uses) * len(pool[g])) for g in present}
+    genome_of, group_of, gene, perm = [], [], [], {}
+    for k in range(max(count.values(), default=0)):                      # the groups in turn, a group leaves when it has its tables
+        for g in present:
+            if k >= count[g]:
+                continue
+            n = len(pool[g])
+            if k % n == 0:                                               # a new pass over the group's genes, in a new order
+                perm[g] = np.random.default_rng([int(seed), SPLIT_STREAM[split], 3, groups.index(g), k // n]).permutation(n)
+            gid, j = pool[g][int(perm[g][k % n])]
+            genome_of.append(gid)
+            group_of.append(groups.index(g))
+            gene.append(j)
+    return genome_of, group_of, [g for g in groups if not pool[g]], None, gene, count
 
 
 def target_stats(plan, groups, gene_of_table, relation=None, valid=None, genome_group=None):

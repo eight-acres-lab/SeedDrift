@@ -475,3 +475,51 @@ def verify_set(out_dir, shards, rows, split, examined, allowed, n_groups):
             prev = np.maximum.accumulate(np.where(c >= 0, c, -1), axis=2)
             need(((c < 0) | (c > np.concatenate([np.full(c.shape[:2] + (1,), -1), prev[:, :, :-1]], axis=2))).all(), "block %d: columns not strictly increasing" % b)
     return bad
+
+
+def frame_pairs(index, genome, row_gene, row_first, n, blocks=None):
+    """The pair numbers of `index` (v1_hits.Index) that the online frame layout (align.frame_layout_online) looks up for
+    these tables: in every block of `blocks` (default: all), from the block's frame relative (the first other row with
+    a stretch there) to every other row with one, the pair whose target gene is the row's gene, else the other
+    direction. genome [T, R], row_gene / row_first / n [T, R, B]."""
+    out = []
+    blocks = range(A.N_BLOCKS) if blocks is None else blocks
+    for t in range(genome.shape[0]):
+        for b in blocks:
+            rows = [r for r in range(1, n.shape[1]) if n[t, r, b] > 0]
+            if not rows:
+                continue
+            fr = rows[0]
+            qg, qi, qf = int(genome[t, fr]), int(row_gene[t, fr, b]), int(row_first[t, fr, b])
+            for r in rows[1:]:
+                tg, ti, tf = int(genome[t, r]), int(row_gene[t, r, b]), int(row_first[t, r, b])
+                if min(qg, qi, qf, tg, ti, tf) < 0:
+                    continue
+                got = [p for p in index.pairs(qg, tg, qi) if index.tgene(p) == ti]
+                if not got:
+                    got = [p for p in index.pairs(tg, qg, ti) if index.tgene(p) == qi]
+                out += got
+    return np.unique(np.asarray(out, dtype=np.int64))
+
+
+def _frame_unit(args):
+    index_folder, folder, name, blocks = args
+    z = {f: np.load(IO.shard_path(folder, name, f), mmap_mode="r") for f in ("genome", "row_gene", "row_first", "n")}
+    return frame_pairs(H.Index(index_folder), np.asarray(z["genome"]), np.asarray(z["row_gene"]), np.asarray(z["row_first"]), np.asarray(z["n"]), blocks)
+
+
+def frame_index(index_folder, sets, out_folder, blocks=None, processes=1):
+    """Write the lookup index of the pairs the online frame layout needs for the tables of `sets` ([(folder, [shard
+    names])]): a subset of the search's index (v1_hits.write_subset), so a machine that trains on these tables needs
+    this one, not the whole index. Returns its sizes."""
+    import multiprocessing
+    todo = [(index_folder, folder, name, None if blocks is None else list(blocks)) for folder, names in sets for name in names]
+    pool = multiprocessing.get_context("fork").Pool(int(processes)) if processes > 1 and len(todo) > 1 else None
+    try:
+        parts = list(pool.imap_unordered(_frame_unit, todo, chunksize=1) if pool else map(_frame_unit, todo))
+    finally:
+        if pool:
+            pool.close()
+            pool.join()
+    ids = np.unique(np.concatenate(parts)) if parts else np.zeros(0, dtype=np.int64)
+    return H.write_subset(H.Index(index_folder), ids, out_folder)

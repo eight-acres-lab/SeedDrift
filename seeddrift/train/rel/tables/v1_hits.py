@@ -278,3 +278,55 @@ class Index:
     def lookup(self, qg, tg, qi):
         return [(self.tgene(p), self.alignments(p)) for p in self.pairs(qg, tg, qi)]
 
+
+
+def _ranges(starts, ends):
+    """The concatenated indices of the ranges [starts[i], ends[i])."""
+    starts, ends = np.asarray(starts, dtype=np.int64), np.asarray(ends, dtype=np.int64)
+    lens = ends - starts
+    if not len(lens) or lens.sum() == 0:
+        return np.zeros(0, dtype=np.int64)
+    first = np.repeat(starts - np.concatenate([[0], np.cumsum(lens)[:-1]]), lens)
+    return first + np.arange(int(lens.sum()), dtype=np.int64)
+
+
+def write_subset(index, ids, folder, chunk=4_000_000):
+    """A lookup index (the layout of write_index) holding only the pairs `ids` (pair numbers of `index`, any order) of
+    `index` (an Index), with every genome and gene of it: pairs(qg, tg, qi), tgene and alignments answer as the full
+    index does for the pairs kept, and give no pair for the others. Returns the sizes."""
+    import os
+    a = index.a
+    ids = np.unique(np.asarray(ids, dtype=np.int64))
+    n_genes = len(a["off"]) - 1
+    os.makedirs(folder, exist_ok=True)
+    n_h = n_c = 0
+    for x in range(0, len(ids), chunk):                                  # the sizes first
+        p = ids[x:x + chunk]
+        h0, h1 = np.asarray(a["hsp_off"][p]), np.asarray(a["hsp_off"][p + 1])
+        hh = _ranges(h0, h1)
+        n_h += len(hh)
+        n_c += int((np.asarray(a["cigar_off"][hh + 1]) - np.asarray(a["cigar_off"][hh])).sum()) if len(hh) else 0
+    shape = dict(gene_base=len(a["gene_base"]), off=n_genes + 1, tgenome=len(ids), tgene=len(ids), hsp_off=len(ids) + 1, qs=n_h, qe=n_h, ss=n_h, se=n_h,
+                 cigar=n_c, cigar_off=n_h + 1, searched=n_genes)
+    mm = {k: np.lib.format.open_memmap(os.path.join(folder, k + ".npy"), mode="w+", dtype=dt, shape=(shape[k],)) for k, dt in INDEX_FIELDS.items()}
+    mm["gene_base"][:] = a["gene_base"]
+    mm["searched"][:] = a["searched"]
+    mm["off"][:] = np.searchsorted(ids, np.asarray(a["off"]), side="left")    # the kept pairs before each gene's first pair
+    hw = cw = 0
+    mm["hsp_off"][0], mm["cigar_off"][0] = 0, 0
+    for x in range(0, len(ids), chunk):
+        p = ids[x:x + chunk]
+        mm["tgenome"][x:x + len(p)], mm["tgene"][x:x + len(p)] = a["tgenome"][p], a["tgene"][p]
+        h0, h1 = np.asarray(a["hsp_off"][p]), np.asarray(a["hsp_off"][p + 1])
+        mm["hsp_off"][x + 1:x + len(p) + 1] = hw + np.cumsum(h1 - h0)
+        hh = _ranges(h0, h1)
+        for f in ("qs", "qe", "ss", "se"):
+            mm[f][hw:hw + len(hh)] = a[f][hh]
+        c0, c1 = np.asarray(a["cigar_off"][hh]), np.asarray(a["cigar_off"][hh + 1])
+        mm["cigar_off"][hw + 1:hw + len(hh) + 1] = cw + np.cumsum(c1 - c0)
+        cc = _ranges(c0, c1)
+        mm["cigar"][cw:cw + len(cc)] = a["cigar"][cc]
+        hw, cw = hw + len(hh), cw + len(cc)
+    for v in mm.values():
+        v.flush()
+    return dict(genomes=len(a["gene_base"]) - 1, genes=n_genes, pairs=len(ids), hsps=n_h, cigar_bytes=n_c)

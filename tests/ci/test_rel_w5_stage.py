@@ -170,3 +170,53 @@ def test_stage_refuses_wrong_inputs_fails(tmp_path, monkeypatch):
     run_dir, _ = baselines_run(tmp_path / "lk", monkeypatch, src3, doc3)
     with pytest.raises(SystemExit):
         w5_baselines.main()
+
+
+def test_stage_reads_the_conditions_with_relatives_on_the_strict_offline_rendering(tmp_path_factory, monkeypatch):
+    """With offline named: every condition with relatives is scored on W3's strict offline part of its mask (layout
+    leakfree, the same cells as the stored tables), the conditions without relatives on the stored tables; a rendering
+    of another held-out set is refused. On a real-kind tables run built by the tables package's own code."""
+    import test_rel_w3_offline as W3T
+    from ci.stages.rel import w3_offline
+    built = W3T._tables_run(tmp_path_factory)
+    src, doc, tmp = built["run_dir"], built["doc"], built["tmp"]
+    W3T.W2S.patch(monkeypatch, tmp)
+    monkeypatch.setattr(common, "sealed_set", W3T.RT._sealed)
+    sets = [dict(path=W3T.RT.MANIFEST, sha256=doc["sha256"])]
+    off_dir, off_cfg = RF.rel_run(tmp / "off", stages=["w3_offline"], run_id="20261124T000000-exp-rel-00000000-offline",
+                                  rel_w3_offline=dict(tables_from=src, tablesets=sets, shard_tables=10, conditions=[cond.SCATTERED, "suffix", cond.WHOLE_GENE]))
+    with Stage(off_dir, w3_offline.STAGE) as st:
+        odoc = w3_offline.build(st, off_cfg, off_dir)
+    mp = os.path.join("data", "rel_w3", "offline", "tableset.json")
+    with open(os.path.join(off_dir, "record.json"), "w") as f:
+        json.dump(dict(run_id=os.path.basename(off_dir), status="passed", pipeline="rel_tables",
+                       stages=[dict(name="rel_w3_offline", status="passed", outputs=[dict(name="tableset", path=mp, sha256=sha256_file(os.path.join(off_dir, mp), use_sidecar=False))])]), f)
+    conds = list(cond.CONDITIONS) + ["suffix"]
+
+    def run(where, **over):
+        block = dict(tables_from=src, tablesets=sets, fit_tables=20, chain_tables=8, subset_per_group=1, conditions=conds)
+        block.update(over)
+        run_dir, cfg = RF.rel_run(tmp / where, stages=["w5_baselines"], rel_w5_baselines=block)
+        monkeypatch.setattr(common, "check_machine", lambda cfg, gpus=None: dict(machine="i1", note="test"))
+        monkeypatch.setattr(sys, "argv", ["w5_baselines", run_dir])
+        w5_baselines.main()
+        return run_dir, cfg, json.load(open(os.path.join(run_dir, w5_baselines.OUT, "results.json")))
+    run_dir, cfg, res = run("b", offline=dict(run=off_dir, path=mp, sha256=odoc["sha256"]))
+    assert res["offline"]["sha256"] == odoc["sha256"] and res["offline"]["parts"] == {
+        cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene", "suffix": "suffix"}
+    assert all(res["layouts"][x] == (api.LAYOUT_STORED if cond.NO_RELATIVES in x else api.LAYOUT_LEAKFREE) for x in conds)
+    out = os.path.join(run_dir, w5_baselines.OUT)
+    rows = [line.split("\t") for line in open(os.path.join(out, "rows.tsv")).read().splitlines()[1:]]
+    lay, cnd = api.RESULT_ROW.index("layout"), api.RESULT_ROW.index("condition")
+    assert {r[lay] for r in rows if r[cnd] == cond.WHOLE_GENE} == {api.LAYOUT_LEAKFREE} and {r[lay] for r in rows if cond.NO_RELATIVES in r[cnd]} == {api.LAYOUT_STORED}
+    with Stage(run_dir, "gates_rel_w5_baselines", requires=("pre",)) as st:
+        w5_baselines.gate(st, cfg, run_dir)
+    assert "strict offline rendering" in open(os.path.join(out, "report.md")).read()
+    _, _, stored = run("s")
+    for x in conds:                                                                  # the same cells, stored or strict
+        assert res["items"][x] == stored["items"][x], x
+    b = res["headline"]["bits"]
+    assert b[cond.WHOLE_GENE]["copy_nearest"] != stored["headline"]["bits"][cond.WHOLE_GENE]["copy_nearest"]      # another layout
+    other = dict(W3T._v1_like(built, tmp, "w12-v1like-r32")[1])
+    with pytest.raises(SystemExit):                                                  # a rendering of another held-out set
+        w5_baselines.offline_parts(dict(offline=dict(run=off_dir, path=mp, sha256=odoc["sha256"])), type("H", (), {"manifest": other})(), 1)

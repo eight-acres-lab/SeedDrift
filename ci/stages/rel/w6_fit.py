@@ -19,7 +19,9 @@ Profile block rel_w6_fit:
              conditions scored besides today's five, e.g. [suffix]), references_at_nodes (false: the extra conditions
              and a leak-free arm's stored readings at the final evaluation only), eval_online (true: a leak-free arm
              without a strict offline rendering is scored online, the anchors the stored pairs), end_controls ([shuffle,
-             presence]: package W3's controls of the renderer, at the final evaluation, scattered and whole_gene)
+             presence]: package W3's controls of the renderer, at the final evaluation, scattered and whole_gene),
+             keep_node_weights (false; true: the moving average of every node kept, node_<tables seen>.pt, for readings
+             of two arms at a node both reached)
   tables     ... pair_index {run, path}: the pair index of the uncapped search (package W12, a folder of a passed run),
              for arms that lay the whole gene on its frame relative online
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
@@ -62,7 +64,7 @@ from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
 PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
-           "extra_conditions", "references_at_nodes", "eval_online", "end_controls")
+           "extra_conditions", "references_at_nodes", "eval_online", "end_controls", "keep_node_weights")
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
@@ -295,6 +297,11 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
             p = os.path.join(x["folder"], which + ".pt")
             if x["status"] == "ok" and os.path.exists(p):
                 cks.append(dict(which=which, budget=None, path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p)))
+        for t in (summ.get("node_weights") or []) if x["status"] == "ok" else []:    # keep_node_weights: the moving average of every node
+            p = os.path.join(x["folder"], "node_%d.pt" % int(t))
+            if os.path.exists(p):
+                cks.append(dict(which="ema", budget="tables=%d" % int(t), path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False),
+                                bytes=os.path.getsize(p)))
         variants.append(dict(name=n, variant_file=a["file"], variant_sha256=a["sha256"], api_version=a["variant"]["api"],
                              status="ok" if x["status"] == "ok" else "failed", error=x.get("error"), info=info, checkpoints=cks))
     doc = handoff.finish(dict(format="rel-models", format_version=1,

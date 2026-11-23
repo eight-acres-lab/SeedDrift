@@ -355,6 +355,12 @@ def test_v1_tables_train_with_the_frame_layout_the_genome_bias_and_the_end_contr
         assert out["final_items"][c] == _digest(cfg, root, c), c
     assert out["final_items"]["scattered@leakfree+shuffle"] == out["final_items"]["scattered"]
     assert out["final"]["scattered@leakfree+presence"] != out["final"]["scattered"]
+    kept = tempfile.mkdtemp()                                    # keep_node_weights: the moving average of every node, outside probes
+    kt = D.write_tableset(kept, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
+    got = loop.fit(dict(cfg, train_tables=kt, heldout_tables=kt, train_root=kept, heldout_root=kept, probe=False, keep_node_weights=True, eval_online=True,
+                        out=os.path.join(kept, "out")))
+    assert got["node_weights"] == [4] and os.path.exists(os.path.join(kept, "out", "node_4.pt"))
+    assert "model" not in torch.load(os.path.join(kept, "out", "node_4.pt"), map_location="cpu", weights_only=True)
     real = tempfile.mkdtemp()                                    # outside probe mode the whole gene needs the pair index
     rt = D.write_tableset(real, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
     try:

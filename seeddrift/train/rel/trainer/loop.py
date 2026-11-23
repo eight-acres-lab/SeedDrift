@@ -53,7 +53,7 @@ DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask
                 preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
                 run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False,
-                pair_index=None, eval_online=False, end_controls=[])
+                pair_index=None, eval_online=False, end_controls=[], keep_node_weights=False)
 CONTROLS = ("shuffle", "presence")              # package W3's controls of the renderer, read at the final evaluation
 TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
 # the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
@@ -331,7 +331,7 @@ def worst_case(examples, rows):
     out = []
     for e in examples:
         k = -(-rows // e["grid"].shape[0])
-        grown = {f: np.concatenate([e[f]] * k)[:rows] for f in ("grid", "truth", "ext") if f in e}   # every per-row array of the example
+        grown = {f: np.concatenate([e[f]] * k)[:rows] for f in ("grid", "truth", "ext", "genome_of_row") if f in e}   # every per-row array
         out.append(dict(e, **grown))
     return out
 
@@ -581,6 +581,9 @@ def fit(cfg):
         if m is not None and k["step"] and (state["best"] is None or m < state["best"]["bits"]):
             state["best"] = dict(step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], bits=m, condition=run.main, wall_s=rec["wall_s"])
             save("best.pt", ema_only=True)
+        if cfg["keep_node_weights"] and k["step"]:                    # the moving average at every node (for readings at a common node)
+            save("node_%d.pt" % k["tables"], ema_only=True)
+            state.setdefault("node_weights", []).append(k["tables"])
         write_json(summary, state)
         return took
 

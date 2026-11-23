@@ -1,0 +1,7 @@
+package: W13
+kind: cpu_run
+to: C0
+what: register stage w13_supply in kind rel_corpus of configs/rel/kinds.yaml (rule rel_w13_supply in ci/rules/rel_w13.smk, output data/rel_w13/supply/report.json, module ci.stages.rel.w13_supply, gates [G4_rel_w13_supply], side data); W13 then pushes profile rel-dev-w13-supply-i1 for machine i1 under the select lock (CPU priority below the training) - metadata only, NCBI genome reports of complete viral assemblies (about 263,000 records) and of annotated plant and algal assemblies, about 30 minutes, 2 cores
+why: the programme lead (2026-11-23, with the user's word "先数"): how many genomes eukaryotic viruses and plants and algae, the groups that overfit first in round 1a, could still gain; counts only, the user decides any download
+size: {hours: 0.5, threads: 2, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-24

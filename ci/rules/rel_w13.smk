@@ -40,3 +40,10 @@ rule rel_w13_build:
     input: W13_BUILD_IN
     output: "data/rel_w13/build/report.json"
     shell: STAGE.format(name="rel.w13_build")
+
+# w13_supply: how many genomes eukaryotic viruses and plants and algae could still gain (ci/stages/rel/w13_supply.py;
+# NCBI genome reports, metadata only)
+rule rel_w13_supply:
+    input: "gates/pre.ok"
+    output: "data/rel_w13/supply/report.json"
+    shell: STAGE.format(name="rel.w13_supply")

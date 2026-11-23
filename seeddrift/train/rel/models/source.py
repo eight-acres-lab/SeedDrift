@@ -456,12 +456,26 @@ def build(size):
     return Source(s["layers"], s["width"], s["arm"], s["self_layers"], levels=s["levels"], evidence=s["evidence"], ext=s["ext"])
 
 
+def unused_parameters(width, self_layers):
+    """The parameters version 2 never uses: in each own-row block the column attention's query-key-value projection,
+    its norm and its "no source" key (its output is out(no-source value), alone_block)."""
+    return int(self_layers) * (3 * width * width + 3 * width + 2 * width + width)
+
+
+def flops_per_cell(params, layers, width, self_layers, rows):
+    """The planning formula of the contract (api.flops_per_cell: 6 x parameters + 12 x layers x width x attention
+    length) for this trunk: the parameters it uses, the row attention over the row in every block, the column attention
+    over the rows in the blocks across the table only."""
+    used = params - unused_parameters(width, self_layers)
+    return 6 * used + 12 * width * (layers * A.ROW_LEN + (layers - self_layers) * int(rows))
+
+
 def info(size, rows=16):
     s = spec_of(size)
     params = count_parameters(s["layers"], s["width"], s["arm"], s["levels"], s["evidence"], s["ext"])
-    return dict(module=MODULE, params=params, layers=s["layers"], width=s["width"], arm=s["arm"], self_layers=s["self_layers"],
-                levels=s["levels"], evidence=s["evidence"], ext=s["ext"], head="source-" + s["arm"],
-                flops_per_cell=A.flops_per_cell(params, s["layers"], s["width"], A.ROW_LEN + rows),
+    return dict(module=MODULE, params=params, params_used=params - unused_parameters(s["width"], s["self_layers"]), layers=s["layers"],
+                width=s["width"], arm=s["arm"], self_layers=s["self_layers"], levels=s["levels"], evidence=s["evidence"], ext=s["ext"],
+                head="source-" + s["arm"], flops_per_cell=flops_per_cell(params, s["layers"], s["width"], s["self_layers"], rows),
                 factorisation="independent", layout="any", common_version=C.COMMON_VERSION, source_version=SOURCE_VERSION)
 
 
@@ -502,6 +516,18 @@ def test_parameter_count():
         ref = AX.count_parameters(spec["layers"], spec["width"])
         assert abs(i["params"] - ref) < 0.03 * ref, (name, i["params"], ref)                  # the reference trunk's size
     assert info(dict(SIZES["s1-30m"], ext=True))["params"] == count_parameters(12, 384, "s1") + 384
+    for arm in ARMS:                                                              # the parameters used: those a backward reaches
+        torch.manual_seed(43)
+        model = Source(3, 256, arm, 2)
+        grid = _grid(5, 44)
+        model(grid, [3, 2], *_cells(50, 5, 45)).logsumexp(-1).sum().backward()
+        reached = sum(p.numel() for p in model.parameters() if p.grad is not None)
+        i = info(dict(layers=3, width=256, arm=arm, self_layers=2))
+        assert reached == i["params_used"] == i["params"] - unused_parameters(256, 2), (arm, reached, i["params_used"])
+    ref = AX.info("30m", rows=32)["flops_per_cell"]
+    for name in ("s1-30m", "s2-30m"):
+        f = info(name, rows=32)["flops_per_cell"]
+        assert 0.9 * ref < f < ref, (name, f, ref)                               # a little less than the reference trunk's
 
 
 def test_chain_against_enumeration():

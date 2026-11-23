@@ -1,7 +1,7 @@
 # State of the coordinator (package C0) of the relational-model line. Written by C0 only.
 integration_branch: exp/rel
 base: {branch: exp/truth-labels, commit: cd967cbe7b6fd3a73ee37c51ad4792a9531372af, ci_version: "0.3"}
-ci_version: "0.4"
+ci_version: "0.5"
 # the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel
 branch_from: {commit: 9140dec4f0172e05d283341fb0c201e2e760746a, what: the foundation commit, checks: "T0 and T1 passed on 2026-11-22"}
 contract: {file: seeddrift/train/rel/api.py, version: 1, from: exp/rel-p0 c25b6ef, merged: 2026-11-22}
@@ -77,14 +77,26 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
      note: "W6's report with the learning-rate check"}
   - {run_id: 20261122T164430-exp-rel-1cf7a323-rel-dev-w13-fetch-i1, machine: i1, profile: rel-dev-w13-fetch-i1, commit: 1cf7a323613fe2174f8ce3419688f497e1a82ba6, status: failed,
      note: "W13's download F stopped on a record the archive does not serve (HTTP 500 on every try); the programme lead's rule since: retried, listed as unavailable, replaced, at most 5 % (36d7fb5)"}
-  - {run_id: 20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1, machine: i1, profile: rel-r1ashort1e4-i1, commit: 098d93a7b425e94067d30fb7db73797d0a460633, status: started,
-     note: "round 1a, the short arms (w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4, w6-ref100m-lr1e-4; 4 h each, three at once)"}
+  - {run_id: 20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1, machine: i1, profile: rel-r1ashort1e4-i1, commit: 098d93a7b425e94067d30fb7db73797d0a460633, status: passed,
+     note: "Ended 11-23 04:52, every arm at its wall limit, final evaluation on all 3,000 held-out tables (tables seen: 55,732, 55,712, 20,748). round 1a, the short arms (w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4, w6-ref100m-lr1e-4; 4 h each, three at once)"}
   - {run_id: 20261122T164959-exp-rel-1cf7a323-rel-dev-w13-scaffold-i1, machine: i1, profile: rel-dev-w13-scaffold-i1, commit: 1cf7a323613fe2174f8ce3419688f497e1a82ba6, status: passed,
      note: "the prokaryotes' scaffold-level assemblies (metadata only) by W13's quality thresholds, and the census a third time"}
   - {run_id: 20261122T175251-exp-rel-88321b7d-rel-dev-w15-registry-i1, machine: i1, profile: rel-dev-w15-registry-i1, commit: 88321b7da9829fe9c3731248bcbbb04dc221373a, status: failed,
      note: "a supplement's body cut short (IncompleteRead) was not retried; fixed by W15 in 789f3d0 and eb7a09d; kept as a record"}
   - {run_id: 20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1, machine: i1, profile: rel-dev-w13-pick-i1, commit: 7711a33372616c40e3c31d2b91394ea85672c7b8, status: passed,
      note: "the pick again by the programme lead's rule: every FASTA tried as fetch will ask for it, candidates in a seeded random order (same species, then genus), replacements listed"}
+  - {run_id: 20261122T185044-exp-rel-9aa2c8c0-rel-dev-w13-fetch-i1, machine: i1, profile: rel-dev-w13-fetch-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W13's download F of corpus medium-k3 (526 relatives): 1,772 entries, dataset ds-medium-k3-fetch-f354e5638986"}
+  - {run_id: 20261122T185535-exp-rel-9aa2c8c0-rel-dev-w15-registry-i1, machine: i1, profile: rel-dev-w15-registry-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W15's fourth registry run, every network error retried: 29 MB, 111 entries"}
+  - {run_id: 20261122T205238-exp-rel-9aa2c8c0-rel-w18v0-i1, machine: i1, profile: rel-w18v0-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W18's first reading on i-1 (protocol w18-v0): w6_eval in ruler mode 2,648 s, w18_readout 149 s; the 100 M arm at 2e-4 is read on i-2"}
+  - {run_id: 20261122T213041-exp-rel-9aa2c8c0-rel-dev-w12-trial-i1, machine: i1, profile: rel-dev-w12-trial-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W12's 1 % trial: the full search on the current corpus extrapolated to 1.89 h, 113 million pairs, 11.9 GB (24.9 GB while written); the programme lead chose to combine with W13's corpus (task breakdown 8.11)"}
+  - {run_id: 20261122T213618-exp-rel-d571b283-rel-dev-w13-search1-i1, machine: i1, profile: rel-dev-w13-search1-i1, commit: d571b2838c319877373ae685d2227cfe76d85e57, status: started,
+     note: "W13's build S1: corpus medium-k3-part1of3, the first third of the new genomes searched (12 threads)"}
+  - {run_id: 20261122T220626-exp-rel-0294e09d-rel-r1bshort-i1, machine: i1, profile: rel-r1bshort-i1, commit: 0294e09dc09aea629ffa78a4778bdc5ddabefb29, status: started,
+     note: "round 1b, the short arms (w6-ref10m-leakfree, w6-ref30m-leakfree, w6-ref30m-leakfree-hier), beside S1; DIAMOND's CPU rate 11.32 alone and 11.51 beside them, kept (the programme lead's 20 % rule)"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:
@@ -101,9 +113,13 @@ copies:
   - {run_id: 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, from: i2, to: i1, route: R2, files: 48, bytes: 44296191,
      what: "record.json, config, stages, gates, data/rel_w6 without the checkpoints (*.pt), into imports/runs/ on i-1, for W6's ladder report",
      checked: "every file by sha256 against the list made on i-2", date: 2026-11-23}
+  - {run_id: 20261122T132634-exp-rel-0200cd06-rel-dev-w3-offline-i1, from: i1, to: i2, route: R2, files: 90, bytes: 483194520,
+     what: "record.json, config, stages, gates, data/rel_w3/offline into imports/runs/ on i-2, for round 1b's long arm (tables.heldout_offline)",
+     checked: "every file of the manifest by sha256 on i-2; the manifest against the run's stage record", date: 2026-11-23}
 # branches of round configurations: commit 3382ed5 (the evening's code) plus profiles and variants only, so the arms
 # train exactly as the evening's arms did
 round_branches:
+  - {branch: exp/rel, commit: 21be1b3, what: "round 1b's foundation (CI 0.5): profiles rel-r1bshort-i1 and rel-r1blong-i2; the third short arm the hierarchical head on the leak-free layout (05bacf9)"}
   - {branch: exp/rel-r1a, commit: 098d93a, what: "round 1a: the long arm on i-2 (rel-r1along100m-i2 or rel-r1along30m-i2) and the short arms on i-1 (rel-r1ashort8e4-i1 or rel-r1ashort1e4-i1), by the learning-rate check of the 4e-4 run"}
 # open items of the foundation
 open:

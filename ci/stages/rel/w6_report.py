@@ -13,6 +13,7 @@ Profile block rel_w6_report (all optional):
              a training run's, say). This run comes first when its own rel_w6_fit ran.
   readings_exclude  [arm, ...]: arms shown in the curves and tables but left out of the readings "relatives" and
              "scale" (an arm whose run was slowed, with another run of the same arm as the reading)
+  scale_exclude [arm, ...]: arms left out of the reading "scale" only (arms of another layout, read for relatives)
   seeds      [[arm, arm, ...], ...]: arms of one variant with different seeds (or from different runs): their
              difference at every node all of them reached is the noise estimate; a difference of scale or of what
              relatives are worth no larger than it "cannot be read"; in the scale they are one level (their mean at a
@@ -98,7 +99,8 @@ CAVEATS = [
 
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
-    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs"}
+    unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs",
+                         "scale_exclude"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     lr = sc.get("lr_check")
@@ -120,7 +122,8 @@ def settings(cfg) -> dict:
                 lr_sweeps=[dict(name=str(w["name"]), arms=[[str(x) for x in e] if isinstance(e, list) else [str(e)] for e in w["arms"]])
                            for w in sc.get("lr_sweeps") or []],
                 passes=[str(a) for a in sc.get("passes") or []], notes=[str(x) for x in sc.get("notes") or []],
-                pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []])
+                pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []],
+                scale_exclude=[str(a) for a in sc.get("scale_exclude") or []])
 
 
 LR_CONCLUSIONS = {
@@ -522,9 +525,10 @@ def build(st, cfg, run_dir):
                                               for x in SC.FINE if x != NONE_BIN and (without(x) is not None or F(a, c, SC.ALL, x) is not None)]))
     # scale: the arms with relatives at the last node all of them reached; every two of them at the last node both reached.
     # The seeds of one variant are one level: their mean at a node all of them reached, the one that reached it otherwise.
-    level_of = {a: " + ".join(g) for g in seed_groups if all(x in rel for x in g) for a in g}
+    rel_scale = [a for a in rel if a not in s["scale_exclude"]]         # e.g. arms of another layout: no step in size
+    level_of = {a: " + ".join(g) for g in seed_groups if all(x in rel_scale for x in g) for a in g}
     levels = {}
-    for a in rel:
+    for a in rel_scale:
         levels.setdefault(level_of.get(a, a), []).append(a)
 
     def NL(level, t, c, x=SC.ALL):
@@ -775,7 +779,11 @@ def build(st, cfg, run_dir):
         md += ["", "## The leak of the stored layout", "",
                "The same arm trained and read leak-free against it trained and read in the stored layout, at the end, on all held-out tables "
                "and on those with a relative on the target block: the leak is the bits leak-free minus the bits stored (positive: the stored "
-               "layout read too low). Scattered for the scattered mask; suffix (the second half of the target hidden) for the span.", ""]
+               "layout read too low). Scattered for the scattered mask; suffix (the second half of the target hidden) for the span. Suffix is "
+               "read end against end only (the stored arms were evaluated on it at their end): the two arms saw different numbers of tables "
+               "(%s), so the suffix pair is a side reading; the main reading of the leak is scattered at the common nodes below." % "; ".join(
+                   "%s %s against %s %s" % (lf, "{:,}".format(arms[lf]["info"].get("tables_seen") or 0), st_arm,
+                                            "{:,}".format(arms[st_arm]["info"].get("tables_seen") or 0)) for lf, st_arm in s["leak_pairs"]), ""]
         md += md_table(["leak-free arm", "stored arm", "condition", "tables", "bits leak-free", "bits stored", "leak", "seeds' difference", "reading"],
                        [[r["leakfree"], r["stored"], r["condition"], r["tables"], r["bits_leakfree"], r["bits_stored"], r["leak"], fmt_noise(r["noise"]),
                          r["reading"] or ""] for r in leak])

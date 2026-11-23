@@ -341,6 +341,7 @@ def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
     assert got[(cond.SUFFIX, SC.RELATIVES[0])]["bits_stored"] == 4.25 and cond.SUFFIX in rep["conditions"]
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "## The leak of the stored layout" in text and "Scattered at every node both reached" in text and "## head: w6-ref10m-s1 against w6-ref30m-s1" in text
+    assert "so the suffix pair is a side reading" in text
     with pytest.raises(SystemExit):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["nobody", "w6-ref30m-s1"]])), run_dir)
 
@@ -365,6 +366,14 @@ def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
     assert "## Learning rates of fixture" in text and "over passes of the training tables" in text and "- A note of the profile." in text
     with pytest.raises(SystemExit):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
+
+
+def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref10m-s1"])), run_dir)
+    assert rep["scale"] is None and [r["with_relatives"] for r in rep["relatives"]] == ["w6-ref30m-s1", "w6-ref30m-s1"]
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref30m-s1"])), run_dir)
+    assert rep["scale"] is None and {r["with_relatives"] for r in rep["relatives"]} == {"w6-ref30m-s1"}      # still read for relatives
 
 
 def test_learning_rate_check_has_three_conclusions():
@@ -552,7 +561,7 @@ def test_evaluation_again_settings_and_source():
                                                 readout=dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"]))))
     assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True)
     assert ro["readout"] == dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"], max_rows=32, layout="stored",
-                                 in_place_only=False)
+                                 in_place_only=False, adapt_v0_arms=False)
     assert w6_eval.variant_of_arm("w6-ref100m-lr4e-4-s1") == "w6-ref100m-lr4e-4" and w6_eval.variant_of_arm("w6-ref30m-s12") == "w6-ref30m"
 
 

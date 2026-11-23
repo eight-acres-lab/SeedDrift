@@ -14,3 +14,10 @@ rule rel_w18_readout:
     input: ["gates/pre.ok"] + (["gates/rel_w6_eval.ok"] if "w6_eval" in REL_ON else [])
     output: "data/rel_w18/readout/report.json"
     shell: STAGE.format(name="rel.w18_readout")
+
+# w18_offline: the strict offline rendering of a ruler set (protocol w18-v3; CPU only): W3's aligner on every table and
+# mask family, W3's fourth validity test on each; run_ruler reads it for a leak-free reading
+rule rel_w18_offline:
+    input: "gates/pre.ok"
+    output: "data/rel_w18/offline/offline.json"
+    shell: STAGE.format(name="rel.w18_offline")

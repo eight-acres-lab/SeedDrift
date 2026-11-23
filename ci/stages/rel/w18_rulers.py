@@ -59,7 +59,7 @@ from seeddrift.train.rel.tables import v0_io as IO
 
 OUT = os.path.join("data", "rel_w18", "rulers")
 KEYS = {"version", "search_from", "source", "dist", "expect", "rows", "per_tier", "group_tier_cap", "scenarios", "edges", "k", "min_codons", "length_tol", "attempts",
-        "donor_cap", "min_aligned", "aligned_share", "shard_tables", "processes", "max_left_out"}
+        "donor_cap", "min_aligned", "aligned_share", "shard_tables", "processes", "max_left_out", "self_copies"}
 COVERAGE_NOTE = ("Implant tables (ruler, evaluation only): the target block of a held-out genome A replaced by a gene of another held-out genome D of "
                  "the standard code, with two controls at the same locus (A's own gene, another gene of A). Rows are training genomes with a homolog row "
                  "on all three target genes; before the corpus is searched again without caps, having such a row is decided by a similarity ranking, "
@@ -81,9 +81,12 @@ def settings(cfg) -> dict:
                edges=[float(x) for x in c.get("edges") or [0.05, 0.2, 0.5, 1.0]], k=int(c.get("k", 6)), min_codons=int(c.get("min_codons", 64)),
                length_tol=float(c.get("length_tol", 0.15)), attempts=int(c.get("attempts", 40)), donor_cap=int(c.get("donor_cap", 3)),
                shard_tables=int(c.get("shard_tables", 720)), processes=int(c.get("processes", 4)), max_left_out=int(c.get("max_left_out", 20)),
-               seed=int(cfg.get("seed", 1)))
+               self_copies=int(c.get("self_copies", 0)), seed=int(cfg.get("seed", 1)))
     if out["version"] not in (0, 1) or (out["version"] == 1 and not out["search_from"]):
         raise SystemExit("rel_w18_rulers: version is 0 or 1, and version 1 needs search_from")
+    most = int(getattr(api, "MAX_SELF_COPY_ROWS", 2))
+    if not 0 <= out["self_copies"] <= most or (out["self_copies"] and out["version"] != 1):
+        raise SystemExit("rel_w18_rulers: self_copies is 0..%d, and only tables of version 1 have self-copy rows" % most)
     if not (2 <= out["rows"] <= 64 and 1 <= out["per_tier"] <= 10 and 1 <= out["group_tier_cap"] <= 1000 and out["edges"] == sorted(out["edges"])
             and 1 <= out["min_codons"] <= 256 and 1 <= out["min_aligned"] and 0 <= out["aligned_share"] < 1
             and 0 < out["length_tol"] < 1 and 1 <= out["attempts"] <= 1000 and 1 <= out["donor_cap"] and 3 <= out["shard_tables"] <= 20000
@@ -273,7 +276,7 @@ def build(st, cfg, run_dir):
         imp = I.Implanter(SS.Pairs(run), genomes, train, ids, dist, dist_ids, s["edges"], eligible, units, **draws)
     else:
         sgen, rows_of, st.extra["search"] = search_source(s, smeta, metas)
-        imp = I.ImplanterV1(sgen, genomes, rows_of, train, ids, dist, dist_ids, s["edges"], eligible, units, **draws)
+        imp = I.ImplanterV1(sgen, genomes, rows_of, train, ids, dist, dist_ids, s["edges"], eligible, units, self_copies=s["self_copies"], **draws)
     out, meta, triples, counts, capacity = imp.build(metas, groups, s["seed"], per_tier=s["per_tier"], group_tier_cap=s["group_tier_cap"],
                                                      scenarios=s["scenarios"], progress=say)
     gix = {g: i for i, g in enumerate(ids)}
@@ -299,7 +302,7 @@ def build(st, cfg, run_dir):
         f.update(sha256=sha, bytes=os.path.getsize(os.path.join(run_dir, f["path"])))
     used = sorted({int(x) for x in np.unique(out["genome"]) if x >= 0} | {int(x) for x in np.unique(meta["donor"])})
     present = sorted({t["group"] for t in triples})
-    tver = I.TABLE_VERSION + ("-v1" if s["version"] else "")
+    tver = (I.TABLE_VERSION_SELF if s["self_copies"] else I.TABLE_VERSION) + ("-v1" if s["version"] else "")
     index = dict(format="rel-w18-rulers-index", version=1, table_version=tver, tables_of_version=s["version"], api_version=V.API_VERSION, rows=s["rows"], groups=groups,
                  edges=s["edges"], tiers=["<%g" % s["edges"][0]] + ["%g-%g" % (a, b) for a, b in zip(s["edges"], s["edges"][1:])] + [">=%g" % s["edges"][-1], "no shared k-mer"],
                  k=s["k"], variants=list(I.VARIANTS), meta_fields={k: v[2] for k, v in I.FIELDS.items()}, settings=s, counts=counts,

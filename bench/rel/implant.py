@@ -39,9 +39,22 @@ Two sources of homolog rows: Implanter reads stage pairs of the selfsup run (tab
 0); ImplanterV1 reads the uncapped search of package W12 (seeddrift/train/rel/tables/v1_hits.py) and writes the fields
 of version 1, as tables of version 1 do: a block a row's genome has no homolog of is KIND_ABSENT (it was searched), the
 rows are drawn tier by tier with the tiers taking turns (the distance tier to A, as version 1 draws them), and
-genome_of_row, row_gene, row_first and the contract's `tier` are filled. Unlike version 1, an implant table has no
-self-copy row and one row per genome (its first pair in stored order that reaches the block; the stored order carries no
-score): a row of A itself, or a second paralog, would differ between the three tables of a triple.
+genome_of_row, row_gene, row_first and the contract's `tier` are filled. One row per other genome (its first pair in
+stored order that reaches the block; the stored order carries no score): a second paralog would differ between the three
+tables of a triple.
+
+Self-copy rows (ImplanterV1 with self_copies > 0; protocol w18-v3): rows 1..m are rows of A itself showing another copy
+of the target gene, as tables of version 1 draw them (KIND_SELF_COPY, genome_of_row 0, the contract's tier 0, before the
+other rows; up to the contract's MAX_SELF_COPY_ROWS, the other rows then up to rows - 1 - m). Their candidates, one per
+gene of A whose pair reaches the target block (A:i and the target gene itself left out: the implant and the own control
+replace A:i): for the original A's other copies of A:i, for the own control those of A:k, for the implant A's genes the
+search pairs with D:j (the stand-in for an A paralog of a transferred gene). The three tables of a triple have the same
+number m, the smallest of the three candidate counts and self_copies, drawn at random in each. The context blocks of a
+self-copy row are drawn once per triple as version 1 draws them (another copy in A of the block's gene, A:i left out,
+else KIND_ABSENT), the same in the three tables. A self-copy row has no distance tier in W18's meta (row_tier
+SELF_TIER): no tier pass removes it, it is in no tier of the source shift, the best-similarity rule or the coverage
+shift, and it is never counted as another lineage (on_target, covered, row_gene and row_dist leave it out; self_rows
+counts it). Table version TABLE_VERSION_SELF; with self_copies 0 the tables are those of TABLE_VERSION, draw for draw.
 """
 from __future__ import annotations
 
@@ -51,11 +64,13 @@ from seeddrift.train.rel import api as A
 from seeddrift.train.rel.tables import v0_build as V
 from seeddrift.train.rel.tables import v0_census as C
 from seeddrift.train.rel.tables import v0_dist as DI
+from seeddrift.train.rel.readouts.w18_passes import SELF_TIER  # noqa: F401  (row_tier of a self-copy row)
 from seeddrift.train.rel.tables import v0_io as IO
 
 put = V.Builder._put                                  # writes one cell of a row (uses no state of its builder)
 
 TABLE_VERSION = "w18-implant-2"
+TABLE_VERSION_SELF = "w18-implant-3"                  # version 2 with self-copy rows (self_copies > 0)
 VARIANTS = ("implant", "original", "own")
 SCENARIOS = ("in_place", "donor_unsampled")
 IMPLANT, ORIGINAL, OWN = 0, 1, 2
@@ -64,6 +79,7 @@ SLICES, B = V.SLICES, V.B
 TARGET, LEFT, RIGHT = V.TARGET, V.LEFT, V.RIGHT
 CONTEXT_BLOCKS = tuple(range(TARGET))
 SEED_STREAM = 18
+MAX_SELF_COPY = int(getattr(A, "MAX_SELF_COPY_ROWS", 2))
 FULL = A.LEN_TARGET
 # W18's meta per table: (dtype, shape after the table axis, what it is); never a model input
 FIELDS = {
@@ -80,10 +96,11 @@ FIELDS = {
     "donor_tier":      ("int8", (), "tier of donor_dist"),
     "row_dist":        ("float32", ("R",), "distance of every row to A (nan for row 0 and rows that do not exist)"),
     "row_dist_d":      ("float32", ("R",), "distance of every row to D (nan for row 0 and rows that do not exist)"),
-    "row_tier":        ("int8", ("R",), "tier of row_dist (-1 for row 0 and rows that do not exist)"),
-    "row_gene":        ("int32", ("R",), "the row's gene on the target block (-1 for row 0 and rows that do not exist)"),
-    "on_target":       ("int8", (), "other rows (all with content on the target block)"),
-    "covered":         ("int32", (), "codons of the other rows placed on the target block"),
+    "row_tier":        ("int8", ("R",), "tier of row_dist (-1 for row 0 and rows that do not exist, SELF_TIER -2 for a self-copy row)"),
+    "row_gene":        ("int32", ("R",), "the row's gene on the target block (-1 for row 0, self-copy rows and rows that do not exist)"),
+    "on_target":       ("int8", (), "other rows of other genomes (all with content on the target block; self-copy rows not counted)"),
+    "self_rows":       ("int8", (), "self-copy rows (rows 1..self_rows; the same number in the three tables of a triple)"),
+    "covered":         ("int32", (), "codons of the other rows of other genomes placed on the target block"),
     "target_len":      ("int16", (), "n: codons of the target block of row 0"),
     "target_ends":     ("bool", (), "the target block reaches its gene's last codon"),
     "block_ends":      ("bool", ("B",), "the block of row 0 reaches its gene's last codon"),
@@ -163,6 +180,8 @@ class Implanter:
     ids: the genome list the meta field `genome` indexes; dist: [G, G] distances between the genomes of dist_ids (W2's
     distance run); edges: the tier edges; eligible: the genomes that may be A or D (held out, standard code); units:
     {id: split unit} (split_units)."""
+
+    self_copies = 0                      # self-copy rows per table (ImplanterV1 only)
 
     def __init__(self, pairs, genomes, allowed, ids, dist, dist_ids, edges, eligible, units, rows=16, min_codons=64, length_tol=0.15,
                  attempts=40, donor_cap=3, min_aligned=10, aligned_share=0.3):
@@ -336,10 +355,12 @@ class Implanter:
         return flag
 
     # ---- tables ----
-    def fill(self, out, meta, t, gid_a, gid_d, genes, owner, tgene, n, rows, census_misc):
+    def fill(self, out, meta, t, gid_a, gid_d, genes, owner, tgene, n, rows, census_misc, selfs=(), self_ctx=()):
         """Table t of `out` (v0_io.alloc) and `meta` (alloc_meta): row 0 is A with the blocks `genes` (the target block from
-        the first n codons of gene tgene of genome owner), the other rows the partners `rows` (pairs indices)."""
+        the first n codons of gene tgene of genome owner), rows 1..m the self-copy rows `selfs` ([(pair, cell)] on the
+        target block; self_ctx: per self-copy row {context block: A's pair, -1 for none}), then the partners `rows`."""
         ga, go, R = self.g[gid_a], self.g[owner], self.rows
+        m = len(selfs)
         flen, own = np.zeros(B, dtype=np.int64), [None] * B
         for b, (_, s0, s1) in enumerate(SLICES):
             src, j = (go, tgene) if b == TARGET else (ga, genes[b])
@@ -363,10 +384,13 @@ class Implanter:
         out["genome"][t, 0] = self.gix[gid_a]
         out["identity"][t, 0] = 1.0
         if "genome_of_row" in out:
-            out["genome_of_row"][t, :len(rows) + 1] = np.arange(len(rows) + 1)                # one row per genome, no self copy
+            out["genome_of_row"][t, :m + 1] = 0                                                # A and its self copies
+            out["genome_of_row"][t, m + 1:m + 1 + len(rows)] = np.arange(1, len(rows) + 1)     # one row per other genome
         ident, same, with_col = np.full((R, B), np.nan), np.zeros((R, B), dtype=np.int64), np.zeros((R, B), dtype=np.int64)
+        if m:
+            self.fill_selfs(out, t, gid_a, genes, flen, own, selfs, self_ctx, ident, same, with_col, census_misc)
         covered = 0
-        for q, ti in enumerate(rows, 1):
+        for q, ti in enumerate(rows, m + 1):
             pid = self.order[ti]
             partner = self.g[pid]
             out["genome"][t, q] = self.gix[pid]
@@ -396,6 +420,9 @@ class Implanter:
         meta["row_tier"][t] = np.where(np.isnan(rd), -1, DI.tier_of(np.where(np.isnan(rd), 0.0, rd), self.edges))
         if self.version >= 1:
             out["tier"][t] = meta["row_tier"][t]                    # the contract's tiers are defined from version 1
+            out["tier"][t, 1:m + 1] = 0                             # a self-copy row's tier in tables of version 1
+        meta["row_tier"][t, 1:m + 1] = SELF_TIER
+        meta["self_rows"][t] = m
         meta["on_target"][t] = len(rows)
         meta["covered"][t] = covered
         meta["target_len"][t] = int(n)
@@ -458,17 +485,23 @@ class Implanter:
             genes = rel + [-1] * (A.N_RELATION - len(rel)) + near + [got["i"]]
             genes = [x if x >= 0 and lens[x] > 0 else -1 for x in genes]
             rows = self.order_rows(a, got["rows"], rng)
+            selfs, self_ctx = ([[], [], []], [])
+            if self.self_copies:
+                selfs, self_ctx = self.draw_selfs(a, got, genes, np.random.default_rng([int(seed), SEED_STREAM, 3, s]))
+                rows = rows[:self.rows - 1 - len(self_ctx)]
             banned = {self.units[a], self.units[got["d"]]}
             if any(self.units[self.order[ti]] in banned for ti in rows):
                 raise AssertionError("a row of the split unit of A or D")
             flag = self.context_flag(a, got["d"], got["j"], genes, rows)
-            drawn.append(dict(got, group=g, tier=t, a=a, genes=genes, rows=rows, scenario=0, parent=len(drawn), context_homolog=flag,
+            drawn.append(dict(got, group=g, tier=t, a=a, genes=genes, rows=rows, selfs=selfs, self_ctx=self_ctx, scenario=0, parent=len(drawn), context_homolog=flag,
                               host=(ga.ccount - ga.gene_count(got["i"]) - ga.gene_count(got["k"]))[1:65].astype(np.int64)))
             self.counts["triples"] += 1
             self.counts["phase%d" % got["phase"]] += 1
             self.counts["attempts"] += got["attempts"]
             self.counts["zero_rows"] += int(not rows)
             self.counts["context_homolog"] += int(flag > 0)
+            self.counts["self_rows"] = self.counts.get("self_rows", 0) + len(self_ctx)
+            self.counts["self_triples"] = self.counts.get("self_triples", 0) + int(len(self_ctx) > 0)
         if scenarios:
             for tr in list(drawn):
                 keep = [ti for ti in tr["rows"] if not self.d(self.order[ti], tr["d"]) < self.d(self.order[ti], tr["a"])]
@@ -482,7 +515,7 @@ class Implanter:
             for v, (owner, tg) in enumerate(((d, tr["j"]), (a, tr["i"]), (a, tr["k"]))):
                 t = 3 * s + v
                 out["group"][t], out["split"][t] = groups.index(tr["group"]), V.SPLITS["heldout"]
-                self.fill(out, meta, t, a, d, tr["genes"], owner, tg, tr["n"], tr["rows"], misc)
+                self.fill(out, meta, t, a, d, tr["genes"], owner, tg, tr["n"], tr["rows"], misc, tr["selfs"][v], tr["self_ctx"])
                 for k, x in (("triple", s), ("parent", tr["parent"]), ("scenario", tr["scenario"]), ("variant", v), ("donor", self.gix[d]),
                              ("gene_i", tr["i"]), ("gene_j", tr["j"]), ("gene_k", tr["k"]), ("phase", tr["phase"]), ("donor_dist", self.d(a, d)),
                              ("donor_tier", self.tier(a, d)), ("host_counts", tr["host"]), ("genus_a", genus_of(meta_of[a])), ("genus_d", genus_of(meta_of[d])),
@@ -490,7 +523,7 @@ class Implanter:
                              ("attempts", tr["attempts"])):
                     meta[k][t] = x
             triples.append(dict(triple=s, parent=tr["parent"], scenario=SCENARIOS[tr["scenario"]], group=tr["group"], tier=tr["tier"], a=a, d=d, i=tr["i"],
-                                j=tr["j"], k=tr["k"], n=tr["n"], rows=len(tr["rows"]), phase=tr["phase"], attempts=tr["attempts"],
+                                j=tr["j"], k=tr["k"], n=tr["n"], rows=len(tr["rows"]), self_rows=len(tr["self_ctx"]), phase=tr["phase"], attempts=tr["attempts"],
                                 context_homolog=tr["context_homolog"]))
         self.counts.update({"misc_" + k: int(v) for k, v in misc.items()})
         return out, meta, triples, dict(self.counts), {"%s|%d" % k: v for k, v in sorted(capacity.items())}
@@ -504,8 +537,11 @@ class ImplanterV1(Implanter):
     edges, eligible, units as Implanter."""
 
     def __init__(self, search_genomes, genomes, rows_of, allowed, ids, dist, dist_ids, edges, eligible, units, rows=32, min_codons=64,
-                 length_tol=0.15, attempts=40, donor_cap=3, min_aligned=10, aligned_share=0.3):
+                 length_tol=0.15, attempts=40, donor_cap=3, min_aligned=10, aligned_share=0.3, self_copies=0):
         self.version, self.no_row_kind = 1, A.KIND_ABSENT
+        if not 0 <= int(self_copies) <= MAX_SELF_COPY:
+            raise SystemExit("implant tables: self_copies must be 0..%d (the contract's MAX_SELF_COPY_ROWS)" % MAX_SELF_COPY)
+        self.self_copies = int(self_copies)
         self.g, self.rows, self.rows_of = genomes, int(rows), rows_of
         bad = sorted(x for x, gen in genomes.items() if gen.meta.get("split") not in V.OPEN_SPLITS)
         if bad:
@@ -633,6 +669,82 @@ class ImplanterV1(Implanter):
             self._rows[key] = [np.unique(tg[off[x]:off[x + 1]][ok[off[x]:off[x + 1]]]) for x in range(len(off) - 1)]
         return self._rows[key]
 
+    # ---- self-copy rows (protocol w18-v3) ----
+    def self_pairs(self, gid, gene):
+        """The pairs of gene `gene` of genome gid with other genes of gid itself (its other copies), in stored order."""
+        a, me = self.arrays(gid), self.oix[gid]
+        return [p for p in range(int(a["off"][gene]), int(a["off"][gene + 1])) if int(a["tgenome"][p]) == me and int(a["tgene"][p]) != int(gene)]
+
+    def self_candidates(self, gid_a, got):
+        """[implant, original, own]: the self-copy candidates of each table, [(pair, cell on the target block)], one per gene
+        of A (its first pair in stored order whose cell reaches the block): A's genes the search pairs with D:j, A's other
+        copies of A:i, A's other copies of A:k; A:i left out of all three (the implant and the own control replace it)."""
+        me, n, slot = self.oix[gid_a], int(got["n"]), SLICES[TARGET][2] - SLICES[TARGET][1]
+        out = []
+        for src, gene in ((got["d"], got["j"]), (gid_a, got["i"]), (gid_a, got["k"])):
+            ps = (self.first_rows(src, gene).get(me) or []) if src != gid_a else self.self_pairs(gid_a, gene)
+            tg, seen, cands = self.arrays(src)["tgene"], set(), []
+            for p in ps:
+                g = int(tg[p])
+                if g == int(got["i"]) or g in seen:
+                    continue
+                c = self._cell(src, p, me, n, slot)
+                if c is not None:
+                    seen.add(g)
+                    cands.append((p, c))
+            out.append(cands)
+        return out
+
+    def draw_selfs(self, gid_a, got, genes, rng):
+        """([implant, original, own] self-copy rows [(pair, cell)], their context pairs [{block: pair or -1}]): m rows in
+        each table, m the smallest of self_copies and the three candidate counts, drawn at random in each; the context
+        cells of row q drawn once (another copy in A of the block's gene, A:i left out; -1: none, KIND_ABSENT)."""
+        cands = self.self_candidates(gid_a, got)
+        m = min([self.self_copies] + [len(c) for c in cands])
+        selfs = [[c[int(x)] for x in sorted(rng.permutation(len(c))[:m])] for c in cands]
+        tg = self.arrays(gid_a)["tgene"]
+        ctx, used = [], {}
+        for _ in range(m):
+            row = {}
+            for b in CONTEXT_BLOCKS:
+                if genes[b] < 0:
+                    continue
+                cand = [p for p in self.self_pairs(gid_a, genes[b]) if int(tg[p]) != int(got["i"])]
+                if not cand:
+                    row[b] = -1
+                    continue
+                free = [p for p in cand if p not in used.get(b, set())] or cand
+                row[b] = int(free[int(rng.integers(len(free)))])
+                used.setdefault(b, set()).add(row[b])
+            ctx.append(row)
+        return selfs, ctx
+
+    def fill_selfs(self, out, t, gid_a, genes, flen, own, selfs, self_ctx, ident, same, with_col, misc):
+        """Rows 1..m of table t: the self-copy rows (KIND_SELF_COPY where they hold codons; the target block's position
+        fields erased as in every row)."""
+        ga, me = self.g[gid_a], self.oix[gid_a]
+        for q, (p, cell) in enumerate(selfs, 1):
+            out["genome"][t, q] = self.gix[gid_a]
+            for b in range(B):
+                if b == TARGET:
+                    c = cell
+                else:
+                    if genes[b] < 0:
+                        continue
+                    pb = self_ctx[q - 1].get(b, -1)
+                    if pb < 0:
+                        out["kind"][t, q, b] = A.KIND_ABSENT
+                        continue
+                    c = self._cell(gid_a, pb, me, int(flen[b]), SLICES[b][2] - SLICES[b][1])
+                    if c is None:
+                        out["kind"][t, q, b] = A.KIND_TRUNCATED
+                        continue
+                put(None, out, t, q, b, c, own[b], ga, ident, same, with_col, misc)
+                out["kind"][t, q, b] = A.KIND_SELF_COPY
+                out["row_gene"][t, q, b], out["row_first"][t, q, b] = int(c[3]), int(c[2])
+            out["start"][t, q, TARGET], out["strand"][t, q, TARGET], out["replicon"][t, q, TARGET] = -1, 0, -1
+            out["identity"][t, q] = ident[q, TARGET]
+
     def order_rows(self, gid_a, cands, rng):
         """Up to rows - 1 of the candidate rows, drawn tier by tier (the distance tier to A), the tiers taking turns, at
         random inside a tier: as tables of version 1 draw their rows."""
@@ -660,14 +772,21 @@ def verify(out, meta, eligible_ix, allowed_ix, unit_of=None):
     if not (np.isin(genome[:, 0], list(eligible_ix)).all() and np.isin(meta["donor"], list(eligible_ix)).all()):
         bad.append("an examined genome or a donor that is not eligible")
     other = genome[:, 1:]
-    if not np.isin(other[other >= 0], list(allowed_ix)).all():
+    selfrow = other == genome[:, :1]                                    # self-copy rows: A itself, rows 1..self_rows
+    n_self = meta["self_rows"].astype(np.int64) if "self_rows" in meta else np.zeros(len(trip), np.int64)
+    if not (selfrow == (np.arange(other.shape[1])[None, :] < n_self[:, None])).all() or (n_self > MAX_SELF_COPY).any():
+        bad.append("self-copy rows that are not rows 1..self_rows, or more than the contract allows")
+    if "row_tier" in meta and not ((meta["row_tier"][:, 1:] == SELF_TIER) == selfrow).all():
+        bad.append("a self-copy row with a distance tier, or a distance tier marked as a self copy")
+    foreign = other[(other >= 0) & ~selfrow]
+    if not np.isin(foreign, list(allowed_ix)).all():
         bad.append("an other row that is not a training genome")
-    if (other == meta["donor"][:, None]).any() or (other == genome[:, :1]).any():
-        bad.append("the donor or the examined genome among the other rows")
+    if (other == meta["donor"][:, None]).any():
+        bad.append("the donor among the other rows")
     if unit_of is not None:
         for t in range(len(trip)):
             banned = {unit_of.get(int(genome[t, 0])), unit_of.get(int(meta["donor"][t]))}
-            if any(unit_of.get(int(x)) in banned for x in other[t] if x >= 0):
+            if any(unit_of.get(int(x)) in banned for x, me in zip(other[t], selfrow[t]) if x >= 0 and not me):
                 bad.append("table %d: a row of the split unit of A or D" % t)
                 break
     if not (out["split"] == V.SPLITS["heldout"]).all():
@@ -682,13 +801,18 @@ def verify(out, meta, eligible_ix, allowed_ix, unit_of=None):
         if not all((genome[x] == genome[ts[0]]).all() for x in ts):
             bad.append("triple %d: the three tables do not have the same rows" % s)
         rows = genome[ts[0], 1:] >= 0
-        if not all((kind[x, 1:, TARGET][rows] == A.KIND_PRESENT).all() for x in ts):
+        want = np.where(selfrow[ts[0]], A.KIND_SELF_COPY, A.KIND_PRESENT)
+        if not all((kind[x, 1:, TARGET][rows] == want[rows]).all() for x in ts):
             bad.append("triple %d: a row without content on the target block of one of its tables" % s)
+        if len({int(n_self[x]) for x in ts}) != 1:
+            bad.append("triple %d: the three tables have different numbers of self-copy rows" % s)
         if len({int(n[x, 0, TARGET]) for x in ts}) != 1:
             bad.append("triple %d: the target blocks differ in length" % s)
         ctx = [np.delete(kind[x], TARGET, axis=1) for x in ts]
         if not all((c == ctx[0]).all() for c in ctx):
             bad.append("triple %d: the kinds outside the target block differ" % s)
-    if not ((kind == A.KIND_PRESENT) == (n > 0)).all():
+    if not (np.isin(kind, (A.KIND_PRESENT, A.KIND_SELF_COPY)) == (n > 0)).all():
         bad.append("codons and kinds disagree")
+    if (kind[:, 1:][selfrow] == A.KIND_PRESENT).any() or (kind[:, 1:][~selfrow] == A.KIND_SELF_COPY).any() or (kind[:, 0] == A.KIND_SELF_COPY).any():
+        bad.append("self-copy kinds on the wrong rows")
     return bad

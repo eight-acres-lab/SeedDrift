@@ -1,0 +1,50 @@
+# Machine i-1, round 1, batch 1 (protocol round1, version 3): ref30m-s2, ref30m-s3 (the seed threshold: same machine,
+# same window) and norel30m (the value of relatives without the placement leak), three at once, 6 h each, on the
+# version-1 tables (201,600 training tables of stage w12_v1 on the combined search 20261123T061001) under the leak-free
+# layout for every scheme (the whole gene by W3's strict aligner on its frame relative). The reference trunk of rounds
+# 1a and 1b unchanged, 30 M at 1.5e-4 (the lowest rate tried; not bracketed), micro-batches of 2 tables, 4 per step.
+# In the loop the 600-table subset under four conditions online; the end on the strict offline rendering; the full
+# 3,000 tables, the other conditions and the controls afterwards with stage w6_eval on the final and best weights.
+# If memory or time is short, norel30m moves to batch 2 (the protocol's drop order). CI 0.6. Development diagnosis.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 2
+disk_gb: 15
+disk_reserve_gb: 30
+gpu_mem_min_mb: 30000
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_selftest, w6_fit]
+  parallel: 3
+rel_w6_selftest:
+  modules: [seeddrift.train.rel.models.axial, seeddrift.train.rel.models.source]
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 2}
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 3}
+    - {variant: configs/rel/variants/w6-ref30m-norel-v1.yaml, seed: 2}
+  wall_s: 21600
+  only_conditions: [scattered, whole_gene, scattered+no_relatives, whole_gene+no_relatives]
+  eval_per_group: 50             # the in-loop subset: the first 50 held-out tables of each group (600), online (leakfree-online)
+  final_per_group: 50            # the run's end on the same 600 tables, on the strict offline rendering (leakfree)
+  eval_max_rows: 32
+  eval_online: true
+  keep_node_weights: true        # the moving average at every node (ema_tables<n>.pt), kept on this machine
+  data_workers: 1                # the whole gene's strict alignment in one background process per arm
+  preflight_steps: 200
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

@@ -5,6 +5,46 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.6 (branch exp/rel, 2026-11-23: round 1's foundation)
+
+Round 1 on tables of version 1 under the leak-free layout (protocol round1, version 3), the HGT capability check's
+version 3, and the packages' work since 0.5, folded here from their change notes. Nothing of the existing pipelines,
+gates or stages changes what it decides.
+- Protocols (P0; `configs/rel/protocols/`): round1 version 3 (the gates before batch 1; leak-free training for every
+  scheme with the whole gene on its frame relative by the strict aligner; the reference trunk unchanged; batches 1 to 3;
+  the readings with a paired bootstrap; 201,600 training tables of version 1), w18-v3 (the counting reading of the HGT
+  capability check on round 1's arms), w3-offline-v0 version 3 (the controls spare row 0 only; what the fourth validity
+  test does not cover). The contract's note on self-copy rows follows the version-1 builder; the API stays 1.
+- The reference trunk on version 1 (W6): `whole_gene_layout: frame` (W3's `align.frame_layout` after the rows are drawn,
+  no pair index), the evaluation online at the nodes (`leakfree-online`) and on the strict offline rendering at the end,
+  `only_conditions`, `nodes_every` and `nodes_every_from`, node weights (`keep_node_weights`, `ema_tables<n>.pt`),
+  `data_workers`, the mask schemes' shares of cells and loss, `preflight_only` probes, the same-genome bias as an option
+  (`genome_bias`, off in batches 1 and 2), the genome of each row passed only to a model that reads it; variants
+  `w6-ref30m-v1`, `w6-ref30m-norel-v1`, `w6-ref100m-v1`.
+- The renderer's controls (W3, renderer version 2): shuffle and presence act on every row but row 0, also on a block
+  laid on its frame relative. The strict offline rendering reads tables of version 1 and ruler sets, in several
+  processes with the same output; profile `rel-dev-w3-offline-v1-i1` (round 1's gate).
+- Tables of version 1 (W12): every genome's target genes in a shuffled order before any repeats; stages w12_search and
+  w12_v1 read a source without stage pairs; an optional subset of the search's pair index carried with a table set
+  (`frame_index`, off); profiles `rel-dev-w12-full-k3-i1` (the uncapped search on corpus medium-k3) and
+  `rel-dev-w12-v1-k3-i1` (201,600 training tables, 16,800 per group).
+- The HGT capability check, version 3 (W18): stage `w18_offline` (the strict placements of every ruler table and mask
+  family, the fourth test on each), the leak-free reading on them, self-copy rows, relatives layers, the two verdicts,
+  the 2 x 2 table; the donor search of the implant's gene against the examined genome's own proteins; the adapted
+  reading of version-1 rulers by arms of version 0 (`adapt_v0_arms`, a diagnosis); exploratory readouts.
+- D7's source-structure arms (W5): `seeddrift/train/rel/models/source.py` (S1: a chain of sources with a stay bonus and
+  an evidence term; S2: a learned copy model), variants `w5-src30m-s1`, `w5-src30m-s2`, their self-test and smoke
+  profiles.
+- The event registry (W15): batches 3 and 4, full texts and supplements from PMC's open-access data on AWS first, every
+  network error retried, unverified relayed statements removed.
+- Close relatives (W13): the pick and build with the programme lead's rule for records the archive cannot give; corpus
+  spec `medium-k3` (526 relatives) and its parts.
+- The coordinator (C0): stages w13_pick, w13_build, w13_scaffold, w18_offline registered; w15_registry no longer a stub;
+  the lock calendar's version 6 with the measured speed of a search beside trainings.
+- Round profiles of round 1: `rel-r1probe-i1` and `rel-r1probe-i2` (the start gate's 50-step probes), `rel-r1short-i1`
+  (batch 1 on i-1: ref30m-s2, ref30m-s3, norel30m), `rel-r1long-i2` (batch 1's ref30m-long), `rel-r1long100m-i1`
+  (batch 2's ref100m-long). The tables' and the offline rendering's runs are filled in once they are built.
+
 ## 0.5 (branch exp/rel, 2026-11-23: round 1b's foundation)
 
 The packages' work since the foundation, merged into exp/rel and folded here from their change notes; the round

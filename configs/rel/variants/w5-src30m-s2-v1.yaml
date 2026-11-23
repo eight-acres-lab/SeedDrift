@@ -1,0 +1,23 @@
+# Arm S2 of decision D7 (task-breakdown 8.14; package W5) for round 1: the learned copy model (models/source.py, arm s2).
+# Set against w6-ref30m-v1, which it copies but for the model: the reference trunk's 12 blocks of width 384, the first
+# 4 run with every row alone (the own-row branch), the other 8 across the table; the same cost per step. Tables of
+# version 1 (4 to 32 rows kept, self-copy rows in), every mask scheme leak-free, the whole gene on its frame relative.
+# The programme lead (2026-11-23): its cross-row depth is 8 layers and its own-row branch 4, so a small loss against
+# the reference arm under the two conditions without relatives is expected and not counted against it.
+name: w5-src30m-s2-v1
+author: w5
+api: 1
+model: source
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: leakfree
+whole_gene_layout: frame                  # W3's strict aligner on the rows drawn, then rendered leak-free
+rows: [4, 32]
+columns: 1024
+size: {layers: 12, width: 384, arm: s2, self_layers: 4}
+relatives: true
+optimizer: {lr: 1.5e-4}
+micro: 2
+gpu_mb: 29000                             # the reference arm's 28 GB and about 1 GB for the output layer; to be measured
+alone_share: 0.05                         # as the reference arm
+tables: real

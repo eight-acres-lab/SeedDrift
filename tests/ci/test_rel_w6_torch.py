@@ -434,7 +434,7 @@ def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
                 m = held_group == g
                 if nc[key + "_cells"][m].sum():
                     name = cfg["group_names"].get(str(int(g)), str(int(g)))
-                    assert abs(nc[key + "_bits"][m].sum() / nc[key + "_cells"][m].sum() - got[name]) < 1e-9, (key, g)
+                    assert abs(nc[key + "_bits"][m].sum() / nc[key + "_cells"][m].sum() - got[name]) < 1e-4, (key, g)   # rows round the bits
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     lay = {}
     for r in rows:

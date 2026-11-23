@@ -346,11 +346,17 @@ def point_of(r):
 def condition_labels(rows):
     """{(arm, condition, layout): label}: an arm whose rows read one condition in two layouts (an arm trained leak-free
     reads the whole gene also in the stored layout it was trained in) has the stored rows under "<condition>@stored";
-    every other row keeps its condition."""
+    the rows of a control of the renderer (layout "<layout>+<control>") are "<condition>@<control>", never the
+    condition's own; every other row keeps its condition."""
     seen = {}
     for r in rows:
         seen.setdefault((r["variant"], r["condition"]), set()).add(r.get("layout") or "stored")
-    return {(v, c, x): ("%s@%s" % (c, x) if len(xs) > 1 and x == "stored" else c) for (v, c), xs in seen.items() for x in xs}
+
+    def label(c, x, xs):
+        if "+" in x:                                                   # a control of the renderer (leakfree+shuffle): "<condition>@shuffle"
+            return "%s@%s" % (c, x.rsplit("+", 1)[1])
+        return "%s@%s" % (c, x) if len([y for y in xs if "+" not in y]) > 1 and x == "stored" else c
+    return {(v, c, x): label(c, x, xs) for (v, c), xs in seen.items() for x in xs}
 
 
 def index_rows(rows, arms, base):
@@ -1042,6 +1048,34 @@ def build(st, cfg, run_dir):
                "rendering reads too low), with its paired interval, over all tables and by the relatives strata.", ""]
         md += md_table(["arm", "condition", "tables", "bits offline", "bits online (all)", "online minus offline", "95% interval", "by block"],
                        online_rows)
+    # the controls of the renderer: every arm with relatives under shuffle and presence against its plain reading, at the
+    # end on the tables with a relative on the target block, paired (protocol round1, readings.controls: a model that uses
+    # the correspondence of the rows loses bits under the shuffle)
+    control_rows = []
+    for a in rel:
+        for c in (cond.SCATTERED, cond.WHOLE_GENE):
+            plain = F(a, c, SC.ALL, x0)
+            for ctl in ("shuffle", "presence"):
+                k = "%s@%s" % (c, ctl)
+                got = F(a, k, SC.ALL, x0)
+                if got is None:
+                    continue
+                iv, why = paired(a, "final", c, a, "final", k, x0)
+                n_end = noise(None, c, x0)
+                d = diff(got, plain)
+                said = None
+                if d is not None and n_end is not None:
+                    above, excl = abs(d) > n_end["bits"], bool(iv and iv["all"]["excludes_zero"])
+                    said = ("counts: beyond the threshold, its interval excludes 0" if above and excl else
+                            "beyond the threshold only" if above else "its interval only" if excl else "cannot be read")
+                control_rows.append([a, c, ctl, plain, got, d, fmt_iv((iv or {}).get("all")) or why or "", fmt_noise(n_end), said or ""])
+    if control_rows:
+        md += ["", "## The controls of the renderer", "",
+               "Every arm with relatives at its end under W3's two render-mode controls against its plain reading, on the tables with a "
+               "relative on the target block: shuffle (the other rows' correspondence permuted by column) and presence (only which cells "
+               "exist). The control minus the plain reading (positive: the control loses bits), paired on the same cells.", ""]
+        md += md_table(["arm", "condition", "control", "bits plain", "bits under the control", "control minus plain", "95% interval", "threshold",
+                        "reading"], control_rows)
     # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
     shares_rows, tiers = [], {}
     for a in names:

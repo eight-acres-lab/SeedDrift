@@ -537,7 +537,11 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.001) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
     fit = os.path.join(run_dir, w6_fit.OUT)
     tab = np.array([0, 0, 1, 1, 2, 3])
-    np.savez(os.path.join(fit, "w6-ref30m-s1", "heldout_final.npz"), bits_scattered=np.full(6, 3.0), table_scattered=tab)
+    np.savez(os.path.join(fit, "w6-ref30m-s1", "heldout_final.npz"), bits_scattered=np.full(6, 3.0), table_scattered=tab,
+             **{"bits_scattered@shuffle": np.full(6, 3.5), "table_scattered@shuffle": tab})
+    q = os.path.join(fit, "results.tsv")                              # the arm's shuffle control: 0.5 bits above its plain reading
+    SC.write_rows(q, SC.read_rows(q) + [dict(r, layout="leakfree+shuffle", bits=float(r["bits"]) + 0.5) for r in SC.read_rows(q)
+                                        if r["variant"] == "w6-ref30m-s1" and r["weights"] == "ema@final" and r["condition"] == cond.SCATTERED])
     for which in ("final", "best"):
         np.savez(os.path.join(fit, "w6-ref30m-norel-s1", "heldout_%s.npz" % which), bits_scattered__no_relatives=np.full(6, 5.0),
                  table_scattered__no_relatives=tab)
@@ -579,6 +583,21 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     with pytest.raises(SystemExit):
         w6_report.settings(dict(rel_w6_report=dict(worth_without="best")))
     assert "## The mask schemes each arm trained on" in text and "## The whole gene's frame relative, by distance" in text
+    assert "## The controls of the renderer" in text                    # the control apart, the plain reading not replaced by it
+    plain = next(float(x["bits"]) for x in SC.read_rows(q) if x["variant"] == "w6-ref30m-s1" and x["weights"] == "ema@final" and
+                 x["condition"] == cond.SCATTERED and x["group"] == SC.ALL and x["stratum"] == x0 and x["layout"] != "leakfree+shuffle")
+    assert abs(r["bits_with_end"] - plain) < 1e-9                       # not the control's 0.5 bits more
+
+
+def test_the_rows_of_a_control_never_stand_for_the_condition():
+    """The rows of the renderer's controls (layout leakfree+shuffle, leakfree+presence) are "<condition>@<control>": they
+    never replace the condition's own rows (round 1's first report read the presence control as scattered)."""
+    rows = [dict(variant="a", condition="scattered", layout=x) for x in ("leakfree-online", "leakfree", "leakfree+shuffle", "leakfree+presence")]
+    rows += [dict(variant="b", condition="whole_gene", layout=x) for x in ("leakfree", "stored")]
+    got = w6_report.condition_labels(rows)
+    assert got[("a", "scattered", "leakfree")] == got[("a", "scattered", "leakfree-online")] == "scattered"
+    assert got[("a", "scattered", "leakfree+shuffle")] == "scattered@shuffle" and got[("a", "scattered", "leakfree+presence")] == "scattered@presence"
+    assert got[("b", "whole_gene", "stored")] == "whole_gene@stored" and got[("b", "whole_gene", "leakfree")] == "whole_gene"
 
 
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):

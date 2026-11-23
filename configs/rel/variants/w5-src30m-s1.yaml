@@ -1,0 +1,24 @@
+# Arm S1 of decision D7 (task-breakdown 8.14; package W5): the source path. Every cell's source (another row of the
+# table, or none) is a chain along the columns of its block with a learned stay bonus; the cell is predicted by summing
+# over sources (forward and backward in log space): the source's codon through a substitution distribution, or the
+# cell's own row alone. The evidence term reads the row's visible residues through a learned 65 x 65 table.
+# Set against w6-ref30m-leakfree-lr1.5e-4, which it copies but for the model: the reference trunk's 12 blocks of width
+# 384, the first 4 run with every row alone (h_self), the other 8 across the table (h_full); the same cost per step.
+# Objective, masks, layout, rows, tables and rate are the reference arm's; when round 1 names its reference variant,
+# this file follows it (a new file if a round has used this one).
+name: w5-src30m-s1
+author: w5
+api: 1
+model: source
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: leakfree
+whole_gene_layout: stored                  # as the reference arm, until it takes the frame relative of W3's step two
+rows: [4, 16]
+columns: 1024
+size: {layers: 12, width: 384, arm: s1, self_layers: 4}
+relatives: true
+optimizer: {lr: 1.5e-4}                   # the reference arm's rate (task-breakdown 8.12 and 8.14)
+gpu_mb: 28000                             # the reference arm's 26 GB and about 1 GB for the output layer; to be measured
+alone_share: 0.05                         # as the reference arm
+tables: real

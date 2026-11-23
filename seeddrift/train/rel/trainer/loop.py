@@ -523,10 +523,12 @@ def evaluate_checkpoints(cfg):
     """The held-out evaluation of an arm's saved weights, again: the moving average of final.pt (rows "ema@final") and,
     when cfg["best"] names it, of best.pt (rows "ema@best"), on the first final_per_group tables of every group (0: all),
     under the arm's conditions, with the evaluator's plan, strata and rows. For an arm whose final evaluation the wall
-    limit cut short. cfg: the arm's training configuration plus final (the path of final.pt), best (that of best.pt or
-    None), out (an empty folder), and the training's tables seen, cells seen and wall seconds at the end
-    (final_tables, final_cells, final_wall_s) and at its best node (best_tables, best_cells, best_wall_s). Writes
-    results.tsv, heldout_final.npz and summary.json in out."""
+    limit cut short, or for all held-out tables after a training that scored a subset. cfg: the arm's training
+    configuration plus final (the path of the weights read: final.pt, or with weights "best" or "node@<tables>"
+    best.pt or ema_tables<tables>.pt, rows "ema@best" or "ema@tables=<n>"), best (that of best.pt or None), out (an
+    empty folder), and the tables seen, cells seen and wall seconds of the weights read (final_tables, final_cells,
+    final_wall_s) and of the best node (best_tables, best_cells, best_wall_s). Writes results.tsv, heldout_final.npz
+    and summary.json in out."""
     began = time.time()
     run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
@@ -541,8 +543,10 @@ def evaluate_checkpoints(cfg):
     final_ids = E.subset(run.held, int(cfg["final_per_group"]))
     half = "all" if len(final_ids) == len(run.held) else "subset"
     reader = run.reader()
+    weights = str(cfg.get("weights") or "final")                      # the weights in cfg["final"]: final, best or node@<tables>
+    label = "tables=%s" % weights.split("@")[1] if weights.startswith("node@") else weights
     state = dict(name=cfg["name"], status="evaluating", conditions=run.conditions, main_condition=run.main, versions=versions(), params=run.params,
-                 eval_final=len(final_ids), weights_read="ema")
+                 eval_final=len(final_ids), weights_read="ema", weights=weights)
     for which, key in (("final", "final"), ("best", "best")):
         path = cfg.get(key)
         if not path:
@@ -550,8 +554,8 @@ def evaluate_checkpoints(cfg):
         t = time.time()
         ck = torch.load(path, map_location=run.device, weights_only=True)
         reader.load_state_dict(ck["ema"])
-        fixed = run.fixed_columns("ema@%s" % which, half, int(cfg["%s_cells" % which]), 0.0, "ok", int(cfg["%s_tables" % which]),
-                                  float(cfg["%s_wall_s" % which]))
+        fixed = run.fixed_columns("ema@%s" % (label if which == "final" else which), half, int(cfg["%s_cells" % which]), 0.0, "ok",
+                                  int(cfg["%s_tables" % which]), float(cfg["%s_wall_s" % which]))
         main, cells, digests = run.evaluate(final_ids, fixed, results)
         if which == "final":
             np.savez(os.path.join(out_dir, "heldout_final.npz"),
@@ -603,7 +607,8 @@ def read_ruler(run, cfg, began):
             return (grid, truth, ext) if with_ext else (grid, truth)
         version = "w3-%s" % RD.VERSION
     max_rows = int(ro.get("max_rows", 32))
-    info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else "final", relatives=bool(cfg["relatives"]), layout=layout, render_version=version,
+    info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else str(cfg.get("weights") or "final"), relatives=bool(cfg["relatives"]), layout=layout,
+                render_version=version,
                 run=cfg["run"], commit=cfg["commit"], root=cfg["heldout_root"])
     extra = {}
     if ro.get("in_place_only"):                                       # the protocol's switch of compute: in-place implants only

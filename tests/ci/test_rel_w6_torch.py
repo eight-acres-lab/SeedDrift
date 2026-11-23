@@ -226,6 +226,16 @@ def test_saved_weights_evaluated_again():
     rows = SC.read_rows(os.path.join(folder, "results.tsv"))
     assert {r["weights"] for r in rows} == {"ema@final", "ema@best"} and {r["item_half"] for r in rows} == {"all"}
     assert {r["budget"].split(";")[0] for r in rows if r["weights"] == "ema@final"} == {"tables=%d" % out["tables_seen"]}
+    kept = tempfile.mkdtemp()                                    # a node's moving average (keep_node_weights), read again as node@<tables>
+    cfg2 = _config(kept, kind=A.TABLE_REAL, probe=False, relatives=False, max_steps=4, per_step=4, micro=4, eval_first=4, keep_node_weights=True)
+    out2 = loop.fit(cfg2)
+    node = next(e for e in out2["evals"] if e["tables_seen"] == 4)
+    folder = os.path.join(kept, "node")
+    got = loop.evaluate_checkpoints(dict(cfg2, out=folder, final=os.path.join(kept, "out", "ema_tables4.pt"), weights="node@4", best=None,
+                                         final_per_group=cfg2["eval_per_group"], final_tables=4, final_cells=node["cells_seen"], final_wall_s=node["wall_s"]))
+    rows = SC.read_rows(os.path.join(folder, "results.tsv"))
+    assert got["weights"] == "node@4" and {r["weights"] for r in rows} == {"ema@tables=4"} and {r["item_half"] for r in rows} == {"subset"}
+    assert all(abs(got["final"][c] - node["bits"][c]) < 1e-5 for c in node["bits"])             # the node's own reading on the same tables
 
 
 def test_saved_weights_read_on_a_ruler_set_and_never_trained_on():

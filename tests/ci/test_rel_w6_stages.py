@@ -599,7 +599,18 @@ def test_evaluation_again_settings_and_source():
     ro = w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **{"from": ["/x/runs/a", "/x/runs/b"]},
                                                 arms=["w6-ref30m-s1", dict(name="w6-ref30m-s1", untrained=True)],
                                                 readout=dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"]))))
-    assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True)
+    assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True, weights="final")
+    w = w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], best="all", end_controls=["shuffle", "presence"],
+                                               arms=["w6-ref30m-s1", dict(name="w6-ref30m-s1", weights="best"), dict(name="w6-ref30m-s1", weights="node@65536")],
+                                               tables=dict(good["rel_w6_eval"]["tables"], heldout_offline=dict(run="/x/runs/w3", path="offline.json")))))
+    assert [a["weights"] for a in w["arms"]] == ["final", "best", "node@65536"] and w["best"] == "all" and w["end_controls"] == ["shuffle", "presence"]
+    assert w["heldout_offline"] == dict(run="/x/runs/w3", path="offline.json", sha256=None)
+    assert w6_eval.weights_label("node@65536") == "tables=65536" and w6_eval.weights_label("best") == "best"
+    for bad in (dict(arms=[dict(name="w6-ref30m-s1", weights="node@x")]), dict(arms=[dict(name="w6-ref30m-s1", weights="last")]),
+                dict(arms=[dict(name="w6-ref30m-s1", weights="best")] * 2), dict(best="some"), dict(end_controls=["sideways"]),
+                dict(tables=dict(good["rel_w6_eval"]["tables"], other=dict(run="/x", path="p")))):
+        with pytest.raises(SystemExit):
+            w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **bad)))
     assert ro["readout"] == dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"], max_rows=32, layout="stored",
                                  in_place_only=False, adapt_v0_arms=False)
     assert w6_eval.variant_of_arm("w6-ref100m-lr4e-4-s1") == "w6-ref100m-lr4e-4" and w6_eval.variant_of_arm("w6-ref30m-s12") == "w6-ref30m"
@@ -658,6 +669,73 @@ def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):
         f.write(" ")
     with pytest.raises(SystemExit):                                     # changed after its stage recorded it
         w6_eval.source_index(run_dir)
+
+
+def test_evaluation_again_reads_the_weights_each_entry_names(tmp_path, monkeypatch):
+    """w6_eval in rows mode on a finished training: the final weights (with the best of every arm under best: all), the
+    best weights and a node's moving average (keep_node_weights) of one arm, each in its own folder with its rows
+    (ema@final, ema@best, ema@tables=<n>), the tables seen of the weights read, the offline rendering and the controls
+    named by the profile; the gate reads the rows of the weights each entry read."""
+    from ci.record import Record, stage_report
+    from ci.stages.rel import w6_eval, w6_tools
+    run_dir, cfg, doc, st = _finished_fit(tmp_path, statuses=("ok", "failed", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "models.json")
+    stage_report(run_dir, "rel_w6_fit", "", 0.0, [dict(name="models", path=os.path.join(w6_fit.OUT, "models.json"), sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+    arm = os.path.join(run_dir, w6_fit.OUT, "w6-ref30m-s1")
+    with open(os.path.join(arm, "summary.json")) as f:
+        summ = json.load(f)
+    summ["evals"] = [dict(tables_seen=t, cells_seen=c, wall_s=10.0 * t) for t, c, _ in ARMS[0][3]]
+    with open(os.path.join(arm, "summary.json"), "w") as f:
+        json.dump(summ, f)
+    with open(os.path.join(arm, "conf.json"), "w") as f:
+        json.dump(dict(name="w6-ref30m-s1", relatives=True, layout="leakfree", only_conditions=["scattered"], heldout_offline_tables="/old/offline.json"), f)
+    with open(os.path.join(arm, w6_eval.NODE_WEIGHTS % 1000), "wb") as f:
+        f.write(b"node")
+    monkeypatch.setattr(w6_tools, "interpreter", lambda st, cfg: ("py", "lock", {}))
+    monkeypatch.setattr(w6_eval, "heldout_set", lambda spec, verify: dict(doc=dict(name="v1-held", sha256="3" * 64, layout="leakfree", parts={
+        "scattered": {}, "suffix": {}, "whole_gene": {}}, tables=12), groups=list(GROUPS), row_groups=dict(enumerate(GROUPS)), kind="real"))
+    seen = []
+
+    class Done:
+        returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def start(py, mode, conf, log, env):                               # the model interpreter's evaluation, faked: rows of the weights read
+        with open(conf) as f:
+            c = json.load(f)
+        seen.append(c)
+        conds = ["scattered", "whole_gene"]
+        label = "ema@" + w6_eval.weights_label(c["weights"])
+        rows = [dict(r, weights=label) for r in _rows("ev", c["name"], [(0, 0, 6.0)], 5.0, conds) if r["weights"].endswith("@final")]
+        SC.write_rows(os.path.join(c["out"], "results.tsv"), rows)
+        with open(os.path.join(c["out"], "summary.json"), "w") as f:
+            json.dump(dict(status="ok", conditions=conds, final={x: 5.0 for x in conds}, final_items={}, eval_final=12), f)
+        return Done(), None
+
+    monkeypatch.setattr(w6_tools, "start", start)
+    monkeypatch.setattr(w6_tools, "stop", lambda proc, lg: None)
+    cfg = dict(cfg, rel_w6_eval={"from": run_dir, "best": "all", "end_controls": ["shuffle", "presence"],
+                                 "arms": ["w6-ref30m-s1", dict(name="w6-ref30m-s1", weights="best"), dict(name="w6-ref30m-s1", weights="node@1000")],
+                                 "tables": dict(heldout=dict(run="/x/runs/tables", path="h.json", split=1),
+                                                heldout_offline=dict(run="/x/runs/w3", path="offline.json"))})
+    ev = Stage(run_dir, "rel_w6_eval")
+    index = w6_eval.build(ev, cfg, run_dir)
+    by = {v["name"]: v for v in index["variants"]}
+    assert set(by) == {"w6-ref30m-s1", "w6-ref30m-s1.best", "w6-ref30m-s1.node@1000"} and all(v["status"] == "ok" for v in by.values()), by
+    assert [(c["which"], c["budget"]) for c in by["w6-ref30m-s1"]["checkpoints"]] == [("final", None), ("best", None)]   # best: all
+    assert [(c["which"], c["budget"]) for c in by["w6-ref30m-s1.node@1000"]["checkpoints"]] == [("ema", "tables=1000")]
+    assert by["w6-ref30m-s1.node@1000"]["info"]["tables_seen"] == 1000 and by["w6-ref30m-s1.best"]["info"]["tables_seen"] == 2000
+    c = {x["weights"]: x for x in seen}
+    assert c["node@1000"]["final"].endswith(os.path.join("w6-ref30m-s1.node@1000", "ema_tables1000.pt")) and c["node@1000"]["final_wall_s"] == 10000.0
+    assert c["final"]["best"] and c["best"]["best"] is None and c["final"]["only_conditions"] is None
+    assert all(x["heldout_offline_tables"] == os.path.join("/x/runs/w3", "offline.json") and x["end_controls"] == ["shuffle", "presence"] for x in seen)
+    w6_eval.gate(ev, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_eval")["status"] == "pass"
 
 
 def test_selftest_verdict():

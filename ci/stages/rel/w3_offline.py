@@ -20,14 +20,15 @@ and the table is rendered: the grid and the cells laid by extension must be the 
 
 Profile block rel_w3_offline: tables_from (the run directory of the passed tables run), tablesets [{path, sha256}] (its
 manifest), conditions (default [scattered, suffix, whole_gene]), seed (the plan's, default conditions.SEED), check_seed
-(the random codons of the test, drawn per table), shard_tables (2400), allow_kinds (default [real]; a ruler set, such as
-W18's implant tables, with [ruler]), processes (1: the tables of a part rendered by that many processes; the output is
-the same whatever the number).
+(the random codons of the test, drawn per table), shard_tables (2400), allow_kinds (default [real]; [synthetic] for
+tests; a ruler set is refused), processes (1: the tables of a part rendered by that many processes; the output is the
+same whatever the number). Ruler sets (W18's implant tables) are rendered by stage rel_w18_offline alone: its passes have
+masks of their own (hashed on the triple), which the plans of this stage do not reproduce.
 Tables of version 0 and 1 alike (32 rows, ABSENT and TRUNCATED blocks, self-copy rows, the fields the contract adds):
 every row with codons on a block (KIND_PRESENT or KIND_SELF_COPY) is a relative to align and may be the frame relative;
 a block without codons is rendered by its kind. Every field the source holds is copied (with the added fields of
-version 1, written as version 1), and every other file its manifest lists (a ruler set's own meta file and index, say)
-is copied unchanged under source/ (manifest key source_files: where each came from). The manifest takes the source's
+version 1, written as version 1), and every other file its manifest lists (the source's index and census, say) is
+copied unchanged under source/ (manifest key source_files: where each came from). The manifest takes the source's
 name (w3-strict-<source>-s<seed>), kind, purpose and group names.
 Outputs under data/rel_w3/offline/: <condition>/ the shards of each part (the shard and meta fields of the contract, the
 disk layout of seeddrift/train/rel/tables/v0_io.py), report.json, and tableset.json (written last: the table-set
@@ -59,6 +60,9 @@ STAGE = "rel_w3_offline"
 OUT = os.path.join("data", "rel_w3", "offline")
 KEYS = {"tables_from", "tablesets", "conditions", "seed", "check_seed", "shard_tables", "allow_kinds", "processes"}
 FIELDS = tuple(api.SHARD_FIELDS) + tuple(api.META_FIELDS)
+KINDS = (api.TABLE_REAL, api.TABLE_SYNTHETIC)                     # a ruler set is W18's (stage rel_w18_offline)
+RULER_REFUSED = ("a ruler set is rendered by stage rel_w18_offline, with the masks of W18's passes (hashed on the triple); "
+                 "the plans of this stage would place other cells")
 TABLE_VERSION = "w3-strict-%s" % AL.VERSION
 CHUNK = 64
 
@@ -74,9 +78,12 @@ def settings(cfg) -> dict:
         if mode:
             raise SystemExit("%s: a part is rendered for a mask (scattered, suffix, whole_gene), not for %r: re-paired and "
                              "no-relatives conditions take the whole_gene part and the stored tables" % (STAGE, x))
+    kinds = list(c.get("allow_kinds") or [api.TABLE_REAL])
+    if any(k not in KINDS for k in kinds):
+        raise SystemExit("%s: allow_kinds takes %s, not %s: %s" % (STAGE, list(KINDS), kinds, RULER_REFUSED))
     return dict(tables_from=str(c["tables_from"]), tablesets=list(c["tablesets"]), conditions=conds, seed=int(c.get("seed", cond.SEED)),
                 check_seed=int(c.get("check_seed", 20261123)), shard_tables=int(c.get("shard_tables", 2400)),
-                allow_kinds=list(c.get("allow_kinds") or [api.TABLE_REAL]), processes=max(1, int(c.get("processes", 1))))
+                allow_kinds=kinds, processes=max(1, int(c.get("processes", 1))))
 
 
 def heldout(s):
@@ -87,6 +94,8 @@ def heldout(s):
             doc = handoff.from_run(s["tables_from"], t["path"], t.get("sha256"))
         except handoff.HandoffError as err:
             raise SystemExit("%s: %s" % (STAGE, err))
+        if doc["kind"] == api.TABLE_RULER:
+            raise SystemExit("%s: table set %s is a ruler set: %s" % (STAGE, doc["name"], RULER_REFUSED))
         if doc["kind"] not in s["allow_kinds"]:
             raise SystemExit("%s: table set %s is %s; this profile accepts %s" % (STAGE, doc["name"], doc["kind"], s["allow_kinds"]))
         docs.append(doc)

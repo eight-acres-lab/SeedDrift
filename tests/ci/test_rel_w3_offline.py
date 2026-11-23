@@ -328,7 +328,7 @@ V1_MANIFEST = os.path.join("data", "rel_w12", "v1", "tableset.json")
 def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False):
     """A tables run of the shape of version 1 made from the fixture's held-out tables: 32 rows (the fixture's rows and
     copies of them), rows 1 and 2 self-copies, ABSENT and TRUNCATED blocks, the fields the contract adds, and for a
-    ruler set a meta file of its own and an index, as W18's implant set has."""
+    ruler set a meta file of its own and an index, as W18's implant set has (this stage refuses such a set)."""
     from ci.hashing import sha256_file
     from seeddrift.train.rel import handoff
     from seeddrift.train.rel.tables import v0_io as IO
@@ -386,7 +386,7 @@ def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False):
     return run_dir, new, out
 
 
-def test_stage_renders_tables_of_version_1_and_ruler_sets(tmp_path_factory, monkeypatch):
+def test_stage_renders_tables_of_version_1_and_refuses_ruler_sets(tmp_path_factory, monkeypatch):
     built = _tables_run(tmp_path_factory)
     tmp = built["tmp"]
     W2S.patch(monkeypatch, tmp)
@@ -436,16 +436,12 @@ def test_stage_renders_tables_of_version_1_and_ruler_sets(tmp_path_factory, monk
     rsrc, rdoc, _ = _v1_like(built, tmp, "w18-implant-v1like-r32", kind=A.TABLE_RULER, purpose="ruler", extra=True)
     block = dict(tables_from=rsrc, tablesets=[dict(path=V1_MANIFEST, sha256=rdoc["sha256"])], shard_tables=7, conditions=[cond.WHOLE_GENE])
     rrun, rcfg = RF.rel_run(tmp / "w3ruler", stages=["w3_offline"], rel_w3_offline=block)
-    with pytest.raises(SystemExit):                                              # a ruler set only where the profile allows it
+    with pytest.raises(SystemExit) as err:                                       # a ruler set is W18's stage's, refused here
         with Stage(rrun, w3_offline.STAGE) as st:
             w3_offline.build(st, rcfg, rrun)
-    rrun, rcfg = RF.rel_run(tmp / "w3ruler2", stages=["w3_offline"], rel_w3_offline=dict(block, allow_kinds=[A.TABLE_RULER]))
-    with Stage(rrun, w3_offline.STAGE) as st:
-        rout = w3_offline.build(st, rcfg, rrun)
-    assert rout["kind"] == A.TABLE_RULER and rout["purpose"] == "ruler" and rout["name"].startswith("w3-strict-w18-implant-v1like-r32")
-    assert sorted((f["source"], f["role"]) for f in rout["source_files"]) == [("data/rel_w12/v1/index.json", "index"), ("data/rel_w12/v1/w18_meta.npz", "meta")]
-    with np.load(os.path.join(rrun, next(f["path"] for f in rout["source_files"] if f["role"] == "meta"))) as z:
-        assert np.array_equal(z["case"], np.arange(N))
-    assert shards.parts(rrun, rout)[cond.WHOLE_GENE].tables == N
-    with Stage(rrun, "gates_rel_w3_offline", requires=("pre",)) as st:
-        w3_offline.gate(st, rcfg, rrun)
+    assert "rel_w18_offline" in str(err.value)
+    for kinds in ([A.TABLE_RULER], [A.TABLE_REAL, A.TABLE_RULER]):              # and the profile cannot ask for one
+        with pytest.raises(SystemExit) as err:
+            w3_offline.settings(dict(rel_w3_offline=dict(block, allow_kinds=kinds)))
+        assert "rel_w18_offline" in str(err.value)
+    assert w3_offline.settings(dict(rel_w3_offline=dict(block, allow_kinds=[A.TABLE_SYNTHETIC])))["allow_kinds"] == [A.TABLE_SYNTHETIC]

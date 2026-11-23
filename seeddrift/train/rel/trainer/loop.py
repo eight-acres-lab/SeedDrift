@@ -26,6 +26,7 @@ not real; every other run takes only real tables. This module never imports a ge
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import math
 import os
@@ -42,6 +43,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.models.common import layers as C
+from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.trainer import heldout as E
 
 TRAINER_VERSION = "2"
@@ -335,7 +337,7 @@ class Run:
         """The columns of a result row that are the same for every row of one evaluation; budget: the point of the
         weights evaluated, tables seen and wall seconds since the start of the training."""
         cfg = self.cfg
-        budget = "tables=%d;wall_s=%d" % (int(tables_seen), int(round(wall_s)))
+        budget = "tables=%d;wall_s=%d;micro=%d" % (int(tables_seen), int(round(wall_s)), self.micro)   # the tables per micro-batch trained with
         return dict(run=cfg["run"], commit=cfg["commit"], variant=cfg["name"], author=cfg["author"], module="models." + self.info["module"],
                     params=self.params, seed=int(cfg["seed"]), table_set=self.held.name, table_kind=self.held.kind, items_sha256=self.held.sha256,
                     item_half=item_half, layout=A.LAYOUT_STORED, budget=budget, weights=weights, cells_seen=int(cells_seen),
@@ -370,13 +372,48 @@ class Run:
             self._meta = self.held.load(T.FRAME_META)
         return self._meta
 
+    def frame_tiers(self, which="heldout", examples=None):
+        """{label: tables}: the frame relative of the whole gene by its distance to row 0 (round 1's ruling of 2026-11-23,
+        to set the training's frames beside the evaluation's): self_copy (a row of the examined genome's own copies),
+        tier_<t> (the row's distance tier, META tier; -1 not defined), none (no other row has a stretch in the target
+        block). heldout: every held-out table laid whole (align.frame_relative of the stored table); train: the
+        examples' frame_from (the rows drawn)."""
+        ts = self.held if which == "heldout" else self.train
+        if getattr(self, "_tiers", {}).get(which) is None:
+            self._tiers = dict(getattr(self, "_tiers", {}), **{which: (np.asarray(ts.load(("tier",))["tier"]), np.asarray(ts.load(("kind",))["kind"]))})
+        tier, kind = self._tiers[which]
+
+        def label(i, r):
+            if r is None or r < 0:
+                return "none"
+            if (kind[i, r] == A.KIND_SELF_COPY).any():
+                return "self_copy"
+            return "tier_%d" % int(tier[i, r])
+        out = {}
+        if which == "heldout":
+            n = self.held_data()[0]["n"]
+            pairs = [(i, AL.frame_relative(dict(n=n[i]))) for i in range(len(self.held))]
+        else:
+            pairs = [(int(e["table"]), int(e["frame_from"])) for e in examples or [] if "frame_from" in e]
+        for i, r in pairs:
+            k = label(i, r)
+            out[k] = out.get(k, 0) + 1
+        return out
+
+    def strata(self, ids):
+        """The evaluator's strata of the held-out tables ids; with the kinds of their rows where the evaluator reads them
+        (the three relatives strata of round 1: other-genome rows, self copies only, none)."""
+        _, identity, n_other = self.held_data()
+        if "kind" in inspect.signature(SC.strata_of).parameters:
+            return SC.strata_of(identity[ids], n_other[ids], np.asarray(self.held_data()[0]["kind"])[ids])
+        return SC.strata_of(identity[ids], n_other[ids])
+
     def evaluate(self, ids, fixed, path, at_node=False):
         """The held-out tables ids under every condition of this arm (eval_plan), read by the moving average. The rows
         go to self.rows and the whole table to path after every condition; their layout column says how the grids were
         rendered. Returns {key: bits over all groups and strata, None when nothing was scored}, {key: (bits,
         cell_table)} and {key: items digest}, the keys of eval_plan."""
-        _, identity, n_other = self.held_data()
-        strata = SC.strata_of(identity[ids], n_other[ids])
+        strata = self.strata(ids)
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
         for key, c, layout, data, ctl, label in self.eval_plan(at_node):
@@ -598,6 +635,9 @@ def read_ruler(run, cfg, began):
     layout = str(ro.get("layout") or A.LAYOUT_STORED)
     if layout == A.LAYOUT_STORED:
         render, version = None, T.RENDER_VERSION
+    elif ro.get("offline"):                                           # W18's strict offline rendering: the module renders (W3, leak-free)
+        from seeddrift.train.rel.tables import render as RD
+        render, version = None, "w3-%s" % RD.VERSION
     else:
         from seeddrift.train.rel.tables import render as RD
         with_ext = getattr(reader, "ext", None) is not None            # an arm trained on stored tables reads no ext cells
@@ -615,11 +655,13 @@ def read_ruler(run, cfg, began):
         extra = dict(scenarios=[0]) if untrained else (dict(presence_scenarios=[0]) if ro.get("presence") else {})
     if ro.get("adapt_v0"):                                            # tables of version 1 read by an arm trained on version 0
         extra["adapt_v0"] = True
+    if ro.get("offline"):                                             # the run of stage rel_w18_offline on this ruler set
+        extra["offline"] = str(ro["offline"])
     head = importlib.import_module(str(ro["module"])).run_ruler(lambda examples: E.score_cells(reader, examples, run.device, max_rows=max_rows),
                                                                 run.held, info, out_dir, render=render, presence=bool(ro.get("presence")),
                                                                 max_rows=max_rows, **extra)
     state = dict(name=cfg["name"], status="ok", readout=str(ro["module"]), weights=info["weights"], layout=layout, presence=bool(ro.get("presence")),
-                 in_place_only=extra,
+                 in_place_only={k: v for k, v in extra.items() if k != "offline"}, offline=extra.get("offline"),
                  tables=len(run.held), table_set=run.held.name, table_kind=run.held.kind, versions=versions(), params=run.params,
                  step=int(ck["step"]) if ck else 0, tables_seen=int(ck["tables_seen"]) if ck else 0, cells_seen=int(ck["cells_seen"]) if ck else 0,
                  ruler={k: v for k, v in (head or {}).items() if isinstance(v, (str, int, float, bool)) or v is None},
@@ -695,6 +737,10 @@ def fit(cfg):
     next_node = node_after(cfg, 0)
     names = run.sampler.masks
     shares = {m: dict(tables=0, target_cells=0, bits=0.0) for m in names}  # what every mask scheme took of the cells and of the loss
+    framed = run.frame_strict and cfg["relatives"]
+    frames = {}                                                         # the whole gene's frame relatives in training, by distance
+    if framed:
+        state["frame_tiers"] = dict(heldout=run.frame_tiers("heldout"), train=frames)
     log = open(os.path.join(out_dir, "steps.csv"), "w")
     log.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s," + ",".join("bits_" + m for m in names) +
               "," + ",".join("cells_" + m for m in names) + ",data_wait_s\n")
@@ -718,6 +764,9 @@ def fit(cfg):
             bits, norm, sb, sc = run.step(examples, lr)
             for e in examples:
                 shares[names[e["scheme"]]]["tables"] += 1
+            if framed:
+                for lab, n in run.frame_tiers("train", examples).items():
+                    frames[lab] = frames.get(lab, 0) + n
             for m, b, c in zip(names, sb, sc):
                 shares[m]["target_cells"] += int(c)
                 shares[m]["bits"] += float(b)

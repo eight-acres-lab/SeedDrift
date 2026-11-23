@@ -466,6 +466,10 @@ def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkey
     t_c = int(np.flatnonzero(cut[:, c])[0])
     cut[t_c, c] = False
     assert w18_offline.missing_families(ts_, meta_, cut) == [(t_c, "C")]                  # a family the plan uses, its placement missing
+    with open(os.path.join(off, "stages", "rel_w18_offline.json")) as f:
+        off_stage = json.load(f)
+    with open(os.path.join(off, "record.json"), "w") as f:                      # the launcher marks the run passed
+        json.dump(dict(run_id=os.path.basename(off), status="passed", stages=[off_stage]), f)
     ev, ecfg = RF.rel_run(tmp_path_factory.mktemp("w18lf"), kind="rel_traineval", stages=("w6_eval",), run_id="20261124T000002-exp-rel-00000000-eval")
     tabs = T.open_split(run_dir, doc, 1)
     base = dict(weights="final", relatives=True, layout="leakfree", render_version="leakfree-1", run=os.path.basename(ev), commit="0" * 40, root=run_dir)

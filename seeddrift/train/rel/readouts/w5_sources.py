@@ -38,7 +38,7 @@ from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.models import source as SR
 from seeddrift.train.rel.trainer import heldout as E
 
-VERSION = 1
+VERSION = 2                                                                   # 2: one pass of the trunk per micro-batch
 OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", "suffix": "suffix"}
 
 
@@ -105,23 +105,25 @@ def examples_of(data, ids, condition, layout, with_ext, chunk=32):
 
 @torch.no_grad()
 def read_batch(model, examples, identity):
-    """Per scored cell of a micro-batch (cells in the order of S.collate): the quantities the module's docstring names."""
+    """Per scored cell of a micro-batch (cells in the order of S.collate): the quantities the module's docstring names.
+    One pass of the trunk (model.pieces) gives all of them: the weights and the distribution as model.forward and
+    source.readout compute them from the same pieces (test_the_sources_readout_on_saved_weights checks the equality)."""
     b = E.to_device(S.collate([{k: e[k] for k in ("grid", "truth", "ext") if k in e} for e in examples]), torch.device("cpu"))
     kw = E.ext_of(b, model)
     token = b["token"]
-    r = SR.readout(model, b["grid"], b["sizes"], b["row"], b["col"], token=token if model.arm == "s1" else None, **kw)
-    lp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **kw)
-    bits = (-lp.gather(1, (token - A.TARGET_MIN)[:, None])[:, 0] / math.log(2.0)).double().numpy()
     p = model.pieces(b["grid"], b["sizes"], b["row"], b["col"], **kw)
-    logw, _ = model.weights(p)
-    w_rl = logw.exp()                                                         # [M, R, L]
-    copy = w_rl.sum(dim=(1, 2), keepdim=False)
+    logw, logw_none = model.weights(p)                                        # [M, R, L], [M]
+    lp = model.mix(logw, logw_none, p["sub"], p["own"])
+    bits = (-lp.gather(1, (token - A.TARGET_MIN)[:, None])[:, 0] / math.log(2.0)).double().numpy()
+    w_rl = logw.exp()
+    copy = w_rl.sum(dim=(1, 2))
     level = (w_rl.sum(dim=1) / copy.clamp_min(1e-30)[:, None]).double().numpy()
-    w = r["weights"].double()                                                 # [M, R + 1], last no source
+    w = torch.cat([torch.logsumexp(logw, dim=-1), logw_none[:, None]], dim=1).exp().double()     # [M, R + 1], last no source
+    rows_of = torch.where(p["valid"], p["index"], torch.full_like(p["index"], -1))[p["t"]]        # [M, R]: the batch row of a column
     ent = (-(w * torch.log2(w.clamp_min(1e-300))).sum(dim=1)).numpy()
     src = w[:, :-1]
     top_w, top_j = src.max(dim=1)
-    glob = r["rows"].gather(1, top_j[:, None])[:, 0].numpy()                  # the batch row of the largest source
+    glob = rows_of.gather(1, top_j[:, None])[:, 0].numpy()
     ex = b["example"].numpy()
     starts = np.cumsum([0] + [int(e["grid"].shape[0]) for e in examples])
     tables = np.array([examples[k]["table"] for k in ex], dtype=np.int64)
@@ -138,8 +140,16 @@ def read_batch(model, examples, identity):
         top_near[m] = orig >= 1 and other.size > 0 and int(np.argmax(other)) + 1 == orig
     out = dict(table=tables, bits=bits, none=w[:, -1].numpy(), entropy=ent, level=level, top=top_w.numpy(), top_identity=top_id,
                top_is_nearest=top_near)
-    if model.arm == "s1":
-        out["none_given_truth"] = r["given_truth"][:, -1].double().numpy()
+    if model.arm == "s1":                                                    # the posterior given the true codon (source.readout)
+        R = p["cell_score"].shape[1]
+        x = (token.long() - A.TARGET_MIN).clamp(0, SR.N_OUT - 1)
+        lev = torch.log_softmax(p["cell_score"], dim=-1)
+        em_rows = torch.logsumexp(lev + p["sub"].gather(3, x[:, None, None, None].expand(-1, R, model.levels, 1))[..., 0], dim=-1)
+        em = torch.cat([em_rows, p["own"].gather(1, x[:, None])], dim=1)
+        extra = torch.zeros_like(p["unary"])
+        extra[p["t"], p["i"], p["col"]] = em
+        post2, _ = model.chains(p, extra)
+        out["none_given_truth"] = post2[p["t"], p["i"], p["col"]].exp()[:, -1].double().numpy()
     return out
 
 

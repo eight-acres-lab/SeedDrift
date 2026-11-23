@@ -7,14 +7,15 @@
 # Version 5 (2026-11-23, before batch 3) writes down, before it is read, where D7's arms are expected to differ from the
 # reference (readings.d7_by_distance); prompted by an early development comparison on tables of version 0. Version 6
 # (2026-11-23, before batch 1 starts) lets the micro-batch be lowered when the shared GPU lacks memory (model_common).
+# Version 7 (2026-11-23) names the HGT protocol as w18-v3 in its latest version, not its revision 3.
 name: round1
-version: 6
+version: 7
 what: >
   The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
   training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
   equal tables seen (version 1 against version 0, same size, rate and layout); (2) how large the noise between seeds is
   on these tables; (3) what the value of relatives is without the placement leak. Batch 2 answers (4), whether a larger
-  model helps on version 1. The HGT capability check is read on version 1 under protocol w18 version 3 (to be committed
+  model helps on version 1. The HGT capability check is read on version 1 under protocol w18-v3 in its latest version (to be committed
   before it is read). This is a development diagnosis (charter section 8, 2026-11-17 and 2026-11-22): weights are never
   carried into another round, and promotions or eliminations are confirmed by the user.
 
@@ -86,7 +87,7 @@ readings:
   scale: "batch 2: ref100m-long against ref30m-long at common nodes, per condition: 'bigger is better' only when it is lower by more than the threshold under scattered and whole_gene; otherwise 'cannot be read'; always with 'at the lowest rates tried; not bracketed' and the machines named. The user's rule (2026-11-22): a direction that shows scaling is scaled up"
   controls: "the shuffle and presence readings of every arm with relatives against its plain reading: a model that uses the correspondence loses bits under the shuffle"
   over_fitting: "expected passes from the probe's throughput; below 2.5 passes the reading is 'not reached', never 'no over-fitting'; above, the node with the lowest held-out bits is the reading and the best weights are scored on all 3,000 tables (a slight selection, stated)"
-  hgt: "protocol w18 version 3, committed before it is read: the version-1 ruler tables rendered strictly offline (and the stored layout as the second column of the 2 x 2 table); arms read at a common node checkpoint; a pre-declared criterion for 'the readouts see the relatives' against the untrained model and the presence-only control"
+  hgt: "protocol w18-v3 in its latest version (4 on 2026-11-23), committed before it is read: the version-1 ruler tables rendered strictly offline (and the stored layout as the second column of the 2 x 2 table); arms read at a common node checkpoint; a pre-declared criterion for 'the readouts see the relatives' against the untrained model and the presence-only control"
   batch_3: "each arm against ref30m-s4 in the same window. Budgets by tables: every arm runs to the same number of tables (wall_s set from each arm's seconds per table). Two readings: at equal tables seen (the primary; when an arm's FLOPs per table differ from the reference's, the ratio is stated beside it) and at equal training FLOPs, counted with the contract's analytic flops_per_cell over the parameters each model uses (the same formula for every arm), at the nearest common node or by a stated interpolation; a measured count of matrix-multiply FLOPs for one 32-row table, forward and backward, beside it as a calibration. Seconds per table from a solo run on one machine are reported as cost, never as the basis. Parameter counts listed, all and used"
   d7_by_distance: "written before batch 3 is read. For source-path30m and copy30m, S minus ref30m-s4 under scattered and whole_gene, per stratum of the nearest other-genome row's identity (the ten bins and none) and per relatives stratum (other-genome rows present, self copies only, none), with the paired interval of the evaluation section. D7 expects the arms to be at least as good as the reference where the nearest other-genome row has identity 0.8 or more, or where only self copies are present, and behind at middle identities (0.2 to 0.6), where pooling across rows rather than copying one row is what the reference can use. The expectation is reported as met, not met, or not readable (fewer than 30 tables in a stratum); it chooses nothing. The classic switching-copy baseline (W5's switch_copy) on the same tables is listed beside them"
 

@@ -100,6 +100,16 @@ def test_the_sources_readout_on_saved_weights():
             ti = z["top_identity"][np.isfinite(z["top_identity"])]
             assert ((ti >= 0) & (ti <= 1)).all()
             assert ("none_given_truth" in z.files) == (arm == "s1")
+            if c == "scattered":                                                        # one pass of the trunk gives source.readout's weights
+                cfg2, model, _ = RO.load_arm(os.path.join(root, "out"))
+                held, data, meta = RO.held_data(cfg2, c, "stored")
+                ex, _ = RO.examples_of(data, RO.E.subset(held, 0)[:3], c, "stored", False)
+                got = RO.read_batch(model, ex, meta["identity"])
+                b = RO.E.to_device(RO.S.collate([{k: e[k] for k in ("grid", "truth")} for e in ex]), torch.device("cpu"))
+                ref = SR.readout(model, b["grid"], b["sizes"], b["row"], b["col"], token=b["token"])
+                assert np.allclose(got["none"], ref["weights"][:, -1].double().numpy(), atol=1e-6)
+                if arm == "s1":
+                    assert np.allclose(got["none_given_truth"], ref["given_truth"][:, -1].double().numpy(), atol=1e-6)
             fin = np.load(os.path.join(root, "out", "heldout_final.npz"))                # the final evaluation's cells: same order, same bits
             assert np.array_equal(z["table"], fin["table_%s" % c]) and np.allclose(z["bits"], fin["bits_%s" % c], atol=1e-4), (arm, c)
 

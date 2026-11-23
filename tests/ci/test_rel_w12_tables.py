@@ -223,3 +223,27 @@ def test_the_held_out_tables_must_be_the_reference_s_byte_for_byte(runs, monkeyp
             WV.gate(st, bad, run_dir)
     with pytest.raises(SystemExit, match="heldout_equals"):
         WV.settings(dict(rel_w12_islands=dict(search_from="x", heldout_equals=dict(run="r", sha256="s"))), "islands")
+
+
+def test_the_genomes_of_a_few_groups_are_listed_with_their_nearest_training_genome(runs, monkeypatch):
+    from ci.stages.rel import w12_compo as WCO
+    TS.patch(monkeypatch, runs["tmp"])
+    v1 = runs["out"]["v1"]["run_dir"]
+    rp = os.path.join(v1, "record.json")
+    json.dump(dict(json.load(open(rp)), status="passed"), open(rp, "w"))
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261123T000027-compo",
+                              rel_w12_compo=dict(sets=[dict(name="v1", run=v1, which="v1")], dist_k=4, dist_size=256))
+    with Stage(run_dir, "rel_w12_compo") as st:
+        rep = WCO.build(st, cfg, run_dir)
+    d = rep["sets"][0]["groups"]
+    assert set(d) == set(WCO.GROUPS)
+    for grp, x in d.items():
+        mine = [m for m in runs["metas"] if m["group"] == grp and m["split"] in ("train", "heldout")]
+        assert sorted(g["id"] for g in x["genomes"]) == sorted(m["id"] for m in mine)
+        held = [g for g in x["genomes"] if g["split"] == "heldout"]
+        assert held and all(g["nearest_by_distance"]["id"] in {m["id"] for m in mine if m["split"] == "train"} for g in held)
+        assert sum(g["tables"] for g in x["genomes"] if g["split"] == "train") == runs["out"]["v1"]["doc"]["parts"]["train"]["per_group"]
+    assert all(k in ("land plant", "green alga (Chlorophyta)", "charophyte alga", "red alga", "glaucophyte", "other") for k in d["eukaryota.plants_algae"]["by_kind"])
+    with Stage(run_dir, "gates_rel_w12_compo") as st:
+        WCO.gate(st, cfg, run_dir)
+    assert "nearest training genome" in open(os.path.join(run_dir, WCO.OUT, "report.md")).read()

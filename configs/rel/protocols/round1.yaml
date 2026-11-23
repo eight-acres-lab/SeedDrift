@@ -2,9 +2,10 @@
 # layout. Written by the programme lead on 2026-11-23 and revised after an independent review the same day; committed
 # before any arm of the round starts. The coordinator writes the round's profiles from it. Version 3 (2026-11-23, also
 # before any arm starts) changes only the number of training tables: the combined search left too little disk on i-1
-# for 403,200 tables with the reserve, so round 1 uses 201,600; the larger set is for the next round.
+# for 403,200 tables with the reserve, so round 1 uses 201,600; the larger set is for the next round. Version 4 (2026-11-23,
+# before batch 3 and before any arm starts) states how batch 3 counts compute: tables, analytic FLOPs, wall clock as cost.
 name: round1
-version: 3
+version: 4
 what: >
   The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
   training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
@@ -82,7 +83,7 @@ readings:
   controls: "the shuffle and presence readings of every arm with relatives against its plain reading: a model that uses the correspondence loses bits under the shuffle"
   over_fitting: "expected passes from the probe's throughput; below 2.5 passes the reading is 'not reached', never 'no over-fitting'; above, the node with the lowest held-out bits is the reading and the best weights are scored on all 3,000 tables (a slight selection, stated)"
   hgt: "protocol w18 version 3, committed before it is read: the version-1 ruler tables rendered strictly offline (and the stored layout as the second column of the 2 x 2 table); arms read at a common node checkpoint; a pre-declared criterion for 'the readouts see the relatives' against the untrained model and the presence-only control"
-  batch_3: "each arm against ref30m-s4 in the same window, at equal tables seen and at equal training FLOPs (counted per table from a solo calibration on one machine); parameter counts listed"
+  batch_3: "each arm against ref30m-s4 in the same window. Budgets by tables: every arm runs to the same number of tables (wall_s set from each arm's seconds per table). Two readings: at equal tables seen (the primary; when an arm's FLOPs per table differ from the reference's, the ratio is stated beside it) and at equal training FLOPs, counted with the contract's analytic flops_per_cell over the parameters each model uses (the same formula for every arm), at the nearest common node or by a stated interpolation; a measured count of matrix-multiply FLOPs for one 32-row table, forward and backward, beside it as a calibration. Seconds per table from a solo run on one machine are reported as cost, never as the basis. Parameter counts listed, all and used"
 
 not_concluded: >
   no promotion, elimination or change of the reference before the user confirms it; batch 3 enters the comparison only

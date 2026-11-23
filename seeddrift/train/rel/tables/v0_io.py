@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import resource
 
 import numpy as np
 
@@ -68,10 +69,23 @@ def shard_path(folder, shard, field):
     return os.path.join(folder, "%s.%s.npy" % (shard if isinstance(shard, str) else shard_name(shard), field))
 
 
+def open_files_for(n, spare=1024):
+    """Raise this process's soft limit of open files to hold `n` more (each writable memmap keeps its file open: a
+    part of 201,600 tables in shards of 2,400 is 84 shards of every field, over a soft limit of 1,024), never above the
+    hard limit. Returns the soft limit in force."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = int(n) + int(spare)
+    if soft != resource.RLIM_INFINITY and soft < want:
+        soft = want if hard == resource.RLIM_INFINITY else min(want, hard)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+    return soft
+
+
 def create(folder, tables, rows, shard_tables, version=0):
     """New shard files for `tables` tables: ([(shard name, tables)], {(shard index, field): writable memmap})."""
     tables, shard_tables = int(tables), int(shard_tables)
     os.makedirs(folder, exist_ok=True)
+    open_files_for((tables + shard_tables - 1) // shard_tables * len(fields(rows, version)))
     shards, mm = [], {}
     for s in range((tables + shard_tables - 1) // shard_tables):
         m = min(shard_tables, tables - s * shard_tables)

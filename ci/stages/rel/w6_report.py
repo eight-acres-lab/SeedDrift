@@ -765,7 +765,8 @@ def build(st, cfg, run_dir):
                     ("within the threshold" if gn else "no seeds' difference of the group"))
             by_g.append([g, BLOCK_OF(g), t0, t0 / tt if tt else None, y0, nxt[0] if nxt else None, diff(nxt[1], y0) if nxt else None,
                          pts[-1][0], rise, fmt_noise(gn) if gn else "none",
-                         ("%.3f to %.3f (%d units)" % (iv["low"], iv["high"], iv["units"])) if iv else iv_why.get(a, "none"), said,
+                         ("%.3f to %.3f (%d units)" % (iv["low"], iv["high"], iv["units"])) if iv else ("" if rise is None else iv_why.get(a, "none")),
+                         said,
                          F(a, cond.SCATTERED, g)])
         over.append(dict(arm=a, train_tables=tt, rows=rows_p, groups=by_g, final=dict(tables_seen=arms[a]["info"].get("tables_seen"),
                                                                            passes=(arms[a]["info"].get("tables_seen") or 0) / tt if tt else None,

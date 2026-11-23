@@ -5,9 +5,10 @@
 # for 403,200 tables with the reserve, so round 1 uses 201,600; the larger set is for the next round. Version 4 (2026-11-23,
 # before batch 3 and before any arm starts) states how batch 3 counts compute: tables, analytic FLOPs, wall clock as cost.
 # Version 5 (2026-11-23, before batch 3) writes down, before it is read, where D7's arms are expected to differ from the
-# reference (readings.d7_by_distance); prompted by an early development comparison on tables of version 0.
+# reference (readings.d7_by_distance); prompted by an early development comparison on tables of version 0. Version 6
+# (2026-11-23, before batch 1 starts) lets the micro-batch be lowered when the shared GPU lacks memory (model_common).
 name: round1
-version: 5
+version: 6
 what: >
   The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
   training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
@@ -48,6 +49,7 @@ model_common:
   rows_per_sample: 4 to 32 rows drawn at random per table (row 0 always kept)
   masks: one scheme per table with equal chances (scattered 15% of every kept row; one span of 8-128 codons in one random row; row 0's whole target gene); the loss is the mean over all hidden cells of a step; the realised share of each scheme in cells and in loss is logged and reported
   optimiser: AdamW (0.9, 0.98), weight decay 0.01 on matrices, clip 1.0, 4 tables per step accumulated in micro-batches (10 M 4, 30 M 2, 100 M 1), bf16 trunk, fp32 head
+  micro_when_short: "the micro-batch may be lowered when the GPU lacks memory at launch (free memory below 1.1 x the sum of the arms' measured peaks + 6 GB): still 4 tables and one clip per step at the same rate; arms read against each other inside one batch use the same micro; the realised micro is recorded in every result row and named in every reading"
   schedule: 1,000 warm-up steps, then constant; evaluation on the moving average of the weights
   learning_rate: "half the width rule of 2026-11-22: 30 M 1.5e-4, 100 M 1e-4, 10 M 2e-4. These are the lowest rates tried for 30 M and 100 M (round 1a), so every reading says 'at the lowest rates tried; not bracketed'"
   preflight: 200 steps; a non-finite value or no fall stops the arm and is reported, never an automatic change of rate

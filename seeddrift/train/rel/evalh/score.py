@@ -25,7 +25,7 @@ import numpy as np
 
 from seeddrift.train.rel import api
 
-VERSION = 3
+VERSION = 4
 ALL = "all"
 TIER = -1                               # distance tiers come after the census
 N_FINE = 10
@@ -33,6 +33,7 @@ FINE_PREFIX = "nearest_identity="
 FINE = tuple("%s%.1f-%.1f" % (FINE_PREFIX, k / 10.0, (k + 1) / 10.0) for k in range(N_FINE)) + (FINE_PREFIX + "none",)
 OTHER_ROWS = ("other_rows=0", "other_rows=1", "other_rows>=2")
 RELATIVES = ("relatives_on_target=yes", "relatives_on_target=no")
+RELATIVE_KINDS = ("relatives=other_genomes", "relatives=self_copies_only", "relatives=none")    # round 1's three strata
 BLOCKS = ("eukaryotes", "prokaryotes, plasmids, viruses")
 
 
@@ -65,29 +66,56 @@ def amino_acid_bits(P, truth):
     return -np.log2(per_class[np.arange(truth.shape[0]), cls[np.asarray(truth) - 1]])
 
 
-def nearest_identity(identity):
-    """(N,) the largest identity of rows 1.. at the target locus; nan when no row has a cell there."""
+def self_copy_rows(kind):
+    """(N, R) bool: the rows that are copies in the examined genome itself (KIND_SELF_COPY on some block; tables of
+    version 1). Row 0 is never one."""
+    k = np.asarray(kind)
+    out = (k == api.KIND_SELF_COPY).any(axis=2)
+    out[:, 0] = False
+    return out
+
+
+def nearest_identity(identity, kind=None):
+    """(N,) the largest identity of rows 1.. at the target locus; nan when no row has a cell there. With kind (N, R, B)
+    the self-copy rows are left out: the nearest other-genome row (round 1's strata)."""
     ident = np.asarray(identity, dtype=np.float64)[:, 1:]
     if ident.shape[1] == 0:
         return np.full(ident.shape[0], np.nan)
     has = np.isfinite(ident)
+    if kind is not None:
+        has &= ~self_copy_rows(kind)[:, 1:]
     best = np.where(has, ident, -1.0).max(axis=1)
     return np.where(has.any(axis=1), best, np.nan)
 
 
-def fine_stratum(identity):
-    """(N,) index into FINE for every table, from the stored (N, R) identity of every row with row 0."""
-    near = nearest_identity(identity)
+def fine_stratum(identity, kind=None):
+    """(N,) index into FINE for every table, from the stored (N, R) identity of every row with row 0 (with kind: of the
+    other-genome rows only)."""
+    near = nearest_identity(identity, kind)
     k = np.minimum(np.floor(np.nan_to_num(near, nan=0.0) * N_FINE + 1e-9).astype(np.int64), N_FINE - 1)
     return np.where(np.isnan(near), N_FINE, np.maximum(k, 0))
 
 
-def strata_of(identity, other_rows=None):
-    """[(labels, index of every table)]: the bins of the nearest identity and, given the number of other rows of every
-    table (conditions.present_rows(kind)[:, 1:].sum(axis=1)), OTHER_ROWS."""
-    out = [(FINE, fine_stratum(identity)), (RELATIVES, np.isnan(nearest_identity(identity)).astype(np.int64))]
+def relative_kinds(kind):
+    """(N,) index into RELATIVE_KINDS: the table has a row of another genome (a row 1.. that exists and is no self
+    copy), else self-copy rows only, else no other row."""
+    k = np.asarray(kind)
+    exists = (k != api.KIND_NONE).any(axis=2)
+    exists[:, 0] = False
+    copy = self_copy_rows(k)
+    return np.where((exists & ~copy).any(axis=1), 0, np.where(copy.any(axis=1), 1, 2)).astype(np.int64)
+
+
+def strata_of(identity, other_rows=None, kind=None):
+    """[(labels, index of every table)]: the bins of the nearest identity (FINE) and whether there is one (RELATIVES);
+    given the number of other rows of every table (conditions.present_rows(kind)[:, 1:].sum(axis=1)), OTHER_ROWS; given
+    the kinds (N, R, B) of the tables, the nearest identity is that of the nearest other-genome row (self copies left
+    out) and RELATIVE_KINDS is added: other-genome rows, self copies only, none (round 1's protocol)."""
+    out = [(FINE, fine_stratum(identity, kind)), (RELATIVES, np.isnan(nearest_identity(identity, kind)).astype(np.int64))]
     if other_rows is not None:
         out.append((OTHER_ROWS, np.minimum(np.asarray(other_rows).astype(np.int64), 2)))
+    if kind is not None:
+        out.append((RELATIVE_KINDS, relative_kinds(kind)))
     return out
 
 

@@ -124,12 +124,13 @@ def other_rows(tables):
     return cond.present_rows(tables["kind"])[:, 1:].sum(axis=1)
 
 
-def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL):
+def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL, kind=None):
     """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind,
     items_sha256 (of the table set scored) and versions. One row per baseline x condition x group x stratum that has
     cells; the group column carries group_names[index] where given, else the index. n_other: other_rows(tables).
-    item_half: "all", or "subset" for the rows of restrict() on the subset of the evaluation during training."""
-    strata = score.strata_of(identity, n_other)
+    item_half: "all", or "subset" for the rows of restrict() on the subset of the evaluation during training. kind
+    (N, R, B) of the stored tables: the strata of the nearest other-genome row and the three relatives strata."""
+    strata = score.strata_of(identity, n_other, kind)
     rows = []
     for condition, res in results.items():
         mask = cond.parse(condition)[0]

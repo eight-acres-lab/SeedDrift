@@ -164,10 +164,11 @@ def main():
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
-        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables))
+        rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
+                                kind=tables["kind"])
         on_subset = brun.restrict(results, sub)
         rows_sub = brun.result_rows(on_subset, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
-                                    item_half=SUBSET)
+                                    item_half=SUBSET, kind=tables["kind"])
 
         rows_path, sub_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in
                                                                    ("rows.tsv", "rows_subset.tsv", "params.json", "report.md", "results.json"))

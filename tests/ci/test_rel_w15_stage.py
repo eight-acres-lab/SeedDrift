@@ -347,3 +347,42 @@ def test_no_supplement_in_the_dataset_falls_back_to_europe_pmc(tmp_path):
     rec = W.fetch("10.1/n", str(tmp_path / "n"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
     assert rec["fulltext"]["source"] == "pmc-oa-opendata" and rec["supplements"]["source"] == "europepmc"
     assert rec["pmc_oa"]["supplements"] == "none in the open-access dataset"
+
+
+def test_annotation_lookup_finds_the_assembly_and_matches_locus_tags(tmp_path):
+    rows = [_row("E1", "Aphis (genus)", "Insecta;Aphis", region="fragment A: ASEM_C4_12633, ASEM_C4_20551/2",
+                 notes="PCK 'ASEM_AUS1_17510 on fragment L'")]
+    assert W.registry_ids(rows) == ["ASEM_AUS1_17510", "ASEM_C4_12633", "ASEM_C4_20551"]
+    pages = [json.dumps(dict(reports=[dict(annotation=dict(locus_tag="ASEM_AUS1_17510")), dict(annotation=dict(locus_tag="ASEM_AUS1_00001"))],
+                             next_page_token="t2")),
+             json.dumps(dict(reports=[dict(annotation=dict(locus_tag="ASEM_C4_12633"))]))]
+    seen = []
+
+    def opener(req, timeout):
+        u = req.full_url
+        seen.append(u)
+        if "esearch" in u:
+            return Resp(json.dumps(dict(esearchresult=dict(idlist=["111"]))).encode())
+        if "elink" in u:
+            return Resp(json.dumps(dict(linksets=[dict(linksetdbs=[dict(dbto="assembly", links=[222])])])).encode())
+        if "esummary" in u:
+            return Resp(json.dumps(dict(result={"uids": ["222"], "222": dict(assemblyaccession="GCA_1.1", assemblyname="x")})).encode())
+        if "annotation_report" in u:
+            return Resp(pages.pop(0).encode())
+        raise AssertionError(u)
+
+    rec = W.annotation_lookup(dict(wgs_master="QPGU00000000"), rows, str(tmp_path), opener=opener, sleep=lambda s: None, pause_s=0)
+    assert rec["assembly"]["accession"] == "GCA_1.1" and rec["status"] == "annotated" and rec["genes"] == 3
+    assert rec["matched"] == ["ASEM_AUS1_17510", "ASEM_C4_12633"] and rec["unmatched"] == ["ASEM_C4_20551"]
+    assert rec["locus_tag_prefixes"][0] == ("ASEM_AUS1", 2) and len(rec["pages"]) == 2 and "page_token=t2" in seen[-1]
+    assert all("sequence" not in u for u in seen)
+
+
+def test_annotation_lookup_reports_a_missing_assembly(tmp_path):
+    def opener(req, timeout):
+        return Resp(json.dumps(dict(esearchresult=dict(idlist=[]))).encode())
+
+    rec = W.annotation_lookup(dict(wgs_master="X"), [], str(tmp_path), opener=opener, sleep=lambda s: None, pause_s=0)
+    assert rec["status"] == "no assembly found for the WGS master record"
+    with pytest.raises(SystemExit):
+        W.settings({W.STAGE: dict(registry="bench/rel/registry/a.tsv", annotation=dict(max_mb=1))})

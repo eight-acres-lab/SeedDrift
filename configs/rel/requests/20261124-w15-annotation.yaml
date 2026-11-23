@@ -1,0 +1,12 @@
+package: W15
+kind: to_package
+to: C0
+what: >-
+  start profile rel-dev-w15-annot-i1 on i-1 under the select lock when the machine is free (stage w15_registry with
+  fetch off and the annotation lookup on): which ASEM gene identifiers of the registry drafts are locus tags of the
+  Alloteropsis assembly QPGU01. Only after the programme lead has reviewed the branch.
+why: >-
+  Dunning 2019 cites genes as ASEM_AUS1_ in its main text and as ASEM_C4_ in Dataset S1; until they are reconciled
+  the registry holds the letter-cited facts as "?". Gene records only, never sequence; no paper is fetched; no score
+size: {hours: 0.5, threads: 1, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-25

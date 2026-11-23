@@ -19,6 +19,11 @@ Profile block rel_w5_baselines:
   subset_per_group the subset of the evaluation during training (conditions.subset: the first tables of every group
                    in storage order; default 50, so 600 tables): its rows go to rows_subset.tsv (item_half "subset"),
                    the same cells as those tables scored alone
+  offline          {run, path, sha256}: a passed run of stage w3_offline on the held-out set (W3's strict offline
+                   rendering): every condition with relatives whose mask has a part there (scattered, suffix, the whole
+                   gene and its re-paired condition) is scored on that part, layout leakfree, the cells and their truth
+                   those of the stored tables (the evaluator's digest, checked); the conditions without relatives are
+                   scored on the stored tables. The fit stays on the stored training tables.
 
 Coverage: the groups the table set covers (its manifest says which); development diagnosis only. The limits written
 into the results (LIMITS) say which way each one pulls the bits (lower is better): under the stored layout the bits
@@ -54,6 +59,10 @@ from seeddrift.train.rel.evalh import score, shards
 STAGE = "rel_w5_baselines"
 SUBSET = "subset"                                                # item_half of the rows on the subset of the evaluation during training
 OUT = os.path.join("data", "rel_w5", "baselines")
+OFFLINE_PART = {cond.SCATTERED: "scattered", "suffix": "suffix", cond.WHOLE_GENE: "whole_gene"}
+LIMIT_OFFLINE = ("the conditions with relatives are read on W3's strict offline rendering (layout leakfree): no leak of the hidden "
+                 "residues there, unlike the stored layout; the baselines are fitted on the stored training tables, so with the whole "
+                 "gene hidden they read a layout (the frame relative) they were not fitted on")
 LIMITS = [
     "lower bits are better. The stored layout shows the relatives where the hidden residues align: with the whole gene hidden the bits are "
     "too low (optimistic), the worth of the relatives there too high and the cost of re-pairing too small; with scattered cells hidden the "
@@ -103,6 +112,34 @@ def inputs(cfg):
     if sorted(sets) != [shards.SPLIT_TRAIN, shards.SPLIT_HELDOUT]:
         raise SystemExit("%s: one training and one held-out table set are needed, found splits %s" % (STAGE, sorted(sets)))
     return src, docs, sets
+
+
+def offline_parts(c, held, n_held):
+    """None, or the strict offline rendering of the held-out set the profile names: its run, manifest and parts."""
+    o = c.get("offline")
+    if not o:
+        return None
+    try:
+        doc = handoff.from_run(str(o["run"]), str(o["path"]), o.get("sha256"))
+    except handoff.HandoffError as err:
+        raise SystemExit("%s: %s" % (STAGE, err))
+    names = {t.get("sha256") for t in (doc.get("source") or {}).get("tablesets") or []}
+    if held.manifest["sha256"] not in names:
+        raise SystemExit("%s: the offline rendering %s is not of the held-out set read here" % (STAGE, doc.get("name")))
+    parts = shards.parts(str(o["run"]), doc)
+    for name, ts in parts.items():
+        if ts.tables < n_held:
+            raise SystemExit("%s: offline part %s holds %d tables, %d are scored" % (STAGE, name, ts.tables, n_held))
+    return dict(run=str(o["run"]), doc=doc, parts=parts)
+
+
+def source_of(condition, offline):
+    """The offline part a condition is scored on, or None for the stored tables."""
+    mask, mode = cond.parse(condition)
+    if not offline or mode == cond.NO_RELATIVES:
+        return None
+    part = OFFLINE_PART.get(mask)
+    return part if part in offline["parts"] else None
 
 
 def check_genomes(cfg, docs):
@@ -155,20 +192,40 @@ def main():
 
         tables = held.load(0, n_held, shards.MODEL_FIELDS)
         meta = held.load(0, n_held, ("group", "split", "identity"))
+        offline = offline_parts(c, held, n_held)
+        source = {x: source_of(x, offline) for x in conditions}
+        layouts = {x: (api.LAYOUT_LEAKFREE if source[x] else api.LAYOUT_STORED) for x in conditions}
         if (meta["split"] != shards.SPLIT_HELDOUT).any():
             raise SystemExit("%s: a table to score is not a held-out table" % STAGE)
         groups = shards.group_names(src, held.manifest)
         n_groups = max(len(groups), int(meta["group"].max()) + 1)
         sub = cond.subset(meta["group"], int(c.get("subset_per_group", cond.SUBSET_PER_GROUP)))
-        results = brun.evaluate(tables, np.arange(n_held), params, conditions=conditions, seed=seed, with_chain=with_chain, log=log, subset=sub)
+        results = {}
+        for part in sorted({v for v in source.values() if v}) + [None]:     # each source's conditions on its tables
+            todo = [x for x in conditions if source[x] == part]
+            if not todo:
+                continue
+            tabs = tables if part is None else offline["parts"][part].load(0, n_held, shards.MODEL_FIELDS)
+            results.update(brun.evaluate(tabs, np.arange(n_held), params, conditions=todo, seed=seed, with_chain=with_chain, log=log, subset=sub))
+            if part is not None:
+                del tabs
+        results = {x: results[x] for x in conditions}
+        if offline:                                                     # the cells scored on a part are those of the stored tables
+            for x in conditions:
+                if source[x]:
+                    check = cond.ItemsDigest(x, seed)
+                    for a in range(0, n_held, 512):
+                        check.add(cond.materialise({f: tables[f][a:a + 512] for f in ("tok", "n", "col", "kind")}, np.arange(a, min(a + 512, n_held)), x, seed))
+                    if check.hexdigest() != results[x]["items_sha256"]:
+                        raise SystemExit("%s: under %s the offline part scored other cells than the stored tables" % (STAGE, x))
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
         rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
-                                kind=tables["kind"])
+                                kind=tables["kind"], layouts=layouts)
         on_subset = brun.restrict(results, sub)
         rows_sub = brun.result_rows(on_subset, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
-                                    item_half=SUBSET, kind=tables["kind"])
+                                    item_half=SUBSET, kind=tables["kind"], layouts=layouts)
 
         rows_path, sub_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in
                                                                    ("rows.tsv", "rows_subset.tsv", "params.json", "report.md", "results.json"))
@@ -177,11 +234,14 @@ def main():
         write_json(params_path, params)
         title = "Classical baselines on table set %s (%d held-out tables, seed %d)" % (held.manifest["name"], n_held, seed)
         with open(report_path, "w") as f:
-            f.write(brun.markdown(rows, title, groups) + brun.subset_markdown(rows_sub, sub.shape[0]) + "\nLimits:\n" + "".join("- %s\n" % x for x in LIMITS))
+            f.write(brun.markdown(rows, title, groups) + brun.subset_markdown(rows_sub, sub.shape[0]) + "\nLimits:\n"
+                    + "".join("- %s\n" % x for x in ([LIMIT_OFFLINE] if offline else []) + LIMITS))
         doc = dict(
             stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), chain=with_chain,
             reference=brun.REFERENCE,
-            headline=headline(rows), groups=groups, n_groups=n_groups, limits=LIMITS,
+            headline=headline(rows), groups=groups, n_groups=n_groups, limits=([LIMIT_OFFLINE] if offline else []) + LIMITS, layouts=layouts,
+            offline=(dict(run_id=os.path.basename(os.path.normpath(offline["run"])), name=offline["doc"]["name"], sha256=offline["doc"]["sha256"],
+                          parts={x: source[x] for x in conditions if source[x]}) if offline else None),
             items={k: dict(sha256=r["items_sha256"], cells=int(r["cell_table"].shape[0]), tables=r["tables"]) for k, r in results.items()},
             subset=dict(per_group=int(c.get("subset_per_group", cond.SUBSET_PER_GROUP)), tables=int(sub.shape[0]), rows=len(rows_sub),
                         rows_sha256=sha256_file(sub_path), bits=brun.summary(rows_sub)[0],
@@ -216,8 +276,9 @@ def gate(st, cfg, run_dir):
             b = float(r["bits"])
         except ValueError:
             b = float("nan")
-        if not math.isfinite(b) or b < 0 or int(r["target_cells"]) <= 0 or r["status"] != "ok" or r["layout"] != api.LAYOUT_STORED:
-            problems.append(dict(row=[r["variant"], r["condition"], r["group"], r["stratum"]], error="bits not finite, no cell, or not marked ok and stored"))
+        want = (doc.get("layouts") or {}).get(r["condition"], api.LAYOUT_STORED)       # leakfree where read on the strict offline part
+        if not math.isfinite(b) or b < 0 or int(r["target_cells"]) <= 0 or r["status"] != "ok" or r["layout"] != want:
+            problems.append(dict(row=[r["variant"], r["condition"], r["group"], r["stratum"]], error="bits not finite, no cell, or not marked ok and in its layout"))
         if r["group"] == score.ALL and r["stratum"] == score.ALL:
             seen[(r["condition"], r["variant"])] = b
     for c in cond.CONDITIONS:

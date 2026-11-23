@@ -2,13 +2,14 @@
 # with an amino-acid copy level (configs/rel/variants/w5-copy-aa30m.yaml), beside S2 itself (w5-src30m-s2, aa_level
 # off) in the same run: the same code, machine and seed, one arm after the other (parallel 1: i-2's GPU does not hold
 # two). copy-aa30m is judged against this run's S2 only; the early comparison (rel-srcearly-i1, run 20261123T110619:
-# S2 and S1; rel-srcearlyref-i1, run 20261123T122356: the reference arm), on code several versions older, is listed
-# beside as a reference, and this run's S2 against 110619's tells how far the code's versions moved the result.
+# S2 and S1 at micro-batch 4; rel-srcearlyref-i1, run 20261123T122356: the reference arm), on code several versions
+# older, is listed beside as a reference only, and this run's S2 against 110619's tells how far the code's versions,
+# the micro-batch (2 here, 4 there) and the machine together moved the result.
 # Conditions as the early comparison's: the same tables of version 0 (the same files, imported to i-2), 3,500 steps of
 # 4 tables (14,000 tables), seed 1, the same evaluations; i-2's A100 in a gap of its GPU, as a filler.
 # A diagnosis, not a decision.
 # Time on i-1's A800 for S2: 6 min of preflight, 15 min of training, 4 min of final evaluation; on i-2 expect about
-# 60 to 80 minutes in all for the two arms with the self-test.
+# 70 to 80 minutes in all for the two arms with the self-test.
 pipeline: rel_traineval
 tier: medium
 seed: 1
@@ -44,7 +45,7 @@ rel_w6_fit:
   only_conditions: [scattered, whole_gene, scattered+no_relatives, whole_gene+no_relatives]
   eval_online: true
   keep_node_weights: false
-  wall_s: 5400                   # the early comparison's cap for one arm; each is expected to end by its steps well before
+  wall_s: 2700                   # the stage's limit is per training: 45 min for each arm, 90 min for the two one after the other (with up to 15 min of preflight each); each is expected to end by its 3,500 steps in about 30 to 35 min
 train:
   gpu_lease: false
   device: auto

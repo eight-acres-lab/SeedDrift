@@ -322,3 +322,73 @@ def test_the_two_controls_and_the_reporting_helpers():
     lone = blank(2)
     put(lone, 0, TB, np.arange(1, 5))
     assert RD.causal_rows(lone) == [0]
+
+
+def _old_strict(tab, visible):
+    """align.strict of version 1 (the frame row's hidden blocks only), the reference where only row 0 is hidden."""
+    from seeddrift.train.rel.tables import align as AL
+    tok, n = np.asarray(tab["tok"]), np.asarray(tab["n"]).astype(np.int64)
+    vis, col = np.asarray(visible, bool), np.array(tab["col"], dtype=np.int16, copy=True)
+    for b, (_, s, e) in enumerate(SLICES):
+        f = int(tab["frame_len"][b])
+        if f == 0 or vis[0, s:s + f].all():
+            continue
+        rows = [r for r in range(1, tok.shape[0]) if n[r, b] > 0]
+        if rows:
+            cols, _ = AL.align(AL.residues(tok[0, s:s + f], vis[0, s:s + f]), [AL.residues(tok[r, s:s + n[r, b]], vis[r, s:s + n[r, b]]) for r in rows])
+            for r, c in zip(rows, cols):
+                col[r, s:s + n[r, b]] = c.astype(np.int16)
+    return col
+
+
+def test_strict_aligns_a_row_again_where_only_it_hides_residues():
+    """align.strict of version 2: a block where only another row hides residues aligns that row again (its hidden
+    residues unknown) and keeps the others stored; where only row 0 is hidden, version 1's result."""
+    from seeddrift.train.rel.tables import align as AL
+    from seeddrift.train.rel.data import tables as DT
+    tables, _ = toy_tables(n_tables=6, rows=6, seed=91)
+    rng = np.random.default_rng(4)
+    for t in range(6):
+        tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
+        tab["frame_len"] = tables["n"][t, 0]
+        cells = DT.inside(tab)
+        only0 = cells.copy()
+        only0[0] &= rng.random(A.ROW_LEN) > 0.15
+        assert np.array_equal(AL.strict(tab, only0), _old_strict(tab, only0))     # evaluation: unchanged
+        vis = cells.copy()
+        r = int(np.flatnonzero(tab["n"][1:, TB] > 3)[0]) + 1 if (tab["n"][1:, TB] > 3).any() else None
+        if r is None:
+            continue
+        vis[r, T0:T0 + 3] = False                                                 # row r hides three residues, row 0 none
+        got = AL.strict(tab, vis)
+        assert np.array_equal(np.delete(got, r, axis=0), np.delete(np.asarray(tab["col"]), r, axis=0))
+        other = dict(tab, tok=np.array(tab["tok"], copy=True), col=np.array(tab["col"], copy=True))
+        other["tok"][r, T0:T0 + 3] = 1 + (other["tok"][r, T0:T0 + 3] % 64)
+        other["col"][r, T0:T0 + int(tab["n"][r, TB])] = -1
+        assert np.array_equal(AL.strict(other, vis), got)                          # independent of its hidden residues
+
+
+def test_the_training_fourth_test_passes_strict_and_catches_the_online_layout():
+    """Every mask scheme of the training (scattered in every row, a span in any row, the whole gene) passes W3's fourth
+    test with the strict rendering; the online leak-free layout on the stored pairs fails it on some table."""
+    from seeddrift.train.rel.data import masks
+    from seeddrift.train.rel.tables import strict as ST
+    import importlib
+    tables, _ = toy_tables(n_tables=10, rows=8, seed=93)
+    online_fails = 0
+    for name in ("scattered", "span", "whole_gene"):
+        m = importlib.import_module("seeddrift.train.rel.data.masks." + name)
+        for t in range(10):
+            tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
+            tab["frame_len"], tab["frame_row"] = tables["n"][t, 0], np.zeros(A.N_BLOCKS, np.int8)
+            vis, tgt = m.plan(dict(n=tab["n"], kind=tab["kind"]), np.random.default_rng(t))
+            got = ST.fourth_test(tab, vis, tgt, whole_gene=name == "whole_gene", key=t)
+            assert got["passed"], (name, t)
+            if name != "whole_gene":                                              # the online layout: stored pairs as anchors
+                grid, _, ext = RD.render(tab, vis, tgt)
+                hidden = (np.arange(A.ROW_LEN)[None, :] - RD.START[None, :] < np.asarray(tab["n"])[:, RD.BLOCK_OF]) & ~vis
+                other = dict(tab, tok=np.where(hidden, 1 + (np.asarray(tab["tok"]) % 64), tab["tok"]).astype(np.uint8), col=ST.erased(tab, vis))
+                g2, _, e2 = RD.render(other, vis, tgt)
+                online_fails += not (np.array_equal(grid, g2) and np.array_equal(ext, e2))
+    assert online_fails > 0
+    assert masks is not None

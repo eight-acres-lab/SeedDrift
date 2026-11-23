@@ -98,6 +98,13 @@ kinds:
         gates: [G4_rel_w3_offline]
         side: data
         produces: tableset
+      w3_traincheck:
+        package: W3
+        rule: rel_w3_traincheck
+        output: data/rel_w3/traincheck/report.json
+        module: ci.stages.rel.w3_traincheck
+        gates: [G4_rel_w3_traincheck]
+        side: data
       w2_census:
         package: W2
         rule: rel_w2_census

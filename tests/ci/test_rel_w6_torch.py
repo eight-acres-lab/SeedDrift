@@ -470,6 +470,41 @@ def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
     assert w1["final"] == out["final"]
 
 
+def test_strict_layout_trains_checks_and_reads_its_nodes_strictly():
+    """layout strict (round 1's third batch on): scattered and span trained on W3's strict rendering, the whole gene on
+    its frame relative; the nodes read scattered strictly online (rows leakfree-strict), the end on W3's offline
+    rendering; W3's fourth test on sample 0 and every 1,000th, counted in steps.csv and the summary, none failing."""
+    try:
+        from seeddrift.train.rel.tables import strict as ST  # noqa: F401
+    except ImportError:
+        return                                                         # package W3's strict rendering is not on this branch yet
+    root = tempfile.mkdtemp()
+    train, held = D.v1_tables(24, rows=8, seed=11), D.v1_tables(12, rows=8, seed=12, split=1)
+    tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL, sub="v1")
+    off = _offline(root, held)
+    four = [cond.SCATTERED, cond.WHOLE_GENE, cond.SCATTERED + "+" + cond.NO_RELATIVES, cond.WHOLE_GENE + "+" + cond.NO_RELATIVES]
+    cfg = _config(root, train_tables=tables, heldout_tables=tables, probe=False, rows=[2, 8], layout="strict", whole_gene_layout="frame",
+                  eval_online=True, heldout_offline_tables=off, heldout_offline_root=root, only_conditions=four, max_steps=6, eval_first=4)
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["sampler"]["strict_tables"] > 0 and pre["sampler"]["strict_s_per_table"] > 0
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and out["traincheck"] == dict(checked=1, failures=0, every=1000)        # sample 0 of the 12
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    lay = {}
+    for r in rows:
+        lay.setdefault((r["weights"] == "ema@final", r["condition"]), set()).add(r["layout"])
+    assert lay[(False, cond.SCATTERED)] == {"leakfree-strict"} and lay[(True, cond.SCATTERED)] == {"leakfree"}
+    with open(os.path.join(cfg["out"], "steps.csv")) as f:
+        steps = list(csv.DictReader(f))
+    assert steps[-1]["traincheck_checked"] == "1" and steps[-1]["traincheck_failures"] == "0"
+    try:
+        loop.Run(dict(cfg, whole_gene_layout=None, out=os.path.join(root, "x")))
+    except SystemExit as err:
+        assert "frame" in str(err)
+    else:
+        raise AssertionError("a strict arm without the whole gene on its frame relative was accepted")
+
+
 def test_split_and_gradient_checks():
     root = tempfile.mkdtemp()
     try:

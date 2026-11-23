@@ -446,6 +446,42 @@ def test_sampler_lays_the_whole_gene_by_the_strict_aligner():
         raise AssertionError("the frame layout was accepted for scattered samples")
 
 
+def test_sampler_lays_scattered_and_span_by_the_strict_aligner_and_checks_one_in_a_thousand():
+    """layout strict (round 1's third batch on): scattered and span laid by W3's strict aligner on the rows drawn and the
+    cells hidden (tables/strict.py render), the whole gene on its frame relative; the sample numbered a multiple of
+    1,000 is checked by W3's fourth test (traincheck 0: passed), the same sample whatever came before it."""
+    try:
+        from seeddrift.train.rel.tables import strict as ST  # noqa: F401
+    except ImportError:
+        return                                                         # package W3's strict rendering is not on this branch yet
+    root = tempfile.mkdtemp()
+    arrays = v1_tables(24, rows=8, seed=5)
+    ts = T.open_split(root, write_tableset(root, [("train/s0000", arrays)], kind=A.TABLE_REAL), 0)
+    lay = {"scattered": S.STRICT, "span": S.STRICT, "whole_gene": S.FRAME}
+    sm = S.Sampler(ts, seed=3, masks=["scattered", "span", "whole_gene"], rows=(3, 8), layouts=lay)
+    assert sm.checks and not S.Sampler(ts, seed=3, layouts={"whole_gene": S.FRAME}).checks
+    seen = 0
+    for step in range(6):
+        for e in sm.draw(step):
+            if sm.masks[e["scheme"]] == "whole_gene":
+                continue
+            seen += 1
+            assert e["layout"] == S.STRICT and "ext" in e and e["truth"].any()
+            assert "traincheck" not in e or step == 0                 # only sample 0 of these six steps is checked
+    assert seen > 0 and sm.strict_tables >= seen and sm.strict_s > 0
+    e0 = sm.draw(250)[0]                                               # sample 1,000: checked, and passed
+    assert e0.get("traincheck") == 0
+    rng = np.random.default_rng([3, 250])                              # the same draw as the sampler's: render it again here
+    again = sm.example(rng, 1000)
+    assert (again["grid"] == e0["grid"]).all() and again.get("traincheck") == 0
+    try:
+        S.Sampler(ts, seed=3, masks=["whole_gene"], layouts={"whole_gene": S.STRICT})
+    except ValueError as err:
+        assert "strict: not whole_gene" in str(err)
+    else:
+        raise AssertionError("the strict layout was accepted for the whole gene")
+
+
 def test_sampler_share_of_tables_without_relatives():
     ts = _set(30)                                         # table 27 has no other row; its group 3 also holds tables 3 and 15
     never = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, alone_share=0.0).draw(st)}

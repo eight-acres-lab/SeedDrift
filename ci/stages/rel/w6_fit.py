@@ -17,7 +17,11 @@ Profile block rel_w6_fit:
              ema (true), preflight_steps (200), preflight_guard (stop), max_steps, threads, preflight_wall_s, verify_files (default true: every
              file of the table sets is hashed against its manifest before any training starts), extra_conditions (evaluator
              conditions scored besides today's five, e.g. [suffix]), references_at_nodes (false: the extra conditions
-             and a leak-free arm's stored readings at the final evaluation only)
+             and a leak-free arm's stored readings at the final evaluation only), eval_online (true: a leak-free arm
+             without a strict offline rendering is scored online, the anchors the stored pairs), end_controls ([shuffle,
+             presence]: package W3's controls of the renderer, at the final evaluation, scattered and whole_gene)
+  tables     ... pair_index {run, path}: the pair index of the uncapped search (package W12, a folder of a passed run),
+             for arms that lay the whole gene on its frame relative online
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
 What the stage does:
@@ -58,7 +62,7 @@ from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
 PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
-           "extra_conditions", "references_at_nodes")
+           "extra_conditions", "references_at_nodes", "eval_online", "end_controls")
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
@@ -90,8 +94,13 @@ def settings(st, cfg) -> dict:
     out = dict(wall_s=int(sc.get("wall_s", 16200)), probe=bool(sc.get("probe", False)), threads=int(sc.get("threads", 4)),
                preflight_wall_s=int(sc.get("preflight_wall_s", 900)), verify_files=bool(sc.get("verify_files", True)),
                passed_on={k: sc[k] for k in PASS_ON if sc.get(k) is not None}, tables={}, arms=[])
-    if set(sc["tables"]) - {"train", "heldout", "heldout_offline"}:
-        raise SystemExit("rel_w6_fit.tables: train, heldout and optionally heldout_offline: %r" % sorted(sc["tables"]))
+    if set(sc["tables"]) - {"train", "heldout", "heldout_offline", "pair_index"}:
+        raise SystemExit("rel_w6_fit.tables: train, heldout and optionally heldout_offline and pair_index: %r" % sorted(sc["tables"]))
+    pi = sc["tables"].get("pair_index")
+    if pi is not None:                                                # the pair index of W12's uncapped search (a folder of a passed run)
+        if set(pi) - {"run", "path"} or not pi.get("run") or not pi.get("path"):
+            raise SystemExit("rel_w6_fit.tables.pair_index: {run, path}: %r" % (pi,))
+        out["pair_index"] = dict(run=str(pi["run"]), path=str(pi["path"]))
     for which in ("train", "heldout", "heldout_offline"):
         t = sc["tables"].get(which) or {}
         if which == "heldout_offline" and not t:
@@ -153,6 +162,8 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     off = s["tables"].get("heldout_offline")
     if off and v["layout"] != api.LAYOUT_STORED:                      # a leak-free arm is scored on the strict offline rendering
         conf.update(heldout_offline_tables=os.path.join(off["run"], off["path"]), heldout_offline_root=off["run"])
+    if s.get("pair_index") and (v.get("whole_gene_layout") or v["layout"]) != api.LAYOUT_STORED:
+        conf.update(pair_index=os.path.join(s["pair_index"]["run"], s["pair_index"]["path"]))
     conf.update(s["passed_on"])
     return conf
 
@@ -178,14 +189,23 @@ def build(st, cfg, run_dir):
     if any(v["variant"]["tables"] != sets["train"]["doc"]["kind"] for v in s["arms"]):
         raise SystemExit("rel_w6_fit: a variant is written for another kind of tables than %s" % sets["train"]["doc"]["kind"])
     leakfree = [a["name"] for a in s["arms"] if a["variant"]["layout"] != api.LAYOUT_STORED]
+    framed = [a["name"] for a in s["arms"] if (a["variant"].get("whole_gene_layout") or a["variant"]["layout"]) != api.LAYOUT_STORED]
+    if framed and not s["probe"]:                                     # the whole gene on its frame relative: W12's pair index
+        pi = s.get("pair_index")
+        rec = read_json(os.path.join(pi["run"], "record.json")) if pi else None
+        if not pi or (rec or {}).get("status") != "passed" or not os.path.isdir(os.path.join(pi["run"], pi["path"])):
+            raise SystemExit("rel_w6_fit: the arms %s lay the whole gene on its frame relative: tables.pair_index, a folder of a passed run "
+                             "(given %s)" % (framed, pi))
+        st.extra.update(pair_index=dict(run=os.path.basename(pi["run"]), path=pi["path"]))
     if s["tables"].get("heldout_offline"):
         off = table_set(cfg, s["tables"]["heldout_offline"], s["verify_files"])
         if off["doc"].get("layout") != api.LAYOUT_LEAKFREE or set(off["doc"].get("parts") or {}) < {"scattered", "whole_gene"}:
             raise SystemExit("rel_w6_fit.tables.heldout_offline: the strict offline rendering (layout leakfree, parts scattered and whole_gene), "
                              "not %s with parts %s" % (off["doc"].get("layout"), sorted(off["doc"].get("parts") or {})))
         st.extra.update(heldout_offline=dict(name=off["doc"]["name"], sha256=off["doc"]["sha256"], run=os.path.basename(s["tables"]["heldout_offline"]["run"])))
-    elif leakfree and not s["probe"]:
-        raise SystemExit("rel_w6_fit: the leak-free arms %s are scored on the strict offline rendering: tables.heldout_offline" % leakfree)
+    elif leakfree and not s["probe"] and not s["passed_on"].get("eval_online"):
+        raise SystemExit("rel_w6_fit: the leak-free arms %s are scored on the strict offline rendering (tables.heldout_offline), or online "
+                         "where the profile says so (eval_online: true)" % leakfree)
     st.extra.update(sealed_record={k: t["sealed"] for k, t in sets.items()}, tablesets={k: dict(name=t["doc"]["name"], sha256=t["doc"]["sha256"],
                     kind=t["doc"]["kind"], tables=t["doc"]["tables"], run=os.path.basename(s["tables"][k]["run"])) for k, t in sets.items()},
                     model_env=py, parallel=parallel, device="cpu" if cpu else "auto")

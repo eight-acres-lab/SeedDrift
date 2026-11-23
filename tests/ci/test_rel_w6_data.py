@@ -19,7 +19,8 @@ from seeddrift.train.rel.data import sampler as S  # noqa: E402
 from seeddrift.train.rel.data import tables as T  # noqa: E402
 from seeddrift.train.rel.evalh import conditions as cond  # noqa: E402
 
-DTYPES = {k: v[0] for k, v in list(A.SHARD_FIELDS.items()) + list(A.META_FIELDS.items())}
+DTYPES = {k: v[0] for k, v in list(A.SHARD_FIELDS.items()) + list(A.META_FIELDS.items()) + list(getattr(A, "SHARD_FIELDS_ADDED", {}).items())
+          + list(getattr(A, "META_FIELDS_ADDED", {}).items())}
 
 
 def random_tables(n_tables, rows=16, seed=0, split=0):
@@ -72,6 +73,54 @@ def _sha(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def v1_tables(n_tables, rows=8, seed=0, split=0):
+    """random_tables with the fields of tables of version 1: genome_of_row (two rows of one genome where there are
+    enough rows), and every row's gene and first codon in each block it has (row_gene, row_first)."""
+    out = random_tables(n_tables, rows, seed, split)
+    rng = np.random.default_rng(seed + 7)
+    out["genome_of_row"] = np.full((n_tables, rows), -1, np.int8)
+    out["row_gene"] = np.full((n_tables, rows, A.N_BLOCKS), -1, np.int32)
+    out["row_first"] = np.full((n_tables, rows, A.N_BLOCKS), -1, np.int16)
+    for t in range(n_tables):
+        exists = (out["kind"][t] != T.KIND_NONE).any(axis=1)
+        exists[0] = True
+        number = 0
+        for r in range(rows):
+            if not exists[r]:
+                continue
+            if r >= 2 and r % 2 == 0:                                   # rows 2 and 3, 4 and 5, ...: one genome each
+                number += 1
+            out["genome_of_row"][t, r] = 0 if r == 0 else number + (1 if r == 1 else 0)
+            out["genome"][t, r] = 5000 + int(out["genome_of_row"][t, r])
+            has = out["n"][t, r] > 0
+            out["row_gene"][t, r] = np.where(has, rng.integers(0, 40, A.N_BLOCKS) + 100 * r, -1)
+            out["row_first"][t, r] = np.where(has, rng.integers(0, 6, A.N_BLOCKS), -1)
+    return out
+
+
+def frame_index_of(arrays, ix=None):
+    """An index of the interface of W2's search (package W3's test FakeIndex) holding, for every two rows of every
+    table, the alignment of their target-block stretches their stored columns imply (codons on one frame column)."""
+    from test_rel_w3_offline import FakeIndex, to_hsp
+    ix = FakeIndex() if ix is None else ix
+    b = A.N_BLOCKS - 1
+    s = T.SLICES[b][1]
+    N, R = arrays["n"].shape[:2]
+    for t in range(N):
+        for a in range(R):
+            for c in range(R):
+                na, nc = int(arrays["n"][t, a, b]), int(arrays["n"][t, c, b])
+                if a == c or not na or not nc or arrays["row_gene"][t, a, b] < 0 or arrays["row_gene"][t, c, b] < 0:
+                    continue
+                inv = {int(x): i for i, x in enumerate(arrays["col"][t, a, s:s + na]) if x >= 0}
+                m = np.array([inv.get(int(x), -1) if x >= 0 else -1 for x in arrays["col"][t, c, s:s + nc]])
+                if (m >= 0).sum() < 2:
+                    continue
+                ix.add(int(arrays["genome"][t, a]), int(arrays["genome"][t, c]), int(arrays["row_gene"][t, a, b]), int(arrays["row_gene"][t, c, b]),
+                       [to_hsp(m, int(arrays["row_first"][t, a, b]), int(arrays["row_first"][t, c, b]))])
+    return ix
+
+
 def write_tableset(root, sets, kind=A.TABLE_SYNTHETIC, name="w6-test", sub="tables"):
     """sets: [(shard, arrays)], a shard named <part>/<name> lying in the folder <sub>/<part> (one split per part).
     Writes the files <shard>.<field>.npy, an index with the group names and the manifest <root>/<sub>/tableset.json
@@ -83,7 +132,7 @@ def write_tableset(root, sets, kind=A.TABLE_SYNTHETIC, name="w6-test", sub="tabl
         for f, a in arrays.items():
             rel = os.path.join(sub, "%s.%s.npy" % (shard, f))
             np.save(os.path.join(root, rel), a.astype(DTYPES[f]))
-            files.append(dict(path=rel, role="shard" if f in A.SHARD_FIELDS else "meta"))
+            files.append(dict(path=rel, role="shard" if f in A.SHARD_FIELDS or f in getattr(A, "SHARD_FIELDS_ADDED", {}) else "meta"))
     with open(os.path.join(root, sub, "index.json"), "w") as f:
         json.dump(dict(groups=["g%02d" % g for g in range(12)]), f)
     files.append(dict(path=os.path.join(sub, "index.json"), role="index"))
@@ -293,6 +342,32 @@ def test_sampler_keeps_the_frame_row_of_a_block():
     assert T.take_rows(framed, np.array([0, 1]))["frame_row"][-1] == -1                       # left out: the renderer frames on row 0
     plain = [e["table"] for st in range(5) for e in S.Sampler(ts, seed=3).draw(st)]
     assert plain == [e["table"] for st in range(5) for e in S.Sampler(ts, seed=3).draw(st)]
+
+
+def test_sampler_lays_the_whole_gene_on_its_frame_relative():
+    """Tables of version 1: with the pair index, a whole-gene sample's other rows are placed on the frame relative by
+    their stored alignments (few cells laid by extension); without it they are laid from the first column, all by
+    extension (W3's fallback). genome_of_row travels with the rows kept, into the batch."""
+    root = tempfile.mkdtemp()
+    arrays = v1_tables(24, rows=8, seed=4)
+    man = write_tableset(root, [("train/s0000", arrays)], kind=A.TABLE_REAL)
+    ts = T.open_split(root, man, 0)
+    assert ts.meta(3)["row_gene"].shape == (8, A.N_BLOCKS)
+    lay = {"whole_gene": A.LAYOUT_LEAKFREE}
+    framed = S.Sampler(ts, seed=2, masks=["whole_gene"], rows=(3, 8), layouts=lay, frame_index=frame_index_of(arrays))
+    bare = S.Sampler(ts, seed=2, masks=["whole_gene"], rows=(3, 8), layouts=lay)
+    t0 = T.T0
+    ext_f = ext_b = shown_f = 0
+    for step in range(12):
+        for u, v in zip(framed.draw(step), bare.draw(step)):
+            assert u["table"] == v["table"] and (u["rows"] == v["rows"]).all()
+            assert (u["genome_of_row"] == arrays["genome_of_row"][u["table"]][u["rows"]]).all()
+            ext_f += int(u["ext"][1:, t0:].sum())
+            ext_b += int(v["ext"][1:, t0:].sum())
+            shown_f += int(((u["grid"][1:, t0:] >= A.TARGET_MIN) & (u["grid"][1:, t0:] <= A.TARGET_MAX)).sum())
+    assert shown_f > 0 and ext_f < ext_b
+    c = S.collate(framed.draw(0))
+    assert c["genome"].shape == (c["grid"].shape[0],) and c["genome"].dtype == np.int64
 
 
 def test_sampler_share_of_tables_without_relatives():

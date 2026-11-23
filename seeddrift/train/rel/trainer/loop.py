@@ -52,7 +52,9 @@ DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask
                 eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
                 preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
-                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False)
+                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False,
+                pair_index=None, eval_online=False, end_controls=[])
+CONTROLS = ("shuffle", "presence")              # package W3's controls of the renderer, read at the final evaluation
 TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
 # the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
 OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",
@@ -138,8 +140,19 @@ class Run:
             if bool(cfg["probe"]) == (ts.kind == A.TABLE_REAL):
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
                                  % (ts.name, ts.kind))
+        self.frame_index = None                                         # the pair index of W12's uncapped search
+        if layouts_of(cfg).get("whole_gene", A.LAYOUT_STORED) != A.LAYOUT_STORED:
+            if cfg["pair_index"]:
+                from seeddrift.train.rel.tables import v1_hits
+                ix = cfg["pair_index"]                                  # a folder of W12's run; an index object in the tests
+                self.frame_index = v1_hits.Index(ix) if isinstance(ix, str) else ix
+            elif not cfg["probe"]:
+                raise SystemExit("variant %s lays the whole gene on its frame relative online: the pair index of the search (pair_index)" % cfg["name"])
+        if set(cfg["end_controls"] or []) - set(CONTROLS):
+            raise SystemExit("end_controls are among %s, not %s" % (CONTROLS, cfg["end_controls"]))
         self.sampler = S.Sampler(self.train, cfg["seed"], masks=cfg["masks"], weights=cfg["mask_weights"], rows=cfg["rows"],
-                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"], layouts=layouts_of(cfg))
+                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"], layouts=layouts_of(cfg),
+                                 frame_index=self.frame_index)
         self.module = registry.load("model", cfg["model"])
         self.objective = registry.load("objective", cfg["objective"])
         self.size = size_of(self.module, cfg)
@@ -192,8 +205,9 @@ class Run:
             return A.LAYOUT_STORED, data
         part = OFFLINE_PART.get(condition)
         if self.offline is None or part is None:
-            if not self.cfg["probe"] and part is not None:
-                raise SystemExit("a leak-free arm is scored under %s on the strict offline rendering (heldout_offline_tables)" % condition)
+            if not self.cfg["probe"] and part is not None and not self.cfg["eval_online"]:
+                raise SystemExit("a leak-free arm is scored under %s on the strict offline rendering (heldout_offline_tables), or "
+                                 "online where the run says so (eval_online)" % condition)
             return A.LAYOUT_LEAKFREE, data
         if part not in self._parts:
             ts = self.offline["parts"][part]
@@ -269,10 +283,19 @@ class Run:
             if c not in cond.CONDITIONS and not refs:
                 continue
             layout, data = self.eval_source(c)
-            out.append((c, c, layout, data))
-            if refs and layout != A.LAYOUT_STORED and c in STORED_TOO:
-                out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0]))
+            out.append((c, c, layout, data, None))
+            if refs and layout != A.LAYOUT_STORED and c in STORED_TOO and self.cfg["whole_gene_layout"] in (None, A.LAYOUT_STORED):
+                out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0], None))
+            if not at_node and layout != A.LAYOUT_STORED and c in (cond.SCATTERED, cond.WHOLE_GENE):
+                for ctl in self.cfg["end_controls"] or []:               # the controls: at the final evaluation only
+                    out.append(("%s@%s+%s" % (c, layout, ctl), c, layout, data, ctl))
         return out
+
+    def held_meta(self):
+        """The meta fields of every held-out table the online frame layout reads (read once)."""
+        if getattr(self, "_meta", None) is None:
+            self._meta = self.held.load(T.FRAME_META)
+        return self._meta
 
     def evaluate(self, ids, fixed, path, at_node=False):
         """The held-out tables ids under every condition of this arm (eval_plan), read by the moving average. The rows
@@ -283,10 +306,14 @@ class Run:
         strata = SC.strata_of(identity[ids], n_other[ids])
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
-        for key, c, layout, data in self.eval_plan(at_node):
+        for key, c, layout, data, ctl in self.eval_plan(at_node):
             part = {f: v[ids] for f, v in data.items()}
-            fixed = dict(fixed, layout=layout)
-            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout)
+            fixed = dict(fixed, layout=layout if ctl is None else "%s+%s" % (layout, ctl))
+            frame = None
+            if self.frame_index is not None and layout != A.LAYOUT_STORED and cond.parse(c)[0] == cond.WHOLE_GENE:
+                frame = dict(index=self.frame_index, meta={f: np.asarray(v)[ids] for f, v in self.held_meta().items()})
+            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout,
+                                                   frame=frame, control=ctl)
             agg = SC.aggregate(bits, cell_table, groups, strata, self.n_groups, self.group_names)
             for label, b in zip(SC.PARTS, (aa, bits - aa)):           # the two parts of the bits, per group and over the groups
                 agg += [dict(r, stratum=label) for r in SC.aggregate(b, cell_table, groups, [], self.n_groups, self.group_names) if r["stratum"] == SC.ALL]

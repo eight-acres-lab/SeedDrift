@@ -25,7 +25,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
-COMMON_VERSION = "3"
+COMMON_VERSION = "4"
 NEG = -1.0e4                                       # the additive bias of a masked key
 COLUMN_CHUNK = 32768                               # sequences per call of the column attention
 # The row attention with its key mask on a GPU: the memory-efficient kernel, decided at the first call of a process.
@@ -126,7 +126,10 @@ class RowAttention(nn.Module):
 
 
 class ColumnAttention(nn.Module):
-    def __init__(self, width, head=128):
+    def __init__(self, width, head=128, genome_bias=False):
+        """genome_bias: a learned bias per head on the scores of two rows of one genome (genome_of_row equal, both
+        rows existing), zero at the start; the numbers are read only as equal or not, so the output stays equivariant
+        to the order of the rows and to any renumbering of the genomes."""
         super().__init__()
         if width % head or width // head < 2:
             raise ValueError("width %d does not give at least two column heads of %d" % (width, head))
@@ -135,9 +138,11 @@ class ColumnAttention(nn.Module):
         self.out = nn.Linear(width, width)
         self.no_source_key = nn.Parameter(torch.zeros(width))
         self.no_source_value = nn.Parameter(torch.zeros(width))
+        self.same_genome = nn.Parameter(torch.zeros(self.heads)) if genome_bias else None
 
-    def forward(self, x, layout, key_mask=None):
-        """key_mask: bool [N, C], the cells that may be attended to (None: all)."""
+    def forward(self, x, layout, key_mask=None, genome=None):
+        """key_mask: bool [N, C], the cells that may be attended to (None: all); genome: long [N] or None, the
+        genome_of_row of every row (-1: none), read by a layer built with genome_bias only."""
         index, valid, mask = layout
         N, C, d = x.shape
         T, R = index.shape
@@ -151,22 +156,30 @@ class ColumnAttention(nn.Module):
             keys = (key_mask[index] & valid[:, :, None]).permute(0, 2, 1)                          # [T, C, R]: row j's cell at column c
             m = mask[:, None, :, :R] & keys[:, :, None, :]                                          # [T, C, R, R]
             m = torch.cat([m, torch.ones(T, C, R, 1, dtype=torch.bool, device=m.device)], dim=3).reshape(T * C, 1, R, R + 1)
-        y = attention_chunked(q, k, v, bias_of(m, q.dtype), COLUMN_CHUNK)                          # [T * C, H, R, h]
+        bias = bias_of(m, q.dtype)                                                                  # [T * C, 1, R, R + 1]
+        if self.same_genome is not None and genome is not None:
+            g = genome[index]                                                                       # [T, R]
+            same = (g[:, :, None] == g[:, None, :]) & (g[:, :, None] >= 0) & valid[:, :, None] & valid[:, None, :]
+            add = same.to(q.dtype)[:, None, None] * self.same_genome.to(q.dtype).view(1, 1, H, 1, 1)   # [T, 1, H, R, R]
+            add = torch.cat([add, torch.zeros(T, 1, H, R, 1, dtype=q.dtype, device=q.device)], dim=4)
+            bias = bias.view(T, C, 1, R, R + 1) + add                                               # [T, C, H, R, R + 1]
+            bias = bias.reshape(T * C, H, R, R + 1)
+        y = attention_chunked(q, k, v, bias, COLUMN_CHUNK)                                          # [T * C, H, R, h]
         y = y.view(T, C, H, R, h).permute(0, 3, 1, 2, 4).reshape(T, R, C, d)
         return self.out(y[valid])
 
 
 class AxialBlock(nn.Module):
-    def __init__(self, width, row_head=64, column_head=128, ratio=4):
+    def __init__(self, width, row_head=64, column_head=128, ratio=4, genome_bias=False):
         super().__init__()
         self.norm_row, self.norm_column, self.norm_ff = nn.LayerNorm(width), nn.LayerNorm(width), nn.LayerNorm(width)
         self.row = RowAttention(width, row_head)
-        self.column = ColumnAttention(width, column_head)
+        self.column = ColumnAttention(width, column_head, genome_bias)
         self.ff_in, self.ff_out = nn.Linear(width, ratio * width), nn.Linear(ratio * width, width)
 
-    def forward(self, x, cos, sin, layout, key_mask=None, gate=None):
+    def forward(self, x, cos, sin, layout, key_mask=None, gate=None, genome=None):
         x = x + self.row(self.norm_row(x), cos, sin, key_mask, gate)
-        x = x + self.column(self.norm_column(x), layout, key_mask)
+        x = x + self.column(self.norm_column(x), layout, key_mask, genome)
         return x + self.ff_out(F.gelu(self.ff_in(self.norm_ff(x))))
 
     def residual_outputs(self):

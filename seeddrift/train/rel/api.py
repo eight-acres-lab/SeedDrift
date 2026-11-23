@@ -92,8 +92,9 @@ META_FIELDS = {
 # KIND_ABSENT from table version 1: the row's genome was searched (it is a training genome of the search database) and
 #   holds no homolog of this block's gene. An input only, never a target, until the protocol of round 1 decides.
 # KIND_SELF_COPY: a row of the examined genome itself showing another copy of the block's gene; its genome_of_row is 0;
-#   at most MAX_SELF_COPY_ROWS such rows per table, drawn at random, never by score; its other blocks are KIND_ABSENT
-#   or KIND_NONE (the examined genome's own context is row 0).
+#   at most MAX_SELF_COPY_ROWS such rows per table, drawn at random, never by score; on its other blocks it is
+#   KIND_SELF_COPY where the examined genome holds another copy of that block's gene (a duplicated region), else
+#   KIND_ABSENT (the examined genome's own context is row 0).
 SHARD_FIELDS_ADDED = {
     "genome_of_row": ("int8", "N R", "the genome of each row inside the table: 0 for row 0 and its self-copy rows, then 1, 2, ... in row order; rows of one genome share the number; -1 = no row. A model may use it only as equality between rows (same genome or not), never as a value, so that a model stays equivariant to the order of rows. Default (version 0): row r has number r"),
 }

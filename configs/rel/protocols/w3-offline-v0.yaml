@@ -1,7 +1,10 @@
 # Protocol w3-offline-v0: the strict offline rendering of evaluation items under the leak-free layout (package W3).
-# Committed 2026-11-22 by the programme lead.
+# Committed 2026-11-22 by the programme lead. Version 3 (2026-11-23, before round 1): the two controls spare row 0 only,
+# as the renderer's version 2 does (version 1 spared a block's frame row, which on a target block laid on its frame
+# relative left the frame relative's codons under the presence control and row 0's correspondence under the shuffle);
+# and a statement of what the fourth test does not cover.
 name: w3-offline-v0
-version: 2
+version: 3
 what: >
   Evaluation items are rendered offline so that no input depends on a hidden residue: the hidden residues are replaced
   by "unknown" and the blocks of row 0 that hold hidden cells are aligned again; the online renderer used in training is
@@ -20,8 +23,13 @@ frame_for_whole_gene: >
 validity_test: >
   the fourth test is run on every item: the hidden residues are replaced and every stored position of these blocks is
   erased, then the blocks are aligned and rendered again; the grids must be identical cell for cell
+validity_limits: >
+  the fourth test checks the placement only. Which rows a block has, and each row's kind and segment length on it, come
+  from the homology search made with the hidden gene; they are the same under every control and their information is
+  what the presence-only control measures. Every reading of relatives states this
 controls_after_placement:
-  column_shuffle: one permutation per block shared by every other row except the frame row (only the correspondence to row 0 is broken)
-  presence_only: every residue cell of the other rows shown as MASK
+  renderer: version 2 of the renderer (seeddrift/train/rel/tables/render.py); every manifest records the version
+  column_shuffle: one permutation per block shared by every row except row 0, the frame relative included when a block is laid on it (only the correspondence to row 0 is broken; the relatives keep theirs with each other)
+  presence_only: every residue cell of every row except row 0 shown as MASK, the frame relative included
 training_round_1b: scattered and span samples fully leak-free; whole-gene samples keep the stored layout, labelled
 training_round_1: every scheme leak-free; the whole gene placed on the frame relative with the strict aligner above (tables/align.py frame_layout), the same function the evaluation uses (protocol round1, 2026-11-23)

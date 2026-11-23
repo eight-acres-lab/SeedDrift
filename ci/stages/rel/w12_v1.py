@@ -194,7 +194,12 @@ def build(st, cfg, run_dir, which="v1"):
                 out_files.append(dict(path=os.path.join(w["out"], part, "%s.%s.npy" % (name, field)), role=role, **hashes[name][field]))
         g_all = np.concatenate([np.load(os.path.join(folder, "%s.genome.npy" % name)).ravel() for name, _ in shards])
         used |= {int(x) for x in np.unique(g_all) if x >= 0}
-        parts[part] = dict(split=V1.SPLIT_CODE[part], tables=len(plan[0]), per_group=per, groups_without_a_genome=plan[2], folder=os.path.join(w["out"], part),
+        tgt = np.concatenate([np.load(os.path.join(folder, "%s.gene.npy" % name), mmap_mode="r")[:, V1.TARGET] for name, _ in shards]).astype(np.int64)
+        pairs = np.asarray([gix[g] for g in plan[0]], dtype=np.int64) * (1 << 32) + tgt
+        _, reps = np.unique(pairs, return_counts=True)
+        targets = dict(tables=int(len(pairs)), distinct=int(len(reps)), max_times=int(reps.max()) if len(reps) else 0,
+                       note="target genes: each genome's genes in a shuffled order, a gene again only after every gene of its genome")
+        parts[part] = dict(split=V1.SPLIT_CODE[part], tables=len(plan[0]), per_group=per, groups_without_a_genome=plan[2], folder=os.path.join(w["out"], part), targets=targets,
                            shards=[dict(name=n, tables=m) for n, m in shards], sha256=sha256_json(sorted([n, f, h["sha256"]] for n, fs in hashes.items() for f, h in fs.items())))
         counts[part] = {k: v.tolist() for k, v in census.to_arrays().items()}
         say("part %s: %d tables" % (part, len(plan[0])))

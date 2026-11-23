@@ -103,6 +103,7 @@ class Builder:
         self.rows = int(rows)
         self.gix = {g["id"]: i for i, g in enumerate(genomes)}
         self._cur = (None, None)
+        self._perm = {}
 
     def state(self, gid):
         if self._cur[0] != gid:
@@ -135,18 +136,36 @@ class Builder:
         col[t] = q
         return (codons, col, first, j, lost), dropped
 
-    def table(self, out, k, gid, group, split, rng, census=None):
+    def target(self, gid, occ, seed, part):
+        """The target gene of the occ-th table of a genome in part `part` (train, heldout, island): its genes with a
+        codon in an order shuffled once per genome (seed, the part's stream, genome index), taken in turn and from the
+        start again when all have been taken."""
+        key = (gid, int(seed), part)
+        if self._perm.get("key") != key:
+            gen = self.g[gid]
+            ok = np.flatnonzero(np.diff(gen.coff) > 0)
+            if not len(ok):
+                raise SystemExit("tables v1: %s has no gene with a codon" % gid)
+            rng = np.random.default_rng([int(seed), SPLIT_STREAM[part], 2, self.gix[gid]])
+            self._perm = dict(key=key, perm=ok[rng.permutation(len(ok))])
+        perm = self._perm["perm"]
+        return int(perm[int(occ) % len(perm)])
+
+    def table(self, out, k, gid, group, split, rng, census=None, occ=None, seed=None, part=None):
         gen, st, R = self.g[gid], self.state(gid), self.rows
         a = st["a"]
         lens = np.diff(gen.coff).astype(np.int64)
         me = self.gix[gid]
         out["group"][k], out["split"][k] = group, split
-        # the loci, from the examined genome alone (as version 0)
-        i = int(rng.integers(gen.n))
-        for _ in range(64):
-            if lens[i] > 0:
-                break
+        # the loci, from the examined genome alone (as version 0); the target from the plan when it gives one
+        if occ is not None:
+            i = self.target(gid, occ, seed, part)
+        else:
             i = int(rng.integers(gen.n))
+            for _ in range(64):
+                if lens[i] > 0:
+                    break
+                i = int(rng.integers(gen.n))
         if lens[i] <= 0:
             raise SystemExit("tables v1: %s has no gene with a codon" % gid)
         p0 = int(gen.pos[i])
@@ -326,16 +345,21 @@ SPLIT_STREAM = dict(train=0, heldout=1, island=2)    # the random streams: those
 
 def plan_set(genomes, groups, split, per_group, seed):
     """As v0_build.plan_set, over the search's genome list (dicts with id, group, split, genes); the split "island"
-    (the development chromosomes) has its own stream."""
+    (the development chromosomes) has its own stream. Also, per table, how many tables of the same genome come before it
+    (plan[3]): the table takes that place of its genome's shuffled genes (Builder.target), so a gene is the target
+    again only when every gene of its genome has been one."""
     by = {g: sorted(x["id"] for x in genomes if x["split"] == split and x["group"] == g and int(x.get("genes", 1)) > 0) for g in groups}
     present = [g for g in groups if by[g]]
     perm = {g: np.random.default_rng([int(seed), SPLIT_STREAM[split], 1, groups.index(g)]).permutation(len(by[g])) for g in present}
-    genome_of, group_of = [], []
+    genome_of, group_of, occ, seen = [], [], [], {}
     for t in range(int(per_group) * len(present)):
         g = present[t % len(present)]
-        genome_of.append(by[g][int(perm[g][(t // len(present)) % len(by[g])])])
+        gid = by[g][int(perm[g][(t // len(present)) % len(by[g])])]
+        genome_of.append(gid)
         group_of.append(groups.index(g))
-    return genome_of, group_of, [g for g in groups if not by[g]]
+        occ.append(seen.get(gid, 0))
+        seen[gid] = occ[-1] + 1
+    return genome_of, group_of, [g for g in groups if not by[g]], occ
 
 
 def table_rng(seed, split, t):
@@ -352,7 +376,8 @@ def _unit(args):
     out = alloc(len(tables), b.rows)
     cen = Census1(len(w["groups"]), b.rows)
     for k, t in enumerate(tables):
-        b.table(out, k, gid, w["group_of"][t], SPLIT_CODE[w["split"]], table_rng(w["seed"], w["split"], t), cen)
+        occ = w["occ"][t] if w.get("occ") is not None else None
+        b.table(out, k, gid, w["group_of"][t], SPLIT_CODE[w["split"]], table_rng(w["seed"], w["split"], t), cen, occ=occ, seed=w["seed"], part=w["split"])
     b.release()
     return tables, out, cen.to_arrays()
 
@@ -371,7 +396,7 @@ def build_set(builder, groups, split, plan, out_dir, shard_tables=2400, seed=1, 
     todo = [(g, ts[x:x + V0.UNIT_TABLES]) for g, ts in sorted(by.items()) for x in range(0, len(ts), V0.UNIT_TABLES)]
     todo.sort(key=lambda u: (-len(u[1]), u[0], u[1][0]))
     _W.clear()
-    _W.update(builder=builder, groups=list(groups), group_of=group_of, split=split, seed=int(seed))
+    _W.update(builder=builder, groups=list(groups), group_of=group_of, split=split, seed=int(seed), occ=plan[3] if len(plan) > 3 else None)
     census, done, t0 = Census1(len(groups), builder.rows), 0, time.time()
     pool = multiprocessing.get_context("fork").Pool(int(processes)) if processes > 1 and len(todo) > 1 else None
     try:

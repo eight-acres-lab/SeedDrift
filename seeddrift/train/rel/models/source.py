@@ -26,8 +26,8 @@ S2 (learned copy model): p(x) = w_none p_self(x) + sum over available (r, l) of 
 S1 (source path): the source of a row's cells is a chain along the columns of each block, restarted at every block
   (another locus). Its log potentials, from the grid only:
     unary(r) = logsumexp_l score(r, l) [+ evidence], unary(none) = score(none) [+ evidence], -1e4 where unavailable;
-    pair(s, s') = kappa * [s == s'], the stay bonus kappa = softplus(linear(h_full)) given by the trunk per position
-    (the edge into a cell; none at a block's first column);
+    pair(s, s') = 1 + (exp(kappa) - 1) [s == s'], the stay bonus kappa = softplus(linear(h_full)) given by the trunk
+    per position, at most KAPPA_MAX (the edge into a cell; none at a block's first column);
     evidence (switch, on by default): at a visible residue x of the row itself, log E(x | c_r) for source r and
     log E0(x) for none, E a learned 65 x 65 substitution table with no context (so no cell's own token is ever read
     through a context that has seen it). With the trunk's scores zero this is the classical switching copy model with
@@ -60,13 +60,14 @@ from seeddrift.train.rel.models import axial as AX
 from seeddrift.train.rel.models.common import layers as C
 
 MODULE = "source"
-SOURCE_VERSION = "1"
+SOURCE_VERSION = "2"                         # 2: the own-row blocks without their unneeded column attention, the chain in probability space
 ARMS = ("s1", "s2")
 N_OUT = A.TARGET_MAX - A.TARGET_MIN + 1      # residues 1..65
 LEVELS = 3
 KEY = 64                                     # dimension of the pair scores
 NEG = -1.0e4                                 # log potential of an unavailable source (finite: no -inf - -inf in the chain)
 STAY0 = 3.0                                  # the stay bonus at the start
+KAPPA_MAX = 20.0                             # the stay bonus at most (a stay probability of 1 - 2e-9 per position)
 STRENGTH0 = (0.5, 5.0)                       # the copy strengths of the weakest and strongest level at the start
 EVIDENCE0 = 2.0                              # the identity log-odds of the evidence table at the start
 SIZES = {"s1-30m": dict(layers=12, width=384, arm="s1", self_layers=4), "s2-30m": dict(layers=12, width=384, arm="s2", self_layers=4),
@@ -106,8 +107,8 @@ def count_parameters(layers, width, arm, levels=LEVELS, evidence=None, ext=False
     return n + (width if ext else 0)
 
 
-def chain(u, lk):
-    """The chain of sources along positions, in log space.
+def chain_log(u, lk):
+    """The chain of sources along positions, in log space (the reference of chain, for the tests).
 
     u: [K, P, S] log unary potentials; lk: [K, P] log(exp(kappa) - 1) of the edge into each position (NEG: no
     coupling, as at a chain's first position or a restart). The pair potential is 1 + (exp(kappa) - 1) [s == s'].
@@ -134,6 +135,42 @@ def chain(u, lk):
         betas.append(b)
     post = torch.log_softmax(torch.stack(alphas, 1) + torch.stack(betas[::-1], 1), dim=-1)
     return post, logz
+
+
+def chain(u, c):
+    """The chain of sources along positions, in probability space with the messages renormalised at every position:
+    about half the operations of the log-space recursion (chain_log), the same result.
+
+    u: [K, P, S] log unary potentials (NEG: an unavailable state, probability exactly 0); c: [K, P] exp(kappa) - 1 >= 0
+    of the edge into each position (0: no coupling, as at a chain's first position or a restart). The pair potential
+    is 1 + c [s == s']. Returns the log posterior marginals [K, P, S] (NEG where 0) and log Z [K]."""
+    K, P, S = u.shape
+    top = u.max(dim=-1, keepdim=True).values
+    phi = torch.exp(u - top)                                       # the largest state of every position is 1
+    ones = torch.ones(K, S, dtype=u.dtype, device=u.device)
+    c = c[..., None]
+    a = phi[:, 0]
+    z = a.sum(dim=-1, keepdim=True)
+    a = a / z
+    alphas, zs = [a], [z]
+    for p in range(1, P):                                           # sum_s psi(s, s') a(s) = 1 + c a(s'), a summing to 1
+        a = phi[:, p] * torch.addcmul(ones, c[:, p], a)
+        z = a.sum(dim=-1, keepdim=True)
+        a = a / z
+        alphas.append(a)
+        zs.append(z)
+    b = ones / S
+    betas = [b]
+    for p in range(P - 1, 0, -1):
+        t = phi[:, p] * b
+        b = torch.addcmul(t.sum(dim=-1, keepdim=True), c[:, p], t)
+        b = b / b.sum(dim=-1, keepdim=True)
+        betas.append(b)
+    joint = torch.stack(alphas, 1) * torch.stack(betas[::-1], 1)
+    post = joint / joint.sum(dim=-1, keepdim=True)
+    logpost = torch.where(post > 0, torch.log(post.clamp_min(1e-38)), torch.full_like(post, NEG))
+    logz = torch.log(torch.cat(zs, dim=1)).sum(dim=1) + top[..., 0].sum(dim=1)
+    return logpost, logz
 
 
 def strengths(levels):
@@ -209,7 +246,6 @@ class Source(nn.Module):
         if grid.shape[0] != sum(sizes) or grid.shape[1] != self.role_of_column.shape[0]:
             raise ValueError("grid %s does not fit %d rows of %d columns" % (tuple(grid.shape), sum(sizes), self.role_of_column.shape[0]))
         layout = C.table_layout(sizes, grid.device)
-        alone = C.table_layout([1] * int(grid.shape[0]), grid.device)
         keys = grid != A.PAD
         keys = keys | ~keys.any(dim=1, keepdim=True)
         x = self.token(grid) + self.role(self.role_of_column)[None]
@@ -224,8 +260,19 @@ class Source(nn.Module):
         for k, block in enumerate(self.blocks):
             if k == self.self_layers:
                 h_self = x
-            x = block(x, self.cos, self.sin, alone if k < self.self_layers else layout, keys)
+            x = self.alone_block(block, x, keys) if k < self.self_layers else block(x, self.cos, self.sin, layout, keys)
         return h_self, x
+
+    def alone_block(self, block, x, keys):
+        """An AxialBlock on rows that are tables of their own: the column attention of a lone row sees only its learned
+        "no source" key (a row never attends to itself), so its output is out(no-source value) at every cell, exactly.
+        That vector is added without running the attention (its query, key and value projections and its norm are not
+        needed: their parameters stay, unused, so the block is the reference trunk's). The same as
+        block(x, cos, sin, table_layout([1] * N), keys) (test_alone_block_is_the_block_on_lone_rows)."""
+        x = x + block.row(block.norm_row(x), self.cos, self.sin, keys, None)
+        col = block.column
+        x = x + col.out(col.no_source_value.to(x.dtype))
+        return x + block.ff_out(F.gelu(block.ff_in(block.norm_ff(x))))
 
     # ---- the pieces of the output ----
     def _tables(self, grid, sizes):
@@ -292,11 +339,11 @@ class Source(nn.Module):
         B, P = col.shape
         up = u[:, :, col]                                                                          # [T, R, B, P, S]
         up = torch.where(real[None, None, :, :, None], up, torch.zeros((), dtype=up.dtype, device=up.device))
-        lk = log_expm1(p["kappa"][:, :, col].clamp_min(1e-6))
+        cc = torch.expm1(p["kappa"][:, :, col].clamp(max=KAPPA_MAX))
         first = torch.zeros_like(real)
         first[:, 0] = True
-        lk = lk.masked_fill((~real | first)[None, None], NEG)
-        post, logz = chain(up.reshape(T * R * B, P, S), lk.reshape(T * R * B, P))
+        cc = cc.masked_fill((~real | first)[None, None], 0.0)
+        post, logz = chain(up.reshape(T * R * B, P, S), cc.reshape(T * R * B, P))
         post = post.view(T, R, B, P, S)
         cell = torch.zeros(T, R, Cn, S, dtype=post.dtype, device=post.device)
         cell[:, :, col[real]] = post[:, :, real]
@@ -442,7 +489,9 @@ def test_chain_against_enumeration():
     lk = log_expm1(torch.rand(K, P, dtype=torch.float64) * 4 + 0.1)
     lk[:, 0] = NEG
     lk[1, 3] = NEG
-    post, logz = chain(u, lk)
+    post, logz = chain(u, torch.exp(lk))
+    post_l, logz_l = chain_log(u, lk)
+    assert torch.allclose(post.exp(), post_l.exp(), atol=1e-12) and torch.allclose(logz, logz_l, atol=1e-9)
     for k in range(K):
         terms, paths = [], list(itertools.product(range(S), repeat=P))
         for path in paths:
@@ -456,7 +505,33 @@ def test_chain_against_enumeration():
             for p in range(P):
                 marg[p, path[p]] += math.exp(w - float(z))
         assert torch.allclose(marg, post[k].exp(), atol=1e-9), (k, marg, post[k].exp())
-    assert float(post[0, 2, 1].exp()) < 1e-300
+    assert float(post[0, 2, 1].exp()) == 0.0 and float(post_l[0, 2, 1].exp()) < 1e-300
+    u32 = torch.randn(64, 256, 33) * 3                                           # long chains in float32, a strong stay bonus:
+    u32[:, :, 5] = NEG                                                           # the two recursions agree, gradients finite
+    lk32 = log_expm1(torch.full((64, 256), KAPPA_MAX))
+    lk32[:, 0] = NEG
+    u32.requires_grad_(True)
+    a, za = chain(u32, torch.exp(lk32))
+    b, zb = chain_log(u32, lk32)
+    assert torch.allclose(a.exp(), b.exp(), atol=1e-4) and torch.allclose(za, zb, rtol=1e-4)
+    (a.exp()[..., :4].sum() + za.sum()).backward()
+    assert torch.isfinite(u32.grad).all() and (u32.grad[:, :, 5] == 0).all()
+
+
+def test_alone_block_is_the_block_on_lone_rows():
+    """The own-row blocks add the column attention's output without running it: the same as the reference block run
+    with every row a table of its own, and h_self of the trunk the same as the attention path gives."""
+    model = _small("s2", seed=35)
+    grid = _grid(6, 36)
+    keys = grid != A.PAD
+    alone = C.table_layout([1] * 6, grid.device)
+    with torch.no_grad():
+        x = model.token(grid) + model.role(model.role_of_column)[None]
+        for block in model.blocks:
+            want = block(x, model.cos, model.sin, alone, keys)
+            got = model.alone_block(block, x, keys)
+            assert torch.allclose(got, want, atol=1e-5), float((got - want).abs().max())
+            x = want
 
 
 def test_normalised_and_finite():
@@ -663,7 +738,9 @@ def test_backward_and_start():
         row, col = torch.tensor([0, 2, 4]), torch.tensor([5, 800, 1023])
         loss = F.cross_entropy(model(grid, [3, 2], row, col), torch.tensor([0, 10, 64]))
         loss.backward()
-        missing = [k for k, p in model.named_parameters() if p.grad is None or not torch.isfinite(p.grad).all()]
+        unused = ["blocks.0.norm_column.weight", "blocks.0.norm_column.bias", "blocks.0.column.qkv.weight", "blocks.0.column.qkv.bias",
+                  "blocks.0.column.no_source_key"]                         # the own-row block's column attention is not run
+        missing = [k for k, p in model.named_parameters() if (p.grad is None) != (k in unused) or (p.grad is not None and not torch.isfinite(p.grad).all())]
         assert not missing, (arm, missing[:5])
         v = loss.item()
         assert 3.0 < v < 6.0, (arm, v)                                                    # near ln 65 at the start

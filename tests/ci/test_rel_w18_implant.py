@@ -518,6 +518,11 @@ def test_offline_loader_checks_its_files(tmp_path, v1s):
     head = dict(format=P.OFFLINE_FORMAT, ruler=dict(sha256="abc"), plan=dict(version=P.VERSION, seed=P.SEED, rate=P.RATE),
                 fourth_test=dict(failures=0), files=files)
     (base / P.OFFLINE_FILE).write_text(json.dumps(head))
+    with pytest.raises(ValueError, match="not passed"):
+        P.load_offline(str(tmp_path), "abc")
+    rec = dict(status="passed", stages=[dict(name="rel_w18_offline", outputs=[dict(path=os.path.join(P.OFFLINE_DIR, P.OFFLINE_FILE),
+                                                                                  sha256=P._sha256(base / P.OFFLINE_FILE))])])
+    (tmp_path / "record.json").write_text(json.dumps(rec))
     got, _, sha = P.load_offline(str(tmp_path), "abc")
     assert (got["T.col"] == arrays["T.col"]).all() and len(sha) == 64 and got["T.col"].shape[1] == out["tok"].shape[1]
     with pytest.raises(ValueError):

@@ -217,7 +217,7 @@ def gate(st, cfg, run_dir):
         head = json.load(f)
     doc, ts, meta = ruler(s)
     try:
-        arrays, _, _ = P.load_offline(run_dir, doc.get("sha256"))
+        arrays, _, _ = P.load_offline(run_dir, doc.get("sha256"), passed=False)
     except ValueError as err:
         arrays = None
         problems.append(dict(error=str(err)))

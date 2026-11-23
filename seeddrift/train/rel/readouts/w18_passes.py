@@ -441,12 +441,25 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def load_offline(run_dir, ruler_sha256):
+def load_offline(run_dir, ruler_sha256, passed=True):
     """(arrays, head, sha256 of offline.json) of the offline placements a run of stage rel_w18_offline wrote, every file
     checked against the size and sha256 its manifest gives; the manifest must name the ruler set (ruler_sha256: the
-    sha256 of the ruler set's manifest, as run_ruler records it) and this module's plan."""
+    sha256 of the ruler set's manifest, as run_ruler records it) and this module's plan. passed (a reading): the run
+    passed and its record of stage rel_w18_offline lists offline.json with this content (the stage's own gate reads
+    its run before it has passed)."""
     import json
     p = os.path.join(run_dir, OFFLINE_DIR, OFFLINE_FILE)
+    if passed:
+        rp = os.path.join(run_dir, "record.json")
+        rec = {}
+        if os.path.exists(rp):
+            with open(rp) as f:
+                rec = json.load(f)
+        if rec.get("status") != "passed":
+            raise ValueError("the offline placements of %s: the run has not passed" % os.path.basename(os.path.normpath(run_dir)))
+        listed = [o for st in rec.get("stages") or [] for o in st.get("outputs") or [] if os.path.normpath(o.get("path", "")) == os.path.join(OFFLINE_DIR, OFFLINE_FILE)]
+        if not listed or any(o.get("sha256") != _sha256(p) for o in listed):
+            raise ValueError("%s is not the file the run's record of stage rel_w18_offline lists" % OFFLINE_FILE)
     with open(p) as f:
         head = json.load(f)
     if head.get("format") != OFFLINE_FORMAT:

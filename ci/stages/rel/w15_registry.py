@@ -9,9 +9,11 @@ Four things, all from the registry draft the profile names (bench/rel/registry/e
    source's training-data index are read; the sealed test split is never looked at (its genomes are not opened, and
    their taxa are not counted per radius). Overlap with the sealed island genera (and their families) of
    bench/hard/EXCLUDE.tsv is reported from that list alone;
-4. with `fetch`, the papers: Europe PMC metadata of every DOI in the draft, the open full text where Europe PMC has
-   it, and the supplementary files of the DOIs the profile lists, each file with its URL, size and sha256. Papers are
-   stored under the run's data folder, never in the repository.
+4. with `fetch`, the papers: Europe PMC metadata of every DOI in the draft; for an article in PMC's open-access
+   dataset (PMC Article Datasets on AWS Open Data, the sanctioned route for automated retrieval) its full text and,
+   for the DOIs the profile lists, its supplementary files (figures left out) from there; otherwise the open full
+   text and supplements from Europe PMC. Each file with its URL, size and sha256. Papers are stored under the run's
+   data folder, never in the repository. Articles outside the open subset are not retrieved automatically.
 
 Profile block rel_w15_registry: registry (repository path of the draft, or a list of drafts read as one registry), source (the run directory of a passed selfsup
 run, for its training-data index; optional), fetch (bool), supplements (DOIs whose supplements are fetched),
@@ -24,6 +26,7 @@ parsed record (a wholesale failure fails the run instead of passing it with noth
 from __future__ import annotations
 
 import csv
+import hashlib
 import http.client
 import json
 import os
@@ -32,6 +35,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 from bench.rel.registry import registry as reg
 from ci.gates import GateResult, require
@@ -244,9 +248,57 @@ def _fulltext(url, opener):
     return status, data
 
 
+S3 = "https://pmc-oa-opendata.s3.amazonaws.com/"     # PMC Article Datasets on AWS Open Data: the open-access subset
+FIGURE_EXT = (".jpg", ".jpeg", ".gif", ".png", ".tif", ".tiff")
+
+
+def s3_listing(pmcid, opener, waits=RETRIES, sleep=time.sleep) -> list:
+    """(key, size) of every file the open-access dataset holds for this article, all versions; empty when none."""
+    url = S3 + "?" + urllib.parse.urlencode({"list-type": "2", "prefix": pmcid + "."})
+    status, data = _tries(lambda: _get(url, opener), waits, sleep)
+    root = ET.fromstring(data)
+    ns = {"s": root.tag.split("}")[0].strip("{")} if root.tag.startswith("{") else {}
+    q = (lambda tag: "s:" + tag) if ns else (lambda tag: tag)
+    out = []
+    for c in root.findall(q("Contents"), ns):
+        out.append((c.findtext(q("Key"), "", ns), int(c.findtext(q("Size"), "0", ns) or 0)))
+    return out
+
+
+def s3_plan(pmcid, keys) -> dict:
+    """The files of the latest version: the article (xml, txt, json) and its supplementary files (figures left out)."""
+    versions = {}
+    for key, size in keys:
+        head = key.split("/", 1)[0]
+        m = re.fullmatch(re.escape(pmcid) + r"\.(\d+)", head)
+        if m:
+            versions.setdefault(int(m.group(1)), []).append((key, size))
+    if not versions:
+        return {}
+    v = max(versions)
+    stem = "%s.%d/%s.%d" % (pmcid, v, pmcid, v)
+    files = versions[v]
+    article = {ext: (k, n) for k, n in files for ext in (".xml", ".txt", ".json") if k == stem + ext}
+    supp = [(k, n) for k, n in files if not k.startswith(stem + ".") and not k.lower().endswith(FIGURE_EXT)]
+    return dict(version=v, article=article, supplements=supp)
+
+
+def _s3_file(key, dest, opener, waits, sleep, cap_bytes=None) -> dict:
+    url = S3 + urllib.parse.quote(key)
+    try:
+        status, data = _tries(lambda: _get(url, opener, cap_bytes), waits, sleep)
+        if cap_bytes and len(data) > cap_bytes:
+            return dict(url=url, error_type="TooLarge", status=status, error="larger than the cap, not stored")
+        return dict(_store(dest, os.path.basename(key), data), url=url, status=status)
+    except TRANSIENT as err:
+        return _failure(err, url)
+
+
 def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_supplement_mb=50.0, pause_s=0.5,
           waits=RETRIES, sleep=time.sleep) -> dict:
-    """Europe PMC metadata for one DOI, the open full text when Europe PMC has it, the supplements when asked."""
+    """Europe PMC metadata for one DOI. For an article in the open-access dataset (PMC Article Datasets on AWS Open
+    Data, the sanctioned route for automated retrieval), its full text and, when asked, its supplementary files from
+    there; otherwise the open full text and supplements from Europe PMC."""
     rec = dict(doi=doi, when=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     url = EPMC + "search?" + urllib.parse.urlencode(dict(query='DOI:"%s"' % doi, resultType="core", format="json"))
     try:
@@ -259,27 +311,56 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
     except TRANSIENT as err:
         rec["meta"] = _failure(err, url)
         return rec
-    for what, path, cap in (("fulltext", "fullTextXML", None), ("supplements", "supplementaryFiles", max_supplement_mb)):
-        if not rec.get("pmcid") or (what == "supplements" and not supplements):
+    if not rec.get("pmcid"):
+        return rec
+    cap = int(max_supplement_mb * 1e6)
+    plan = {}
+    try:
+        sleep(pause_s)
+        plan = s3_plan(rec["pmcid"], s3_listing(rec["pmcid"], opener, waits, sleep))
+    except (TRANSIENT + (ET.ParseError,)) as err:
+        rec["pmc_oa"] = _failure(err, S3)
+    if plan:
+        rec["pmc_oa"] = dict(version=plan["version"], files=len(plan["article"]) + len(plan["supplements"]))
+        oa = os.path.join(dest, "pmc_oa")
+        for ext, (key, _) in sorted(plan["article"].items()):
+            got = _s3_file(key, oa, opener, waits, sleep)
+            if ext == ".xml":
+                rec["fulltext"] = dict(got, source="pmc-oa-opendata")
+            else:
+                rec.setdefault("article_files", []).append(got)
+        if supplements:
+            files = [_s3_file(k, oa, opener, waits, sleep, cap) for k, n in plan["supplements"]]
+            stored = [f for f in files if f.get("sha256")]
+            rec["supplements"] = dict(source="pmc-oa-opendata", files=files, bytes=sum(f["bytes"] for f in stored))
+            if stored:
+                rec["supplements"]["sha256"] = hashlib.sha256("".join(sorted(f["sha256"] for f in stored)).encode()).hexdigest()
+            elif files:
+                rec["supplements"].update(error_type="NoneStored", status=None, error="no supplementary file stored")
+        if (rec.get("fulltext") or {}).get("sha256") and (not supplements or rec.get("supplements")):
+            return rec
+    for what, path, cap_mb in (("fulltext", "fullTextXML", None), ("supplements", "supplementaryFiles", max_supplement_mb)):
+        if (what == "supplements" and not supplements) or (rec.get(what) or {}).get("sha256"):
             continue
-        time.sleep(pause_s)
+        sleep(pause_s)
         url = EPMC + "%s/%s" % (rec["pmcid"], path)
-        max_bytes = int(cap * 1e6) if cap else None
+        max_bytes = int(cap_mb * 1e6) if cap_mb else None
         try:
             if what == "supplements":
                 status, data = _tries(lambda: _supplement(url, opener, max_bytes), waits, sleep)
             else:
                 status, data = _tries(lambda: _fulltext(url, opener), waits, sleep)
             if max_bytes and len(data) > max_bytes:
-                rec[what] = dict(url=url, error_type="TooLarge", status=status, error="larger than %.0f MB, not stored" % cap)
+                rec[what] = dict(url=url, error_type="TooLarge", status=status, error="larger than %.0f MB, not stored" % cap_mb)
             else:
-                rec[what] = dict(_store(dest, "fulltext.xml" if what == "fulltext" else "supplements.zip", data), url=url, status=status)
+                rec[what] = dict(_store(dest, "fulltext.xml" if what == "fulltext" else "supplements.zip", data), url=url,
+                                 status=status, source="europepmc")
         except urllib.error.HTTPError as err:
             rec[what] = _failure(err, url)
             if what == "fulltext" and err.code == 500:
-                rec[what]["note"] = ("HTTP 500 after retries: Europe PMC's back end failed (run 20261122T153204 had such failures "
-                                     "for open-access articles too), or the article is outside its open subset; PMC's terms bar "
-                                     "automated bulk download from its own site")
+                rec[what]["note"] = ("HTTP 500 after retries, and the article is not in the open-access dataset: Europe PMC's "
+                                     "back end failed, or the article is outside the open subset (PMC's terms bar automated "
+                                     "bulk download from its own site)")
         except TRANSIENT as err:
             rec[what] = _failure(err, url)
     return rec

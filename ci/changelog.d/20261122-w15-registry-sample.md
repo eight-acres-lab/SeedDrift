@@ -57,3 +57,7 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
   still answered 34 full-text requests with 500 after the retries): the psbA claim set is regraded A on the supported
   trees of its full text, and the crucivirus record keeps C (the junction window is in a figure and the GenBank
   features, not in the text). A supplement over the size cap now records its error type (`TooLarge`).
+- Full texts and supplements of open-access articles now come first from PMC's open-access dataset on AWS Open Data
+  (`pmc-oa-opendata`: the latest version's article XML, text and metadata, and its supplementary files without the
+  figures), the sanctioned route for automated retrieval; Europe PMC is the fallback. Articles outside the open
+  subset are not retrieved automatically (PMC's terms bar automated bulk download from its own site).

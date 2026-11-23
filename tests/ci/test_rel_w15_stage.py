@@ -89,6 +89,10 @@ def test_dois_collects_from_papers_and_later():
     assert W.dois(rows) == ["10.1126/science.1142490", "10.1186/1471-2164-15-1097", "10.1093/gbe/evv158"]
 
 
+EMPTY_LISTING = (b'<?xml version="1.0"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                 b'<KeyCount>0</KeyCount></ListBucketResult>')
+
+
 class Resp(io.BytesIO):
     status = 200
 
@@ -105,6 +109,8 @@ def test_fetch_stores_meta_fulltext_and_capped_supplements(tmp_path):
 
     def opener(req, timeout):
         seen.append(req.full_url)
+        if req.full_url.startswith(W.S3):
+            return Resp(EMPTY_LISTING)
         if "search?" in req.full_url:
             return Resp(meta.encode())
         if req.full_url.endswith("fullTextXML"):
@@ -117,7 +123,7 @@ def test_fetch_stores_meta_fulltext_and_capped_supplements(tmp_path):
     assert "not stored" in rec["supplements"]["error"] and rec["supplements"]["error_type"] == "TooLarge"
     assert W.failures([rec]) == {"supplements": {"TooLarge 200": 1}}
     assert (tmp_path / "p" / "meta.json").exists() and not (tmp_path / "p" / "supplements.zip").exists()
-    assert "User-Agent" in str(seen) or len(seen) == 3
+    assert len(seen) == 4 and seen[1].startswith(W.S3)              # metadata, the open-data listing, then Europe PMC
 
 
 def test_settings_refuse_the_catalogue_path():
@@ -183,6 +189,8 @@ def test_supplement_error_bodies_are_retried_and_never_stored(tmp_path):
     waited = []
 
     def opener(req, timeout):
+        if req.full_url.startswith(W.S3):
+            return Resp(EMPTY_LISTING)
         if "search?" in req.full_url:
             return Resp(meta.encode())
         if req.full_url.endswith("fullTextXML"):
@@ -190,7 +198,7 @@ def test_supplement_error_bodies_are_retried_and_never_stored(tmp_path):
         return Resp(answers.pop(0))
 
     rec = W.fetch("10.1/z", str(tmp_path / "z"), opener=opener, supplements=True, pause_s=0, sleep=waited.append)
-    assert rec["supplements"]["bytes"] == 7 and waited == [10, 30, 10, 30]       # full text retried twice, then supplements
+    assert rec["supplements"]["bytes"] == 7 and [w for w in waited if w] == [10, 30, 10, 30]  # full text, then supplements
     assert rec["fulltext"]["status"] == 500 and "after retries" in rec["fulltext"]["note"]
     answers[:] = [b"<errorBean/>"] * 3
     rec = W.fetch("10.1/z", str(tmp_path / "z2"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
@@ -279,3 +287,39 @@ def test_the_gate_still_fails_when_the_guard_records_every_paper(tmp_path, monke
     monkeypatch.setattr(mod, "require", lambda result, run_dir: seen.append(result))
     mod.gate(None, {}, str(run))
     assert seen[0].status == "fail" and "0 of 5" in json.dumps(seen[0].evidence)
+
+
+LISTING = (b'<?xml version="1.0"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+           b'<Contents><Key>PMC7.1/PMC7.1.xml</Key><Size>10</Size></Contents>'
+           b'<Contents><Key>PMC7.2/PMC7.2.xml</Key><Size>12</Size></Contents>'
+           b'<Contents><Key>PMC7.2/PMC7.2.txt</Key><Size>5</Size></Contents>'
+           b'<Contents><Key>PMC7.2/PMC7.2.pdf</Key><Size>99</Size></Contents>'
+           b'<Contents><Key>PMC7.2/x.sd01.xlsx</Key><Size>4</Size></Contents>'
+           b'<Contents><Key>PMC7.2/xfig01.jpg</Key><Size>8</Size></Contents></ListBucketResult>')
+
+
+def test_the_open_access_dataset_comes_first_latest_version_no_figures(tmp_path):
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC7", isOpenAccess="Y")])))
+    seen = []
+
+    def opener(req, timeout):
+        seen.append(req.full_url)
+        if "search?" in req.full_url:
+            return Resp(meta.encode())
+        if req.full_url.startswith(W.S3 + "?"):
+            return Resp(LISTING)
+        if req.full_url.startswith(W.S3):
+            return Resp(b"<article>" + req.full_url.encode()[-12:] + b"</article>")
+        raise AssertionError("Europe PMC asked although the open dataset had everything: " + req.full_url)
+
+    rec = W.fetch("10.1/o", str(tmp_path / "o"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
+    assert rec["pmc_oa"] == dict(version=2, files=3)
+    assert rec["fulltext"]["source"] == "pmc-oa-opendata" and rec["fulltext"]["file"] == "PMC7.2.xml"
+    assert [f["file"] for f in rec["supplements"]["files"]] == ["x.sd01.xlsx"] and rec["supplements"]["sha256"]
+    assert not any(u.endswith((".jpg", ".pdf")) for u in seen)
+    assert (tmp_path / "o" / "pmc_oa" / "x.sd01.xlsx").exists()
+
+
+def test_s3_plan_without_the_article_in_the_dataset():
+    assert W.s3_plan("PMC8", []) == {}
+    assert W.s3_plan("PMC8", [("PMC80.1/PMC80.1.xml", 3)]) == {}           # another article's prefix is not this one

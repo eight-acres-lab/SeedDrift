@@ -205,12 +205,18 @@ def test_model_index_and_gate_of_a_finished_training(tmp_path):
     assert "out of memory" in doc["variants"][1]["error"] and doc["tablesets"][0]["run_id"] == "tables" and doc["groups"] == list(GROUPS)
     assert doc["variants"][0]["info"]["tables_seen"] == 4000 and doc["variants"][0]["info"]["final_items"]["scattered"] == "digest-scattered"
     assert {o["name"] for o in st.outputs} >= {"models", "results", "summary_w6-ref30m-s1"}
-    w6_fit.gate(st, cfg, run_dir)                                       # one arm trained, one failed: recorded, not a failure
+    from ci.gates import GateFailure
+    with pytest.raises(GateFailure):                                    # one arm trained, one failed: recorded, and the run fails
+        w6_fit.gate(st, cfg, run_dir)
     g = _gate(run_dir, "G4_rel_w6_fit")
-    assert g["status"] == "pass" and g["evidence"]["trained"] == ["w6-ref30m-s1", "w6-ref10m-s1"] and "w6-ref30m-norel-s1" in g["evidence"]["failed"]
+    assert g["status"] == "fail" and g["evidence"]["trained"] == ["w6-ref30m-s1", "w6-ref10m-s1"] and "w6-ref30m-norel-s1" in g["evidence"]["failed"]
+    assert any(e.get("arm") == "w6-ref30m-norel-s1" and "out of memory" in e["error"] for e in g["evidence"]["problems"])
     part = w6_fit.summary(run_dir)
     assert part["json"]["arms"]["w6-ref30m-s1"]["cells_per_s"] == 12.5 and part["json"]["arms"]["w6-ref30m-s1"]["tables_seen"] == 4000
     assert any("failed" in line for line in part["md"]) and len(json.dumps(part["json"])) < 20000
+    run_dir, cfg, doc, st = _finished_fit(tmp_path / "all", statuses=("ok", "ok", "ok"))
+    w6_fit.gate(st, cfg, run_dir)                                       # every arm trained to its budget (the wall limit here)
+    assert _gate(run_dir, "G4_rel_w6_fit")["status"] == "pass"
 
 
 def test_preflight_only_probes_index_their_preflights(tmp_path):

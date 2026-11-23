@@ -44,11 +44,13 @@ What the stage does:
   3. the arms that passed are trained, largest declared memory first, at most rel.parallel at once and only while the
      memory their preflights measured fits beside what was free at the start;
   4. an arm that fails (preflight, training, its wall limit) is recorded with the end of its log and does not stop
-     the others.
+     the others; the run then fails at its gate (below), its files kept for reading.
 Outputs under data/rel_w6/fit/: <arm>/ (preflight.json, steps.csv, results.tsv, summary.json, heldout_final.npz, the
 checkpoints final.pt and best.pt, logs), results.tsv (the result rows of every arm, api.RESULT_ROW), models.json (the
-model index of the hand-off, written last). Gate G4_rel_w6_fit: the index is well-formed, at least one arm trained,
-and every trained arm has its final rows under each of its conditions.
+model index of the hand-off, written last). Gate G4_rel_w6_fit: the index is well-formed; every arm trained (a
+preflight-only run: preflighted) and ended at its budget (arm_problems: its budget_cells where it has one, max_steps
+where the profile sets it, otherwise the wall limit), so a run with an arm refused for memory, failed or ended early
+fails and hands nothing off; and every trained arm has its final rows under each of its conditions.
 """
 from __future__ import annotations
 
@@ -360,6 +362,25 @@ def final_rows(run_dir):
     return out
 
 
+def arm_problems(doc, cfg) -> list:
+    """Every arm of the run trained (a preflight-only run: preflighted) and, trained, ended at its budget: its budget in
+    cells where it has one, max_steps where the profile sets it, otherwise the wall limit. An arm that did not (refused
+    for GPU memory, failed, ended by its wall limit before its budget) fails the run: a reading of several arms, whose
+    differences are the thresholds, never goes on without one of them."""
+    out, only = [], bool(doc.get("preflight_only"))
+    max_steps = (cfg.get("rel_w6_fit") or {}).get("max_steps")
+    for v in doc.get("variants") or []:
+        if v.get("status") != "ok":
+            out.append(dict(arm=v.get("name"), error="the arm was not %s: %s" % ("preflighted" if only else "trained",
+                                                                                 " ".join(str(v.get("error") or "no reason recorded").split())[-400:])))
+        elif not only:
+            info = v.get("info") or {}
+            want = (["budget"] if info.get("budget_cells") else []) + (["max_steps"] if max_steps else []) or ["wall"]
+            if info.get("ended_by") not in want:
+                out.append(dict(arm=v.get("name"), error="the arm ended by %s, not at its budget (%s)" % (info.get("ended_by"), " or ".join(want))))
+    return out
+
+
 def gate(st, cfg, run_dir):
     p = os.path.join(run_dir, OUT, "models.json")
     with open(p) as f:
@@ -369,6 +390,7 @@ def gate(st, cfg, run_dir):
     ok = [v for v in doc.get("variants") or [] if v.get("status") == "ok"]
     if not ok:
         problems.append(dict(error="no arm was %s" % ("preflighted" if only else "trained")))
+    problems += arm_problems(doc, cfg)
     final = {} if only else final_rows(run_dir)
     for v in [] if only else ok:
         want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)

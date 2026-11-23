@@ -18,7 +18,9 @@ Profile block rel_w6_eval:
              presence_arms (arm or variant names) also run the presence passes; layout stored or leakfree;
              in_place_only (false): the untrained arms, and the presence passes, on the in-place implants only;
              adapt_v0_arms (false): every arm (the untrained too) read through the module's adaptation of tables of
-             version 1 to arms trained on version 0 (adapt_v0=True)
+             version 1 to arms trained on version 0 (adapt_v0=True); offline: the directory of a passed run of stage
+             rel_w18_offline on that ruler set (the strict offline rendering of protocol w18 version 3), for layout
+             leakfree, which needs it; the module renders with W3's leak-free renderer
   tables     heldout_offline (optional): {run, path, sha256}: package W3's strict offline rendering of that held-out
              set (layout leakfree, its parts), read by the arms trained leak-free in place of the training's own; never
              with a ruler set (a readout renders its passes itself)
@@ -67,7 +69,7 @@ KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "t
         "only_conditions", "end_controls"}
 CONTROLS = ("shuffle", "presence")
 NODE_WEIGHTS = w6_fit.NODE_WEIGHTS
-READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only", "adapt_v0_arms"}
+READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only", "adapt_v0_arms", "offline"}
 UNTRAINED = "untrained"
 RULER_CELLS = "ruler_cells.npz"
 WEIGHTS_RX = re.compile(r"^(final|best|node@[1-9][0-9]*)$")
@@ -109,6 +111,8 @@ def settings(cfg) -> dict:
     ro = sc.get("readout")
     if ro is not None and (set(ro) - READOUT_KEYS or not ro.get("module")):
         raise SystemExit("rel_w6_eval.readout: {module, presence_arms, max_rows, layout, in_place_only, adapt_v0_arms}: %r" % (ro,))
+    if ro is not None and ro.get("offline") is not None and str(ro.get("layout") or "stored") != "leakfree":
+        raise SystemExit("rel_w6_eval.readout.offline: the strict offline rendering of the ruler set is read in layout leakfree")
     if any(a["untrained"] for a in arms) and ro is None:
         raise SystemExit("rel_w6_eval: an untrained arm is read by a readout only (rel_w6_eval.readout)")
     sources = sc["from"] if isinstance(sc["from"], list) else [sc["from"]]
@@ -120,7 +124,8 @@ def settings(cfg) -> dict:
                 extra_conditions=[str(c) for c in sc.get("extra_conditions") or []], only_conditions=[str(c) for c in sc.get("only_conditions") or []] or None,
                 readout=None if ro is None else dict(module=str(ro["module"]), presence_arms=[str(x) for x in ro.get("presence_arms") or []],
                                                      max_rows=int(ro.get("max_rows", 32)), layout=str(ro.get("layout") or "stored"),
-                                                     in_place_only=bool(ro.get("in_place_only", False)), adapt_v0_arms=bool(ro.get("adapt_v0_arms", False))))
+                                                     in_place_only=bool(ro.get("in_place_only", False)), adapt_v0_arms=bool(ro.get("adapt_v0_arms", False)),
+                                                     offline=None if ro.get("offline") is None else str(ro["offline"])))
 
 
 def source_index(source):
@@ -184,6 +189,11 @@ def build(st, cfg, run_dir):
         if int(off.get("tables") or 0) and held["doc"].get("tables") and int(off["tables"]) != int(held["doc"]["tables"]):
             raise SystemExit("rel_w6_eval: the offline rendering holds %s tables, the held-out set %s" % (off.get("tables"), held["doc"].get("tables")))
         st.extra.update(heldout_offline=dict(name=off.get("name"), sha256=off.get("sha256"), run=os.path.basename(s["heldout_offline"]["run"])))
+    if ro is not None and ro["offline"] is not None:                  # package W18's strict offline rendering of the ruler set: a passed run
+        rec = w6_fit.read_json(os.path.join(ro["offline"], "record.json")) or {}
+        if rec.get("status") != "passed" or not os.path.isdir(ro["offline"]):
+            raise SystemExit("rel_w6_eval.readout.offline: %s is not a passed run (%s)" % (ro["offline"], rec.get("status")))
+        st.extra.update(ruler_offline=os.path.basename(ro["offline"]))
     if (held["kind"] == "ruler") != (ro is not None):
         raise SystemExit("rel_w6_eval: a ruler set is read through a readout (rel_w6_eval.readout) and a readout reads a ruler set (given a %s set%s)"
                          % (held["kind"], " and a readout" if ro else ""))
@@ -262,7 +272,7 @@ def build(st, cfg, run_dir):
                 ec["end_controls"] = []
             if ro is not None:                                         # the passes of the readout: no rows, a per-cell file
                 ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"], in_place_only=ro["in_place_only"], untrained=untrained,
-                                     adapt_v0=ro["adapt_v0_arms"],
+                                     adapt_v0=ro["adapt_v0_arms"], offline=ro["offline"],
                                      presence=not untrained and (a in ro["presence_arms"] or variant_of_arm(a) in ro["presence_arms"]))
             cp = os.path.join(folder, "conf.json")
             write_json(cp, ec)

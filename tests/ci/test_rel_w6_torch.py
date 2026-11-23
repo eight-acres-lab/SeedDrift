@@ -435,6 +435,10 @@ def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
         assert out["final_items"][c] == _digest(cfg, root, c), c
     sch = out["schemes"]
     assert set(sch) == {"scattered", "span", "whole_gene"} and sum(x["tables"] for x in sch.values()) == 12
+    ft = out["frame_tiers"]                                      # the frame relatives of training and evaluation, by distance
+    assert sum(ft["heldout"].values()) == 12 and sum(ft["train"].values()) == sch["whole_gene"]["tables"] > 0
+    assert set(ft["heldout"]) | set(ft["train"]) <= {"none", "self_copy"} | {"tier_%d" % t for t in range(-1, 8)}
+    assert {r["budget"].split(";")[-1] for r in rows} == {"micro=1"}                                # the micro-batch trained with
     assert abs(sum(x["cell_share"] for x in sch.values()) - 1) < 1e-3 and abs(sum(x["loss_share"] for x in sch.values()) - 1) < 1e-3
     with open(os.path.join(cfg["out"], "steps.csv")) as f:
         steps = list(csv.DictReader(f))

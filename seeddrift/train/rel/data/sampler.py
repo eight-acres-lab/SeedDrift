@@ -9,8 +9,8 @@ Mask scheme: one per table, drawn among `masks` (modules of seeddrift.train.rel.
 (tables.render) or another layout of package W3's renderer (tables/render.py, e.g. leakfree), which also marks the
 cells it laid by extension (ext); or frame (whole gene only): the table, after its rows are drawn, laid on its frame
 relative by package W3's strict aligner (tables/align.py frame_layout, the function the evaluation uses), then
-rendered leak-free. The sampler counts the seconds it spends in frame_layout and the tables it laid (frame_s,
-frame_tables), in the process that draws.
+rendered leak-free (the example's frame_from: the stored row its frame relative is, -1 for none). The sampler counts
+the seconds it spends in frame_layout and the tables it laid (frame_s, frame_tables), in the process that draws.
 
 An example is a dict: grid uint8 [R, ROW_LEN] (what the model reads), truth uint8 [R, ROW_LEN] (0 = no target),
 scheme (index into masks), table, group, layout; and ext bool [R, ROW_LEN] when the layout is not stored.
@@ -115,6 +115,8 @@ class Sampler:
                 self.frame_s += time.perf_counter() - t0
                 self.frame_tables += 1
                 grid, truth, ext = RD.render(dict(tab, col=col, frame_row=frame_row, frame_len=frame_len), visible, target, layout=A.LAYOUT_LEAKFREE)
+                fr = AL.frame_relative(tab)                             # the frame relative of the target block, as a row of the stored table
+                frame_from = int(chosen[fr]) if fr is not None else -1
             else:
                 if self.masks[s] == "whole_gene" and self.frame_index is not None:   # the whole gene on its frame relative
                     col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(self.tables.meta(i), chosen), self.frame_index)
@@ -125,6 +127,8 @@ class Sampler:
                            cells=int(T.inside(tab).sum()), layout=lay, rows=chosen)
                 if ext is not None:
                     out["ext"] = ext
+                if lay == FRAME:
+                    out["frame_from"] = frame_from                       # -1: no other row has a stretch in the target block
                 if "genome_of_row" in tab:
                     out["genome_of_row"] = np.asarray(tab["genome_of_row"]).astype(np.int64)
                 return out

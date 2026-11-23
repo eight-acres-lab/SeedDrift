@@ -225,11 +225,20 @@ def build(st, cfg, run_dir):
     os.makedirs(root, exist_ok=True)
     env = w6_tools.environment(s["threads"], hide_gpu=cpu)
     arms = {}
+    # the memory allowance of a preflight: the variant's, or less where the GPU has less free than the training of the
+    # arm would need beside nothing else (the scheduler below asks 1.1 times the measured reserve and 500 MB more), so
+    # that an arm preflighted at a micro-batch is never refused its training for memory (i-2 beside its vLLM service)
+    free_pre = None if cpu else w6_tools.gpu_free_mb()
+    cap = None if free_pre is None else int((float(free_pre) - 500.0) / 1.1)
+    st.extra.update(gpu_free_mb_at_preflight=free_pre, gpu_mb_cap=cap)
     for a in s["arms"]:                                                # every arm alone, before any training starts
         folder = os.path.join(root, a["name"])
         os.makedirs(folder, exist_ok=True)
         conf = os.path.join(folder, "conf.json")
-        write_json(conf, trainer_conf(cfg, s, a, sets, folder, run_dir))
+        c = trainer_conf(cfg, s, a, sets, folder, run_dir)
+        if cap is not None and cap < float(c["gpu_mb"]):
+            c.update(gpu_mb=cap, gpu_mb_variant=c["gpu_mb"])
+        write_json(conf, c)
         log = os.path.join(folder, "preflight.log")
         proc, lg = w6_tools.start(py, "preflight", conf, log, env)
         try:

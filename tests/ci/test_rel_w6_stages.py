@@ -606,13 +606,17 @@ def test_evaluation_again_settings_and_source():
     assert [a["weights"] for a in w["arms"]] == ["final", "best", "node@65536"] and w["best"] == "all" and w["end_controls"] == ["shuffle", "presence"]
     assert w["heldout_offline"] == dict(run="/x/runs/w3", path="offline.json", sha256=None)
     assert w6_eval.weights_label("node@65536") == "tables=65536" and w6_eval.weights_label("best") == "best"
+    rd = dict(module="seeddrift.train.rel.readouts.w18_passes", layout="leakfree", offline="/x/runs/w18-offline")
+    assert w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], readout=rd)))["readout"]["offline"] == "/x/runs/w18-offline"
+    with pytest.raises(SystemExit):                                     # the offline rendering of a ruler set is read leak-free
+        w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], readout=dict(rd, layout="stored"))))
     for bad in (dict(arms=[dict(name="w6-ref30m-s1", weights="node@x")]), dict(arms=[dict(name="w6-ref30m-s1", weights="last")]),
                 dict(arms=[dict(name="w6-ref30m-s1", weights="best")] * 2), dict(best="some"), dict(end_controls=["sideways"]),
                 dict(tables=dict(good["rel_w6_eval"]["tables"], other=dict(run="/x", path="p")))):
         with pytest.raises(SystemExit):
             w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **bad)))
     assert ro["readout"] == dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"], max_rows=32, layout="stored",
-                                 in_place_only=False, adapt_v0_arms=False)
+                                 in_place_only=False, adapt_v0_arms=False, offline=None)
     assert w6_eval.variant_of_arm("w6-ref100m-lr4e-4-s1") == "w6-ref100m-lr4e-4" and w6_eval.variant_of_arm("w6-ref30m-s12") == "w6-ref30m"
 
 

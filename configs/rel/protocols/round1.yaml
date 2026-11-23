@@ -1,11 +1,13 @@
 # Protocol round1: the first selection round of the relational-model line, on tables of version 1 under the leak-free
 # layout. Written by the programme lead on 2026-11-23 and revised after an independent review the same day; committed
-# before any arm of the round starts. The coordinator writes the round's profiles from it.
+# before any arm of the round starts. The coordinator writes the round's profiles from it. Version 3 (2026-11-23, also
+# before any arm starts) changes only the number of training tables: the combined search left too little disk on i-1
+# for 403,200 tables with the reserve, so round 1 uses 201,600; the larger set is for the next round.
 name: round1
-version: 2
+version: 3
 what: >
-  The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, about
-  403,000 training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
+  The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
+  training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
   equal tables seen (version 1 against version 0, same size, rate and layout); (2) how large the noise between seeds is
   on these tables; (3) what the value of relatives is without the placement leak. Batch 2 answers (4), whether a larger
   model helps on version 1. The HGT capability check is read on version 1 under protocol w18 version 3 (to be committed
@@ -22,7 +24,7 @@ coverage:
     - "the sealed test split (never opened)"
 
 requires:                                 # gates that must pass before batch 1 starts
-  - "the version-1 table set of stage w12_v1 built on the combined search 20261123T061001 (403,200 or 302,400 training tables; its manifest says which)"
+  - "the version-1 table set of stage w12_v1 built on the combined search 20261123T061001 (201,600 training tables, 16,800 per group, as its manifest states)"
   - "the strict offline rendering of the version-1 held-out set (stage w3_offline; parts scattered, suffix, whole_gene; the fourth validity test on every table)"
   - "a 50-step probe of each batch-1 variant on real version-1 tables on the machine it will run on: finite loss, peak memory, tables per second"
 

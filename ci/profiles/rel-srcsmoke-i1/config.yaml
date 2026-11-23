@@ -1,0 +1,46 @@
+# Machine i-1: the smoke test of arms S1 and S2 of decision D7 (task-breakdown 8.14; package W5) before round 1: the
+# self-tests of the source module, then each arm trained for at most 1,500 steps (preflight with its memory measure and
+# divergence guard first), one at a time on the GPU, beside the reference arm it is set against
+# (w6-ref30m-leakfree-lr1.5e-4) under the same conditions, so that the step times compare. Tables of version 0 (the
+# training and held-out sets of round 1b), the leak-free arms read on W3's strict offline rendering; small evaluations
+# (20 held-out tables per group). It asks only that the arms run end to end, their loss fall and their cost per step
+# be measured; no reading of bits is taken from it.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 30000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_selftest, w6_fit]
+  parallel: 1
+rel_w6_selftest:
+  modules: [seeddrift.train.rel.models.source, seeddrift.train.rel.models.axial, tests/ci/test_rel_w5_source_torch.py]
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/runs/20261122T132634-exp-rel-0200cd06-rel-dev-w3-offline-i1, path: data/rel_w3/offline/tableset.json, sha256: 4d21b19979778b47cd9d2630fe2afeb76387b26a3c8e9a08fbc55efc81b044b1}
+  arms:
+    - {variant: configs/rel/variants/w5-src30m-s1.yaml, seed: 1}
+    - {variant: configs/rel/variants/w5-src30m-s2.yaml, seed: 1}
+    - {variant: configs/rel/variants/w6-ref30m-leakfree-lr1.5e-4.yaml, seed: 1}
+  max_steps: 1500
+  warmup_steps: 300
+  eval_first: 2000
+  eval_per_group: 20
+  final_per_group: 20
+  wall_s: 2700                   # 45 min for one training, its small final evaluation included
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

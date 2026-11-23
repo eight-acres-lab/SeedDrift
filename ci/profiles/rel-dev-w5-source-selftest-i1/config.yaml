@@ -1,0 +1,30 @@
+# Machine i-1: the self-tests of arms S1 and S2 of decision D7 (seeddrift/train/rel/models/source.py, package W5) in the
+# model interpreter with the GPUs hidden, through package W6's stage w6_selftest: forward and backward of the source
+# chain against enumerating every path, normalisation, the own-row branch blind to every other row, other rows only
+# through the codons copied, sources only where a residue is, rows permute, tables do not mix, hidden content does not
+# leak, S1 without stay bonus and evidence is S2, the read-outs agree with the prediction, parameter counts. Also the
+# reference trunk's tests, which the source module builds on, and both arms through the trainer on small random
+# tables. CPU only, two threads, minutes; no real genome is read. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: tiny
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/ci-tiny.yaml
+taxdump: tests/ci/fixtures/tiny/taxdump
+rel:
+  machine: i1
+  stages: [w6_selftest]
+  parallel: 1
+rel_w6_selftest:
+  modules: [seeddrift.train.rel.models.source, seeddrift.train.rel.models.axial, tests/ci/test_rel_w5_source_torch.py]
+  threads: 2
+  wall_s: 840
+train:
+  gpu_lease: false
+  device: cpu
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

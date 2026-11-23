@@ -19,7 +19,8 @@ manifest (the digest of the cells scored under every condition is in evals.jsonl
 Files in cfg["out"]: preflight.json; steps.csv (every step: tables, cells and target cells seen, loss in bits per
 target cell, learning rate, cells per second, memory, gradient norm, wall time, the loss of every mask scheme);
 evals.jsonl (every evaluation); results.tsv; summary.json; heldout_final.npz (every scored cell of the final
-evaluation); final.pt (the raw and the averaged weights at the end) and best.pt (the averaged weights at the node
+evaluation); node_cells.npz (at every node, per held-out table of the nodes' subset and condition: the summed bits
+and the number of scored cells, keys t<tables>_<condition>_bits and _cells, "+" written "__"; tables: their ids); final.pt (the raw and the averaged weights at the end) and best.pt (the averaged weights at the node
 with the lowest bits under the arm's main condition). No checkpoint in probe mode, which takes only tables that are
 not real; every other run takes only real tables. This module never imports a generator of synthetic tables or rulers.
 """
@@ -700,11 +701,19 @@ def fit(cfg):
         torch.save(body, p + ".part")
         os.replace(p + ".part", p)
 
+    node_cells = {}                                                    # node_cells.npz: tables (ids), t<n>_<condition>_bits / _cells
+
     def node():
         t = time.time()
         rate = k["cells"] / k["train_s"] if k["train_s"] > 0 else 0.0
         fixed = run.fixed_columns("%s@tables=%d" % (reads, k["tables"]), "subset", k["cells"], rate, "running", k["tables"], time.time() - began)
-        main, _, digests = run.evaluate(sub, fixed, results, at_node=True)
+        main, cells_n, digests = run.evaluate(sub, fixed, results, at_node=True)
+        for key, (b, tb) in cells_n.items():                           # every node's bits per held-out table (paired intervals between nodes)
+            c = key.replace("+", "__")
+            node_cells["t%d_%s_bits" % (k["tables"], c)] = np.bincount(tb, weights=b, minlength=len(sub))
+            node_cells["t%d_%s_cells" % (k["tables"], c)] = np.bincount(tb, minlength=len(sub)).astype(np.int64)
+        np.savez(os.path.join(out_dir, "node_cells.npz.part.npz"), tables=sub, **node_cells)
+        os.replace(os.path.join(out_dir, "node_cells.npz.part.npz"), os.path.join(out_dir, "node_cells.npz"))
         took = time.time() - t
         k["eval_s"] += took
         rec = dict(tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"], wall_s=round(time.time() - began, 1),

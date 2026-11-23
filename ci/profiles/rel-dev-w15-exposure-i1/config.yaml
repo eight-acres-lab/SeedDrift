@@ -1,0 +1,41 @@
+# Machine i-1: the exposure levels (L0-L5) of the event registry drafts (stage w15_registry, ci/stages/rel/w15_registry.py,
+# item 6; package W15), by the names-only scan of bench/hard/V2_REGISTER.md: every path under the roots below is matched
+# against the assembly numbers and species of the corpus genomes inside each exclusion radius (train and held-out splits
+# of round R3's training-data index) and the records' own genus or species names. No file is opened; a hit is L3, L4
+# under a score folder, L5 under eval/. Paths naming a genome outside the train and held-out splits are skipped and
+# counted in total only. Folders not entered: content stores, code checkouts, environments, the service's job folder
+# (SKIP_NAMES). Not covered by this run: machine i-2, the developer machine, the git history. No paper is fetched, no
+# model output and no score is read. Standard library only: the select lock, no GPU, no network. Development diagnosis only.
+pipeline: rel_events
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 1
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w15_registry]
+rel_w15_registry:
+  registry:
+    - bench/rel/registry/events_v0.2-sample.tsv
+    - bench/rel/registry/events_v0.2-batch2.tsv
+    - bench/rel/registry/events_v0.2-batch3.tsv
+    - bench/rel/registry/events_v0.2-batch4.tsv
+    - bench/rel/registry/events_v0.2-batch5.tsv
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  fetch: false
+  exposure_roots:
+    - /hy-tmp/seeddrift-ci/runs          # the CI runs of both lines
+    - /hy-tmp/seeddrift-ci/dev           # development runs and checks
+    - /hy-tmp/seeddrift-ci/imports       # runs imported from the other machine
+    - /hy-tmp/seeddrift-store            # data store: island store (evalsets), corpus, references
+    - /hy-tmp/hgtscan                    # the old line's workspace
+  exposure_max_paths: 20000000
+train:
+  gpu_lease: false
+  device: cpu

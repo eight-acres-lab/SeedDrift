@@ -22,3 +22,10 @@ rule rel_w12_islands:
     input: "gates/pre.ok"
     output: "data/rel_w12/islands/tableset.json"
     shell: STAGE.format(name="rel.w12_islands")
+
+# w12_tstats: how often the target genes of a built set of tables are used, per group (ci/stages/rel/w12_tstats.py;
+# reads the tables, writes none)
+rule rel_w12_tstats:
+    input: "gates/pre.ok"
+    output: "data/rel_w12/tstats/report.json"
+    shell: STAGE.format(name="rel.w12_tstats")

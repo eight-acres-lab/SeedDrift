@@ -39,10 +39,14 @@ def to_device(batch, device):
     return out
 
 
-def ext_of(batch):
+def ext_of(batch, model=None):
     """The keywords a model reads the cells laid by extension and the genome of every row with: none for a batch
-    without them, so a model that does not know the keywords is called as before."""
-    return {k: batch[k] for k in ("ext", "genome") if k in batch}
+    without them, so a model that does not know the keywords is called as before; the genome only for a model that
+    reads it (genome_bias true), every other model is called without it."""
+    out = {k: batch[k] for k in ("ext",) if k in batch}
+    if "genome" in batch and getattr(model, "genome_bias", False):
+        out["genome"] = batch["genome"]
+    return out
 
 
 @torch.no_grad()
@@ -64,7 +68,7 @@ def score_cells(model, examples, device, max_rows=32):
         if pending:
             b = to_device(S.collate([examples[k] for k in pending]), device)
             if len(b["row"]):
-                logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b)).double()
+                logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b, model)).double()
                 idx = (b["token"] - A.TARGET_MIN)[:, None]
                 out["bits"].append((-logp.gather(1, idx)[:, 0] / math.log(2.0)).cpu().numpy())
                 p_class = logp.exp() @ onehot
@@ -140,7 +144,7 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.L
         if pending:
             b = to_device(S.collate([dict(dict(grid=g, truth=t), **({} if x is None else dict(ext=x)), **({} if gr is None else dict(genome_of_row=gr)))
                                      for _, g, t, x, gr in pending]), device)
-            logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b))
+            logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b, model))
             per = -logp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0].double() / math.log(2.0)
             bits.append(per.cpu().numpy())
             p_class = logp.double().exp() @ onehot

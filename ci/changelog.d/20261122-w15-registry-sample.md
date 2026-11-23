@@ -61,3 +61,7 @@ Package W15: the event registry, rules version 0.2 (draft) and a sample of 20 re
   (`pmc-oa-opendata`: the latest version's article XML, text and metadata, and its supplementary files without the
   figures), the sanctioned route for automated retrieval; Europe PMC is the fallback. Articles outside the open
   subset are not retrieved automatically (PMC's terms bar automated bulk download from its own site).
+- Batch 3 (`bench/rel/registry/events_v0.2-batch3.tsv`): the psbA claim set split by the acquisitions its full text
+  names (four of psbA, two of psbD, Sullivan 2006); EV011 becomes the Synechococcus-myovirus psbA event and EV031 to
+  EV035 the others, with radii from the NCBI taxdump of the server runs (Kyanoviridae; Sechaudvirinae for the
+  podoviruses). The profile reads the three drafts and one more supplement.

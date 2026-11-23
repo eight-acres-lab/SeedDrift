@@ -1,6 +1,6 @@
 # Event registry report (rules version 0.2; no scores)
 
-20 records (claim_set 7, event 13). 7 of them take part in grouping and form 6 groups (overlapping exclusion radii, a shared paper or a shared assembly); disputed, overturned and grade-D records and claim sets stay ungrouped (RULES.md section 7).
+20 records (claim_set 6, event 14). 8 of them take part in grouping and form 7 groups (overlapping exclusion radii, a shared paper or a shared assembly); disputed, overturned and grade-D records and claim sets stay ungrouped (RULES.md section 7).
 
 ## 1. Association graph by exclusion lineage
 
@@ -10,16 +10,17 @@
 | G02 | EV002 (Acyrthosiphon); EV003 (Aphidomorpha) | A 1, C 1 | EV002-EV003: radius Acyrthosiphon / Aphidomorpha |
 | G03 | EV004 (Bemisia) | C 1 | - |
 | G04 | EV008 (Legionella) | C 1 | - |
-| G05 | EV012 (environmental samples) | C 1 | - |
-| G06 | EV014 (Methanosarcina) | C 1 | - |
+| G05 | EV011 (Kyanoviridae) | A 1 | - |
+| G06 | EV012 (environmental samples) | C 1 | - |
+| G07 | EV014 (Methanosarcina) | C 1 | - |
 
-Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV011 (Caudoviricetes; A; claim_set); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
+Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
 
 ## 2. Counts
 
 | label | records | groups |
 |---|---|---|
-| A | 5 | 2 |
+| A | 5 | 3 |
 | B | 0 | 0 |
 | C | 5 | 5 |
 | D | 6 | 0 |
@@ -68,11 +69,11 @@ Grades that would change if `donor_structure` were accepted as evidence of forei
 
 ## 3. Recheckable evidence
 
-11 of 20 records (55%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 4 of the 6 groups. By label: A 4 of 5, C 3 of 5, D 2 of 6, overturned 2 of 4.
+11 of 20 records (55%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 5 of the 7 groups. By label: A 4 of 5, C 3 of 5, D 2 of 6, overturned 2 of 4.
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 3, partial 5, y 12. Genomes inside the radius in the medium corpus: ? 1, n 14, y 5. Overlap with sealed genera or the sealed test part: ? 1, n 19. Exposure: ? 19, L4 1.
+Provisional list covers the radius: n 3, partial 5, y 12. Genomes inside the radius in the medium corpus: ? 2, n 14, y 4. Overlap with sealed genera or the sealed test part: ? 1, n 19. Exposure: ? 19, L4 1.
 
 ## 5. Double registration (rules 0.1, before regrading)
 

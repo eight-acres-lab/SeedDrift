@@ -61,10 +61,14 @@ def test_every_variant_file_loads_and_round_1a_changes_one_key():
         assert load(n)["optimizer"] == {"lr": lr} and rest(load(n), "optimizer") == rest(load(base), "optimizer"), n
     assert load("w6-ref30m-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-hier"), "size") == rest(load("w6-ref30m"), "size")
-    for n, lr, size in (("w6-ref10m-v1", 2e-4, (8, 256)), ("w6-ref30m-v1", 1.5e-4, (12, 384)), ("w6-ref100m-v1", 1e-4, (12, 768))):
-        v = load(n)                                                   # round 1: version 1 of the tables, every mask leak-free
-        assert v["optimizer"] == {"lr": lr} and v["size"] == {"layers": size[0], "width": size[1], "genome_bias": True}
-        assert v["layout"] == v["whole_gene_layout"] == api.LAYOUT_LEAKFREE and v["rows"] == [4, 32] and v["relatives"] is True
+    for n, lr, size, micro, rel in (("w6-ref30m-v1", 1.5e-4, (12, 384), 2, True), ("w6-ref30m-norel-v1", 1.5e-4, (12, 384), 2, False),
+                                    ("w6-ref100m-v1", 1e-4, (12, 768), 1, True)):
+        v = load(n)                                                   # round 1 (protocol round1): version 1, every mask leak-free
+        assert v["optimizer"] == {"lr": lr} and v["size"] == {"layers": size[0], "width": size[1]} and v["micro"] == micro   # no genome_of_row
+        assert v["layout"] == api.LAYOUT_LEAKFREE and v["whole_gene_layout"] == w6_fit.FRAME and v["rows"] == [4, 32] and v["relatives"] is rel
+        assert v["alone_share"] == 0.05 and v["masks"] == ["scattered", "span", "whole_gene"] and v.get("mask_weights") is None
+    assert rest(load("w6-ref30m-norel-v1"), "relatives") == rest(load("w6-ref30m-v1"), "relatives")
+    assert not os.path.exists(os.path.join(folder, "w6-ref10m-v1.yaml"))                         # 10 M is not run in round 1
     assert load("w6-ref30m-leakfree-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-leakfree-hier"), "size") == rest(load("w6-ref30m-leakfree"), "size")
     assert rest(load("w6-ref30m-leakfree"), "layout", "whole_gene_layout") == rest(load("w6-ref30m"), "layout")
@@ -207,6 +211,38 @@ def test_model_index_and_gate_of_a_finished_training(tmp_path):
     part = w6_fit.summary(run_dir)
     assert part["json"]["arms"]["w6-ref30m-s1"]["cells_per_s"] == 12.5 and part["json"]["arms"]["w6-ref30m-s1"]["tables_seen"] == 4000
     assert any("failed" in line for line in part["md"]) and len(json.dumps(part["json"])) < 20000
+
+
+def test_preflight_only_probes_index_their_preflights(tmp_path):
+    """Round 1's probes: every arm preflighted on the real tables, nothing trained; the index lists each arm with its
+    preflight (tables per second, the sampler's cost) and no checkpoint, and the gate passes on the preflights."""
+    st0 = Stage.__new__(Stage)
+    four = ["scattered", "whole_gene", "scattered+no_relatives", "whole_gene+no_relatives"]
+    s = w6_fit.settings(st0, dict(rel_w6_fit=_block(preflight_only=True, preflight_steps=50, only_conditions=four, data_workers=1, nodes_every=50000,
+                                                   keep_node_weights=True)))
+    assert s["preflight_only"] is True and s["passed_on"] == dict(preflight_steps=50, only_conditions=four, data_workers=1, nodes_every=50000,
+                                                                  keep_node_weights=True)
+    run_dir, cfg = RF.rel_run(tmp_path, kind="rel_traineval", stages=STAGES)
+    st = Stage(run_dir, "rel_w6_fit")
+    name = "w6-ref30m-v1-s2"
+    folder = os.path.join(run_dir, w6_fit.OUT, name)
+    os.makedirs(folder)
+    pre = dict(ok=True, params=28_000_000, micro=2, peak_mb=9, reserved_mb=11, cells_per_s=20.0, flops_per_cell=1, lr=1.5e-4, lr_reduced=False,
+               guard=dict(failed=False, steps=50), steps_per_s=0.8, tables_per_s=3.2, data_wait_s_per_step=0.001,
+               sampler=dict(steps=20, s_per_step=0.05, frame_tables=27, frame_s_per_table=0.012, data_workers=1))
+    with open(os.path.join(folder, "preflight.json"), "w") as f:
+        json.dump(pre, f)
+    variant = yaml.safe_load(open(os.path.join(ROOT, "configs", "rel", "variants", "w6-ref30m-v1.yaml")))
+    arms = {name: dict(arm=dict(name=name, file="configs/rel/variants/w6-ref30m-v1.yaml", sha256="1" * 64, seed=2, budget_cells=None, lr=1.5e-4,
+                                variant=variant), folder=folder, preflight=pre, status="ok", summary={}, error=None)}
+    sets = {k: dict(doc=dict(name="v1", sha256="2" * 64), groups=list(GROUPS), row_groups=dict(enumerate(GROUPS))) for k in ("train", "heldout")}
+    s.update(tables=dict(train=dict(run="/x/runs/tables", split=0), heldout=dict(run="/x/runs/tables", split=1)))
+    doc = w6_fit.finish(st, cfg, run_dir, s, sets, arms, [], 60000.0, dict(python="py"))
+    v = doc["variants"][0]
+    assert doc["preflight_only"] is True and v["status"] == "ok" and v["checkpoints"] == []
+    assert v["info"]["preflight"]["tables_per_s"] == 3.2 and v["info"]["preflight"]["sampler"]["frame_s_per_table"] == 0.012
+    w6_fit.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_fit")["status"] == "pass"
 
 
 def test_training_gate_fails_without_a_trained_arm_or_its_final_rows(tmp_path):

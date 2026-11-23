@@ -411,6 +411,41 @@ def test_sampler_lays_the_whole_gene_on_its_frame_relative():
     assert c["genome"].shape == (c["grid"].shape[0],) and c["genome"].dtype == np.int64
 
 
+def test_sampler_lays_the_whole_gene_by_the_strict_aligner():
+    """whole_gene_layout frame (round 1): the rows drawn first, then W3's strict aligner (align.frame_layout) lays the
+    table on its frame relative and the renderer renders it leak-free; the rows and masks drawn are those of the
+    leak-free sampler, the grid that of frame_layout; the sampler counts the tables it laid and the seconds it took."""
+    from seeddrift.train.rel.tables import align as AL
+    from seeddrift.train.rel.tables import render as RD
+    root = tempfile.mkdtemp()
+    arrays = v1_tables(24, rows=8, seed=4)
+    ts = T.open_split(root, write_tableset(root, [("train/s0000", arrays)], kind=A.TABLE_REAL), 0)
+    framed = S.Sampler(ts, seed=2, masks=["scattered", "whole_gene"], rows=(3, 8), layouts={"scattered": A.LAYOUT_LEAKFREE, "whole_gene": S.FRAME})
+    plain = S.Sampler(ts, seed=2, masks=["scattered", "whole_gene"], rows=(3, 8), layouts={"scattered": A.LAYOUT_LEAKFREE, "whole_gene": A.LAYOUT_LEAKFREE})
+    seen, differ = 0, 0
+    for step in range(16):
+        for u, v in zip(framed.draw(step), plain.draw(step)):
+            assert u["table"] == v["table"] and (u["rows"] == v["rows"]).all() and u["scheme"] == v["scheme"] and (u["truth"] == v["truth"]).all()
+            if framed.masks[u["scheme"]] != "whole_gene":
+                assert u["layout"] == A.LAYOUT_LEAKFREE and (u["grid"] == v["grid"]).all()
+                continue
+            seen += 1
+            assert u["layout"] == S.FRAME and "ext" in u
+            tab = T.take_rows(ts.table(u["table"]), u["rows"])
+            col, frame_row, frame_len = AL.frame_layout(tab)
+            visible, target = S.mask_scheme("whole_gene").plan(dict(n=tab["n"], kind=tab["kind"]), np.random.default_rng(0))   # draws nothing
+            grid, truth, ext = RD.render(dict(tab, col=col, frame_row=frame_row, frame_len=frame_len), visible, target, layout=A.LAYOUT_LEAKFREE)
+            assert (grid == u["grid"]).all() and (truth == u["truth"]).all() and (ext == u["ext"]).all()
+            differ += int((u["grid"] != v["grid"]).any())
+    assert seen > 0 and differ > 0 and framed.frame_tables == seen and framed.frame_s > 0
+    try:
+        S.Sampler(ts, seed=2, masks=["scattered"], layouts={"scattered": S.FRAME})
+    except ValueError as err:
+        assert "whole_gene only" in str(err)
+    else:
+        raise AssertionError("the frame layout was accepted for scattered samples")
+
+
 def test_sampler_share_of_tables_without_relatives():
     ts = _set(30)                                         # table 27 has no other row; its group 3 also holds tables 3 and 15
     never = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, alone_share=0.0).draw(st)}

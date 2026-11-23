@@ -22,7 +22,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.tables import align as AL
 
-EVAL_VERSION = "4"
+EVAL_VERSION = "5"
 PLAN_FIELDS = ("tok", "n", "col", "kind", "frame_len", "frame_row", "genome_of_row")
 
 
@@ -39,10 +39,14 @@ def to_device(batch, device):
     return out
 
 
-def ext_of(batch):
+def ext_of(batch, model=None):
     """The keywords a model reads the cells laid by extension and the genome of every row with: none for a batch
-    without them, so a model that does not know the keywords is called as before."""
-    return {k: batch[k] for k in ("ext", "genome") if k in batch}
+    without them, so a model that does not know the keywords is called as before; the genome only for a model that
+    reads it (genome_bias true), every other model is called without it."""
+    out = {k: batch[k] for k in ("ext",) if k in batch}
+    if "genome" in batch and getattr(model, "genome_bias", False):
+        out["genome"] = batch["genome"]
+    return out
 
 
 @torch.no_grad()
@@ -64,7 +68,7 @@ def score_cells(model, examples, device, max_rows=32):
         if pending:
             b = to_device(S.collate([examples[k] for k in pending]), device)
             if len(b["row"]):
-                logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b)).double()
+                logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b, model)).double()
                 idx = (b["token"] - A.TARGET_MIN)[:, None]
                 out["bits"].append((-logp.gather(1, idx)[:, 0] / math.log(2.0)).cpu().numpy())
                 p_class = logp.exp() @ onehot
@@ -118,9 +122,11 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.L
     extension where the model reads them). Returns bits (float64 [C], one per scored cell), cell_table (int64 [C], the
     index into ids of the cell's table), the digest of what was scored, and the bits of the amino acid of every scored
     cell (the first of the two parts of the evaluator's score.amino_acid_bits; reporting only, the genetic code never
-    reaches the model). frame: None, or {index, meta} (the pair index of the uncapped search and the tables' meta
-    fields genome, row_gene, row_first, in the order of data): a whole-gene condition in a layout other than stored
-    is placed on its frame relative online, as the training places it (package W3's align.frame_layout_online).
+    reaches the model). frame: None; {strict: True, cache} (a whole-gene condition in a layout other than stored laid
+    on its frame relative by package W3's strict aligner, align.frame_layout, as the training lays it; cache, a dict
+    or None, keeps the layout of every (table id, condition)); or {index, meta} (the pair index of the uncapped search
+    and the tables' meta fields genome, row_gene, row_first, in the order of data): placed online by the stored pairs
+    (package W3's align.frame_layout_online).
     control: None, or a control of W3's renderer (shuffle: the rows' correspondence permuted by column; presence:
     only which cells exist), keyed by the table's id."""
     if layout != A.LAYOUT_STORED:
@@ -138,7 +144,7 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.L
         if pending:
             b = to_device(S.collate([dict(dict(grid=g, truth=t), **({} if x is None else dict(ext=x)), **({} if gr is None else dict(genome_of_row=gr)))
                                      for _, g, t, x, gr in pending]), device)
-            logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b))
+            logp = model.logp(b["grid"], b["sizes"], b["row"], b["col"], **ext_of(b, model))
             per = -logp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0].double() / math.log(2.0)
             bits.append(per.cpu().numpy())
             p_class = logp.double().exp() @ onehot
@@ -170,7 +176,15 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.L
                 grid, truth = T.render(T.take_rows(planned, keep), plan["visible"][k][keep], plan["target"][k][keep])
             else:
                 tab = T.take_rows(planned, keep)
-                if frame is not None and mask == cond.WHOLE_GENE and cond.NO_RELATIVES not in condition:    # the rows stay: their meta holds
+                if frame is not None and frame.get("strict") and mask == cond.WHOLE_GENE and cond.NO_RELATIVES not in condition:
+                    ck = (int(ids[at + k]), condition)                 # W3's strict aligner on the rows scored, once per table
+                    if frame.get("cache") is None or ck not in frame["cache"]:
+                        got = AL.frame_layout(tab)
+                        if frame.get("cache") is not None:
+                            frame["cache"][ck] = got
+                    col, frame_row, frame_len = got if frame.get("cache") is None else frame["cache"][ck]
+                    tab = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)
+                elif frame is not None and mask == cond.WHOLE_GENE and cond.NO_RELATIVES not in condition:    # the rows stay: their meta holds
                     meta_k = {f: np.asarray(frame["meta"][f][at + k]) for f in T.FRAME_META}
                     col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(meta_k, keep), frame["index"])
                     tab = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)

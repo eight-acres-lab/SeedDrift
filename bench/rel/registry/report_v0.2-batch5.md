@@ -86,4 +86,4 @@ The same cells counted once per source cluster (a cluster counts once for each l
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 7, y 23. Genomes inside the radius in the medium corpus: ? 5, n 23, y 2. Overlap with sealed genera or the sealed test part: ? 5, n 25. Exposure: ? 30.
+Provisional list covers the radius: n 7, y 23. Genomes inside the radius in the medium corpus: n 25, y 5. Overlap with sealed genera or the sealed test part: n 30. Exposure: ? 30.

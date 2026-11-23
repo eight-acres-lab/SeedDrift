@@ -23,3 +23,7 @@ dataset, eight of nine supplements; train and held-out counts; no sealed genus).
   largest share and a flag above 30% (rules 0.2 section 8a), a table counting each source once, claim sets apart, and
   the largest group per label. `large_insert` means three or more genes on one fragment.
 - The stage tries Europe PMC for supplements when the open-access dataset holds none, and records that.
+- The sixth server run (20261123T194045) checked the radii batch 5 introduced: all 75 exclusion taxa resolve in NCBI;
+  their taxids, the train and held-out counts and the sealed-genus check are written into EV040, EV068, EV070,
+  EV071, EV072 and EV074 (no radius overlaps a sealed genus; the Poxviridae radius holds 7 train and 5 held-out
+  genomes, the Avipoxvirus radius 2 held-out ones).

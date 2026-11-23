@@ -1,0 +1,22 @@
+# copy-aa30m (package W5, after decision D7's early comparison; the programme lead's ruling of 2026-11-24): arm S2 with
+# one more copy level whose tilt reads amino acids only, B_aa[aa(c), aa(x)]: no bias between synonymous codons, the
+# own-row distribution chooses the codon. S2's codon levels are kept and the weights of all levels come from the trunk's
+# scores as in S2 (seeddrift/train/rel/models/source.py, switch aa_level).
+# A development variant: w5-src30m-s2 but for the size's switch, on the same tables, rows, rate and objective, set
+# against the same reference arm (w6-ref30m-leakfree-lr1.5e-4).
+name: w5-copy-aa30m
+author: w5
+api: 1
+model: source
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
+layout: leakfree
+whole_gene_layout: stored                  # as the reference arm, until it takes the frame relative of W3's step two
+rows: [4, 16]
+columns: 1024
+size: {layers: 12, width: 384, arm: s2, self_layers: 4, aa_level: true}
+relatives: true
+optimizer: {lr: 1.5e-4}                   # the reference arm's rate (task-breakdown 8.12 and 8.14)
+gpu_mb: 28000                             # as w5-src30m-s2 (measured 16.6 GB at the preflight, 15.4 GB in training on tables of version 0)
+alone_share: 0.05                         # as the reference arm
+tables: real

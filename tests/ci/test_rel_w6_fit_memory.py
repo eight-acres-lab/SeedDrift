@@ -6,6 +6,8 @@ micro_fallback, preflighted again within what is free then, its micro-batch halv
 import json
 import os
 
+import pytest
+
 import rel_fixtures as RF
 import test_rel_c0_fit_arms as C0T
 from ci.gates import GateFailure
@@ -15,14 +17,30 @@ from ci.stages.rel import w6_fit
 REF = "w6-ref30m-s1"
 
 
-def _trainer():
-    """The stand-in's training, and a preflight that halves the micro-batch while its reserve exceeds the allowance
-    (gpu_mb), as the trainer's preflight does."""
+class _Slow(C0T._Proc):
+    """A training that runs for a few of the scheduler's polls before it ends."""
+
+    def __init__(self, code, polls=3):
+        super().__init__(code)
+        self.left = polls
+
+    def poll(self):
+        self.left -= 1
+        return None if self.left > 0 else self.returncode
+
+
+def _trainer(started=None):
+    """The stand-in's training (each running for a few polls; `started` collects the configuration every training
+    started with), and a preflight that halves the micro-batch while its reserve exceeds the allowance (gpu_mb), as the
+    trainer's preflight does."""
     base = C0T._trainer()
 
     def start(py, mode, conf, log, env):
         if mode != "preflight":
-            return base(py, mode, conf, log, env)
+            proc, lg = base(py, mode, conf, log, env)
+            with open(conf) as f:
+                (started if started is not None else []).append(json.load(f))
+            return _Slow(proc.returncode), lg
         with open(conf) as f:
             c = json.load(f)
         micro, reserved = int(c["micro"]), float(C0T.RESERVED[c["name"]])
@@ -37,15 +55,15 @@ def _trainer():
     return start
 
 
-def _fit(tmp_path, monkeypatch, free, **block):
-    """rel_w6_fit's build with the coordinator's two arms; `free` the free GPU memory at each measurement in turn (the
-    last repeated). Returns the model index, the gate's record and the run directory."""
+def _fit(tmp_path, monkeypatch, free, parallel=1, started=None, **block):
+    """rel_w6_fit's build with the coordinator's two arms, `parallel` at once; `free` the free GPU memory at each
+    measurement in turn (the last repeated). Returns the model index, the gate's record and the run directory."""
     b = dict(tables=dict(train=dict(run="/x/runs/a", path="data/rel_w2/v0/tableset.json", split=0),
                          heldout=dict(run="/x/runs/a", path="data/rel_w2/v0/tableset.json", split=1)),
              arms=C0T.ARMS, max_steps=10, wall_s=600)
     b.update(block)
     run_dir, cfg = RF.rel_run(tmp_path, kind="rel_traineval", stages=C0T.STAGES)
-    cfg = dict(cfg, rel_w6_fit=b, train=dict(gpu_lease=False, device="auto"))
+    cfg = dict(cfg, rel_w6_fit=b, train=dict(gpu_lease=False, device="auto"), rel=dict(cfg.get("rel") or {}, parallel=parallel))
     st = Stage(run_dir, "rel_w6_fit")
     sets = dict(doc=dict(kind="real", name="v0", sha256="2" * 64, tables=100), groups=list(C0T.GROUPS), row_groups=dict(enumerate(C0T.GROUPS)), sealed=True)
     seen = list(free)
@@ -53,7 +71,7 @@ def _fit(tmp_path, monkeypatch, free, **block):
     monkeypatch.setattr(w6_fit, "POLL_S", 0)
     monkeypatch.setattr(w6_fit.w6_tools, "interpreter", lambda st, cfg: ("py", "lock", {"torch": "2"}))
     monkeypatch.setattr(w6_fit.w6_tools, "gpu_free_mb", lambda: float(seen.pop(0) if len(seen) > 1 else seen[0]))
-    monkeypatch.setattr(w6_fit.w6_tools, "start", _trainer())
+    monkeypatch.setattr(w6_fit.w6_tools, "start", _trainer(started))
     doc = w6_fit.build(st, cfg, run_dir)
     try:
         w6_fit.gate(st, cfg, run_dir)
@@ -78,9 +96,9 @@ def test_micro_fallback_halves_the_micro_batch_within_the_memory_free_then(tmp_p
     """With micro_fallback the refused arm is preflighted again within what is free then ((20,918 - 500) / 1.1 MB):
     its micro-batch halves from 4 to 2, it fits and trains with it (the training's configuration says so, the first
     preflight is kept beside), and the index records the fallback."""
-    doc, g, run_dir = _fit(tmp_path, monkeypatch, free=[36100, 36100, 20918], micro_fallback=True)
+    doc, g, run_dir = _fit(tmp_path, monkeypatch, free=[36100, 36100, 20918], micro_fallback=True, arms=C0T.ARMS[:1])
     by = {v["name"]: v for v in doc["variants"]}
-    assert by[REF]["status"] == "ok" and by["w6-ref10m-s1"]["status"] == "ok" and g["status"] == "pass"
+    assert by[REF]["status"] == "ok" and g["status"] == "pass"
     fb = by[REF]["info"]["micro_fallback"]
     assert fb == dict(free_mb=20918, needed_mb=21321, gpu_mb=int((20918 - 500) / 1.1), micro_from=4, micro_to=2, ok=True)
     folder = os.path.join(run_dir, by[REF]["info"]["folder"])
@@ -89,14 +107,29 @@ def test_micro_fallback_halves_the_micro_batch_within_the_memory_free_then(tmp_p
     assert conf["micro"] == 2 and conf["gpu_mb"] == fb["gpu_mb"] and by[REF]["info"]["micro"] == 2
     with open(os.path.join(folder, "preflight_first.json")) as f:
         assert json.load(f)["micro"] == 4                              # the first preflight kept beside the second
-    assert by["w6-ref10m-s1"]["info"]["micro_fallback"] is None
 
 
 def test_micro_fallback_refuses_an_arm_that_still_does_not_fit(tmp_path, monkeypatch):
     """Too little free even at a micro-batch of one table: the second preflight fails, the arm is refused once, with
     the fallback in its error."""
-    doc, g, _ = _fit(tmp_path, monkeypatch, free=[36100, 36100, 7000], micro_fallback=True)
+    doc, g, _ = _fit(tmp_path, monkeypatch, free=[36100, 36100, 7000], micro_fallback=True, arms=C0T.ARMS[:1])
     by = {v["name"]: v for v in doc["variants"]}
     fb = by[REF]["info"]["micro_fallback"]
     assert by[REF]["status"] == "failed" and "micro_fallback" in by[REF]["error"] and fb["ok"] is False and fb["micro_to"] is None
     assert g["status"] == "fail"
+
+
+def test_micro_fallback_acts_before_a_training_starts_never_during_one(tmp_path, monkeypatch):
+    """The arm starts at its micro-batch of 4 and the memory then drops while it trains: nothing is preflighted again,
+    its configuration and preflight are never touched, and it ends with the micro-batch it started with. A run of more
+    than one arm cannot turn micro_fallback on (arms compared in one run train under one micro-batch)."""
+    started = []
+    doc, g, run_dir = _fit(tmp_path, monkeypatch, free=[36100, 36100, 36100, 9000], started=started, micro_fallback=True, arms=C0T.ARMS[:1])
+    v = doc["variants"][0]
+    assert [c["micro"] for c in started] == [4] and v["info"]["micro_fallback"] is None and v["info"]["micro"] == 4 and g["status"] == "pass"
+    folder = os.path.join(run_dir, v["info"]["folder"])
+    assert not os.path.exists(os.path.join(folder, "preflight_first.json"))
+    with open(os.path.join(folder, "conf.json")) as f:
+        assert json.load(f)["micro"] == 4
+    with pytest.raises(SystemExit):
+        _fit(tmp_path / "two", monkeypatch, free=[36100], micro_fallback=True)

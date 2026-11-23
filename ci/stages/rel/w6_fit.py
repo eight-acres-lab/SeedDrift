@@ -16,7 +16,11 @@ Profile block rel_w6_fit:
   micro_fallback  true: an arm that no longer fits the GPU memory free when its training is to start (another user's
              process grew since its preflight) is preflighted again within what is free then, its micro-batch halved
              until it fits (the tables per step unchanged; the micro-batch used is in its rows and in the index); default
-             false: the arm is refused and the run fails at its gate
+             false: the arm is refused and the run fails at its gate. It acts only in the scheduling, before a training
+             starts, and only while none of the run's arms is training (an arm that does not fit beside them waits):
+             a training runs to its end with the micro-batch it started with. Runs of one arm only (the programme
+             lead's rule of 2026-11-23: round 1's ref30m-long and ref100m-long; arms compared in one run train under one
+             micro-batch); refused with more than one arm
   preflight_only  true: every arm preflighted on the real tables and nothing trained (round 1's probes: preflight_steps
              steps, the loss, the memory, tables per second, the sampler's cost); the index lists the arms with their
              preflight and no checkpoint
@@ -139,6 +143,8 @@ def settings(st, cfg) -> dict:
     names = [a["name"] for a in out["arms"]]
     if len(set(names)) != len(names):
         raise SystemExit("rel_w6_fit.arms: an arm (variant and seed) is listed twice: %s" % names)
+    if out["micro_fallback"] and len(names) > 1:                      # arms compared in one run train under one micro-batch
+        raise SystemExit("rel_w6_fit.micro_fallback: runs of one arm only (the programme lead's rule of 2026-11-23); this run has %s" % names)
     return out
 
 

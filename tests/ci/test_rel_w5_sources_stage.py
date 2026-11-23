@@ -84,9 +84,43 @@ def test_report_and_gate(tmp_path):
         W.gate(st, cfg, run_dir)
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_sources.json")))["status"] == "pass"
     assert "| all | 2 | 10 | 4.600 |" in "\n".join(W.markdown(report)) and W.summary(run_dir)["json"]["S1"]["scattered"]["lam"] == 0.7
+    report["arms"]["S1"]["conditions"]["scattered"]["aligned_with_final"] = False                  # the readout's cells in another order
+    with open(os.path.join(folder, "report.json"), "w") as f:
+        json.dump(report, f)
+    with pytest.raises(GateFailure):
+        with Stage(run_dir, "gates_rel_w5_sources", requires=("pre",)) as st:
+            W.gate(st, cfg, run_dir)
+    report["arms"]["S1"]["conditions"]["scattered"]["aligned_with_final"] = True
     report["arms"]["S1"]["conditions"]["scattered"]["same_cells_as_final"] = False                 # other cells than the final evaluation's
     with open(os.path.join(folder, "report.json"), "w") as f:
         json.dump(report, f)
     with pytest.raises(GateFailure):
         with Stage(run_dir, "gates_rel_w5_sources", requires=("pre",)) as st:
             W.gate(st, cfg, run_dir)
+
+
+def test_gains_cell_by_cell(tmp_path):
+    """The per-cell files of the final evaluations: the gain of the arm and of the reference arm on the same cells,
+    per bin of the nearest identity; the readout's weights by band of the reference arm's gain."""
+    identity = np.array([[1.0, 0.25], [1.0, 0.95], [1.0, np.nan]])
+    table = np.array([0, 0, 1, 2])
+
+    def write(folder, with_rel, without):
+        os.makedirs(folder)
+        np.savez(os.path.join(folder, "heldout_final.npz"), bits_scattered=np.array(with_rel), table_scattered=table,
+                 bits_scattered__no_relatives=np.array(without), table_scattered__no_relatives=table)
+    write(tmp_path / "arm", [4.0, 5.0, 1.0, 6.0], [5.0, 5.5, 4.0, 6.0])               # gains 1.0, 0.5, 3.0, 0.0
+    write(tmp_path / "ref", [3.0, 4.0, 0.5, 6.0], [5.0, 5.5, 4.0, 6.1])               # gains 2.0, 1.5, 3.5, 0.1
+    arm, ref = W.final_cells(str(tmp_path / "arm")), W.final_cells(str(tmp_path / "ref"))
+    assert set(arm) == {"scattered", "scattered+no_relatives"} and np.array_equal(arm["scattered"][1], table)
+    got = W.gains_by_cell(arm, ref, identity)["scattered"]
+    assert got["all"]["cells"] == 4 and got["all"]["arm"] == pytest.approx(1.125) and got["all"]["reference"] == pytest.approx(1.775)
+    assert got["nearest_identity=0.2-0.3"]["ratio"] == pytest.approx(0.75 / 1.75) and got["nearest_identity=0.9-1.0"]["arm_at_least"] == 0.0
+    assert got["nearest_identity=none"]["cells"] == 1
+    read = dict(none=np.array([0.1, 0.3, 0.0, 1.0]), entropy=np.array([1.0, 1.0, 0.5, 0.0]))
+    bands = W.by_reference_gain(read, np.array([2.0, 1.5, 3.5, 0.1]), np.array([1.0, 0.5, 3.0, 0.0]))
+    assert bands["reference gain -inf to 0.25"]["none"] == 1.0 and bands["reference gain 1.0 to 3.0"]["cells"] == 2
+    assert bands["reference gain 3.0 to inf"]["lam"] == 1.0
+    bad = dict(arm, **{"scattered+no_relatives": (arm["scattered+no_relatives"][0], table[::-1])})
+    with pytest.raises(SystemExit):                                                    # the two conditions on other cells
+        W.cell_gain(bad, "scattered", "scattered+no_relatives")

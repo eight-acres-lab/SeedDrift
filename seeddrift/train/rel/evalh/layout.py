@@ -2,7 +2,10 @@
 
 This is the layout the stored tables carry (``col``). With a stretch of the examined row hidden it still shows the
 relatives where the hidden residues align, so the bits read through it are too low (optimistic) where a whole stretch
-is hidden (lower bits are better; the leak-free renderer replaces it). Table version 0 only: the frame row is row 0.
+is hidden (lower bits are better; the leak-free renderer replaces it). On W3's strict offline rendering
+(ci/stages/rel/w3_offline.py) the same view is leak-free: every other row aligned again with the hidden residues
+unknown, and a whole target gene hidden laid on its frame relative (frame_row of the block), the examined row from the
+first column, so its columns are still its own positions and every other row sits in the frame relative's columns.
 """
 from __future__ import annotations
 
@@ -36,15 +39,12 @@ def masked_view(batch):
       truth  the hidden residue of every scored cell.
     """
     tok, n, col = np.asarray(batch["tok"]), np.asarray(batch["n"]), np.asarray(batch["col"])
-    frame_row = batch.get("frame_row")
-    if frame_row is not None and np.asarray(frame_row).any():
-        raise ValueError("the stored layout of table version 0 has frame row 0")
     target = np.asarray(batch["target"])
     if target[:, 1:].any():
         raise ValueError("only cells of row 0 are scored")
     own = cond.residue_cells(n)[:, 0] & (col[:, 0] != cond.OFFSET_OF_SLOT[None, :])
     if own.any():
-        raise ValueError("row 0 is the frame: its columns must be its own positions")
+        raise ValueError("row 0's columns must be its own positions (it is the frame, or is laid from the frame relative's first column)")
     grid = place(tok, n, col, api.GAP)
     hidden = place(target.astype(np.uint8), n, col, 0).astype(bool)
     t, s = np.nonzero(hidden[:, 0])

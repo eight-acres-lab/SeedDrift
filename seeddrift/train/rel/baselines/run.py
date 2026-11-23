@@ -124,12 +124,13 @@ def other_rows(tables):
     return cond.present_rows(tables["kind"])[:, 1:].sum(axis=1)
 
 
-def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL, kind=None):
+def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL, kind=None, layouts=None):
     """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind,
     items_sha256 (of the table set scored) and versions. One row per baseline x condition x group x stratum that has
     cells; the group column carries group_names[index] where given, else the index. n_other: other_rows(tables).
     item_half: "all", or "subset" for the rows of restrict() on the subset of the evaluation during training. kind
-    (N, R, B) of the stored tables: the strata of the nearest other-genome row and the three relatives strata."""
+    (N, R, B) of the stored tables: the strata of the nearest other-genome row and the three relatives strata. layouts:
+    {condition: layout} of the tables each condition was read from (default the stored layout)."""
     strata = score.strata_of(identity, n_other, kind)
     rows = []
     for condition, res in results.items():
@@ -145,7 +146,7 @@ def result_rows(results, group, identity, params, head, n_groups=12, group_names
                     run=head.get("run", ""), commit=head.get("commit", ""), variant=n, author=AUTHOR,
                     module="baselines." + ("switch" if n in switch.NAMES else "classical"), params=n_params(n),
                     seed=head.get("seed", ""), table_set=head.get("table_set", ""), table_kind=head.get("table_kind", ""),
-                    items_sha256=head.get("items_sha256", ""), item_half=item_half, layout=api.LAYOUT_STORED, budget=0, weights="",
+                    items_sha256=head.get("items_sha256", ""), item_half=item_half, layout=(layouts or {}).get(condition, api.LAYOUT_STORED), budget=0, weights="",
                     cells_seen=int(params[mask]["fit"]["cells"]), target_cells=r["target_cells"],
                     cells_per_s=round(cells / max(res["seconds"][n], 1e-9), 1), peak_mb="", condition=condition,
                     group=r["group"], tier=score.TIER, stratum=r["stratum"], passes=1, bits=r["bits"], baseline="",

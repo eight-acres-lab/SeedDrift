@@ -155,7 +155,8 @@ def test_leakfree_layout_trains():
     assert out["final_items"]["whole_gene@stored"] == out["final_items"]["whole_gene"]
     real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
     try:
-        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))
+        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=1,
+                         eval_first=4))
     except SystemExit as err:
         assert "offline" in str(err)
     else:
@@ -324,6 +325,51 @@ def test_extra_and_only_conditions():
     loop.fit(cfg)
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     assert {r["condition"] for r in rows if r["weights"].startswith("ema@tables=")} == set(cond.CONDITIONS) | {cond.SUFFIX}
+
+
+def test_v1_tables_train_with_the_frame_layout_the_genome_bias_and_the_end_controls():
+    """Tables of version 1: every mask leak-free, the whole gene on its frame relative through the pair index, the
+    same-genome bias; at the end the two controls of the renderer under scattered and whole_gene; the cells scored are
+    the evaluator's whatever the layout and control."""
+    root = tempfile.mkdtemp()
+    train, held = D.v1_tables(24, rows=8, seed=11), D.v1_tables(12, rows=8, seed=12, split=1)
+    tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)])
+    ix = D.frame_index_of(held, D.frame_index_of(train))
+    cfg = _config(root, train_tables=tables, heldout_tables=tables, rows=[2, 8], layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_LEAKFREE,
+                  pair_index=ix, size=dict(layers=1, width=256, genome_bias=True), end_controls=["shuffle", "presence"], max_steps=3, eval_first=4)
+    axial = loop.registry.load("model", "axial")
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256 + 1 * 2       # the ext vector, one bias per column head
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and {"scattered@leakfree+shuffle", "whole_gene@leakfree+presence"} <= set(out["final"])
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    lay = {}
+    for r in rows:
+        if r["weights"] == "ema@final":
+            lay.setdefault(r["condition"], set()).add(r["layout"])
+    full = {"leakfree", "leakfree+shuffle", "leakfree+presence"}
+    assert lay == {"scattered": full, "whole_gene": full, "whole_gene+repaired": {"leakfree"}, "scattered+no_relatives": {"stored"},
+                   "whole_gene+no_relatives": {"stored"}}
+    assert all(set(e["bits"]) == set(cond.CONDITIONS) for e in out["evals"])                     # the controls at the end only
+    for c in cond.CONDITIONS:
+        assert out["final_items"][c] == _digest(cfg, root, c), c
+    assert out["final_items"]["scattered@leakfree+shuffle"] == out["final_items"]["scattered"]
+    assert out["final"]["scattered@leakfree+presence"] != out["final"]["scattered"]
+    kept = tempfile.mkdtemp()                                    # keep_node_weights: the moving average of every node, outside probes
+    kt = D.write_tableset(kept, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
+    got = loop.fit(dict(cfg, train_tables=kt, heldout_tables=kt, train_root=kept, heldout_root=kept, probe=False, keep_node_weights=True, eval_online=True,
+                        out=os.path.join(kept, "out")))
+    assert got["node_weights"] == [4] and os.path.exists(os.path.join(kept, "out", "node_4.pt"))
+    assert "model" not in torch.load(os.path.join(kept, "out", "node_4.pt"), map_location="cpu", weights_only=True)
+    real = tempfile.mkdtemp()                                    # outside probe mode the whole gene needs the pair index
+    rt = D.write_tableset(real, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL)
+    try:
+        loop.Run(dict(cfg, train_tables=rt, heldout_tables=rt, train_root=real, heldout_root=real, pair_index=None, probe=False,
+                      out=os.path.join(real, "x")))
+    except SystemExit as err:
+        assert "pair index" in str(err) or "pair_index" in str(err)
+    else:
+        raise AssertionError("an arm laid the whole gene on its frame relative without the pair index")
 
 
 def test_split_and_gradient_checks():

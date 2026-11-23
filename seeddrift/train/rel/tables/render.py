@@ -35,7 +35,7 @@ import numpy as np
 
 from seeddrift.train.rel import api as A
 
-VERSION = "1"
+VERSION = "2"
 LEAKFREE, STORED, UNALIGNED = A.LAYOUT_LEAKFREE, A.LAYOUT_STORED, A.LAYOUT_UNALIGNED
 LAYOUTS = (LEAKFREE, STORED, UNALIGNED)
 L = A.ROW_LEN
@@ -267,10 +267,12 @@ def render(tab, visible, target, layout=LEAKFREE, control=None, key=0):
     tab: one table, tok [R, ROW_LEN], n [R, B], col [R, ROW_LEN], kind [R, B], frame_len [B] (and frame_row [B]: the
     frame row of every block, row 0 where not given); visible, target: boolean [R, ROW_LEN] in the rows' own
     coordinates (a mask scheme's plan; a codon that is not visible shows as MASK).
-    control, applied after the layout to every row but a block's frame row: "shuffle" moves the columns of a block by one
-    permutation shared by all those rows (drawn by the 64-bit hash of key and the block: the correspondence with the
-    frame row is gone, the rows' alignment to each other and their content stay); "presence" shows every codon of those
-    rows as MASK (only where a codon is stays).
+    control, applied after the layout to every row but row 0 (the examined row; a block laid on a frame relative, whole
+    gene hidden, treats that relative as any other row): "shuffle" moves the columns of a block by one permutation
+    shared by all those rows (drawn by the 64-bit hash of key and the block: the correspondence with row 0 is gone, the
+    rows' alignment to each other and their content stay); "presence" shows every codon of those rows as MASK (only
+    where a codon is stays). Version 1 spared a block's frame row instead of row 0: the same for every block laid on
+    row 0, wrong for one laid on a frame relative (its codons stayed under presence; row 0 moved with the others).
     Returns grid uint8 [R, ROW_LEN], truth uint8 [R, ROW_LEN] (0 = no target, else the token to predict) and ext bool
     [R, ROW_LEN]."""
     if control not in CONTROLS:
@@ -307,11 +309,10 @@ def render(tab, visible, target, layout=LEAKFREE, control=None, key=0):
     ext &= (grid != A.PAD)
     truth[grid != A.MASK] = 0
     if control is not None:
-        fr = frame_rows(tab)
         from seeddrift.train.rel.evalh import conditions as cond        # the 64-bit hash every plan uses
+        rows = np.arange(R) != 0                                        # every row but the examined one
         for b, (_, s, e) in enumerate(SLICES):
             f = int(frame[b])
-            rows = np.arange(R) != fr[b]
             if f == 0 or not rows.any():
                 continue
             if control == "shuffle":

@@ -61,6 +61,10 @@ def test_every_variant_file_loads_and_round_1a_changes_one_key():
         assert load(n)["optimizer"] == {"lr": lr} and rest(load(n), "optimizer") == rest(load(base), "optimizer"), n
     assert load("w6-ref30m-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-hier"), "size") == rest(load("w6-ref30m"), "size")
+    for n, lr, size in (("w6-ref10m-v1", 2e-4, (8, 256)), ("w6-ref30m-v1", 1.5e-4, (12, 384)), ("w6-ref100m-v1", 1e-4, (12, 768))):
+        v = load(n)                                                   # round 1: version 1 of the tables, every mask leak-free
+        assert v["optimizer"] == {"lr": lr} and v["size"] == {"layers": size[0], "width": size[1], "genome_bias": True}
+        assert v["layout"] == v["whole_gene_layout"] == api.LAYOUT_LEAKFREE and v["rows"] == [4, 32] and v["relatives"] is True
     assert load("w6-ref30m-leakfree-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-leakfree-hier"), "size") == rest(load("w6-ref30m-leakfree"), "size")
     assert rest(load("w6-ref30m-leakfree"), "layout", "whole_gene_layout") == rest(load("w6-ref30m"), "layout")

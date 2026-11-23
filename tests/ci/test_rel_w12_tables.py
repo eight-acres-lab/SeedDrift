@@ -115,3 +115,34 @@ def test_a_sample_search_is_refused(runs, tmp_path):
     json.dump(man, open(mp, "w"))
     with pytest.raises(SystemExit):
         WV.search_run(copy)                                              # no longer the output its stage recorded, and a sample
+
+
+def test_the_frame_index_answers_the_online_layout_as_the_whole_index(runs, monkeypatch):
+    """With rel_w12_v1.frame_index the table set carries the pairs of the search's index that the online frame layout
+    reads, so a machine that trains on the tables needs that subset, not the whole index."""
+    from seeddrift.train.rel.tables import align
+    from seeddrift.train.rel.tables import v1_hits as H
+    from seeddrift.train.rel import api
+    TS.patch(monkeypatch, runs["tmp"])
+    block = dict(search_from=runs["search"], expect=TS.SIZES, rows=32, train_per_group=3, heldout_per_group=2, shard_tables=20, processes=2,
+                 dist_k=4, dist_size=256, frame_index="all")
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261123T000023-v1f", rel_w12_v1=block)
+    with Stage(run_dir, "rel_w12_v1") as st:
+        doc = WV.build(st, cfg, run_dir, "v1")
+    assert handoff.tableset_problems(doc, run_dir) == [] and doc["frame_index"]["pairs"] > 0
+    full = H.Index(os.path.join(runs["search"], "data", "rel_w12", "search", "index"))
+    sub = H.Index(os.path.join(run_dir, doc["frame_index"]["folder"]))
+    assert doc["frame_index"]["pairs"] < len(full.a["tgenome"])
+    seen = 0
+    for part in ("train", "heldout"):
+        folder = os.path.join(run_dir, doc["parts"][part]["folder"])
+        for x in doc["parts"][part]["shards"]:
+            z = {f: np.load(os.path.join(folder, "%s.%s.npy" % (x["name"], f))) for f in V1.fields(32)}
+            for t in range(x["tables"]):
+                tab = {f: z[f][t] for f in z}
+                meta = dict(genome=tab["genome"], row_gene=tab["row_gene"], row_first=tab["row_first"])
+                for b in range(api.N_BLOCKS):
+                    one, two = align.frame_layout_online(tab, meta, full, b), align.frame_layout_online(tab, meta, sub, b)
+                    assert all(np.array_equal(u, v) for u, v in zip(one[:3], two[:3])) and one[3].keys() == two[3].keys()
+                    seen += len(one[3])
+    assert seen > 0                                                       # rows were placed through the index

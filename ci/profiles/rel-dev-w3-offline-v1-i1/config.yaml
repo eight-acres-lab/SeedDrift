@@ -1,0 +1,35 @@
+# Machine i-1: the strict offline rendering of the held-out tables of version 1 (stage w3_offline, package W3), a gate of
+# round 1 (configs/rel/protocols/round1.yaml): the 3,000 held-out tables (32 rows, self-copy rows, ABSENT and TRUNCATED
+# blocks) of the tables run of profile rel-dev-w12-v1-k3-i1 written again, one part per kind of mask: scattered and
+# suffix with the correspondence aligned with the hidden residues unknown (the numpy aligner: BLOSUM62, gaps 11 + 1 per
+# position, unknown -1, semi-global); whole_gene with the target block laid on its frame relative (the first other row,
+# in table order, with a stretch there, a self-copy row too; every other row aligned to it offline, never through the
+# examined row). The fourth validity test on every table. Six processes; numpy only: the select lock, no GPU. About
+# 1 GB written. Evaluation renders these parts with the leak-free layout and the same plan (seed 20261122).
+# BEFORE LAUNCH: tables_from is the passed run of rel-dev-w12-v1-k3-i1 and sha256 its manifest's; both are filled in
+# once that run has passed.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 6
+blas_threads: 1
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w3_offline]
+rel_w3_offline:
+  tables_from: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w12-v1-k3-i1
+  tablesets:
+    - {path: data/rel_w12/v1/tableset.json, sha256: null}
+  conditions: [scattered, suffix, whole_gene]
+  seed: 20261122
+  shard_tables: 2400
+  processes: 6
+train:
+  gpu_lease: false
+  device: cpu

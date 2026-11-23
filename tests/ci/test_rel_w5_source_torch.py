@@ -33,18 +33,18 @@ else:
     pytestmark = pytest.mark.skip(reason="torch is not installed here; the model interpreter runs these tests")
 
 
-def _cfg(root, arm, **over):
-    size = dict(layers=2, width=256, arm=arm, self_layers=1)
+def _cfg(root, arm, kw=None, **over):
+    size = dict(dict(layers=2, width=256, arm=arm, self_layers=1), **(kw or {}))
     return W6._config(root, model="source", author="w5", size=size, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED,
                       max_steps=4, eval_first=4, **over)
 
 
 def test_both_arms_train_and_are_scored_as_the_reference_arm_is():
-    for arm in SR.ARMS:
+    for arm, kw in SR.TESTED:                                     # S1, S2 and S2 with the amino-acid level (copy-aa30m)
         root = tempfile.mkdtemp()
-        cfg = _cfg(root, arm)
+        cfg = _cfg(root, arm, kw)
         pre = loop.preflight(cfg)
-        assert pre["ok"] and pre["params"] == SR.count_parameters(2, 256, arm, ext=True), (arm, pre["params"])
+        assert pre["ok"] and pre["params"] == SR.count_parameters(2, 256, arm, ext=True, **kw), (arm, kw, pre["params"])
         out = loop.fit(cfg)
         assert out["status"] == "ok" and out["steps"] == 4 and all(math.isfinite(v) for v in out["final"].values() if v is not None), arm
         start = out["evals"][0]["bits"]                           # untrained: uniform alone, the copy prior of the start with relatives
@@ -57,6 +57,7 @@ def test_both_arms_train_and_are_scored_as_the_reference_arm_is():
             assert out["final_items"][c] == W6._digest(cfg, root, c), (arm, c)
         run = loop.Run(dict(cfg, out=os.path.join(root, "other")))
         assert run.size == dict(cfg["size"], ext=True) and run.info["factorisation"] == "independent" and run.info["arm"] == arm
+        assert run.info["aa_level"] == bool(kw.get("aa_level"))
 
 
 def test_the_source_readout_on_a_trained_model():
@@ -78,9 +79,9 @@ def test_the_sources_readout_on_saved_weights():
     model's own."""
     import numpy as np
     from seeddrift.train.rel.readouts import w5_sources as RO
-    for arm in SR.ARMS:
+    for arm, kw in SR.TESTED:
         root = tempfile.mkdtemp()
-        cfg = W6._config(root, kind=A.TABLE_REAL, probe=False, model="source", author="w5", size=dict(layers=2, width=256, arm=arm, self_layers=1),
+        cfg = W6._config(root, kind=A.TABLE_REAL, probe=False, model="source", author="w5", size=dict(layers=2, width=256, arm=arm, self_layers=1, **kw),
                          max_steps=4, per_step=4, micro=4, eval_first=4)
         out = loop.fit(cfg)
         import json
@@ -96,7 +97,7 @@ def test_the_sources_readout_on_saved_weights():
             assert len(z["bits"]) == h["cells"] and np.isfinite(z["bits"]).all() and (z["bits"] >= 0).all()
             assert ((z["none"] >= 0) & (z["none"] <= 1 + 1e-6)).all() and (z["entropy"] >= -1e-9).all()
             copy = z["none"] < 1 - 1e-6
-            assert np.allclose(z["level"][copy].sum(axis=1), 1.0, atol=1e-5)
+            assert np.allclose(z["level"][copy].sum(axis=1), 1.0, atol=1e-5) and z["level"].shape[1] == SR.LEVELS + int(bool(kw.get("aa_level")))
             ti = z["top_identity"][np.isfinite(z["top_identity"])]
             assert ((ti >= 0) & (ti <= 1)).all()
             assert ("none_given_truth" in z.files) == (arm == "s1")

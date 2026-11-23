@@ -13,7 +13,9 @@ from seeddrift.train.rel import registry
 
 FOLDER = os.path.join(ROOT, "configs", "rel", "variants")
 ARMS = {"w5-src30m-s1": ("s1", "w6-ref30m-leakfree-lr1.5e-4"), "w5-src30m-s2": ("s2", "w6-ref30m-leakfree-lr1.5e-4"),    # tables of version 0
-        "w5-src30m-s1-v1": ("s1", "w6-ref30m-v1"), "w5-src30m-s2-v1": ("s2", "w6-ref30m-v1")}                        # round 1
+        "w5-src30m-s1-v1": ("s1", "w6-ref30m-v1"), "w5-src30m-s2-v1": ("s2", "w6-ref30m-v1"),                        # round 1
+        "w5-copy-aa30m": ("s2", "w6-ref30m-leakfree-lr1.5e-4")}                                                     # S2 with the amino-acid level
+SWITCHES = {"w5-copy-aa30m": {"aa_level": True}}
 SOURCE = os.path.join(ROOT, "seeddrift", "train", "rel", "models", "source.py")
 
 
@@ -39,7 +41,7 @@ def test_variants_load_and_follow_the_reference_arm():
         rest = {k: x for k, x in v.items() if k not in ("name", "author", "model", "size", "gpu_mb")}
         assert rest == {k: x for k, x in ref.items() if k not in ("name", "author", "model", "size", "gpu_mb")}, name
         size = v["size"]
-        assert size == {"layers": 12, "width": 384, "arm": arm, "self_layers": 4}, size
+        assert size == dict({"layers": 12, "width": 384, "arm": arm, "self_layers": 4}, **SWITCHES.get(name, {})), size
         assert set(size) <= set(_module_constant("KNOWN")) and size["arm"] in _module_constant("ARMS")
         assert 1 <= size["self_layers"] < size["layers"] and v["gpu_mb"] >= ref["gpu_mb"]
 

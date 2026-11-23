@@ -3,8 +3,9 @@
 # the programme lead). A development diagnosis on tables of version 0 (the training and held-out sets of round 1b, the
 # leak-free arms read on W3's strict offline rendering of run 20261122T132634); not D7's reading of round 1's batch 3,
 # and nothing is chosen by it. The three arms run one after another (i-1's GPU holds only one beside another user's
-# process) to the same tables seen (max_steps 6,000: 24,000 tables each; batch 3's rule of equal tables), so their bits
-# compare at equal tables; their wall time is a cost only and differs with what else shares the GPU. Nodes at 0, 1,000
+# process) to the same tables seen (max_steps 5,000: 20,000 tables each; batch 3's rule of equal tables), so their bits
+# compare at equal tables only. They run in different windows and another user's process may load the GPU differently
+# in each, so their wall time is not read (a cost only). Nodes at 0, 1,000
 # and every doubling on the first 50 held-out tables of each group (600, four conditions, online); the end on the same
 # 600 on the strict offline rendering. The final weights stay in the run and feed no later training or evaluation.
 pipeline: rel_traineval
@@ -35,7 +36,7 @@ rel_w6_fit:
     - {variant: configs/rel/variants/w6-ref30m-leakfree-lr1.5e-4.yaml, seed: 1}
     - {variant: configs/rel/variants/w5-src30m-s2.yaml, seed: 1}
     - {variant: configs/rel/variants/w5-src30m-s1.yaml, seed: 1}
-  max_steps: 6000                # 24,000 tables each: the same tables seen for every arm
+  max_steps: 5000                # 20,000 tables each: the same tables seen for every arm (ends before 21:45 with the GPU shared)
   warmup_steps: 1000
   eval_per_group: 50
   final_per_group: 50

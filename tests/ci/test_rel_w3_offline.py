@@ -476,3 +476,31 @@ def test_the_training_check_stage(tmp_path_factory, monkeypatch):
     with pytest.raises(GateFailure):
         with Stage(run_dir, "gates_rel_w3_traincheck", requires=("pre",)) as st:
             TC.gate(st, cfg, run_dir)
+
+
+def test_the_strict_rendering_online_is_the_offline_part_cell_for_cell(tmp_path_factory, monkeypatch):
+    """Under the evaluator's plans (only row 0 hidden) the strict rendering of the stored tables (tables/strict.py, as
+    the training and its nodes render) is the leak-free rendering of the offline part (W3's strict offline rendering,
+    as the final evaluation reads it), grid, truth and cells laid by extension, table for table and condition for
+    condition: aligner version 2 is version 1 there, so the two readings are one layout."""
+    from seeddrift.train.rel.tables import strict as ST
+    built = _tables_run(tmp_path_factory)
+    src, doc, tmp = built["run_dir"], built["doc"], built["tmp"]
+    block = dict(tables_from=src, tablesets=[dict(path=RT.MANIFEST, sha256=doc["sha256"])], shard_tables=10)
+    run_dir, cfg = RF.rel_run(tmp / "same", stages=["w3_offline"], rel_w3_offline=block)
+    W2S.patch(monkeypatch, tmp)
+    monkeypatch.setattr(common, "sealed_set", RT._sealed)
+    with Stage(run_dir, w3_offline.STAGE) as st:
+        out = w3_offline.build(st, cfg, run_dir)
+    sets = shards.parts(run_dir, out)
+    held = shards.by_split(src, [doc])[shards.SPLIT_HELDOUT]
+    fields = ("tok", "n", "col", "kind", "frame_len", "frame_row")
+    stored = held.load(0, held.tables, fields)
+    for c in (cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE):
+        part = sets[c].load(0, held.tables, fields)
+        plan = cond.materialise({f: stored[f] for f in ("tok", "n", "col", "kind")}, np.arange(held.tables), c)
+        for t in range(held.tables):
+            vis, tgt = plan["visible"][t], plan["target"][t]
+            online = ST.render({f: stored[f][t] for f in fields}, vis, tgt, whole_gene=c == cond.WHOLE_GENE)[:3]
+            offline = RD.render({f: part[f][t] for f in fields}, vis, tgt, RD.LEAKFREE)
+            assert all(np.array_equal(a, b) for a, b in zip(online, offline)), (c, t)

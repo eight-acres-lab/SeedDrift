@@ -433,6 +433,22 @@ def offline_place(arrays, t, tab):
     return out
 
 
+def shown_cells(tab, row_tier, table_id, mask_id, place):
+    """(on_t [R], on_c [R]): the cells of every row the leak-free renderer shows on the target block under pass T and on
+    the neighbour and relation blocks under pass C, each on its offline placement (place: offline_place); the cells
+    coverage_shift counts for the strict reading (protocol w18-v3 version 4). A family the plan does not make counts 0."""
+    from seeddrift.train.rel.tables import render as RD
+    R = np.asarray(tab["tok"]).shape[0]
+    on_t, on_c = np.zeros(R, dtype=np.int64), np.zeros(R, dtype=np.int64)
+    fams = family_passes(tab, row_tier, table_id, mask_id)
+    for fam, out, lo, hi in (("T", on_t, T0_, T1_), ("C", on_c, 0, T0_)):
+        if fam not in fams or fam not in place:
+            continue
+        slot, _, _ = RD.placement(dict(tab, **place[fam]), fams[fam].visible, RD.LEAKFREE)
+        out[:] = ((slot >= lo) & (slot < hi)).sum(axis=1)
+    return on_t, on_c
+
+
 def _sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:

@@ -6,6 +6,12 @@
 # variant, the control of every arm) in one reading. The protocol's compute switch is on (over 5 GPU hours in all): the
 # presence passes on the in-place triples only. Runs beside batch 2 on i-1's GPU (the programme lead, 2026-11-23: HGT
 # first; batch 2's report states the sharing). Nothing is trained.
+# Expected time with the GPU free (an estimate, not a measurement): the adapted reading rel-w18v1a-i1 (16 rows, the GPU
+# fully taken by another user's processes) scored the 30 M arm with its presence passes in 34 min; here 32 rows (about twice
+# the work per pass), the presence passes on the in-place tables only (0.73 of them) and a free GPU (about half the time):
+# about 35-40 min per 30 M arm, the strict renderer adding about 0.1 s of CPU per table and arm; norel30m (pass N only) about
+# 5 min. This profile (strict offline): about 1.5 h; with the stored-layout reading (rel-w18c1s-i1, the 2 x 2 table's
+# second column) about 2.5-3 h in all.
 pipeline: rel_traineval
 tier: medium
 seed: 1

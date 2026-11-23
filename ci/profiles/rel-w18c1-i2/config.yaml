@@ -5,6 +5,9 @@
 # rendering (run 20261123T151318), both copied from i-1 over R2 into imports/runs/, every file checked by sha256. Stage
 # w6_eval in its ruler mode only: the readout (w18_readout) reads this run on i-1 with batch 1's. The protocol's compute
 # switch is on: the untrained model and the presence passes on the in-place triples only. Nothing is trained.
+# Expected time with the GPU free (an estimate, not a measurement; from rel-w18v1a-i1 as in rel-w18c1-i1): ref30m-long with
+# its presence passes about 35-40 min, the untrained model on the in-place tables about 20-25 min. This profile (strict
+# offline): about 1 h; with the stored-layout reading (rel-w18c1s-i2) about 2 h in all.
 pipeline: rel_traineval
 tier: medium
 seed: 1

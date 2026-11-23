@@ -151,14 +151,18 @@ class Builder:
         perm = self._perm["perm"]
         return int(perm[int(occ) % len(perm)])
 
-    def table(self, out, k, gid, group, split, rng, census=None, occ=None, seed=None, part=None):
+    def table(self, out, k, gid, group, split, rng, census=None, occ=None, seed=None, part=None, gene=None):
         gen, st, R = self.g[gid], self.state(gid), self.rows
         a = st["a"]
         lens = np.diff(gen.coff).astype(np.int64)
         me = self.gix[gid]
         out["group"][k], out["split"][k] = group, split
         # the loci, from the examined genome alone (as version 0); the target from the plan when it gives one
-        if occ is not None:
+        if gene is not None:                                            # drawn over the whole group (plan_by_gene)
+            i = int(gene)
+            if not 0 <= i < gen.n or lens[i] <= 0:
+                raise SystemExit("tables v1: target gene %d of %s has no codon" % (i, gid))
+        elif occ is not None:
             i = self.target(gid, occ, seed, part)
         else:
             i = int(rng.integers(gen.n))
@@ -362,6 +366,63 @@ def plan_set(genomes, groups, split, per_group, seed):
     return genome_of, group_of, [g for g in groups if not by[g]], occ
 
 
+def plan_by_gene(genomes, groups, split, per_group, seed, valid):
+    """The tables of a part with their target genes drawn over the whole group (the programme lead, 2026-11-23): the
+    groups take turns as in plan_set, and the k-th table of a group takes the k-th of the group's genes that can be a
+    target (`valid`: {genome id: gene indices with a codon}) in an order shuffled once per pass over them, so every gene
+    of the group is a target once before any is twice, and no gene more than once above the mean. Returns
+    (genome_of, group_of, groups without a genome, None, target gene of every table)."""
+    pool = {g: [(x["id"], int(j)) for x in sorted((x for x in genomes if x["split"] == split and x["group"] == g), key=lambda x: x["id"])
+                for j in valid.get(x["id"], ())] for g in groups}
+    present = [g for g in groups if pool[g]]
+    genome_of, group_of, gene, perms = [], [], [], {}
+    for t in range(int(per_group) * len(present)):
+        g = present[t % len(present)]
+        k = t // len(present)
+        n = len(pool[g])
+        key = (g, k // n)
+        if key not in perms:
+            perms = {key: np.random.default_rng([int(seed), SPLIT_STREAM[split], 3, groups.index(g), k // n]).permutation(n)} | \
+                {x: v for x, v in perms.items() if x[0] != g}
+        gid, j = pool[g][int(perms[key][k % n])]
+        genome_of.append(gid)
+        group_of.append(groups.index(g))
+        gene.append(j)
+    return genome_of, group_of, [g for g in groups if not pool[g]], None, gene
+
+
+def target_stats(plan, groups, gene_of_table, relation=None, valid=None, genome_group=None):
+    """Per group (and all): tables, distinct targets, the genes that could be one (with `valid` {genome id: gene indices
+    with a codon} and `genome_group` {genome id: group} of the part's genomes), mean and most uses of a target, the share
+    of tables whose target is used 10 times or more and the genomes they come from, and with `relation` ({genome id:
+    anchor | same species | same genus | ...}) the share of tables by relation."""
+    genome_of, group_of = plan[0], plan[1]
+    tgt = np.asarray(gene_of_table, dtype=np.int64)
+    out = {}
+    for gi, g in [(i, x) for i, x in enumerate(groups)] + [(None, "all")]:
+        idx = [t for t in range(len(genome_of)) if gi is None or group_of[t] == gi]
+        if not idx:
+            continue
+        keys = [(genome_of[t], int(tgt[t])) for t in idx]
+        uses = {}
+        for x in keys:
+            uses[x] = uses.get(x, 0) + 1
+        heavy = [t for t, x in zip(idx, keys) if uses[x] >= 10]
+        d = dict(tables=len(idx), distinct=len(uses), max_uses=max(uses.values()), tables_target_used_10_plus=len(heavy),
+                 share_target_used_10_plus=round(len(heavy) / len(idx), 4), genomes_of_those=len({genome_of[t] for t in heavy}))
+        if valid is not None and genome_group is not None:
+            n_valid = sum(len(v) for gid, v in valid.items() if gid in genome_group and (gi is None or genome_group[gid] == g))
+            d.update(targetable_genes=n_valid, mean_uses=round(len(idx) / n_valid, 3) if n_valid else None)
+        if relation is not None:
+            r = {}
+            for t in idx:
+                k = relation.get(genome_of[t]) or "anchor"
+                r[k] = r.get(k, 0) + 1
+            d["share_by_relation"] = {k: round(v / len(idx), 4) for k, v in sorted(r.items())}
+        out[g] = d
+    return out
+
+
 def table_rng(seed, split, t):
     return np.random.default_rng([int(seed), SPLIT_STREAM[split], 0, int(t)])
 
@@ -377,7 +438,8 @@ def _unit(args):
     cen = Census1(len(w["groups"]), b.rows)
     for k, t in enumerate(tables):
         occ = w["occ"][t] if w.get("occ") is not None else None
-        b.table(out, k, gid, w["group_of"][t], SPLIT_CODE[w["split"]], table_rng(w["seed"], w["split"], t), cen, occ=occ, seed=w["seed"], part=w["split"])
+        gene = w["gene"][t] if w.get("gene") is not None else None
+        b.table(out, k, gid, w["group_of"][t], SPLIT_CODE[w["split"]], table_rng(w["seed"], w["split"], t), cen, occ=occ, seed=w["seed"], part=w["split"], gene=gene)
     b.release()
     return tables, out, cen.to_arrays()
 
@@ -396,7 +458,8 @@ def build_set(builder, groups, split, plan, out_dir, shard_tables=2400, seed=1, 
     todo = [(g, ts[x:x + V0.UNIT_TABLES]) for g, ts in sorted(by.items()) for x in range(0, len(ts), V0.UNIT_TABLES)]
     todo.sort(key=lambda u: (-len(u[1]), u[0], u[1][0]))
     _W.clear()
-    _W.update(builder=builder, groups=list(groups), group_of=group_of, split=split, seed=int(seed), occ=plan[3] if len(plan) > 3 else None)
+    _W.update(builder=builder, groups=list(groups), group_of=group_of, split=split, seed=int(seed), occ=plan[3] if len(plan) > 3 else None,
+              gene=plan[4] if len(plan) > 4 else None)
     census, done, t0 = Census1(len(groups), builder.rows), 0, time.time()
     pool = multiprocessing.get_context("fork").Pool(int(processes)) if processes > 1 and len(todo) > 1 else None
     try:

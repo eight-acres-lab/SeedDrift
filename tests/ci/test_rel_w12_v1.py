@@ -211,3 +211,16 @@ def test_a_larger_set_holds_the_smaller_one_table_for_table(setup, tmp_path):
             assert x == y, (name, f)
     h1, h2 = V1.plan_set(genomes, GROUPS, "heldout", 2, 5), V1.plan_set(genomes, GROUPS, "heldout", 2, 5)
     assert h1 == h2
+
+
+def test_plan_by_gene_uses_every_gene_of_a_group_before_any_twice(setup):
+    genomes = setup["genomes"]
+    valid = {g["id"]: np.flatnonzero(np.diff(setup["arrays"][g["id"]].coff) > 0) for g in genomes if g["split"] == "train"}
+    plan = V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid)
+    assert plan[3] is None and len(plan[4]) == 50 * len(GROUPS) and plan == V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid)
+    for gi, g in enumerate(GROUPS):
+        mine = [(plan[0][t], plan[4][t]) for t in range(len(plan[0])) if plan[1][t] == gi]
+        n = sum(len(valid[x["id"]]) for x in genomes if x["split"] == "train" and x["group"] == g)
+        for x in range(0, len(mine), n):                                  # one pass over the group's genes: no repeat
+            assert len(set(mine[x:x + n])) == len(mine[x:x + n])
+        assert all(j in set(valid[gid].tolist()) for gid, j in mine)

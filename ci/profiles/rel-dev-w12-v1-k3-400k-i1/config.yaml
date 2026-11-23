@@ -1,10 +1,13 @@
 # Machine i-1: the second, larger training set of tables of version 1 on corpus medium-k3 (stage w12_v1; package W12;
 # the programme lead, 2026-11-23: for round 2, built during round 1): 33,600 training tables per group, 403,200 in all,
-# from the same search (run 20261123T061001) with the same seed and code as profile rel-dev-w12-v1-k3-i1 (16,800 per
-# group): a table's content depends on its number alone, so the first 201,600 tables (shards 0-83 of 2,400) are that
-# set's, byte for byte, and the held-out tables (250 per group) are the same 3,000 tables. No island tables (that set
-# is built once). 32 rows, 8 processes, about 45 GB, about 1-2 hours; CPU priority below the training beside it.
-# Development diagnosis only.
+# from the same search (run 20261123T061001), seed and code as profile rel-dev-w12-v1-k3-i1, but the training targets
+# are drawn over all the genes of a group without replacement (train_sampling: gene; the programme lead's rule "the same
+# gene as seldom as possible"): every gene of a group is a target once before any is twice, so no target is used more
+# than once above the group's mean, and small genomes (viruses, plasmids) no longer take hundreds of tables each. The
+# groups keep equal shares. The training tables are drawn anew: not a superset of the 201,600. The 3,000 held-out tables
+# (250 per group) are drawn as before and are those of rel-dev-w12-v1-k3-i1 byte for byte. No island tables (built
+# once). 32 rows, 8 processes, about 45 GB, about 1-2 hours; CPU priority below the training beside it. Development
+# diagnosis only.
 pipeline: rel_tables
 needs_gpu: false
 tier: medium
@@ -28,7 +31,8 @@ rel_w12_v1:
   shard_tables: 2400
   processes: 8
   seed: 1
-  name: w12-v1-r32-s1-n33600
+  name: w12-v1-r32-s1-n33600-bygene
+  train_sampling: gene
 train:
   gpu_lease: false
   device: cpu

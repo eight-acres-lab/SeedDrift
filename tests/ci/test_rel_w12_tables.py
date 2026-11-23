@@ -146,3 +146,44 @@ def test_the_frame_index_answers_the_online_layout_as_the_whole_index(runs, monk
                     assert all(np.array_equal(u, v) for u, v in zip(one[:3], two[:3])) and one[3].keys() == two[3].keys()
                     seen += len(one[3])
     assert seen > 0                                                       # rows were placed through the index
+
+
+def test_training_targets_drawn_over_the_group_and_the_same_held_out_tables(runs, monkeypatch):
+    """rel_w12_v1.train_sampling gene (the programme lead, 2026-11-23): the training targets are drawn over all genes of a
+    group without replacement, so no target is used more than once above the group's mean; the held-out tables stay
+    those of the other way, byte for byte."""
+    TS.patch(monkeypatch, runs["tmp"])
+    block = dict(search_from=runs["search"], expect=TS.SIZES, rows=32, train_per_group=40, heldout_per_group=2, shard_tables=20, processes=2,
+                 dist_k=4, dist_size=256, train_sampling="gene")
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261123T000024-v1g", rel_w12_v1=block)
+    with Stage(run_dir, "rel_w12_v1") as st:
+        doc = WV.build(st, cfg, run_dir, "v1")
+    assert handoff.tableset_problems(doc, run_dir) == []
+    assert doc["parts"]["heldout"]["sha256"] == runs["out"]["v1"]["doc"]["parts"]["heldout"]["sha256"]
+    t = doc["parts"]["train"]["targets"]
+    assert t["sampling"] == "gene" and runs["out"]["v1"]["doc"]["parts"]["train"]["targets"]["sampling"] == "genome"
+    for g, d in t["by_group"].items():
+        if g == "all":
+            continue
+        mean = d["tables"] / d["targetable_genes"]
+        assert d["max_uses"] <= int(np.ceil(mean)) and d["distinct"] == min(d["tables"], d["targetable_genes"]), (g, d)
+    assert t["by_group"]["all"]["tables"] == 40 * len(doc["group_names"])
+
+
+def test_the_use_of_target_genes_is_reported_per_group(runs, monkeypatch, tmp_path):
+    from ci.stages.rel import w12_tstats as WT
+    TS.patch(monkeypatch, runs["tmp"])
+    v1 = runs["out"]["v1"]["run_dir"]
+    rp = os.path.join(v1, "record.json")
+    json.dump(dict(json.load(open(rp)), status="passed"), open(rp, "w"))
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261123T000025-tstats", rel_w12_tstats=dict(tables_from=v1))
+    with Stage(run_dir, "rel_w12_tstats") as st:
+        rep = WT.build(st, cfg, run_dir)
+    doc = runs["out"]["v1"]["doc"]
+    for part in ("train", "heldout"):
+        d = rep["parts"][part]
+        assert d["tables"] == doc["parts"][part]["tables"] and d["by_group"]["all"]["distinct"] == doc["parts"][part]["targets"]["distinct"]
+        assert d["by_group"]["all"]["max_uses"] == doc["parts"][part]["targets"]["max_times"] and d["by_group"]["all"]["targetable_genes"] > 0
+    with Stage(run_dir, "gates_rel_w12_tstats") as st:
+        WT.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w12_tstats.json")))["status"] == "pass"

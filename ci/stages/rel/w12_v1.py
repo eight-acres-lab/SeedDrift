@@ -44,7 +44,7 @@ WHICH = dict(v1=dict(block="rel_w12_v1", stage="w12_v1", out=os.path.join("data"
              islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)))
 SEARCH = os.path.join("data", "rel_w12", "search")
 KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed",
-        "frame_index", "name"}
+        "frame_index", "name", "train_sampling"}
 
 
 def settings(cfg, which="v1") -> dict:
@@ -57,8 +57,10 @@ def settings(cfg, which="v1") -> dict:
                train_per_group=int(c.get("train_per_group", 8400)), heldout_per_group=int(c.get("heldout_per_group", 250)),
                per_chromosome=int(c.get("per_chromosome", 500)), shard_tables=int(c.get("shard_tables", 2400)), processes=int(c.get("processes", 8)),
                dist_k=int(c.get("dist_k", 6)), dist_size=int(c.get("dist_size", 4096)), seed=int(c.get("seed", cfg.get("seed", 1))),
-               frame_index=str(c.get("frame_index", "none")), name=str(c["name"]) if c.get("name") else None, max_left_out=20)
-    if not (2 <= out["rows"] <= 64 and out["shard_tables"] >= 1 and 1 <= out["processes"] <= 16) or out["frame_index"] not in ("none", "target", "all"):
+               frame_index=str(c.get("frame_index", "none")), name=str(c["name"]) if c.get("name") else None,
+               train_sampling=str(c.get("train_sampling", "genome")), max_left_out=20)
+    if not (2 <= out["rows"] <= 64 and out["shard_tables"] >= 1 and 1 <= out["processes"] <= 16) or out["frame_index"] not in ("none", "target", "all") \
+            or out["train_sampling"] not in ("genome", "gene"):
         raise SystemExit("%s: settings out of range: %r" % (w["block"], out))
     return out
 
@@ -180,9 +182,13 @@ def build(st, cfg, run_dir, which="v1"):
     groups = sorted({g["group"] for g in genomes if g["split"] != "island"})
     base = os.path.join(run_dir, w["out"])
     parts, counts, out_files, used = {}, {}, [], set()
+    rel_of = {g["id"]: g.get("relation", "") for g in W.source(man["settings"]["source"], pairs=False)["index"]["genomes"]}
     for part in w["parts"]:
         per = s["per_chromosome"] * sum(1 for g in genomes if g["split"] == "island") if part == "island" else s[part + "_per_group"]
-        plan = V1.plan_set(genomes, groups, part, per, s["seed"])
+        mine = [g for g in genomes if g["split"] == part]
+        valid = {g["id"]: np.flatnonzero(np.diff(arrays[g["id"]].coff) > 0) for g in mine if g["id"] in arrays}
+        by_gene = part == "train" and s["train_sampling"] == "gene"
+        plan = V1.plan_by_gene(genomes, groups, part, per, s["seed"], valid) if by_gene else V1.plan_set(genomes, groups, part, per, s["seed"])
         folder = os.path.join(base, part)
         shards, census = V1.build_set(builder, groups, part, plan, folder, shard_tables=s["shard_tables"], seed=s["seed"], processes=s["processes"], progress=say)
         problems = V1.verify_set(folder, shards, s["rows"], part, {gix[g["id"]] for g in genomes if g["split"] == part}, set(train), len(groups))
@@ -199,8 +205,10 @@ def build(st, cfg, run_dir, which="v1"):
         tgt = np.concatenate([np.load(os.path.join(folder, "%s.gene.npy" % name), mmap_mode="r")[:, V1.TARGET] for name, _ in shards]).astype(np.int64)
         pairs = np.asarray([gix[g] for g in plan[0]], dtype=np.int64) * (1 << 32) + tgt
         _, reps = np.unique(pairs, return_counts=True)
-        targets = dict(tables=int(len(pairs)), distinct=int(len(reps)), max_times=int(reps.max()) if len(reps) else 0,
-                       note="target genes: each genome's genes in a shuffled order, a gene again only after every gene of its genome")
+        targets = dict(tables=int(len(pairs)), distinct=int(len(reps)), max_times=int(reps.max()) if len(reps) else 0, sampling="gene" if by_gene else "genome",
+                       note=("target genes drawn over the whole group without replacement: every gene of the group once before any twice (plan_by_gene)"
+                             if by_gene else "target genes: each genome's genes in a shuffled order, a gene again only after every gene of its genome"),
+                       by_group=V1.target_stats(plan, groups, tgt, {k: v for k, v in rel_of.items() if v}, valid, {g["id"]: g["group"] for g in mine}))
         parts[part] = dict(split=V1.SPLIT_CODE[part], tables=len(plan[0]), per_group=per, groups_without_a_genome=plan[2], folder=os.path.join(w["out"], part), targets=targets,
                            shards=[dict(name=n, tables=m) for n, m in shards], sha256=sha256_json(sorted([n, f, h["sha256"]] for n, fs in hashes.items() for f, h in fs.items())))
         counts[part] = {k: v.tolist() for k, v in census.to_arrays().items()}
@@ -229,7 +237,6 @@ def build(st, cfg, run_dir, which="v1"):
         f.write(census_page(cen))
     st.output(w["stage"] + "_census", page)
     listed = [dict(id=genomes[i]["id"], taxid=genomes[i].get("taxid"), split=genomes[i]["split"]) for i in sorted(used)]
-    rel_of = {g["id"]: g.get("relation", "") for g in W.source(man["settings"]["source"], pairs=False)["index"]["genomes"]}
     n_close = sum(1 for g in genomes if rel_of.get(g["id"]) in ("same species", "same genus"))
     island = which == "islands"
     doc = handoff.finish(dict(

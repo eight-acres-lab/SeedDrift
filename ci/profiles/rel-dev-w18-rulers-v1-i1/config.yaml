@@ -1,0 +1,41 @@
+# Machine i-1: the implant tables of package W18 on tables of version 1 (stage w18_rulers, version 1), for the counting
+# reading of the HGT capability check (protocol w18-v0): the homolog rows of W12's uncapped search, 32 rows per table,
+# drawn tier by tier, one row per genome and no self-copy row, the fields of version 1. Evaluation only: kind ruler,
+# purpose ruler, never a training table. The source is the one the search read; the distances are computed in the stage
+# as stage w12_v1 computes them. The search reads corpus medium-k3 (medium with 526 close relatives, W13), so donors of
+# the near tiers exist; rows stay training genomes outside the split units of A and D. search_from names W12's full
+# search run once it has passed (until then this profile stops at its first check). CPU only (the select lock), 4 processes. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 1
+disk_gb: 2
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml     # the corpus the search read: medium and its 526 close relatives (W13)
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_rulers]
+rel_w18_rulers:
+  version: 1
+  search_from: /hy-tmp/seeddrift-ci/runs/W12-FULL-SEARCH-RUN-NOT-SET
+  rows: 32
+  per_tier: 2
+  group_tier_cap: 30
+  scenarios: true
+  edges: [0.05, 0.2, 0.5, 1.0]
+  k: 6
+  min_codons: 64
+  length_tol: 0.15
+  attempts: 40
+  donor_cap: 3
+  min_aligned: 10
+  aligned_share: 0.3
+  shard_tables: 720
+  processes: 4
+train:
+  gpu_lease: false
+  device: cpu

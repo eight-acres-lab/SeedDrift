@@ -192,13 +192,50 @@ def test_the_whole_table_at_once_is_the_rule_row_by_row():
         assert all(np.array_equal(a, b) for a, b in zip(RD.placement(tab, vis), RD.placement_reference(tab, vis)))
 
 
+def stored_reference(tab, visible, target):
+    """The trainer's reader's own stored-layout renderer before it used this module (W6, commit 3382ed5), copied here
+    as an independent reference: every row at its stored columns, GAP between its first and last placed cell, PAD
+    outside, a block without codons filled by its kind, nothing beyond the frame; a hidden codon shows as MASK."""
+    from seeddrift.train.rel.evalh import layout
+
+    L = A.ROW_LEN
+    block_of, start = np.zeros(L, np.int64), np.zeros(L, np.int64)
+    for b, (_, s, e) in enumerate(SLICES):
+        block_of[s:e], start[s:e] = b, s
+    fill = np.full(256, A.PAD, np.uint8)
+    fill[A.KIND_ABSENT], fill[A.KIND_NOT_SEARCHED], fill[A.KIND_TRUNCATED] = A.ABSENT, A.NOT_SEARCHED, A.TRUNCATED
+
+    def placed_values(values, f):
+        return layout.place(np.asarray(values)[None], np.asarray(tab["n"])[None], np.asarray(tab["col"])[None], f)[0]
+
+    tok, kind = np.asarray(tab["tok"]), np.asarray(tab["kind"])
+    frame_len = np.asarray(tab["frame_len"]).astype(np.int64)
+    R = tok.shape[0]
+    cells = (np.arange(L) - start)[None, :] < np.asarray(tab["n"])[:, block_of]
+    shown = cells & (np.asarray(tab["col"]) >= 0)
+    hidden = cells & ~np.asarray(visible, dtype=bool)
+    placed = placed_values(shown.astype(np.uint8), 0).astype(bool)
+    token = placed_values(np.where(hidden, A.MASK, tok).astype(np.uint8), A.PAD)
+    want = np.asarray(target, dtype=bool) & hidden & (tok >= A.TARGET_MIN) & (tok <= A.TARGET_MAX)
+    truth = placed_values(np.where(want, tok, 0).astype(np.uint8), 0)
+    grid = np.full((R, L), A.PAD, np.uint8)
+    for b, (_, s, e) in enumerate(SLICES):
+        p = placed[:, s:e]
+        span = (np.cumsum(p, axis=1) > 0) & (np.cumsum(p[:, ::-1], axis=1)[:, ::-1] > 0)
+        g = np.where(p, token[:, s:e], np.where(span, A.GAP, A.PAD)).astype(np.uint8)
+        empty = ~np.isin(kind[:, b], (A.KIND_PRESENT, A.KIND_SELF_COPY))
+        g[empty] = A.PAD
+        f = int(frame_len[b])
+        g[empty, :f] = fill[kind[empty, b]][:, None]
+        g[:, f:] = A.PAD
+        grid[:, s:e] = g
+    truth[grid != A.MASK] = 0
+    return grid, truth
+
+
 def test_without_hidden_cells_leak_free_is_stored_and_stored_is_the_readers():
     tables, _ = toy_tables(n_tables=6, rows=6, seed=73)
     rng = np.random.default_rng(1)
-    try:
-        from seeddrift.train.rel.data import tables as T
-    except ImportError:
-        T = None
     for t in range(6):
         tab = {k: tables[k][t] for k in ("tok", "n", "col", "kind")}
         tab["frame_len"] = tables["n"][t, 0]
@@ -208,10 +245,9 @@ def test_without_hidden_cells_leak_free_is_stored_and_stored_is_the_readers():
         g2, t2, e2 = RD.render(tab, vis, hide, RD.STORED)
         assert np.array_equal(g1, g2) and not e1.any() and not t1.any()
         vis, hide = _plans(tab, rng)
-        if T is not None:                                                        # the trainer's reader renders the stored layout so
-            gw, tw = T.render(tab, vis, hide)
-            gs, ts, _ = RD.render(tab, vis, hide, RD.STORED)
-            assert np.array_equal(gw, gs) and np.array_equal(tw, ts)
+        gw, tw = stored_reference(tab, vis, hide)                               # the reader's old renderer, independent of RD
+        gs, ts, _ = RD.render(tab, vis, hide, RD.STORED)
+        assert np.array_equal(gw, gs) and np.array_equal(tw, ts)
         un, _, _ = RD.render(tab, vis, hide, RD.UNALIGNED)
         for b, (_, s, e) in enumerate(SLICES):                                   # unaligned: every row from the block's first column
             for r in range(1, 6):
@@ -221,3 +257,61 @@ def test_without_hidden_cells_leak_free_is_stored_and_stored_is_the_readers():
                     assert np.array_equal(un[r, s:s + k], shown)
     with pytest.raises(ValueError):
         RD.render(tab, vis, hide, "sideways")
+
+
+def test_a_block_laid_on_another_frame_row():
+    """frame_row of the target block = 1: that row keeps its own columns, the examined row (hidden as a whole) is laid
+    from the first column, a third row by its pairs with the frame row."""
+    tab = blank(3)
+    put(tab, 0, TB, np.arange(1, 7))
+    put(tab, 1, TB, np.arange(21, 29))
+    put(tab, 2, TB, np.arange(41, 47), [1, 2, 3, 5, 6, 7])                    # aligned to row 1, a gap at its column 4
+    tab["col"][0, T0:T0 + 6] = np.arange(6)
+    tab["frame_row"] = np.zeros(A.N_BLOCKS, np.int8)
+    tab["frame_row"][TB], tab["frame_len"][TB] = 1, 8
+    vis, hide = plan(tab, hidden_frame=range(6))                                 # the examined row hidden as a whole
+    grid, truth, ext = RD.render(tab, vis, hide)
+    assert grid[1, T0:T0 + 8].tolist() == list(range(21, 29)) and not ext[1].any()
+    assert grid[0, T0:T0 + 8].tolist() == [A.MASK] * 6 + [A.PAD, A.PAD] and truth[0, T0:T0 + 6].tolist() == list(range(1, 7))
+    assert grid[2, T0:T0 + 8].tolist() == [A.PAD, 41, 42, 43, A.GAP, 44, 45, 46] and not ext[2].any()
+    assert all(np.array_equal(a, b) for a, b in zip(RD.placement(tab, vis), RD.placement_reference(tab, vis)))
+    gone = dict(tab, frame_row=np.full(A.N_BLOCKS, 9, np.int8))                  # a frame row that is not in the table: row 0
+    assert RD.frame_rows(gone).tolist() == [0] * A.N_BLOCKS
+
+
+def test_the_two_controls_and_the_reporting_helpers():
+    rng = np.random.default_rng(13)
+    tables, _ = toy_tables(n_tables=3, rows=6, seed=79)
+    tab = {k: tables[k][0] for k in ("tok", "n", "col", "kind")}
+    tab["frame_len"] = tables["n"][0, 0]
+    vis, hide = _plans(tab, rng)
+    grid, truth, ext = RD.render(tab, vis, hide)
+    sh, st, se = RD.render(tab, vis, hide, control="shuffle", key=7)
+    assert np.array_equal(sh[0], grid[0]) and np.array_equal(st[0], truth[0])  # the frame row as it was
+    for b, (_, s, e) in enumerate(SLICES):
+        f = int(tab["frame_len"][b])
+        if f < 3:
+            continue
+        for r in range(1, 6):                                                    # each row's cells moved, not changed
+            assert sorted(sh[r, s:s + f].tolist()) == sorted(grid[r, s:s + f].tolist())
+    moved = [b for b, (_, s, e) in enumerate(SLICES) if int(tab["frame_len"][b]) > 2 and not np.array_equal(sh[1:, s:e], grid[1:, s:e])]
+    assert moved and np.array_equal(RD.render(tab, vis, hide, control="shuffle", key=7)[0], sh)
+    assert not np.array_equal(RD.render(tab, vis, hide, control="shuffle", key=8)[0], sh)
+    s, f = T0, int(tab["frame_len"][TB])                                         # one permutation for every other row of a block
+    pairs = [(sh[1:, s + x], grid[1:, s:s + f]) for x in range(f)]
+    assert all(any(np.array_equal(col, g[:, y]) for y in range(f)) for col, g in pairs)
+    pr, ptruth, _ = RD.render(tab, vis, hide, control="presence")
+    codon = (grid >= A.TARGET_MIN) & (grid <= A.TARGET_MAX)
+    assert (pr[1:][codon[1:]] == A.MASK).all() and np.array_equal(pr[0], grid[0]) and np.array_equal(pr[~codon], grid[~codon])
+    with pytest.raises(ValueError):
+        RD.render(tab, vis, hide, control="sideways")
+    d = blank(2)                                                                 # anchors at columns 0..2 and 7..9: distances
+    put(d, 0, TB, np.arange(1, 11))
+    put(d, 1, TB, np.arange(21, 31))
+    vis, hide = plan(d, hidden_frame=range(3, 7))
+    assert RD.anchor_distance(d, vis)[T0:T0 + 10].tolist() == [0, 0, 0, 1, 2, 2, 1, 0, 0, 0] and RD.anchor_distance(d, vis)[0] == -1
+    rows = RD.causal_rows(tab, key=3)
+    assert rows[0] == 0 and len(rows) == 3 and len(set(rows)) == 3 and rows == RD.causal_rows(tab, key=3)
+    lone = blank(2)
+    put(lone, 0, TB, np.arange(1, 5))
+    assert RD.causal_rows(lone) == [0]

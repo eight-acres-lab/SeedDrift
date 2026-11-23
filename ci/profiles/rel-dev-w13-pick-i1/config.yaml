@@ -1,0 +1,34 @@
+# Machine i-1: W13 step 2, the first batch of close relatives by name (stage w13_pick; the user's decision of
+# 2026-11-22, k = 3 per genome, the same species first): the census's wide count made again from the same inputs and
+# checked against census run 20261122T151501, each pick from the ENA snapshot of run 20261122T144516 looked up in its
+# ENA assembly record, and the corpus spec medium-k3 that adds the relatives. Metadata only (the ENA records of the
+# picks); no sequence is downloaded; the sealed test genomes are not read. CPU only (the select lock), about 15
+# minutes, network to ENA. Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w13_pick]
+rel_w13_pick:
+  select_from: /hy-tmp/seeddrift-ci/runs/20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  catalog_from: /hy-tmp/seeddrift-ci/runs/20261122T144516-exp-rel-63b2a1ca-rel-dev-w13-catalog-i1
+  census_from: /hy-tmp/seeddrift-ci/runs/20261122T151501-exp-rel-ed5b39cb-rel-dev-w13-census-i1
+  k: 3
+  name: medium-k3
+  max_genes_euk: 1500
+  max_lookups: 40
+  threads: 8
+train:
+  gpu_lease: false
+  device: cpu

@@ -1,0 +1,32 @@
+# Machine i-1: W13 step 1, how many close relatives (the same species, the same genus) of the medium corpus's train and
+# held-out genomes the catalogue snapshots hold, after every exclusion of the selection, and a first batch per group
+# (stage w13_census; task breakdown section 8.1, item 3), counted twice side by side: on the catalogue snapshots of the
+# corpus's selection and on the snapshot of assembly metadata that run 20261122T144516 locked (stage w13_catalog,
+# profile rel-dev-w13-catalog-i1). It reads the candidate and selected tables and the host snapshots of the selection
+# run, the splits of round R3's run and that snapshot; nothing is downloaded and no rule is added; the sealed test
+# genomes are not read. CPU only (the select lock), about a minute. Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w13_census]
+rel_w13_census:
+  select_from: /hy-tmp/seeddrift-ci/runs/20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  per_anchor: [1, 2, 3, 5]
+  propose: 3
+  max_genes_euk: 1500
+  catalog_from: /hy-tmp/seeddrift-ci/runs/20261122T144516-exp-rel-63b2a1ca-rel-dev-w13-catalog-i1
+train:
+  gpu_lease: false
+  device: cpu

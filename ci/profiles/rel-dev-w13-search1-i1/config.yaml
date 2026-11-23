@@ -1,0 +1,54 @@
+# Machine i-1: W13 step 2, part S1 of the build of corpus medium-k3: the corpus of medium and part 1 of 3 of the close
+# relatives that run 20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1 named (configs/corpus/medium-k3-part1of3.yaml, written by
+# `python -m ci.stages.rel.w13_build part 1 3`), built up to the search (rel_w13_build.upto: search): fetch (from the
+# content store, filled by run F), corpus, reference, eval_inputs, and the search of part 1's genomes only (the other
+# genomes' hit files are the medium search run's, per genome, reuse_check 0). The next part reuses these hit files.
+# 12 threads for the search (its block must stay the medium search run's), about 2.2 hours; never beside W12's search
+# on the same machine. Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 20
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium-k3-part1of3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.05
+  threads: 8
+  retry_s: [10, 30, 90]
+  server_errors_unavailable: true
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
+  reuse_per_genome: true
+  reuse_check: 0
+train_data:
+  test_split: true
+  hits: 32
+rel:
+  machine: i1
+  stages: [w13_build]
+rel_w13_build:
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1
+  upto: search
+train:
+  gpu_lease: false
+  device: cpu

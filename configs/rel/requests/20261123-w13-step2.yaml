@@ -1,0 +1,7 @@
+package: W13
+kind: cpu_run
+to: C0
+what: register stages w13_pick and w13_build in kind rel_corpus of configs/rel/kinds.yaml after w13_census (w13_pick - rule rel_w13_pick, output data/rel_w13/pick/report.json, module ci.stages.rel.w13_pick, gates [G4_rel_w13_pick], side data; w13_build - rule rel_w13_build, output data/rel_w13/build/report.json, module ci.stages.rel.w13_build, gates [G4_rel_w13_build], side data); W13 then pushes profile rel-dev-w13-pick-i1 (stage w13_pick, about 15 minutes, 8 threads, the ENA records of the picks, select lock) and, once its run passed and its corpus spec is in the repository as configs/corpus/medium-k3.yaml, profile rel-dev-w13-build-i1 (stage w13_build, whose rule asks for the corpus stages as they are - fetch, corpus, reference, eval_inputs, search with per-genome reuse of the medium search run, train_data - 12 threads, never beside W12's search on the same machine)
+why: W13 step 2, the first batch of close relatives (the user's decision of 2026-11-22, k = 3 per genome; task breakdown 8.11); the merged full search of W12 needs the new training data by 2026-11-24
+size: {hours: 8.0, threads: 12, disk_gb: 40, gpu_mem_gb: 0}
+by: 2026-11-24

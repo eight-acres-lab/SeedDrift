@@ -1,0 +1,43 @@
+# Machine i-2, round 1b of the relational-model line (task breakdown 8.6; the programme lead's ruling of 2026-11-23):
+# the long arm, one training of about 11 h beside the vLLM service, which is never stopped: the 30 M arm on the
+# leak-free layout at 1.5e-4, the best rate of round 1a's sweep of 30 M (w6-ref30m-leakfree-lr1.5e-4; scattered and
+# span rendered leak-free by package W3's renderer, the whole gene kept stored), with relatives, seed 1. Scored on
+# package W3's strict offline rendering of the held-out items (tables.heldout_offline: run 20261122T132634 of i-1,
+# copied over R2, every file checked by sha256 on arrival), its whole-gene conditions also in the stored layout it was
+# trained in, and on condition suffix. Tables v0 as imported on i-2. A preflight that fails or a value that is not
+# finite stops the arm; nothing lowers the learning rate. CI 0.5, round 1b's foundation. Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 27000
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_selftest, w6_fit, w6_report]
+  parallel: 1
+rel_w6_selftest:
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, path: data/rel_w2/v0/tableset.json, sha256: 5e48359628e69cea45b1dc1f2bf8ec9696a0f951c0c9215ef32e7efb0a5b827a, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T132634-exp-rel-0200cd06-rel-dev-w3-offline-i1, path: data/rel_w3/offline/tableset.json, sha256: 4d21b19979778b47cd9d2630fe2afeb76387b26a3c8e9a08fbc55efc81b044b1}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-leakfree-lr1.5e-4.yaml, seed: 1}
+  wall_s: 39600                  # 11 h: one training, its final evaluation on all 3,000 held-out tables included
+  eval_per_group: 50             # the evaluations on the way: the first 50 held-out tables of each group
+  eval_max_rows: 32
+  extra_conditions: [suffix]
+  references_at_nodes: true      # as round 1b's short arms: the reference readings at every node (under 4 % of the wall time here)
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

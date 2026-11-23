@@ -96,9 +96,11 @@ def _json(path):
         return json.load(f)
 
 
-def source(run) -> dict:
+def source(run, pairs=True) -> dict:
     """The source run's records, checked: it passed; its training-data index, the manifest and genome order of stage
-    pairs and its corpus manifest are the outputs its stage records name; the file manifests match their names."""
+    pairs and its corpus manifest are the outputs its stage records name; the file manifests match their names.
+    pairs=False: a source without stage pairs (a corpus built by stage rel_w13_build), for stages that read only the
+    training data (package W12); its provenance names no pairs."""
     rp = os.path.join(run, "record.json")
     if not os.path.exists(rp):
         raise SystemExit("rel_w2_v0: %s holds no run record" % run)
@@ -109,14 +111,18 @@ def source(run) -> dict:
     index_sha = _output(run, "train_data", "train_data_index", ip)
     index = _json(ip)
     pmp = os.path.join(run, "data", "pairs", "manifest.json")
-    pm_sha = _output(run, "pairs", "pairs_manifest", pmp)
-    pg_sha = _output(run, "pairs", "pairs_genomes", os.path.join(run, "data", "pairs", "genomes.json"))
-    pm = _json(pmp)
+    if pairs:
+        pm_sha = _output(run, "pairs", "pairs_manifest", pmp)
+        pg_sha = _output(run, "pairs", "pairs_genomes", os.path.join(run, "data", "pairs", "genomes.json"))
+        pm = _json(pmp)
+    else:
+        pm_sha = pg_sha = None
+        pm = dict(sha256=None)
     cmp_ = os.path.join(run, "data", "corpus", "manifest.json")
     cm_sha = _output(run, "corpus", "corpus_manifest", cmp_)
     corpus = _json(cmp_)
     files = {}
-    for sha in (index["sha256"], pm["sha256"]):
+    for sha in [x for x in (index["sha256"], pm["sha256"]) if x]:
         man = M.load(os.path.join(run, "manifests", sha + ".json"))
         files.update({f["path"]: f["sha256"] for e in man["entries"] for f in e.get("files", [])})
     return dict(run=run, index=index, files=files, corpus={e["id"]: e for e in corpus["entries"]},

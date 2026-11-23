@@ -1,7 +1,7 @@
 # State of the coordinator (package C0) of the relational-model line. Written by C0 only.
 integration_branch: exp/rel
 base: {branch: exp/truth-labels, commit: cd967cbe7b6fd3a73ee37c51ad4792a9531372af, ci_version: "0.3"}
-ci_version: "0.4"
+ci_version: "0.5"
 # the commit every package branches from (exp/rel-<package>), or any later tip of exp/rel
 branch_from: {commit: 9140dec4f0172e05d283341fb0c201e2e760746a, what: the foundation commit, checks: "T0 and T1 passed on 2026-11-22"}
 contract: {file: seeddrift/train/rel/api.py, version: 1, from: exp/rel-p0 c25b6ef, merged: 2026-11-22}
@@ -38,19 +38,65 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
      note: "arms w6-ref30m (59,852 tables seen), w6-ref30m-norel (137,224), w6-ref10m (122,912), each to its wall limit, final evaluation on all 3,000 held-out tables; another user's processes starved the machine of CPU from about 17:20 to about 18:30"}
   - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, machine: i2, profile: rel-d1-i2, commit: 3382ed5efbd26ce034c475ca12b0d0fa1ac463fa, status: passed,
      note: "arm w6-ref100m (124,712 tables seen), final evaluation on all 3,000 held-out tables"}
-  - {run_id: 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, machine: i2, profile: rel-d1b-i2, commit: ff8430cbe73d22c94c8e44e42506db53e1c2cf91, status: started,
-     note: "arm w6-ref30m with seed 2 (branch exp/rel-d1b: commit 3382ed5 plus this profile); the day's estimate of the noise between seeds"}
+  - {run_id: 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, machine: i2, profile: rel-d1b-i2, commit: ff8430cbe73d22c94c8e44e42506db53e1c2cf91, status: passed,
+     note: "Ended 11-23 00:21 at its wall limit: 70,764 steps, 283,056 tables seen, final evaluation on all 3,000 held-out tables; best node scattered 4.066 bits at 256,000 tables. arm w6-ref30m with seed 2 (branch exp/rel-d1b: commit 3382ed5 plus this profile); the day's estimate of the noise between seeds"}
   - {run_id: 20261122T115230-exp-rel-6ec9b29e-rel-dev-w2-dist-i1, machine: i1, profile: rel-dev-w2-dist-i1, commit: 6ec9b29ed7faa37c16c52e2694bee84cd82b9f7d, status: passed}
   - {run_id: 20261122T115715-exp-rel-a9fd55d3-rel-dev-w6-report-i1, machine: i1, profile: rel-dev-w6-report-i1, commit: a9fd55d, status: passed,
      note: "the combined report of the evening's four arms beside the baselines (run 20261122T075150)"}
-  - {run_id: 20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1, machine: i1, profile: rel-d1c-i1, commit: 826eacc0f4647040306b370037b2485b93b62796, status: started,
-     note: "arm w6-ref100m-lr4e-4 (w6-ref100m at the 10 M arm's peak rate; the user's go-ahead); branch exp/rel-d1c: commit 3382ed5 plus the variant and this profile"}
+  - {run_id: 20261122T121228-exp-rel-d1c-826eacc0-rel-d1c-i1, machine: i1, profile: rel-d1c-i1, commit: 826eacc0f4647040306b370037b2485b93b62796, status: passed,
+     note: "Ended 11-23 00:43 at its wall limit: 12,862 steps, 51,448 tables seen, final evaluation on all 3,000 held-out tables; best node scattered 4.452 bits at 16,000 tables (the learning-rate check: not the rate). arm w6-ref100m-lr4e-4 (w6-ref100m at the 10 M arm's peak rate; the user's go-ahead); branch exp/rel-d1c: commit 3382ed5 plus the variant and this profile"}
   - {run_id: 20261122T073023-exp-rel-81a0dfbd-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: gate_failed,
      note: "a stray group of the source index (the one genome of split eval); fixed by W5 in 3efed75"}
   - {run_id: 20261122T073224-exp-rel-81a0dfbd-rel-dev-w5-extra-i1, machine: i1, profile: rel-dev-w5-extra-i1, commit: 81a0dfbdabc6676e07673ecb35c15f207d5c4c56, status: passed}
   - {run_id: 20261122T074006-exp-rel-6873b026-rel-dev-w5-items-i1, machine: i1, profile: rel-dev-w5-items-i1, commit: 6873b026, status: passed}
   - {run_id: 20261122T075150-exp-rel-8f20ea37-rel-dev-w5-baselines-i1, machine: i1, profile: rel-dev-w5-baselines-i1, commit: 8f20ea37, status: passed,
      note: "the baselines again with the 600-table subset; every row of the first run reappears with the same bits"}
+  - {run_id: 20261122T141051-exp-rel-32827098-rel-dev-w18-rulers-i1, machine: i1, profile: rel-dev-w18-rulers-i1, commit: 32827098c5b0cbb5ff9192cf9ac116abd51982f8, status: failed,
+     note: "W18's ruler tables: the pre gates and the sealed record (989 genomes) passed, 1,084 triples drawn; stopped at W18's own check of pass C's cells (table 2403); nothing written; back to W18"}
+  - {run_id: 20261122T142840-exp-rel-fc383346-rel-dev-w13-catalog-i1, machine: i1, profile: rel-dev-w13-catalog-i1, commit: fc383346f9c210569840c3638842eecd2a34f0cd, status: failed,
+     note: "the catalogue portal returns one row per assembly version; the stage stopped at its own check of a repeated accession; fixed by W13 in 3572057 (the highest version kept)"}
+  - {run_id: 20261122T144049-exp-rel-8192bedc-rel-dev-w18-rulers-i1, machine: i1, profile: rel-dev-w18-rulers-i1, commit: 8192bedc033c26f950ddf8f4f4fdc59f0fceeb04, status: passed,
+     note: "W18's ruler tables (kind ruler, evaluation only): 3,984 tables of 1,328 triples (1,014 in place, 314 copies), 274 eligible genomes, 70 s; manifest be8111fb152b47669b99cce3dda9f8095fc1cd217448374ef67dd69191509cac"}
+  - {run_id: 20261122T144516-exp-rel-63b2a1ca-rel-dev-w13-catalog-i1, machine: i1, profile: rel-dev-w13-catalog-i1, commit: 63b2a1ca4ffa868e593415a7b5a03e74e050322b, status: passed,
+     note: "the catalogue snapshot (metadata only) and the census counted twice"}
+  - {run_id: 20261122T151028-exp-rel-f7a05014-rel-dev-w15-registry-i1, machine: i1, profile: rel-dev-w15-registry-i1, commit: f7a0501406a00a2bc5ead993d6814ad6e3f9c895, status: passed,
+     note: "the registry's taxonomy, radius counts and sealed-genus overlap are right, but no paper was fetched (a reading error of W15's stage that its gate did not catch); fixed by W15 in 8e1171f, whose gate fails when most queries fail; kept as a record"}
+  - {run_id: 20261122T151501-exp-rel-ed5b39cb-rel-dev-w13-census-i1, machine: i1, profile: rel-dev-w13-census-i1, commit: ed5b39cb2c3cd88f0f37c5330d7f78d4016b0530, status: passed,
+     note: "the census again on the locked snapshot: one genome per assembly, virus hosts from the selection's host records"}
+  - {run_id: 20261122T153204-exp-rel-d69b170c-rel-dev-w15-registry-i1, machine: i1, profile: rel-dev-w15-registry-i1, commit: d69b170cea86b5caed70638044405392ecb6d96d, status: passed,
+     note: "Papers fetched this time (111 entries, 5 MB). the registry's server checks again, with the paper fetch fixed and registry batch 2"}
+  - {run_id: 20261122T161536-exp-rel-124b16a7-rel-dev-w13-pick-i1, machine: i1, profile: rel-dev-w13-pick-i1, commit: 124b16a709a98be5668e99c3cd93193733822305, status: passed,
+     note: "W13 step 2 (the user's k = 3): 516 relatives (378 train, 138 held-out); superseded by the pick of 20261122T183639"}
+  - {run_id: 20261122T162205-exp-rel-a7293552-rel-dev-w6-ladder-i1, machine: i1, profile: rel-dev-w6-ladder-i1, commit: a72935529d355d321350e14be2202cc37665fa2f, status: passed,
+     note: "W6's ladder report over both seeds of the 30 M arm"}
+  - {run_id: 20261122T162214-exp-rel-r1a-098d93a7-rel-r1along30m-i2, machine: i2, profile: rel-r1along30m-i2, commit: 098d93a7b425e94067d30fb7db73797d0a460633, status: started,
+     note: "round 1a, the long arm (w6-ref30m at 3e-4, the programme lead's verdict B, 11 h); branch exp/rel-r1a: commit 3382ed5 plus profiles and variants"}
+  - {run_id: 20261122T164333-exp-rel-124b16a7-rel-d1suffix-i1, machine: i1, profile: rel-d1suffix-i1, commit: 124b16a709a98be5668e99c3cd93193733822305, status: passed,
+     note: "the evening's 10 M and 30 M arms evaluated again under condition suffix alone (the programme lead's ruling on a hidden span)"}
+  - {run_id: 20261122T164415-exp-rel-987d51b9-rel-dev-w6-lr-i1, machine: i1, profile: rel-dev-w6-lr-i1, commit: 987d51b986e05d9f1936357e2b9e619d47d5abdf, status: passed,
+     note: "W6's report with the learning-rate check"}
+  - {run_id: 20261122T164430-exp-rel-1cf7a323-rel-dev-w13-fetch-i1, machine: i1, profile: rel-dev-w13-fetch-i1, commit: 1cf7a323613fe2174f8ce3419688f497e1a82ba6, status: failed,
+     note: "W13's download F stopped on a record the archive does not serve (HTTP 500 on every try); the programme lead's rule since: retried, listed as unavailable, replaced, at most 5 % (36d7fb5)"}
+  - {run_id: 20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1, machine: i1, profile: rel-r1ashort1e4-i1, commit: 098d93a7b425e94067d30fb7db73797d0a460633, status: passed,
+     note: "Ended 11-23 04:52, every arm at its wall limit, final evaluation on all 3,000 held-out tables (tables seen: 55,732, 55,712, 20,748). round 1a, the short arms (w6-ref30m-lr1.5e-4, w6-ref30m-lr6e-4, w6-ref100m-lr1e-4; 4 h each, three at once)"}
+  - {run_id: 20261122T164959-exp-rel-1cf7a323-rel-dev-w13-scaffold-i1, machine: i1, profile: rel-dev-w13-scaffold-i1, commit: 1cf7a323613fe2174f8ce3419688f497e1a82ba6, status: passed,
+     note: "the prokaryotes' scaffold-level assemblies (metadata only) by W13's quality thresholds, and the census a third time"}
+  - {run_id: 20261122T175251-exp-rel-88321b7d-rel-dev-w15-registry-i1, machine: i1, profile: rel-dev-w15-registry-i1, commit: 88321b7da9829fe9c3731248bcbbb04dc221373a, status: failed,
+     note: "a supplement's body cut short (IncompleteRead) was not retried; fixed by W15 in 789f3d0 and eb7a09d; kept as a record"}
+  - {run_id: 20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1, machine: i1, profile: rel-dev-w13-pick-i1, commit: 7711a33372616c40e3c31d2b91394ea85672c7b8, status: passed,
+     note: "the pick again by the programme lead's rule: every FASTA tried as fetch will ask for it, candidates in a seeded random order (same species, then genus), replacements listed"}
+  - {run_id: 20261122T185044-exp-rel-9aa2c8c0-rel-dev-w13-fetch-i1, machine: i1, profile: rel-dev-w13-fetch-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W13's download F of corpus medium-k3 (526 relatives): 1,772 entries, dataset ds-medium-k3-fetch-f354e5638986"}
+  - {run_id: 20261122T185535-exp-rel-9aa2c8c0-rel-dev-w15-registry-i1, machine: i1, profile: rel-dev-w15-registry-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W15's fourth registry run, every network error retried: 29 MB, 111 entries"}
+  - {run_id: 20261122T205238-exp-rel-9aa2c8c0-rel-w18v0-i1, machine: i1, profile: rel-w18v0-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W18's first reading on i-1 (protocol w18-v0): w6_eval in ruler mode 2,648 s, w18_readout 149 s; the 100 M arm at 2e-4 is read on i-2"}
+  - {run_id: 20261122T213041-exp-rel-9aa2c8c0-rel-dev-w12-trial-i1, machine: i1, profile: rel-dev-w12-trial-i1, commit: 9aa2c8c0eedf4afedd6df59b8b10fc48f929e66e, status: passed,
+     note: "W12's 1 % trial: the full search on the current corpus extrapolated to 1.89 h, 113 million pairs, 11.9 GB (24.9 GB while written); the programme lead chose to combine with W13's corpus (task breakdown 8.11)"}
+  - {run_id: 20261122T213618-exp-rel-d571b283-rel-dev-w13-search1-i1, machine: i1, profile: rel-dev-w13-search1-i1, commit: d571b2838c319877373ae685d2227cfe76d85e57, status: started,
+     note: "W13's build S1: corpus medium-k3-part1of3, the first third of the new genomes searched (12 threads)"}
+  - {run_id: 20261122T220626-exp-rel-0294e09d-rel-r1bshort-i1, machine: i1, profile: rel-r1bshort-i1, commit: 0294e09dc09aea629ffa78a4778bdc5ddabefb29, status: started,
+     note: "round 1b, the short arms (w6-ref10m-leakfree, w6-ref30m-leakfree, w6-ref30m-leakfree-hier), beside S1; DIAMOND's CPU rate 11.32 alone and 11.51 beside them, kept (the programme lead's 20 % rule)"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:
@@ -60,6 +106,21 @@ copies:
   - {run_id: 20261122T071650-exp-rel-3382ed5e-rel-d1-i2, from: i2, to: i1, route: R2, files: 48, bytes: 38803067,
      what: "record.json, config, stages, gates, data/rel_w6 without the checkpoints (*.pt), into imports/runs/ on i-1, for the combined report",
      checked: "every file by sha256 against the list made on i-2", date: 2026-11-22}
+  - {run_id: 20261122T144049-exp-rel-8192bedc-rel-dev-w18-rulers-i1, from: i1, to: i2, route: R2, files: 92, bytes: 216728739,
+     what: "record.json, config, stages, gates, data/rel_w18/rulers into imports/runs/ on i-2, for W18's reading of the 100 M arm at 2e-4 on the machine that trained it",
+     checked: "every file of the manifest by sha256 on i-2; the manifest against the run's stage record", date: 2026-11-22,
+     note: "the download from R2 to i-2 stalled at 96 % and was started again; rclone kept the files already there"}
+  - {run_id: 20261122T114919-exp-rel-d1b-ff8430cb-rel-d1b-i2, from: i2, to: i1, route: R2, files: 48, bytes: 44296191,
+     what: "record.json, config, stages, gates, data/rel_w6 without the checkpoints (*.pt), into imports/runs/ on i-1, for W6's ladder report",
+     checked: "every file by sha256 against the list made on i-2", date: 2026-11-23}
+  - {run_id: 20261122T132634-exp-rel-0200cd06-rel-dev-w3-offline-i1, from: i1, to: i2, route: R2, files: 90, bytes: 483194520,
+     what: "record.json, config, stages, gates, data/rel_w3/offline into imports/runs/ on i-2, for round 1b's long arm (tables.heldout_offline)",
+     checked: "every file of the manifest by sha256 on i-2; the manifest against the run's stage record", date: 2026-11-23}
+# branches of round configurations: commit 3382ed5 (the evening's code) plus profiles and variants only, so the arms
+# train exactly as the evening's arms did
+round_branches:
+  - {branch: exp/rel, commit: 21be1b3, what: "round 1b's foundation (CI 0.5): profiles rel-r1bshort-i1 and rel-r1blong-i2; the third short arm the hierarchical head on the leak-free layout (05bacf9)"}
+  - {branch: exp/rel-r1a, commit: 098d93a, what: "round 1a: the long arm on i-2 (rel-r1along100m-i2 or rel-r1along30m-i2) and the short arms on i-1 (rel-r1ashort8e4-i1 or rel-r1ashort1e4-i1), by the learning-rate check of the 4e-4 run"}
 # open items of the foundation
 open:
   - the shard writer of stage c0_synth is the second step of the foundation (it calls the shard writer of package W2);
@@ -67,3 +128,5 @@ open:
   - copy the seed-2 run of i-2 back to i-1 over R2 when it has ended; then W6's ladder report (rel-dev-w6-ladder-i1)
   - after the 4e-4 run: W6's report with the learning-rate check (rel-dev-w6-lr-i1, to come)
   - the re-evaluation profile rel-d1eval-i1 was not run: every arm's final evaluation completed
+  - the profile rel-r1ahier-i1 (the hierarchical head alone) is not run: the head becomes a short arm of round 1b (calendar version 4)
+  - W18's reading: rel-w18v0-i2 on i-2 after round 1a's long arm, then its evaluation run copied back to i-1; rel-w18v0-i1 on i-1 after W12's search parts; then W18's readout-only profile over both

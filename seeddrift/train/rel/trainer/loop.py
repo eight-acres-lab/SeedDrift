@@ -40,17 +40,25 @@ from seeddrift.train.rel.data import sampler as S
 from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
+from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.models.common import layers as C
 from seeddrift.train.rel.trainer import heldout as E
 
 TRAINER_VERSION = "2"
+RULER = getattr(A, "TABLE_RULER", "ruler")      # the kind of the ruler table sets (package W18): evaluation only
 MB = float(1 << 20)
 DEFAULTS = dict(objective="mlm", masks=["scattered", "span", "whole_gene"], mask_weights=None, rows=[4, 16], relatives=True, per_step=4, micro=4,
                 warmup_steps=1000, weight_decay=0.01, betas=[0.9, 0.98], clip=1.0, budget_cells=None, ema=True, eval_first=1000,
                 eval_per_group=50, final_per_group=0, eval_max_rows=64, final_best=None, preflight_steps=200, preflight_warmup=50, preflight_lr_scale=0.3,
                 preflight_guard="stop", alone_share=None,
                 probe=False, device="auto", threads=2, gpu_mb=None, max_steps=None, author="", group_names=None, train_split=0, heldout_split=1,
-                run="", commit="", layout=A.LAYOUT_STORED, columns=A.ROW_LEN)
+                run="", commit="", layout=A.LAYOUT_STORED, whole_gene_layout=None, columns=A.ROW_LEN, references_at_nodes=False)
+TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE)          # the layouts a training renders its tables in
+# the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
+OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",
+                getattr(cond, "SUFFIX", "suffix"): "suffix"}
+# the conditions a leak-free arm also reads in the stored layout its whole-gene samples were trained in
+STORED_TOO = (cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED)
 NEEDED = ("name", "model", "size", "lr", "seed", "wall_s", "train_tables", "train_root", "heldout_tables", "heldout_root", "out")
 
 
@@ -62,9 +70,24 @@ def settings(cfg):
         raise SystemExit("the trainer's configuration lacks %s" % ", ".join(missing))
     if int(out.get("api", T.API_VERSION)) != T.API_VERSION:
         raise SystemExit("variant %s is written for contract version %s; this trainer has version %s" % (out["name"], out.get("api"), T.API_VERSION))
-    if out["layout"] != A.LAYOUT_STORED or int(out["columns"]) != A.ROW_LEN:
-        raise SystemExit("variant %s: this trainer renders the stored placement on %d columns only" % (out["name"], A.ROW_LEN))
+    if out["layout"] not in TRAINED_LAYOUTS or (out["whole_gene_layout"] or out["layout"]) not in TRAINED_LAYOUTS or int(out["columns"]) != A.ROW_LEN:
+        raise SystemExit("variant %s: this trainer renders the layouts %s on %d columns (given %s, whole gene %s)"
+                         % (out["name"], TRAINED_LAYOUTS, A.ROW_LEN, out["layout"], out["whole_gene_layout"]))
     return out
+
+
+def layouts_of(cfg):
+    """{mask scheme: layout}: the variant's layout, the whole gene's own where whole_gene_layout names one."""
+    return {m: (cfg["whole_gene_layout"] or cfg["layout"]) if m == "whole_gene" else cfg["layout"] for m in cfg["masks"]}
+
+
+def size_of(module, cfg):
+    """The size the model is built with: the variant's, with ext on where a layout other than stored is rendered."""
+    size = cfg["size"]
+    if all(x == A.LAYOUT_STORED for x in layouts_of(cfg).values()):
+        return size
+    base = dict(getattr(module, "SIZES", {})[size]) if isinstance(size, str) else dict(size)
+    return dict(base, ext=True)
 
 
 def write_json(path, obj):
@@ -86,7 +109,9 @@ def versions():
 class Run:
     """What a preflight and a training share: the tables, the model and its moving average, the optimiser."""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, evaluate_only=False):
+        """evaluate_only (evaluate_checkpoints alone): the held-out set may be a ruler set (package W18) of the split it
+        carries; a training or preflight reads real held-out tables of split 1 only."""
         self.cfg = cfg = settings(cfg)
         torch.set_num_threads(int(cfg["threads"]))
         torch.manual_seed(int(cfg["seed"]))
@@ -95,24 +120,31 @@ class Run:
         self.device = torch.device("cuda" if cfg["device"] != "cpu" and torch.cuda.is_available() else "cpu")
         if cfg["device"] == "cuda" and self.device.type != "cuda":
             raise SystemExit("the configuration asks for a GPU and there is none")
-        if int(cfg["train_split"]) != 0 or int(cfg["heldout_split"]) != 1:
+        held_split = int(cfg["heldout_split"])
+        if int(cfg["train_split"]) != 0 or (held_split != 1 and not evaluate_only):
             raise SystemExit("the training tables are split 0 and the held-out tables split 1 (given %s and %s)" % (cfg["train_split"], cfg["heldout_split"]))
         self.train = T.open_split(cfg["train_root"], cfg["train_tables"], 0)
-        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], 1)
-        for ts, want in ((self.train, 0), (self.held, 1)):
+        self.held = T.open_split(cfg["heldout_root"], cfg["heldout_tables"], held_split)
+        ruler = evaluate_only and self.held.kind == RULER and not cfg["probe"]
+        if self.held.kind == A.TABLE_REAL and held_split != 1:
+            raise SystemExit("real held-out tables are split 1, not %d" % held_split)
+        for ts, want in ((self.train, 0), (self.held, held_split)):
             got = np.unique(np.asarray(ts.load(("split",))["split"]))
             if got.tolist() != [want]:
                 raise SystemExit("table set %s: the tables read as split %d carry splits %s" % (ts.name, want, got.tolist()))
         for ts in (self.train, self.held):
+            if ts is self.held and ruler:
+                continue                                              # a ruler set, read by an evaluation only
             if bool(cfg["probe"]) == (ts.kind == A.TABLE_REAL):
                 raise SystemExit("table set %s is of kind %r: probe mode takes only tables that are not real, every other run only real tables"
                                  % (ts.name, ts.kind))
         self.sampler = S.Sampler(self.train, cfg["seed"], masks=cfg["masks"], weights=cfg["mask_weights"], rows=cfg["rows"],
-                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"])
+                                 relatives=cfg["relatives"], per_step=cfg["per_step"], alone_share=cfg["alone_share"], layouts=layouts_of(cfg))
         self.module = registry.load("model", cfg["model"])
         self.objective = registry.load("objective", cfg["objective"])
-        self.model = self.module.build(cfg["size"]).to(self.device)
-        self.info = self.module.info(cfg["size"], rows=int(cfg["rows"][1]) if cfg["relatives"] else 1)
+        self.size = size_of(self.module, cfg)
+        self.model = self.module.build(self.size).to(self.device)
+        self.info = self.module.info(self.size, rows=int(cfg["rows"][1]) if cfg["relatives"] else 1)
         self.params = sum(p.numel() for p in self.model.parameters())
         if self.params != self.info["params"]:
             raise SystemExit("the model has %d parameters, its module declares %d" % (self.params, self.info["params"]))
@@ -124,12 +156,22 @@ class Run:
         self.ema = copy.deepcopy(self.model).requires_grad_(False) if cfg["ema"] else None
         self.ema_weights = list(self.ema.parameters()) if self.ema is not None else []
         self.micro = max(1, min(int(cfg["micro"]), int(cfg["per_step"])))
-        self.conditions = E.conditions_of(cfg["relatives"])
+        self.conditions = E.conditions_of(cfg["relatives"], cfg.get("extra_conditions") or (), cfg.get("only_conditions"))
+        if not self.conditions:
+            raise SystemExit("arm %s has no condition to be scored under (only_conditions %s)" % (cfg["name"], cfg.get("only_conditions")))
         self.main = self.conditions[0]
         self.group_names = {int(k): str(v) for k, v in (cfg["group_names"] or {}).items()}
         self.n_groups = int(self.held.group.max()) + 1
         self.rows = []                                                  # every result row written so far
         self._held = None
+        self._parts = {}
+        self.offline = None                                             # package W3's strict offline rendering of the held-out set
+        if cfg.get("heldout_offline_tables"):
+            doc = T.read_manifest(cfg["heldout_offline_tables"])
+            self.offline = dict(doc=doc, parts=shards.parts(cfg["heldout_offline_root"], doc))
+            for name, ts in self.offline["parts"].items():
+                if int(ts.tables) != len(self.held):
+                    raise SystemExit("offline part %s holds %d tables, the held-out set %d" % (name, ts.tables, len(self.held)))
 
     def held_data(self):
         """The arrays of every held-out table (read once), and its metadata for the strata."""
@@ -138,6 +180,25 @@ class Run:
             meta = self.held.load(("identity",))
             self._held = (data, np.asarray(meta["identity"]), E.other_rows(data["kind"]))
         return self._held
+
+    def eval_source(self, condition):
+        """(layout, arrays of every held-out table) a condition is scored in: an arm trained in the stored layout, and
+        the conditions without relatives, read the stored tables in the stored layout; an arm trained leak-free reads
+        the other conditions in the leak-free layout, from the part of the strict offline rendering made for that
+        condition's mask (OFFLINE_PART) when the run names one, else from the stored tables rendered online (probe and
+        tests only: the online anchors are the stored pairs)."""
+        data = self.held_data()[0]
+        if self.cfg["layout"] == A.LAYOUT_STORED or cond.NO_RELATIVES in condition:
+            return A.LAYOUT_STORED, data
+        part = OFFLINE_PART.get(condition)
+        if self.offline is None or part is None:
+            if not self.cfg["probe"] and part is not None:
+                raise SystemExit("a leak-free arm is scored under %s on the strict offline rendering (heldout_offline_tables)" % condition)
+            return A.LAYOUT_LEAKFREE, data
+        if part not in self._parts:
+            ts = self.offline["parts"][part]
+            self._parts[part] = ts.load(0, ts.tables, E.PLAN_FIELDS, verify=False)
+        return A.LAYOUT_LEAKFREE, self._parts[part]
 
     def peak_mb(self):
         if self.device.type != "cuda":
@@ -196,17 +257,36 @@ class Run:
                     cells_per_s=round(cells_per_s, 1), peak_mb=round(self.peak_mb()[1]), tier=getattr(SC, "TIER", SC.ALL), passes=1, status=status,
                     versions=versions())
 
-    def evaluate(self, ids, fixed, path):
-        """The held-out tables ids under every condition of this arm, read by the moving average. The rows go to
-        self.rows and the whole table to path after every condition. Returns {condition: bits over all groups and
-        strata, None when nothing was scored}, {condition: (bits, cell_table)} and {condition: items digest}."""
-        data, identity, n_other = self.held_data()
-        part = {f: v[ids] for f, v in data.items()}
+    def eval_plan(self, at_node=False):
+        """[(key, condition, layout, arrays)]: every condition of the arm in the layout eval_source gives it; an arm
+        trained leak-free also reads the whole gene (and its re-pairing) in the stored layout it was trained in (key
+        "<condition>@stored"; the programme lead's ruling for round 1b: that reading is a reference only). The
+        references (those, and the extra conditions such as suffix) are read at the final evaluation only, not at the
+        nodes, unless references_at_nodes (the ruling of 2026-11-23, from round 1 on)."""
+        refs = not at_node or bool(self.cfg["references_at_nodes"])
+        out = []
+        for c in self.conditions:
+            if c not in cond.CONDITIONS and not refs:
+                continue
+            layout, data = self.eval_source(c)
+            out.append((c, c, layout, data))
+            if refs and layout != A.LAYOUT_STORED and c in STORED_TOO:
+                out.append(("%s@%s" % (c, A.LAYOUT_STORED), c, A.LAYOUT_STORED, self.held_data()[0]))
+        return out
+
+    def evaluate(self, ids, fixed, path, at_node=False):
+        """The held-out tables ids under every condition of this arm (eval_plan), read by the moving average. The rows
+        go to self.rows and the whole table to path after every condition; their layout column says how the grids were
+        rendered. Returns {key: bits over all groups and strata, None when nothing was scored}, {key: (bits,
+        cell_table)} and {key: items digest}, the keys of eval_plan."""
+        _, identity, n_other = self.held_data()
         strata = SC.strata_of(identity[ids], n_other[ids])
         groups = self.held.group[ids]
         main, cells, digests = {}, {}, {}
-        for c in self.conditions:
-            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]))
+        for key, c, layout, data in self.eval_plan(at_node):
+            part = {f: v[ids] for f, v in data.items()}
+            fixed = dict(fixed, layout=layout)
+            bits, cell_table, digest, aa = E.score(self.reader(), part, ids, c, self.device, max_rows=int(self.cfg["eval_max_rows"]), layout=layout)
             agg = SC.aggregate(bits, cell_table, groups, strata, self.n_groups, self.group_names)
             for label, b in zip(SC.PARTS, (aa, bits - aa)):           # the two parts of the bits, per group and over the groups
                 agg += [dict(r, stratum=label) for r in SC.aggregate(b, cell_table, groups, [], self.n_groups, self.group_names) if r["stratum"] == SC.ALL]
@@ -214,8 +294,8 @@ class Run:
                                         n_items=r["n_items"], **fixed) for r in agg]
             SC.write_rows(path + ".part", self.rows)
             os.replace(path + ".part", path)
-            main[c] = next((r["bits"] for r in agg if r["group"] == SC.ALL and r["stratum"] == SC.ALL), None)
-            cells[c], digests[c] = (bits, cell_table), digest
+            main[key] = next((r["bits"] for r in agg if r["group"] == SC.ALL and r["stratum"] == SC.ALL), None)
+            cells[key], digests[key] = (bits, cell_table), digest
         return main, cells, digests
 
 
@@ -224,7 +304,8 @@ def worst_case(examples, rows):
     out = []
     for e in examples:
         k = -(-rows // e["grid"].shape[0])
-        out.append(dict(e, grid=np.concatenate([e["grid"]] * k)[:rows], truth=np.concatenate([e["truth"]] * k)[:rows]))
+        grown = {f: np.concatenate([e[f]] * k)[:rows] for f in ("grid", "truth", "ext") if f in e}   # every per-row array of the example
+        out.append(dict(e, **grown))
     return out
 
 
@@ -332,8 +413,10 @@ def evaluate_checkpoints(cfg):
     (final_tables, final_cells, final_wall_s) and at its best node (best_tables, best_cells, best_wall_s). Writes
     results.tsv, heldout_final.npz and summary.json in out."""
     began = time.time()
-    run = Run(dict(cfg, out=cfg["out"]))
+    run = Run(dict(cfg, out=cfg["out"]), evaluate_only=True)            # a ruler set of package W18 may be the held-out set here
     cfg = dict(run.cfg, **{k: v for k, v in cfg.items() if k not in run.cfg})
+    if cfg.get("readout"):
+        return read_ruler(run, cfg, began)
     out_dir = cfg["out"]
     os.makedirs(out_dir, exist_ok=True)
     for name in ("results.tsv", "summary.json"):
@@ -368,6 +451,63 @@ def evaluate_checkpoints(cfg):
     return state
 
 
+UNTRAINED = "untrained"
+
+
+def read_ruler(run, cfg, began):
+    """The passes of a readout module (cfg["readout"]: module, presence, max_rows, layout; package W18's
+    readouts/w18_passes.run_ruler) on the ruler set held as run.held, scored by the moving average of final.pt, or by
+    the arm's model as built with its seed and never trained (cfg["final"] == "untrained"). The module writes its
+    per-cell file into cfg["out"] (no result rows: a ruler set is no item of a round); summary.json beside it."""
+    import importlib
+    ro = dict(cfg["readout"])
+    out_dir = cfg["out"]
+    os.makedirs(out_dir, exist_ok=True)
+    summary = os.path.join(out_dir, "summary.json")
+    if os.path.exists(summary):
+        raise SystemExit("summary.json exists in %s: a readout starts in an empty folder" % out_dir)
+    reader = run.reader()
+    untrained = cfg.get("final") == UNTRAINED
+    ck = None
+    if not untrained:
+        ck = torch.load(cfg["final"], map_location=run.device, weights_only=True)
+        reader.load_state_dict(ck["ema"])
+    else:                                                             # the weights read are kept, as a checkpoint of the index
+        body = dict(name=cfg["name"], size=run.size, module=cfg["model"], step=0, tables_seen=0, cells_seen=0, commit=cfg["commit"], ema=reader.state_dict())
+        torch.save(body, os.path.join(out_dir, "untrained.pt.part"))
+        os.replace(os.path.join(out_dir, "untrained.pt.part"), os.path.join(out_dir, "untrained.pt"))
+    layout = str(ro.get("layout") or A.LAYOUT_STORED)
+    if layout == A.LAYOUT_STORED:
+        render, version = None, T.RENDER_VERSION
+    else:
+        from seeddrift.train.rel.tables import render as RD
+        with_ext = getattr(reader, "ext", None) is not None            # an arm trained on stored tables reads no ext cells
+
+        def render(tab, visible, target):
+            grid, truth, ext = RD.render(tab, visible, target, layout=layout)
+            return (grid, truth, ext) if with_ext else (grid, truth)
+        version = "w3-%s" % RD.VERSION
+    max_rows = int(ro.get("max_rows", 32))
+    info = dict(arm=cfg["name"], weights=UNTRAINED if untrained else "final", relatives=bool(cfg["relatives"]), layout=layout, render_version=version,
+                run=cfg["run"], commit=cfg["commit"], root=cfg["heldout_root"])
+    extra = {}
+    if ro.get("in_place_only"):                                       # the protocol's switch of compute: in-place implants only
+        extra = dict(scenarios=[0]) if untrained else (dict(presence_scenarios=[0]) if ro.get("presence") else {})
+    if ro.get("adapt_v0"):                                            # tables of version 1 read by an arm trained on version 0
+        extra["adapt_v0"] = True
+    head = importlib.import_module(str(ro["module"])).run_ruler(lambda examples: E.score_cells(reader, examples, run.device, max_rows=max_rows),
+                                                                run.held, info, out_dir, render=render, presence=bool(ro.get("presence")),
+                                                                max_rows=max_rows, **extra)
+    state = dict(name=cfg["name"], status="ok", readout=str(ro["module"]), weights=info["weights"], layout=layout, presence=bool(ro.get("presence")),
+                 in_place_only=extra,
+                 tables=len(run.held), table_set=run.held.name, table_kind=run.held.kind, versions=versions(), params=run.params,
+                 step=int(ck["step"]) if ck else 0, tables_seen=int(ck["tables_seen"]) if ck else 0, cells_seen=int(ck["cells_seen"]) if ck else 0,
+                 ruler={k: v for k, v in (head or {}).items() if isinstance(v, (str, int, float, bool)) or v is None},
+                 wall_s=round(time.time() - began, 1), row_key_mask=dict(C.ROW_MASK))
+    write_json(summary, state)
+    return state
+
+
 def fit(cfg):
     began = time.time()
     run = Run(cfg)
@@ -390,7 +530,7 @@ def fit(cfg):
     def save(name, ema_only):
         if cfg["probe"]:
             return
-        body = dict(name=cfg["name"], size=cfg["size"], module=cfg["model"], step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"],
+        body = dict(name=cfg["name"], size=run.size, module=cfg["model"], step=k["step"], tables_seen=k["tables"], cells_seen=k["cells"],
                     commit=cfg["commit"], ema=run.reader().state_dict())
         if not ema_only:
             body["model"] = run.model.state_dict()
@@ -402,7 +542,7 @@ def fit(cfg):
         t = time.time()
         rate = k["cells"] / k["train_s"] if k["train_s"] > 0 else 0.0
         fixed = run.fixed_columns("%s@tables=%d" % (reads, k["tables"]), "subset", k["cells"], rate, "running", k["tables"], time.time() - began)
-        main, _, digests = run.evaluate(sub, fixed, results)
+        main, _, digests = run.evaluate(sub, fixed, results, at_node=True)
         took = time.time() - t
         k["eval_s"] += took
         rec = dict(tables_seen=k["tables"], step=k["step"], cells_seen=k["cells"], target_cells=k["targets"], lr=k["lr"], wall_s=round(time.time() - began, 1),
@@ -421,7 +561,8 @@ def fit(cfg):
     # final_best (default: the arms trained without relatives): the weights of the best node evaluated on the final
     # tables too, so that an arm's best can be set against another arm's end on the same tables
     best_too = (not cfg["relatives"]) if cfg["final_best"] is None else bool(cfg["final_best"])
-    reserve = eval0 * len(final_ids) / max(1, len(sub)) * 1.3 * (2 if best_too else 1) + 60.0
+    more = len(run.eval_plan(False)) / max(1, len(run.eval_plan(True)))   # the final evaluation reads the references too
+    reserve = eval0 * len(final_ids) / max(1, len(sub)) * more * 1.3 * (2 if best_too else 1) + 60.0
     deadline = began + float(cfg["wall_s"]) - reserve
     if deadline <= time.time():
         raise SystemExit("the wall limit of %s s leaves no time to train (the final evaluation needs about %.0f s)" % (cfg["wall_s"], reserve))

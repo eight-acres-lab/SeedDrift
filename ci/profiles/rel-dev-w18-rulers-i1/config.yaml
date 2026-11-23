@@ -1,0 +1,42 @@
+# Machine i-1: the implant tables of package W18 (stage w18_rulers), the first ruler set of the relational line, for the
+# HGT capability check of protocol w18-v0. Evaluation only: kind ruler, purpose ruler, never a training table. Examined
+# genomes and donors are held-out genomes of the standard code; other rows are training genomes. Two triples per eligible A
+# and donor tier, at most 30 per group and tier, and their copies with the donor's lineage unsampled. The training arrays and homolog rows come from round R3's run of this machine (the source of the
+# tables of version 0), the distances from W2's distance run on the same source, every file checked against its
+# records; the sealed test split is not opened. CPU only (the select lock), 2 processes so that it can run beside a round's
+# training (the rule for a CPU run next to a training), about 20 to 40 minutes (not measured). Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_rulers]
+rel_w18_rulers:
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  dist: /hy-tmp/seeddrift-ci/runs/20261122T115230-exp-rel-6ec9b29e-rel-dev-w2-dist-i1
+  expect: {train: 711, heldout: 278, test: 257}
+  rows: 16
+  per_tier: 2
+  group_tier_cap: 30
+  scenarios: true
+  min_aligned: 10
+  aligned_share: 0.3
+  edges: [0.05, 0.2, 0.5, 1.0]
+  k: 6
+  min_codons: 64
+  length_tol: 0.15
+  attempts: 40
+  donor_cap: 3
+  shard_tables: 720
+  processes: 2
+train:
+  gpu_lease: false
+  device: cpu

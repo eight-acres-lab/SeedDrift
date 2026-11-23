@@ -56,10 +56,14 @@ def test_every_variant_file_loads_and_round_1a_changes_one_key():
     load = lambda n: yaml.safe_load(open(os.path.join(folder, n + ".yaml")))                      # noqa: E731
     rest = lambda v, *keys: {k: x for k, x in v.items() if k not in ("name",) + keys}              # noqa: E731
     for n, base, lr in (("w6-ref30m-lr1.5e-4", "w6-ref30m", 1.5e-4), ("w6-ref30m-lr6e-4", "w6-ref30m", 6e-4),
+                        ("w6-ref30m-leakfree-lr1.5e-4", "w6-ref30m-leakfree", 1.5e-4),
                         ("w6-ref100m-lr8e-4", "w6-ref100m", 8e-4), ("w6-ref100m-lr1e-4", "w6-ref100m", 1e-4)):
         assert load(n)["optimizer"] == {"lr": lr} and rest(load(n), "optimizer") == rest(load(base), "optimizer"), n
     assert load("w6-ref30m-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
     assert rest(load("w6-ref30m-hier"), "size") == rest(load("w6-ref30m"), "size")
+    assert load("w6-ref30m-leakfree-hier")["size"] == {"layers": 12, "width": 384, "head": "hierarchical"}
+    assert rest(load("w6-ref30m-leakfree-hier"), "size") == rest(load("w6-ref30m-leakfree"), "size")
+    assert rest(load("w6-ref30m-leakfree"), "layout", "whole_gene_layout") == rest(load("w6-ref30m"), "layout")
 
 
 def test_a_changed_variant_file_fails(tmp_path):
@@ -300,6 +304,78 @@ def test_scale_at_the_last_node_of_all_arms_and_of_every_two():
     assert w6_report.scale_readings(["s", "x"], {"s": 10, "x": 20}, dict(nodes, x=[0]), N) == (None, [])        # no node besides step 0 in common
 
 
+def test_report_reads_the_whole_gene_in_two_layouts(tmp_path):
+    """An arm trained leak-free reads the whole gene leak-free and also in the stored layout it was trained in: the
+    stored rows come under "<condition>@stored", the others keep their condition, and a caveat says so."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    rows = SC.read_rows(p)
+    wg = [cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED]
+    lf = [dict(r, layout="leakfree", bits=float(r["bits"]) + 0.5) for r in rows if r["variant"] == "w6-ref30m-s1" and r["condition"] in wg]
+    SC.write_rows(p, rows + lf)
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report={}), run_dir)
+    fin = rep["arms"]["w6-ref30m-s1"]["final"]
+    assert abs(fin["whole_gene"] - fin["whole_gene@stored"] - 0.5) < 1e-9 and "whole_gene+repaired@stored" in rep["conditions"]
+    assert "whole_gene@stored" not in rep["arms"]["w6-ref10m-s1"]["final"] or rep["arms"]["w6-ref10m-s1"]["final"]["whole_gene@stored"] is None
+    assert any("trained stored, evaluated leak-free" in c for c in rep["caveats"])
+
+
+def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
+    """leak_pairs: the leak-free arm's bits minus the stored arm's, under scattered and suffix, on all tables and on the
+    tables with a relative on the target block; suffix rows appear among the report's conditions."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    p = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    rows = SC.read_rows(p)
+    extra = []
+    for arm, bits in (("w6-ref30m-s1", 4.0), ("w6-ref10m-s1", 4.3)):
+        extra += [r for r in _rows(os.path.basename(run_dir), arm, [(2000, 20000, bits)], bits, [cond.SUFFIX]) if r["weights"] == "ema@final"]
+    SC.write_rows(p, rows + extra)
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["w6-ref10m-s1", "w6-ref30m-s1"]],
+                                                                                      pairs=[dict(name="head", first="w6-ref30m-s1", second="w6-ref10m-s1")])), run_dir)
+    at = {(r["node"], r["tables"]): r for r in rep["leak_nodes"]}
+    assert sorted({k[0] for k in at}) == [1000, 2000] and abs(at[(2000, SC.ALL)]["leak"] - 0.1) < 1e-9
+    q = rep["pairs"][0]
+    assert [r[0] for r in q["rows"]] == [1000, 2000, "end"] and abs(q["rows"][-1][3] - 0.1) < 1e-9 and abs(q["rows"][-1][11] - 0.3) < 1e-9
+    got = {(r["condition"], r["tables"]): r for r in rep["leak"]}
+    assert abs(got[(cond.SUFFIX, SC.ALL)]["leak"] - 0.3) < 1e-9 and abs(got[(cond.SCATTERED, SC.ALL)]["leak"] - 0.1) < 1e-9
+    assert got[(cond.SUFFIX, SC.RELATIVES[0])]["bits_stored"] == 4.25 and cond.SUFFIX in rep["conditions"]
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "## The leak of the stored layout" in text and "Scattered at every node both reached" in text and "## head: w6-ref10m-s1 against w6-ref30m-s1" in text
+    assert "so the suffix pair is a side reading" in text
+    with pytest.raises(SystemExit):
+        w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(leak_pairs=[["nobody", "w6-ref30m-s1"]])), run_dir)
+
+
+def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    folder = os.path.join(run_dir, w6_fit.OUT, "w6-ref30m-s1")
+    with open(os.path.join(folder, "steps.csv"), "w") as f:
+        f.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s,bits_scattered\n")
+        for k in range(1, 501):
+            f.write("%d,%d,0,0,0,%.3f,0,0,0,0,0,\n" % (k, 4 * k, 6.0 - k / 250.0))
+    sc = dict(lr_sweeps=[dict(name="fixture", arms=["w6-ref10m-s1", ["w6-ref30m-s1"]])], passes=["w6-ref30m-s1"], notes=["A note of the profile."])
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=sc), run_dir)
+    w = rep["lr_sweeps"][0]
+    assert w["node"] == 2000 and [r[0] for r in w["rows"]] == [1000, 2000] and w["best"][cond.SCATTERED]["entry"] == "w6-ref30m-s1"
+    assert abs(w["best"][cond.SCATTERED]["margin"] - 0.1) < 1e-9 and w["best"][cond.SCATTERED]["reading"] is None   # no seeds: no threshold
+    o = rep["passes"][0]
+    assert [r[0] for r in o["rows"]] == [1000, 2000] and abs(o["rows"][1][1] - 2000 / 100800) < 1e-12
+    assert abs(o["rows"][1][5] - 0.3) < 1e-9                                       # the fall of scattered from 5.75 to 5.45
+    assert abs(o["rows"][1][7] - (6.0 - 375.5 / 250.0)) < 1e-6                      # the training loss of steps 251..500 (tables 1,004..2,000)
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "## Learning rates of fixture" in text and "over passes of the training tables" in text and "- A note of the profile." in text
+    with pytest.raises(SystemExit):
+        w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
+
+
+def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref10m-s1"])), run_dir)
+    assert rep["scale"] is None and [r["with_relatives"] for r in rep["relatives"]] == ["w6-ref30m-s1", "w6-ref30m-s1"]
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref30m-s1"])), run_dir)
+    assert rep["scale"] is None and {r["with_relatives"] for r in rep["relatives"]} == {"w6-ref30m-s1"}      # still read for relatives
+
+
 def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)
@@ -474,9 +550,55 @@ def test_evaluation_again_settings_and_source():
     s = w6_eval.settings(good)
     assert s["source"] == "/x/runs/t" and s["best"] is True and s["final_per_group"] == 0 and s["heldout"]["split"] == 1
     for bad in ({}, {"from": "/x"}, dict(good["rel_w6_eval"], nonsense=1),
-                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split=0)}}):
+                {"from": "/x", "tables": {"heldout": dict(run="/x", path="p", split="one")}},
+                dict(good["rel_w6_eval"], arms=[dict(name="w6-ref30m-s1", untrained=True)]),                 # untrained without a readout
+                dict(good["rel_w6_eval"], readout=dict(presence_arms=["w6-ref30m"])),                        # a readout without its module
+                dict(good["rel_w6_eval"], arms=["w6-ref30m-s1", "w6-ref30m-s1"])):
         with pytest.raises(SystemExit):
             w6_eval.settings(dict(rel_w6_eval=bad))
+    ro = w6_eval.settings(dict(rel_w6_eval=dict(good["rel_w6_eval"], **{"from": ["/x/runs/a", "/x/runs/b"]},
+                                                arms=["w6-ref30m-s1", dict(name="w6-ref30m-s1", untrained=True)],
+                                                readout=dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"]))))
+    assert ro["sources"] == ["/x/runs/a", "/x/runs/b"] and ro["arms"][1] == dict(name="w6-ref30m-s1", untrained=True)
+    assert ro["readout"] == dict(module="seeddrift.train.rel.readouts.w18_passes", presence_arms=["w6-ref30m"], max_rows=32, layout="stored",
+                                 in_place_only=False, adapt_v0_arms=False)
+    assert w6_eval.variant_of_arm("w6-ref100m-lr4e-4-s1") == "w6-ref100m-lr4e-4" and w6_eval.variant_of_arm("w6-ref30m-s12") == "w6-ref30m"
+
+
+def test_evaluation_again_reads_ruler_sets_and_training_never(tmp_path):
+    from ci.record import Record, stage_report
+    from ci.stages.rel import w6_eval
+    sets = {}
+    for kind in ("real", "ruler"):
+        run_dir, cfg = RF.rel_run(tmp_path / kind, kind="rel_tables", stages=["w2_v0"], run_id="20261122T000000-exp-rel-00000000-" + kind)
+        doc = RF.write_tableset(run_dir, stage="w2_v0", name="v0-" + kind, kind=kind, genomes=[dict(id="g1", taxid=562, split="heldout")], package="W2")
+        path = kinds.stage("w2_v0")["output"]
+        stage_report(run_dir, "rel_w2_v0", "", 0.0, [dict(name="tableset", path=path, sha256=handoff._file_sha(os.path.join(run_dir, path)), bytes=1)])
+        rec = Record.open(run_dir)
+        rec.merge_stages()
+        rec.update(status="passed")
+        sets[kind] = dict(run=run_dir, path=path, sha256=doc["sha256"])
+    assert w6_eval.heldout_set(dict(sets["real"], split=1), verify=True)["kind"] == "real"
+    assert w6_eval.heldout_set(dict(sets["ruler"], split=0), verify=True)["kind"] == "ruler"      # a ruler set: the split its builder set
+    with pytest.raises(SystemExit):                                     # a real held-out set is split 1
+        w6_eval.heldout_set(dict(sets["real"], split=0), verify=True)
+    with pytest.raises(SystemExit):                                     # the training stage never reads a ruler set
+        w6_fit.table_set(cfg, dict(sets["ruler"], split=1), verify=True)
+    # a real set marked not for training (package W12's development sets): read by the evaluation, never by the training
+    run_dir = sets["real"]["run"]
+    p = os.path.join(run_dir, sets["real"]["path"])
+    with open(p) as f:
+        doc = json.load(f)
+    doc = handoff.finish(dict({k: v for k, v in doc.items() if k != "sha256"}, not_for_training=True))
+    with open(p, "w") as f:
+        json.dump(doc, f)
+    stage_report(run_dir, "rel_w2_v0", "", 0.0, [dict(name="tableset", path=sets["real"]["path"], sha256=handoff._file_sha(p), bytes=1)])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+    assert w6_eval.heldout_set(dict(sets["real"], sha256=doc["sha256"], split=1), verify=True)["kind"] == "real"
+    with pytest.raises(SystemExit):
+        w6_fit.table_set(cfg, dict(sets["real"], sha256=doc["sha256"], split=1), verify=True)
 
 
 def test_evaluation_again_reads_only_a_recorded_model_index(tmp_path):

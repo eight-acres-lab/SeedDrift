@@ -15,7 +15,9 @@ Profile block rel_w6_fit:
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
   optional   eval_per_group (50), eval_first (1000 tables), final_per_group (0: all), eval_max_rows, warmup_steps (1000),
              ema (true), preflight_steps (200), preflight_guard (stop), max_steps, threads, preflight_wall_s, verify_files (default true: every
-             file of the table sets is hashed against its manifest before any training starts)
+             file of the table sets is hashed against its manifest before any training starts), extra_conditions (evaluator
+             conditions scored besides today's five, e.g. [suffix]), references_at_nodes (false: the extra conditions
+             and a leak-free arm's stored readings at the final evaluation only)
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
 What the stage does:
@@ -55,11 +57,12 @@ from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
-PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps")
+PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
+           "extra_conditions", "references_at_nodes")
 BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
-VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share")
+VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share", "whole_gene_layout")
 API_VERSION = getattr(api, "API", None) or getattr(api, "API_VERSION", None)
 NAME_RX = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -87,8 +90,12 @@ def settings(st, cfg) -> dict:
     out = dict(wall_s=int(sc.get("wall_s", 16200)), probe=bool(sc.get("probe", False)), threads=int(sc.get("threads", 4)),
                preflight_wall_s=int(sc.get("preflight_wall_s", 900)), verify_files=bool(sc.get("verify_files", True)),
                passed_on={k: sc[k] for k in PASS_ON if sc.get(k) is not None}, tables={}, arms=[])
-    for which in ("train", "heldout"):
+    if set(sc["tables"]) - {"train", "heldout", "heldout_offline"}:
+        raise SystemExit("rel_w6_fit.tables: train, heldout and optionally heldout_offline: %r" % sorted(sc["tables"]))
+    for which in ("train", "heldout", "heldout_offline"):
         t = sc["tables"].get(which) or {}
+        if which == "heldout_offline" and not t:
+            continue                                                  # package W3's strict offline rendering: leak-free arms only
         if set(t) - {"run", "path", "sha256", "split"} or not t.get("run") or not t.get("path") or t.get("split") not in (None, 0, 1):
             raise SystemExit("rel_w6_fit.tables.%s: run, path, and optionally sha256 and split (0 or 1): %r" % (which, t))
         out["tables"][which] = dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256"), split=t.get("split"))
@@ -112,10 +119,17 @@ def table_set(cfg, spec, verify) -> dict:
     with the record of the sealed check made where the tables were built (handoff.from_run refuses a real set without
     it; the check itself needs the sealed registry, which only the machine that builds tables has), every file it
     lists with its recorded hash."""
+    probe = bool((cfg.get("rel_w6_fit") or {}).get("probe", False))
     try:
-        doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"])
+        if probe:                                                     # a probe reads synthetic sets only
+            doc = handoff.from_run(spec["run"], spec["path"], spec["sha256"], kinds=("synthetic",))
+        else:                                                         # the kinds the registry gives the stage; never a set not for training
+            doc = common.read_tableset("w6_fit", spec["run"], spec["path"], spec["sha256"])
     except (handoff.HandoffError, OSError, ValueError) as err:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], err))
+    if doc.get("kind") not in ("real", "synthetic"):                  # a ruler set is read by evaluations only, never trained on
+        raise SystemExit("rel_w6_fit: table set %s of %s is of kind %s; training reads real (or, probing, synthetic) sets only"
+                         % (spec["path"], spec["run"], doc.get("kind")))
     bad = handoff.tableset_problems(doc, spec["run"] if verify else "")
     if bad:
         raise SystemExit("rel_w6_fit: table set %s of %s: %s" % (spec["path"], spec["run"], bad[:5]))
@@ -128,7 +142,7 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     v = arm["variant"]
     tc = cfg.get("train") or {}
     conf = dict(name=arm["name"], author=v["author"], api=v["api"], model=v["model"], size=v["size"], objective=v["objective"], masks=v["masks"],
-                mask_weights=v.get("mask_weights"), layout=v["layout"], rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
+                mask_weights=v.get("mask_weights"), layout=v["layout"], whole_gene_layout=v.get("whole_gene_layout"), rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
                 lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
                 wall_s=s["wall_s"], probe=s["probe"], threads=s["threads"], device="cpu" if tc.get("device") == "cpu" else "auto",
                 out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
@@ -136,6 +150,9 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     for which in ("train", "heldout"):
         conf.update({which + "_tables": os.path.join(s["tables"][which]["run"], s["tables"][which]["path"]), which + "_root": s["tables"][which]["run"],
                      which + "_split": s["tables"][which]["split"]})
+    off = s["tables"].get("heldout_offline")
+    if off and v["layout"] != api.LAYOUT_STORED:                      # a leak-free arm is scored on the strict offline rendering
+        conf.update(heldout_offline_tables=os.path.join(off["run"], off["path"]), heldout_offline_root=off["run"])
     conf.update(s["passed_on"])
     return conf
 
@@ -160,6 +177,15 @@ def build(st, cfg, run_dir):
                              % (which, t["doc"]["kind"]))
     if any(v["variant"]["tables"] != sets["train"]["doc"]["kind"] for v in s["arms"]):
         raise SystemExit("rel_w6_fit: a variant is written for another kind of tables than %s" % sets["train"]["doc"]["kind"])
+    leakfree = [a["name"] for a in s["arms"] if a["variant"]["layout"] != api.LAYOUT_STORED]
+    if s["tables"].get("heldout_offline"):
+        off = table_set(cfg, s["tables"]["heldout_offline"], s["verify_files"])
+        if off["doc"].get("layout") != api.LAYOUT_LEAKFREE or set(off["doc"].get("parts") or {}) < {"scattered", "whole_gene"}:
+            raise SystemExit("rel_w6_fit.tables.heldout_offline: the strict offline rendering (layout leakfree, parts scattered and whole_gene), "
+                             "not %s with parts %s" % (off["doc"].get("layout"), sorted(off["doc"].get("parts") or {})))
+        st.extra.update(heldout_offline=dict(name=off["doc"]["name"], sha256=off["doc"]["sha256"], run=os.path.basename(s["tables"]["heldout_offline"]["run"])))
+    elif leakfree and not s["probe"]:
+        raise SystemExit("rel_w6_fit: the leak-free arms %s are scored on the strict offline rendering: tables.heldout_offline" % leakfree)
     st.extra.update(sealed_record={k: t["sealed"] for k, t in sets.items()}, tablesets={k: dict(name=t["doc"]["name"], sha256=t["doc"]["sha256"],
                     kind=t["doc"]["kind"], tables=t["doc"]["tables"], run=os.path.basename(s["tables"][k]["run"])) for k, t in sets.items()},
                     model_env=py, parallel=parallel, device="cpu" if cpu else "auto")

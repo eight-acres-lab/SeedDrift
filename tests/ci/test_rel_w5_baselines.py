@@ -124,6 +124,32 @@ def test_shards_are_read_in_the_order_of_the_set(tmp_path):
             pass
 
 
+def test_the_reader_knows_the_fields_added_for_version_1(tmp_path):
+    added = getattr(api, "SHARD_FIELDS_ADDED", None)
+    if not added:
+        pytest.skip("the contract on this branch has no fields added for tables of version 1")
+    tables, meta = toy_tables(n_tables=6, seed=33)
+    files = write_set(tmp_path, "v1/heldout", tables, meta, 1)
+    gor = np.tile(np.arange(5, dtype=np.int8), (6, 1))
+    gor[:, 2] = 1                                                                # two rows of one genome (paralogues)
+    p = tmp_path / "v1" / "heldout" / "s0000.genome_of_row.npy"
+    np.save(str(p), gor[:5])
+    np.save(str(tmp_path / "v1" / "heldout" / "s0001.genome_of_row.npy"), gor[5:])
+    import hashlib
+    for k, name in enumerate(("s0000", "s0001")):
+        q = tmp_path / "v1" / "heldout" / ("%s.genome_of_row.npy" % name)
+        files.append(dict(path="v1/heldout/%s.genome_of_row.npy" % name, sha256=hashlib.sha256(q.read_bytes()).hexdigest(), bytes=q.stat().st_size, role="shard"))
+    ts = shards.by_split(str(tmp_path), [manifest(files, tables=6)])[1]
+    got = ts.load(0, 6, ("tok", "genome_of_row", "row_gene", "row_first"))
+    assert np.array_equal(got["genome_of_row"], gor) and got["row_gene"].shape == (6, 5, api.N_BLOCKS)
+    assert (got["row_first"][:, 1:] == -1).all() and (got["row_first"][:, 0][tables["n"][:, 0] > 0] == 0).all()
+    v0 = shards.by_split(str(tmp_path), [manifest(write_set(tmp_path, "v0/heldout", tables, meta, 1), tables=6)])[1]
+    dflt = v0.load(0, 6, ("genome_of_row",))["genome_of_row"]                 # version 0: row r is number r where it exists
+    exists = (tables["kind"] != 0).any(axis=2)
+    exists[:, 0] = True
+    assert np.array_equal(dflt, np.where(exists, np.arange(5)[None, :], -1))
+
+
 def test_hash_is_pinned():
     """The numbers every interpreter has to reproduce; a change here changes which cells every arm is scored on."""
     u = cond.hash_u01(20261122, 1, np.array([0, 1, 2999]).reshape(-1, 1), np.arange(3)[None, :])

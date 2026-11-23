@@ -26,7 +26,8 @@
   read_tableset(stage, run_dir, path, sha256=None)
                                  a table set of another run for stage `stage`, through handoff.from_run with the kinds
                                  the stage may read (configs/rel/kinds.yaml field reads): an evaluation-only stage may
-                                 read ruler sets, a training stage never; raises SystemExit otherwise
+                                 read ruler sets, a training stage never, nor a set marked not_for_training; raises
+                                 SystemExit otherwise
   sealed_record(cfg, genomes, splits=None, allowed=...)
                                  sealed_check, returned as the record a table-set manifest carries (sealed_check:
                                  passed, ids, lineage; seeddrift/train/rel/handoff.py). Stages that read table sets
@@ -172,9 +173,12 @@ def development_chromosomes(accessions, dev_path=DEV_CHROMOSOMES, sealed_path=SE
 def read_tableset(stage, run_dir, path, sha256=None) -> dict:
     from seeddrift.train.rel import handoff
     try:
-        return handoff.from_run(run_dir, path, sha256, kinds=kinds.reads(stage))
+        doc = handoff.from_run(run_dir, path, sha256, kinds=kinds.reads(stage))
     except handoff.HandoffError as err:
         raise SystemExit("stage %s: %s" % (stage, err))
+    if doc.get("not_for_training") and kinds.stage(stage)["side"] == "train":
+        raise SystemExit("stage %s trains and table set %s is not for training" % (stage, doc.get("name")))
+    return doc
 
 
 def sealed_record(cfg, genomes, splits=None, allowed=S.ALLOWED, **kw) -> dict:

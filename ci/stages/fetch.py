@@ -44,9 +44,17 @@ class NoRecord(Exception):
     """The archive answered that it has no such record (not a network failure)."""
 
 
+# profile block fetch: `retry_s` (waits between tries, e.g. [10, 30, 90]; default: `tries` tries `pause` x k apart) and
+# `server_errors_unavailable` (a server error (5xx) or a failed connection that lasts through every try is a record the
+# archive cannot give: left out and listed like a 404, under fetch.allow_missing; default: the stage fails). Set by main().
+RETRY_S = None
+SERVER_ERRORS_UNAVAILABLE = False
+
+
 def get(url, tries=5, pause=10):
     err = None
-    for k in range(tries):
+    waits = list(RETRY_S) if RETRY_S else [pause * (k + 1) for k in range(tries)]
+    for k in range(len(waits) + 1 if RETRY_S else tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "python-urllib"})
             with urllib.request.urlopen(req, timeout=600) as r:
@@ -55,10 +63,14 @@ def get(url, tries=5, pause=10):
             err = e
             if e.code == 404 and k >= 1:                         # asked twice: the archive has no such record
                 raise NoRecord("%s: HTTP 404" % url)
-            time.sleep(pause * (k + 1))
+            if 400 <= e.code < 500 and e.code not in (404, 408, 429) and RETRY_S:
+                break                                            # another client error: asking again gives the same answer
         except Exception as e:  # noqa: BLE001
             err = e
-            time.sleep(pause * (k + 1))
+        if k < len(waits):
+            time.sleep(waits[k])
+    if SERVER_ERRORS_UNAVAILABLE and (not isinstance(err, urllib.error.HTTPError) or err.code >= 500 or err.code in (408, 429)):
+        raise NoRecord("%s: %s after %d tries (server error or no connection)" % (url, err, len(waits) + 1 if RETRY_S else tries))
     raise RuntimeError("%s: %s" % (url, err))
 
 
@@ -214,6 +226,10 @@ def main():
         cfg = st.config
         with open(st.repo(cfg["corpus_spec"])) as f:
             spec = yaml.safe_load(f)
+        global RETRY_S, SERVER_ERRORS_UNAVAILABLE
+        fc = cfg.get("fetch") or {}
+        RETRY_S = [float(x) for x in fc["retry_s"]] if fc.get("retry_s") else None
+        SERVER_ERRORS_UNAVAILABLE = bool(fc.get("server_errors_unavailable"))
         cas = os.path.join(cfg["data_root"], "cas")
         index_path = os.path.join(cas, "fetch_index.json")
         index = json.load(open(index_path)) if os.path.exists(index_path) else {}

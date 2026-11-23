@@ -238,6 +238,63 @@ def test_sampler():
     assert not e["truth"][1:].any() and not e["truth"][0, :T.T0].any()
 
 
+def test_sampler_layouts_per_mask_scheme():
+    """Leak-free for the scattered and span samples, stored for the whole gene: the leak-free examples carry ext and
+    their layout, the stored ones neither ext nor any difference from the default sampler."""
+    from seeddrift.train.rel.tables import render as RD
+    ts = _set(36)
+    lay = {"scattered": A.LAYOUT_LEAKFREE, "span": A.LAYOUT_LEAKFREE, "whole_gene": A.LAYOUT_STORED}
+    a, b = S.Sampler(ts, seed=3, layouts=lay), S.Sampler(ts, seed=3)
+    kinds = set()
+    for step in range(12):
+        for u, v in zip(a.draw(step), b.draw(step)):
+            assert u["table"] == v["table"] and u["scheme"] == v["scheme"]                      # the same draws
+            name = a.masks[u["scheme"]]
+            assert u["layout"] == lay[name] and v["layout"] == A.LAYOUT_STORED and "ext" not in v
+            if lay[name] == A.LAYOUT_STORED:
+                assert "ext" not in u and (u["grid"] == v["grid"]).all() and (u["truth"] == v["truth"]).all()
+            else:
+                assert u["ext"].shape == u["grid"].shape and not (u["grid"][u["truth"] > 0] != A.MASK).any()
+            kinds.add(u["layout"])
+    assert kinds == {A.LAYOUT_LEAKFREE, A.LAYOUT_STORED} and "ext" in S.collate(a.draw(0) + a.draw(1))
+    for bad in ({"scattered": "sideways"}, {"anyorder": A.LAYOUT_LEAKFREE}):
+        try:
+            S.Sampler(ts, seed=3, layouts=bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("layouts %r were accepted" % (bad,))
+    assert RD.LEAKFREE == A.LAYOUT_LEAKFREE
+
+
+def test_sampler_keeps_the_frame_row_of_a_block():
+    """A block framed on another row than row 0 (the whole gene of tables framed on a relative) keeps that row whatever
+    rows are drawn, renumbered to its place among the rows kept; tables framed on row 0 draw as before."""
+    ts = _set(36)
+    i = next(t for t in range(len(ts)) if len(T.present_rows(ts.table(t))) >= 6)
+    tab = ts.table(i)
+    frame = int(T.present_rows(tab)[-1])
+    framed = dict(tab, frame_row=np.where(np.arange(A.N_BLOCKS) == A.N_BLOCKS - 1, frame, 0))
+
+    class One:
+        group, rows = np.zeros(1, np.int64), ts.rows
+
+        def __len__(self):
+            return 1
+
+        def table(self, _):
+            return framed
+    s = S.Sampler(One(), seed=1, rows=(2, 3), masks=["scattered"])
+    for step in range(20):
+        e = s.draw(step)[0]
+        assert 2 <= e["grid"].shape[0] <= 3 and frame in e["rows"].tolist() and e["rows"][0] == 0
+    kept = T.take_rows(framed, np.array([0, frame]))
+    assert kept["frame_row"].tolist() == [0] * (A.N_BLOCKS - 1) + [1]
+    assert T.take_rows(framed, np.array([0, 1]))["frame_row"][-1] == -1                       # left out: the renderer frames on row 0
+    plain = [e["table"] for st in range(5) for e in S.Sampler(ts, seed=3).draw(st)]
+    assert plain == [e["table"] for st in range(5) for e in S.Sampler(ts, seed=3).draw(st)]
+
+
 def test_sampler_share_of_tables_without_relatives():
     ts = _set(30)                                         # table 27 has no other row; its group 3 also holds tables 3 and 15
     never = {e["table"] for st in range(200) for e in S.Sampler(ts, seed=3, alone_share=0.0).draw(st)}
@@ -280,6 +337,11 @@ def test_collate():
     assert (c["token"] >= 1).all() and (c["token"] <= 65).all() and (c["grid"][c["row"], c["col"]] == A.MASK).all()
     first = np.cumsum([0] + c["sizes"])
     assert ((c["row"] >= first[c["example"]]) & (c["row"] < first[c["example"] + 1])).all()
+    assert "ext" not in c                                             # the stored layout marks no cell laid by extension
+    ex[1] = dict(ex[1], ext=np.ones(ex[1]["grid"].shape, dtype=bool))
+    c = S.collate(ex)
+    rows = np.repeat(np.arange(len(ex)), c["sizes"])
+    assert c["ext"].shape == c["grid"].shape and c["ext"][rows == 1].all() and not c["ext"][rows != 1].any()
 
 
 def test_evaluator_plan_renders():

@@ -1,0 +1,51 @@
+# Machine i-1: W13 step 2, part F of the build of corpus medium-k3 (configs/corpus/medium-k3.yaml: corpus medium and the
+# first batch of close relatives that run 20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1 named, k = 3 per genome): stage fetch only (rel_w13_build.upto: fetch),
+# the new genomes from ENA and Ensembl into the CI's content store, every file with its URL, size and sha256; the later
+# parts take them from the store. Network, 2 cores (beside a training), about an hour. Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.05
+  threads: 8
+  retry_s: [10, 30, 90]
+  server_errors_unavailable: true
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
+  reuse_per_genome: true
+  reuse_check: 0
+train_data:
+  test_split: true
+  hits: 32
+rel:
+  machine: i1
+  stages: [w13_build]
+rel_w13_build:
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1
+  upto: fetch
+train:
+  gpu_lease: false
+  device: cpu

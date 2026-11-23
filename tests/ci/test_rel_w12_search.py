@@ -3,6 +3,7 @@
 (tests/ci/test_rel_w2_stage.py) with its corpus files added, and a stand-in for DIAMOND whose rule is known (every
 target protein that starts with the query's first five residues, one or two ungapped alignments), so the rows can be
 compared with what that rule gives. The real DIAMOND runs where it is installed (the CI environment)."""
+import csv
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import pytest
 
 import rel_fixtures as RF
 import test_rel_w2_stage as TS
+from conftest import ROOT
 from ci import manifest as M
 from ci.gates import GateFailure
 from ci.hashing import sha256_file
@@ -63,6 +65,11 @@ for qn, qs in fasta(a[a.index("-q") + 1]):
 '''
 
 
+def codon_of(aa):
+    """A codon token that codes amino-acid token aa (1..20)."""
+    return next(c for c in range(1, 65) if S.CODE[c] == aa)
+
+
 def protein(codons):
     aa = S.CODE[np.asarray(codons, dtype=np.int64)]
     return "".join(AA[x - 1] if 1 <= x <= 20 else "X" for x in aa)
@@ -98,12 +105,59 @@ def add_corpus(src, metas):
                                                                      sha256=sha256_file(mp, use_sidecar=False))]), f)
 
 
-def expected(src, metas, searched=None):
+def dev_accessions(n=2):
+    with open(os.path.join(ROOT, "bench", "islands", "results", "dev_genomes.tsv")) as f:
+        return [r["accession"] for r in csv.DictReader(f, delimiter="\t")][:n]
+
+
+def add_islands(src, accessions, copy_of):
+    """data/islands of a passed island stage: the chromosomes `accessions`, the first one a copy of the proteins of the
+    training genome `copy_of`, every other one with its second protein a copy of its first (a paralog)."""
+    with open(os.path.join(src, "data", "corpus", copy_of, "proteins.faa")) as f:
+        base = [line.strip() for line in f if not line.startswith(">")]
+    z = np.load(os.path.join(src, "data", "train_data", copy_of + ".npz"))
+    base_codons = [z["codons"][z["codon_off"][i]:z["codon_off"][i + 1]] for i in range(len(z["codon_off"]) - 1)]
+    rng = np.random.default_rng(7)
+    genomes, entries = [], []
+    for k, acc in enumerate(accessions):
+        prot = list(base) if k == 0 else ["M" + "".join(rng.choice(list(AA), int(rng.integers(30, 90)))) for _ in range(8)]
+        if k:
+            prot[1] = prot[0]
+        codons = list(base_codons) if k == 0 else [np.array([codon_of(AA.index(c) + 1) for c in p], dtype=np.uint8) for p in prot]
+        os.makedirs(os.path.join(src, "data", "islands", "train_data"), exist_ok=True)
+        arr = os.path.join("data", "islands", "train_data", acc + ".npz")
+        n = len(codons)
+        coff = np.concatenate([[0], np.cumsum([len(c) for c in codons])]).astype(np.int64)
+        start = np.arange(n, dtype=np.int64) * 1000 + 1
+        np.savez(os.path.join(src, arr), codons=np.concatenate(codons), codon_off=coff, replicon=np.zeros(n, np.int32), start=start, end=start + 600,
+                 strand=np.ones(n, np.int8), replicon_len=np.array([n * 1000 + 10], np.int64), hit_off=np.zeros(n + 1, np.int64), hit_prot=np.zeros(0, np.int32),
+                 hit_qs=np.zeros(0, np.int32), track=np.zeros(0, np.uint8), track_off=np.zeros(1, np.int64))
+        rel = os.path.join("data", "islands", "inputs", acc)
+        os.makedirs(os.path.join(src, rel), exist_ok=True)
+        with open(os.path.join(src, rel, "genes.tsv"), "w") as f:
+            f.write("gene_id\treplicon\tstart\tend\tstrand\tpartial\n" + "".join("i%03d\tr\t1\t2\t+\t\n" % i for i in range(len(prot))))
+        with open(os.path.join(src, rel, "proteins.faa"), "w") as f:
+            f.write("".join(">%s__i%03d\n%s\n" % (acc, i, p) for i, p in enumerate(prot)))
+        genomes.append(dict(id=acc, folder=rel, path=arr, group="bacteria", genes=len(prot), taxid=562, ranks=[1224, 1236, 91347, 543, 561, 562], genus="Escherichia"))
+        entries.append(dict(id=acc, files=[M.file_entry(os.path.join(src, rel, x), src) for x in ("genes.tsv", "proteins.faa")] + [M.file_entry(os.path.join(src, arr), src)]))
+    man = M.build("islands", "islands", entries)
+    with open(os.path.join(src, "data", "islands", "manifest.json"), "w") as f:
+        json.dump(dict(sha256=M.write(man, os.path.join(src, "manifests")), dataset_id=M.dataset_id(man), **man), f)
+    ip = os.path.join(src, "data", "islands", "index.json")
+    with open(ip, "w") as f:
+        json.dump(dict(dataset_id="ds-islands-test", genomes=genomes), f)
+    with open(os.path.join(src, "stages", "islands_data.json"), "w") as f:
+        json.dump(dict(name="islands_data", status="passed", outputs=[dict(name="islands_index", path="data/islands/index.json", sha256=sha256_file(ip, use_sidecar=False))]), f)
+    return genomes
+
+
+def expected(src, metas, searched=None, islands=()):
     """{(query genome, query gene): {(target genome, target gene): alignments}} by the stand-in's rule."""
     open_ = [m for m in metas if m["split"] in ("train", "heldout") and m["id"] != TS.LEFT_OUT]     # the sealed check leaves that one out
+    open_ += [dict(id=g["id"], split="island", folder=g["folder"]) for g in islands]
     prot = {}
-    for m in open_:                                                      # the corpus proteins, as the stage reads them
-        with open(os.path.join(src, "data", "corpus", m["id"], "proteins.faa")) as f:
+    for m in open_:                                                      # the proteins, as the stage reads them
+        with open(os.path.join(src, m.get("folder") or os.path.join("data", "corpus", m["id"]), "proteins.faa")) as f:
             prot[m["id"]] = [line.strip() for line in f if not line.startswith(">")]
     train = [m["id"] for m in open_ if m["split"] == "train"]
     out = {}
@@ -114,7 +168,7 @@ def expected(src, metas, searched=None):
             if searched is not None and not searched[g][i]:
                 continue
             for t in targets:
-                if m["split"] == "heldout" and t != g and t not in train:
+                if m["split"] != "train" and t != g and t not in train:
                     continue
                 for j, p in enumerate(prot[t]):
                     if (t, j) == (g, i) or len(q) < 5 or p[:5] != q[:5]:
@@ -248,6 +302,38 @@ def test_full_search_gives_every_pair_of_the_rule(source, tmp_path, monkeypatch)
             WS.gate(st, cfg, run_dir)
 
 
+def test_lookup_index_answers_every_pair_in_microseconds(source, tmp_path):
+    import time
+    run_dir, cfg, rep = run_stage(source, tmp_path, "20261123T000007-index")
+    got, genomes = got_pairs(run_dir)
+    ix = H.Index(os.path.join(run_dir, rep["index"]["folder"]))
+    gi = {g["id"]: k for k, g in enumerate(genomes)}
+    asked = 0
+    for (qg, qi), targets in got.items():
+        by = {}
+        for (tg, tj), n in targets.items():
+            by.setdefault(tg, {})[tj] = n
+        for tg, want in by.items():
+            hits = ix.lookup(gi[qg], gi[tg], qi)
+            assert {tj: len(al) for tj, al in hits} == want
+            a = H.load(os.path.join(run_dir, WS.OUT, qg + ".npz"))
+            p = [x for x in range(int(a["off"][qi]), int(a["off"][qi + 1])) if a["tgenome"][x] == gi[tg]][0]
+            h = int(a["hsp_off"][p])
+            assert hits[0][1][0] == (int(a["qs"][h]), int(a["qe"][h]), int(a["ss"][h]), int(a["se"][h]), bytes(a["cigar"][a["cigar_off"][h]:a["cigar_off"][h + 1]]))
+            asked += 1
+    assert asked > 20
+    empty = [(gi[g["id"]], 0) for g in genomes if (g["id"], 0) not in got]
+    assert all(len(ix.pairs(qg, 0, qi)) == 0 for qg, qi in empty)
+    t0, n = time.perf_counter(), 0
+    for _ in range(20):
+        for (qg, qi), targets in got.items():
+            for (tg, _) in targets:
+                ix.pairs(gi[qg], gi[tg], qi)
+                n += 1
+    assert (time.perf_counter() - t0) / n < 2e-4                          # microseconds per lookup (a loose bound for slow runners)
+    assert rep["index"]["hsps"] == rep["rows"]["hsps"] and rep["rows"]["index_bytes"] > 0
+
+
 def test_sample_run_searches_a_share_per_group_and_extrapolates(source, tmp_path):
     run_dir, cfg, rep = run_stage(source, tmp_path, "20261123T000002-sample", sample=0.3, probe_proteins=3)
     got, genomes = got_pairs(run_dir)
@@ -292,6 +378,34 @@ def test_a_stopped_run_resumes_from_its_finished_calls(source, tmp_path, monkeyp
     with pytest.raises(SystemExit, match="resume the run"):
         with Stage(run2, "rel_w12_search") as st:
             WS.build(st, dict(stop, run_dir=run2), run2)
+
+
+def test_development_chromosomes_are_extra_queries(source, tmp_path, monkeypatch):
+    import shutil as sh
+    src = str(tmp_path / "ci-root" / "runs" / "20261120T000000-src")
+    sh.copytree(source["src"], src)
+    accs = dev_accessions(2)
+    isl = add_islands(src, accs, [m["id"] for m in source["metas"] if m["split"] == "train"][0])
+    s2 = dict(source, src=src)
+    run_dir, cfg, rep = run_stage(s2, tmp_path, "20261123T000005-islands", islands=True)
+    got, genomes = got_pairs(run_dir)
+    assert got == expected(src, source["metas"], islands=isl)
+    split = {g["id"]: g["split"] for g in genomes}
+    assert [a for a in accs if split.get(a) == "island"] == accs and rep["queries"]["per_split"]["island"] == 2 and rep["islands"]["chromosomes"] == 2
+    assert any(k[0] == accs[0] for k in got) and any(t[0] == accs[1] for k, v in got.items() if k[0] == accs[1] for t in v)   # hits, and a paralog
+    TS.patch(monkeypatch, source["tmp"])
+    with Stage(run_dir, "gates_rel_w12_search") as st:
+        WS.gate(st, cfg, run_dir)
+    with open(os.path.join(src, "data", "islands", "index.json")) as f:
+        idx = json.load(f)
+    idx["genomes"][0]["id"] = "NC_999999.1"                              # not a development chromosome
+    ip = os.path.join(src, "data", "islands", "index.json")
+    with open(ip, "w") as f:
+        json.dump(idx, f)
+    with open(os.path.join(src, "stages", "islands_data.json"), "w") as f:  # the index as its stage recorded it
+        json.dump(dict(name="islands_data", status="passed", outputs=[dict(name="islands_index", path="data/islands/index.json", sha256=sha256_file(ip, use_sidecar=False))]), f)
+    with pytest.raises(SystemExit, match="not development chromosomes"):
+        run_stage(s2, tmp_path, "20261123T000006-islands-bad", islands=True)
 
 
 def test_settings_are_checked():

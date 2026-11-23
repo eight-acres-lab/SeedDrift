@@ -98,7 +98,6 @@ kinds:
         gates: [G4_rel_w3_offline]
         side: data
         produces: tableset
-        stub: true
       w2_census:
         package: W2
         rule: rel_w2_census
@@ -122,7 +121,22 @@ kinds:
         gates: [G4_rel_w12_v1]
         side: data
         produces: tableset
-        stub: true
+      w12_islands:
+        package: W12
+        rule: rel_w12_islands
+        output: data/rel_w12/islands/tableset.json
+        module: ci.stages.rel.w12_islands
+        gates: [G4_rel_w12_islands]
+        side: data
+        produces: tableset
+      w18_rulers:
+        package: W18
+        rule: rel_w18_rulers
+        output: data/rel_w18/rulers/tableset.json
+        module: ci.stages.rel.w18_rulers
+        gates: [G4_rel_w18_rulers]
+        side: eval
+        produces: tableset
   rel_traineval:
     purpose: training (W4's trainer for every arm; its probe mode on synthetic table sets) and evaluation and report
       (W5) of the arms of a round; today's slice of W4 and W6 runs as the stages of package W6
@@ -154,6 +168,14 @@ kinds:
         side: eval
         produces: models
         reads: [real, ruler]
+      w18_readout:
+        package: W18
+        rule: rel_w18_readout
+        output: data/rel_w18/readout/report.json
+        module: ci.stages.rel.w18_readout
+        gates: [G4_rel_w18_readout]
+        side: eval
+        reads: [ruler]
       w6_report:
         package: W6
         rule: rel_w6_report
@@ -217,6 +239,20 @@ kinds:
     lock: select
     target: rel_all
     stages:
+      w13_catalog:
+        package: W13
+        rule: rel_w13_catalog
+        output: data/rel_w13/catalog/manifest.json
+        module: ci.stages.rel.w13_catalog
+        gates: [G4_rel_w13_catalog]
+        side: data
+      w13_scaffold:
+        package: W13
+        rule: rel_w13_scaffold
+        output: data/rel_w13/scaffold/manifest.json
+        module: ci.stages.rel.w13_scaffold
+        gates: [G4_rel_w13_scaffold]
+        side: data
       w13_census:
         package: W13
         rule: rel_w13_census
@@ -224,7 +260,20 @@ kinds:
         module: ci.stages.rel.w13_census
         gates: [G4_rel_w13_census]
         side: data
-        stub: true
+      w13_pick:
+        package: W13
+        rule: rel_w13_pick
+        output: data/rel_w13/pick/report.json
+        module: ci.stages.rel.w13_pick
+        gates: [G4_rel_w13_pick]
+        side: data
+      w13_build:
+        package: W13
+        rule: rel_w13_build
+        output: data/rel_w13/build/report.json
+        module: ci.stages.rel.w13_build
+        gates: [G4_rel_w13_build]
+        side: data
   rel_events:
     purpose: the event registry, first version, without any score (W15); drafts live in bench/rel/registry/, never in
       bench/catalogue/events.tsv
@@ -238,4 +287,3 @@ kinds:
         module: ci.stages.rel.w15_registry
         gates: [G4_rel_w15_registry]
         side: data
-        stub: true

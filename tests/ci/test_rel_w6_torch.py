@@ -131,6 +131,47 @@ def test_hierarchical_head_trains():
         assert abs(aa + rest - whole) < 1e-4, c
 
 
+def test_leakfree_layout_trains():
+    """Leak-free scattered and span samples, stored whole genes: the model is built with the ext vector (one more
+    width of parameters), trains, and its checkpoint records the size it was built with."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=3, eval_first=4)
+    axial = loop.registry.load("model", "axial")
+    pre = loop.preflight(cfg)
+    assert pre["ok"] and pre["params"] == axial.count_parameters(1, 256) + 256
+    out = loop.fit(cfg)
+    assert out["status"] == "ok" and out["steps"] == 3
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))         # probe mode: the leak-free conditions rendered online
+    lay = {}
+    for r in rows:
+        if r["weights"] == "ema@final":
+            lay.setdefault(r["condition"], set()).add(r["layout"])
+    assert lay == {"scattered": {"leakfree"}, "whole_gene": {"leakfree", "stored"}, "whole_gene+repaired": {"leakfree", "stored"},
+                   "scattered+no_relatives": {"stored"}, "whole_gene+no_relatives": {"stored"}}           # the whole gene in both layouts
+    assert {"whole_gene@stored", "whole_gene+repaired@stored"} <= set(out["final"])
+    assert all(set(e["bits"]) == set(cond.CONDITIONS) for e in out["evals"])                                    # the nodes: the main readings
+    for c in cond.CONDITIONS:                                     # the cells scored stay the evaluator's whatever the layout
+        assert out["final_items"][c] == _digest(cfg, root, c), c
+    assert out["final_items"]["whole_gene@stored"] == out["final_items"]["whole_gene"]
+    real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
+    try:
+        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))
+    except SystemExit as err:
+        assert "offline" in str(err)
+    else:
+        raise AssertionError("a leak-free arm was scored without the strict offline rendering")
+    run = loop.Run(dict(cfg, out=os.path.join(root, "other")))
+    assert run.size == dict(layers=1, width=256, ext=True) and run.model.ext is not None
+    assert loop.layouts_of(run.cfg) == {"scattered": "leakfree", "span": "leakfree", "whole_gene": "stored"}
+    assert sorted({run.sampler.layouts[e["scheme"]] for s in range(8) for e in run.sampler.draw(s)}) == ["leakfree", "stored"]
+    try:
+        loop.Run(dict(cfg, layout="unaligned", out=os.path.join(root, "x")))
+    except SystemExit as err:
+        assert "layouts" in str(err)
+    else:
+        raise AssertionError("a training in the unaligned layout was accepted")
+
+
 def test_moving_average():
     root = tempfile.mkdtemp()
     run = loop.Run(_config(root))
@@ -184,6 +225,105 @@ def test_saved_weights_evaluated_again():
     rows = SC.read_rows(os.path.join(folder, "results.tsv"))
     assert {r["weights"] for r in rows} == {"ema@final", "ema@best"} and {r["item_half"] for r in rows} == {"all"}
     assert {r["budget"].split(";")[0] for r in rows if r["weights"] == "ema@final"} == {"tables=%d" % out["tables_seen"]}
+
+
+def test_saved_weights_read_on_a_ruler_set_and_never_trained_on():
+    """An evaluation of saved weights reads a ruler set (package W18) as its held-out set; a training never does."""
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, max_steps=3, eval_first=4)
+    out = loop.fit(cfg)
+    rroot = tempfile.mkdtemp()
+    ruler = D.write_tableset(rroot, [("heldout/s0000", D.random_tables(12, rows=4, seed=3, split=1))], kind="ruler", name="w6-ruler")
+    again = loop.evaluate_checkpoints(dict(cfg, heldout_tables=ruler, heldout_root=rroot, out=os.path.join(root, "again"),
+                                           final=os.path.join(root, "out", "final.pt"), best=None, final_tables=out["tables_seen"],
+                                           final_cells=out["cells_seen"], final_wall_s=out["wall_s"]))
+    rows = SC.read_rows(os.path.join(root, "again", "results.tsv"))
+    assert again["status"] == "ok" and {r["table_kind"] for r in rows} == {"ruler"} and {r["table_set"] for r in rows} == {"w6-ruler"}
+    try:
+        loop.fit(dict(cfg, heldout_tables=ruler, heldout_root=rroot, out=os.path.join(root, "out2")))
+    except SystemExit as err:
+        assert "kind" in str(err)
+    else:
+        raise AssertionError("a training took a ruler set")
+
+
+def test_score_cells_gives_the_bits_amino_acid_bits_and_entropy_of_every_cell():
+    run = loop.Run(_config(tempfile.mkdtemp()))
+    ex = run.sampler.draw(0) + run.sampler.draw(1)
+    got = loop.E.score_cells(run.model, ex, run.device, max_rows=5)
+    n = [int((e["truth"] > 0).sum()) for e in ex]
+    assert got["example"].tolist() == [k for k, m in enumerate(n) for _ in range(m)]
+    from seeddrift.train.rel.data import sampler as S
+    b = loop.E.to_device(S.collate(ex), run.device)
+    with torch.no_grad():
+        lp = run.model.eval().logp(b["grid"], b["sizes"], b["row"], b["col"]).double()
+    bits = (-lp.gather(1, (b["token"] - A.TARGET_MIN)[:, None])[:, 0] / math.log(2)).numpy()
+    ent = (-(lp.exp() * lp).sum(1) / math.log(2)).numpy()
+    assert np.allclose(got["bits"], bits, atol=1e-5) and np.allclose(got["entropy"], ent, atol=1e-5)
+    assert (got["aa_bits"] <= got["bits"] + 1e-9).all() and (got["aa_bits"] >= 0).all() and (got["entropy"] <= math.log2(65) + 1e-6).all()
+
+
+def run_ruler(scorer, tables, info, out_dir, render=None, presence=False, max_rows=32, progress=None, scenarios=None, presence_scenarios=None,
+              adapt_v0=False):
+    """A stand-in of a readout module (package W18's run_ruler): the whole target of row 0 hidden on every table of the
+    set, scored, written to ruler_cells.npz."""
+    from seeddrift.train.rel.data.masks import whole_gene
+    render = render or T.render
+    items = []
+    for i in range(len(tables)):
+        tab = T.take_rows(tables.table(i), T.present_rows(tables.table(i)))
+        vis, tgt = whole_gene.plan(dict(n=tab["n"], kind=tab["kind"]), np.random.default_rng(0))
+        r = render(tab, vis, tgt)
+        items.append(dict(grid=r[0], truth=r[1]) if len(r) == 2 else dict(grid=r[0], truth=r[1], ext=r[2]))
+    got = scorer(items)
+    np.savez(os.path.join(out_dir, "ruler_cells.npz"), **got)
+    return dict(cells=int(len(got["bits"])), tables=len(items), weights=info["weights"], presence=bool(presence), kind=tables.kind,
+                scenarios=str(scenarios), presence_scenarios=str(presence_scenarios), adapt_v0=bool(adapt_v0))
+
+
+def test_a_readout_reads_a_ruler_set_with_final_or_untrained_weights():
+    root = tempfile.mkdtemp()
+    cfg = _config(root, kind=A.TABLE_REAL, probe=False, max_steps=3, eval_first=4)
+    out = loop.fit(cfg)
+    rroot = tempfile.mkdtemp()
+    ruler = D.write_tableset(rroot, [("heldout/s0000", D.random_tables(6, rows=4, seed=3, split=1))], kind="ruler", name="w6-ruler")
+    base = dict(cfg, heldout_tables=ruler, heldout_root=rroot, readout=dict(module="test_rel_w6_torch", presence=True, max_rows=8))
+    a = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-final"), final=os.path.join(root, "out", "final.pt"),
+                                       final_tables=out["tables_seen"], final_cells=out["cells_seen"], final_wall_s=out["wall_s"]))
+    b = loop.evaluate_checkpoints(dict(base, out=os.path.join(root, "r-untrained"), final="untrained", readout=dict(base["readout"], in_place_only=True,
+                                                                                                                       adapt_v0=True)))
+    assert a["status"] == b["status"] == "ok" and a["weights"] == "final" and b["weights"] == "untrained" and a["ruler"]["kind"] == "ruler"
+    assert a["ruler"]["tables"] == 6 and a["ruler"]["cells"] > 0 and a["tables_seen"] == out["tables_seen"] and b["tables_seen"] == 0
+    assert b["ruler"]["scenarios"] == "[0]" and a["ruler"]["scenarios"] == "None" and a["ruler"]["presence_scenarios"] == "None"
+    assert b["ruler"]["adapt_v0"] is True and a["ruler"]["adapt_v0"] is False
+    za, zb = (np.load(os.path.join(root, d, "ruler_cells.npz")) for d in ("r-final", "r-untrained"))
+    assert za["bits"].shape == zb["bits"].shape and not np.allclose(za["bits"], zb["bits"])            # trained weights read differently
+    assert os.path.exists(os.path.join(root, "r-untrained", "untrained.pt")) and not os.path.exists(os.path.join(root, "r-final", "results.tsv"))
+    assert abs(zb["entropy"].mean() - math.log2(65)) < 0.3                                             # an untrained model is near uniform
+
+
+def test_extra_and_only_conditions():
+    E = loop.E
+    assert E.conditions_of(True) == list(cond.CONDITIONS) and E.conditions_of(True, [cond.SUFFIX])[-1] == cond.SUFFIX
+    assert E.conditions_of(True, only=[cond.SUFFIX]) == [cond.SUFFIX] and E.conditions_of(False, [cond.SUFFIX]) == E.conditions_of(False)
+    try:
+        E.conditions_of(True, ["sideways"])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a condition that is not the evaluator's was accepted")
+    root = tempfile.mkdtemp()                                     # suffix scored beside today's five, its cells the evaluator's
+    cfg = _config(root, extra_conditions=[cond.SUFFIX], max_steps=2)
+    out = loop.fit(cfg)
+    assert cond.SUFFIX in out["final"] and out["final_items"][cond.SUFFIX] == _digest(cfg, root, cond.SUFFIX)
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    assert {r["condition"] for r in rows if r["weights"] == "ema@final"} == set(cond.CONDITIONS) | {cond.SUFFIX}
+    assert {r["condition"] for r in rows if r["weights"].startswith("ema@tables=")} == set(cond.CONDITIONS)       # references at the end only
+    root = tempfile.mkdtemp()
+    cfg = _config(root, extra_conditions=[cond.SUFFIX], references_at_nodes=True, max_steps=2)
+    loop.fit(cfg)
+    rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
+    assert {r["condition"] for r in rows if r["weights"].startswith("ema@tables=")} == set(cond.CONDITIONS) | {cond.SUFFIX}
 
 
 def test_split_and_gradient_checks():

@@ -194,7 +194,11 @@ def models_problems(doc, run_dir="") -> list:
                 out.append(dict(variant=v["name"], error="a failed variant says why"))
             continue
         cks = v["checkpoints"]
-        if not cks or any(not isinstance(c, dict) or c.get("which") not in ("final", "best", "ema") for c in cks):
+        if doc.get("preflight_only") or doc.get("probe"):
+            if cks:                                          # a probe trains nothing and keeps no checkpoint
+                out.append(dict(variant=v["name"], error="a probe or preflight-only run lists no checkpoint"))
+            continue
+        elif not cks or any(not isinstance(c, dict) or c.get("which") not in ("final", "best", "ema") for c in cks):
             out.append(dict(variant=v["name"], error="checkpoints are final, best or ema"))
             continue
         out += [dict(e, variant=v["name"]) for e in _files(dict(files=[dict(c, role="shard") for c in cks]), run_dir, ("shard",))]

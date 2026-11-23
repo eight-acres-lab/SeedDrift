@@ -457,7 +457,15 @@ def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkey
     assert _gate(off, "G4_rel_w18_offline")["status"] == "pass"
     head = json.load(open(os.path.join(off, P.OFFLINE_DIR, P.OFFLINE_FILE)))
     assert head["fourth_test"]["failures"] == 0 and head["fourth_test"]["checked"] >= head["ruler"]["tables"] * 2
-    assert "W18 strict offline rendering" in w18_offline.summary(off)["md"][0]
+    assert "W18 strict offline rendering" in w18_offline.summary(off)["md"][0] and head["validity_limits"] == w18_offline.VALIDITY_LIMITS
+    _, ts_, meta_ = w18_offline.ruler(w18_offline.settings(cfg))
+    has = np.load(os.path.join(off, P.OFFLINE_DIR, "has.npy"))
+    assert w18_offline.missing_families(ts_, meta_, has) == []
+    cut = has.copy()
+    c = P.FAMILIES.index("C")
+    t_c = int(np.flatnonzero(cut[:, c])[0])
+    cut[t_c, c] = False
+    assert w18_offline.missing_families(ts_, meta_, cut) == [(t_c, "C")]                  # a family the plan uses, its placement missing
     ev, ecfg = RF.rel_run(tmp_path_factory.mktemp("w18lf"), kind="rel_traineval", stages=("w6_eval",), run_id="20261124T000002-exp-rel-00000000-eval")
     tabs = T.open_split(run_dir, doc, 1)
     base = dict(weights="final", relatives=True, layout="leakfree", render_version="leakfree-1", run=os.path.basename(ev), commit="0" * 40, root=run_dir)

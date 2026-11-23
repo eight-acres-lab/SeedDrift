@@ -425,6 +425,9 @@ def criterion_md(rep):
           "interval of its paired difference (the same bootstrap replicates) excludes 0 on the right side. Rendering: %s%s. A verdict describes "
           "the ruler; it selects nothing." % ((rep.get("layer_triples") or {}).get(R.LAYERS[0], 0), lay.get("layout"),
                                                ", offline placements of run `%s` (offline.json %s)" % (lay["offline"], str(lay["offline_sha256"])[:16]) if lay.get("offline") else ""),
+          "", "What the strict rendering does not rule out: W3's fourth test covers the placement only; which rows a block holds, their kinds "
+          "and stretch lengths come from the search, which was run with the hidden gene, and only the presence passes measure what they "
+          "carry (protocol w3-offline-v0 version 3, validity_limits).",
           "", "| arm | block | verdict | defined share | abstention | gain_rel_aa | second verdict: source_shift_aa |", "|---|---|---|---|---|---|---|"]
     for v in rep.get("verdicts") or []:
         cells = [("%s%s" % ("holds: " if v["parts"][p]["holds"] else "fails: ", v["parts"][p]["detail"])) for p in R.CRITERION]

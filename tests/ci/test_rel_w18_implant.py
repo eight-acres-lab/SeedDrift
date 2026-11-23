@@ -445,17 +445,21 @@ def test_offline_placements_pass_the_fourth_test(v1s):
 
 def test_a_tier_pass_keeps_the_placement_of_its_rows(v1s):
     out, meta = v1s["out"], v1s["meta"]
-    hits = 0
+    hits = {"T": 0, "C": 0}
     for t in range(len(out["tok"])):
         tab = {k: out[k][t] for k in P.FIELDS}
         ps = P.plan(tab, meta["row_tier"][t], t, mask_id=int(meta["parent"][t]))
-        full = P.strict_placement(tab, "T", [p for p in ps if p.name == "T"][0].visible)
-        for p in ps:
-            if p.name.startswith("T-t") and p.keep[1:].any():
-                alone = P.strict_placement(P.take(tab, p.keep), "T", p.visible[p.keep])
-                assert (alone["col"] == full["col"][p.keep]).all()
-                hits += 1
-    assert hits > 0
+        for fam in hits:
+            base = [p for p in ps if p.name == fam]
+            if not base:
+                continue
+            full = P.strict_placement(tab, fam, base[0].visible)
+            for p in ps:
+                if p.name.startswith(fam + "-t") and p.keep[1:].any():
+                    alone = P.strict_placement(P.take(tab, p.keep), fam, p.visible[p.keep])
+                    assert (alone["col"] == full["col"][p.keep]).all()
+                    hits[fam] += 1
+    assert hits["T"] > 0 and hits["C"] > 0
 
 
 def test_run_renders_passes_on_their_family_placement(v1s):

@@ -598,6 +598,16 @@ def test_the_rows_of_a_control_never_stand_for_the_condition():
     assert got[("a", "scattered", "leakfree")] == got[("a", "scattered", "leakfree-online")] == "scattered"
     assert got[("a", "scattered", "leakfree+shuffle")] == "scattered@shuffle" and got[("a", "scattered", "leakfree+presence")] == "scattered@presence"
     assert got[("b", "whole_gene", "stored")] == "whole_gene@stored" and got[("b", "whole_gene", "leakfree")] == "whole_gene"
+    # the gate on it: two rows of one result table that come to one reading fail the report, whatever made them
+    row = dict(variant="a", condition="scattered", group=SC.ALL, stratum=SC.ALL, weights="ema@final", bits="4.0", _source=0)
+    arms = {"a": {}}
+    assert w6_report.index_rows([dict(row, layout="leakfree"), dict(row, layout="leakfree+shuffle")], arms, [])  # a control apart: fine
+    for twins in ([dict(row, layout="leakfree"), dict(row, layout="leakfree-online")],            # two layouts, one reading
+                  [dict(row, layout="leakfree"), dict(row, layout="leakfree")]):                  # the same row twice
+        with pytest.raises(SystemExit):
+            w6_report.index_rows(twins, arms, [])
+    later = [dict(row, layout="leakfree"), dict(row, layout="leakfree", bits="3.0", _source=1)]   # a later run replaces an earlier one's
+    assert w6_report.index_rows(later, arms, [])[("a", "final", None, "scattered", SC.ALL, SC.ALL)] == 3.0
 
 
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):

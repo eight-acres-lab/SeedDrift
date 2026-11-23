@@ -307,7 +307,8 @@ def collect(st, run_dir, s):
                 entry["run"] = "%s + %s" % (old["run"], entry["run"]) if old["run"] != entry["run"] else entry["run"]
             arms[entry["name"]] = entry
         names = {v["name"] for v in doc["variants"]}
-        rows += [dict(r, variant=key(r["variant"])) if r["variant"] in names else r for r in SC.read_rows(os.path.join(f, folder, "results.tsv"))]
+        rows += [dict(dict(r, variant=key(r["variant"])) if r["variant"] in names else r, _source=len(sources))
+                 for r in SC.read_rows(os.path.join(f, folder, "results.tsv"))]
         groups = groups or list(doc.get("groups") or [])
         sources.append(dict(run=os.path.basename(f), folder=folder, label=label, models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
     base, digests, sub = [], {}, dict(rows=[], digests={})
@@ -360,8 +361,10 @@ def condition_labels(rows):
 
 
 def index_rows(rows, arms, base):
-    """{(arm, point, tables, condition label, group, stratum): bits}; baselines under point 'final'."""
-    out = {}
+    """{(arm, point, tables, condition label, group, stratum): bits}; baselines under point 'final'. Two rows of one
+    source (one run's result table) that come to one key are refused: a reading would take one of them for the other
+    (round 1's first report read a control as its plain condition); a later source replaces an earlier one's key."""
+    out, seen = {}, {}
     label = condition_labels(rows)
     for r in rows:
         if r["variant"] not in arms:
@@ -369,7 +372,15 @@ def index_rows(rows, arms, base):
         p = point_of(r)
         if p is not None:
             c = label.get((r["variant"], r["condition"], r.get("layout") or "stored"), r["condition"])
-            out[(r["variant"], p[0], p[1], c, r["group"], r["stratum"])] = float(r["bits"])
+            k = (r["variant"], p[0], p[1], c, r["group"], r["stratum"])
+            src = r.get("_source")
+            if (src, k) in seen and seen[(src, k)] != r.get("layout"):
+                raise SystemExit("rel_w6_report: two rows of one result table come to one reading %s (layouts %s and %s): the report would "
+                                 "read one for the other" % (k, seen[(src, k)], r.get("layout")))
+            if (src, k) in seen:
+                raise SystemExit("rel_w6_report: a result table holds the reading %s twice (layout %s)" % (k, r.get("layout")))
+            seen[(src, k)] = r.get("layout")
+            out[k] = float(r["bits"])
     for r in base:
         if number(r["bits"]) is not None:
             out[(r["variant"], "final", None, r["condition"], r["group"], r["stratum"])] = float(r["bits"])

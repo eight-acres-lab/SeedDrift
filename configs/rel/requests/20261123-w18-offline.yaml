@@ -1,0 +1,12 @@
+package: W18
+kind: to_package
+to: C0
+what: >
+  Register stage w18_offline of package W18 in configs/rel/kinds.yaml, kind rel_tables: package W18, rule
+  rel_w18_offline, output data/rel_w18/offline/offline.json, module ci.stages.rel.w18_offline, gates
+  [G4_rel_w18_offline], side eval, reads [ruler] (it takes the ruler set through common.read_tableset). Its module and
+  rule (ci/rules/rel_w18.smk) are on the branch with this request. It writes no table set: the placements of every
+  table and mask family of a ruler set, read by w18_passes.run_ruler for the leak-free reading of protocol w18-v3.
+why: the strict offline rendering of the counting reading of the HGT capability check (protocol w18-v3, committed by the programme lead)
+size: {hours: 0.5, threads: 8, disk_gb: 2, gpu_mem_gb: 0}
+by: 2026-11-24

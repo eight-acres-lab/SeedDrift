@@ -257,7 +257,36 @@ def v1(tmp_path_factory):
     imp = I.ImplanterV1(sgen, arrays, rows_of, train, ids, dist, ids, EDGES, eligible, I.split_units(opened), rows=8, min_codons=20, length_tol=0.6)
     out, meta, triples, counts, capacity = imp.build(opened, sorted(TS.TINY), 5, per_tier=2, group_tier_cap=6)
     return dict(out=out, meta=meta, triples=triples, counts=counts, imp=imp, ids=ids, train=train, eligible=eligible, opened=opened, sgen=sgen,
-                rows_of=rows_of, dist=dist)
+                rows_of=rows_of, dist=dist, arrays=arrays, groups=sorted(TS.TINY))
+
+
+class SelfStandIn(I.ImplanterV1):
+    """W12's search holds no pair of a held-out donor gene with A's genes (its database is the training genomes), so the
+    implant's self-copy candidates are empty there and no triple gets a self-copy row; in the fixture the own control
+    has none either (a held-out genome's one paralog pair is its first two genes, neighbours of each other). To test the
+    machinery (rows, kinds, equal counts, shared context, the other draws), the implant and the own control borrow the
+    original's candidates: a stand-in of the tests only, never of a ruler set."""
+
+    def self_candidates(self, gid_a, got):
+        imp, orig, own = super().self_candidates(gid_a, got)
+        return [imp or orig, orig, own or orig]
+
+
+def test_without_donor_pairs_no_triple_has_self_copies(v1):
+    imp = I.ImplanterV1(v1["sgen"], v1["arrays"], v1["rows_of"], v1["train"], v1["ids"], v1["dist"], v1["ids"], EDGES, v1["eligible"],
+                        I.split_units(v1["opened"]), rows=8, min_codons=20, length_tol=0.6, self_copies=2)
+    out, meta, _, counts, _ = imp.build(v1["opened"], v1["groups"], 5, per_tier=2, group_tier_cap=6)
+    assert counts.get("self_rows", 0) == 0 and (meta["self_rows"] == 0).all()
+    assert (out["genome"] == v1["out"]["genome"]).all() and (out["tok"] == v1["out"]["tok"]).all()        # draw for draw as without
+
+
+@pytest.fixture(scope="module")
+def v1s(v1):
+    """The same search with self-copy rows (protocol w18-v3), the implant's candidates by the stand-in."""
+    imp = SelfStandIn(v1["sgen"], v1["arrays"], v1["rows_of"], v1["train"], v1["ids"], v1["dist"], v1["ids"], EDGES, v1["eligible"],
+                        I.split_units(v1["opened"]), rows=8, min_codons=20, length_tol=0.6, self_copies=2)
+    out, meta, triples, counts, capacity = imp.build(v1["opened"], v1["groups"], 5, per_tier=2, group_tier_cap=6)
+    return dict(out=out, meta=meta, triples=triples, counts=counts, imp=imp)
 
 
 def test_version_1_triples_are_sound(v1):
@@ -305,3 +334,190 @@ def test_version_1_masks_are_shared_in_a_triple(v1):
     for t in range(len(out["tok"])):
         d = P.mask_digest({k: out[k][t] for k in P.FIELDS}, meta["row_tier"][t], t, int(meta["parent"][t]))
         assert got.setdefault(int(meta["triple"][t]), d) == d
+
+
+def test_self_copy_rows_are_sound_and_lead_the_rows(v1, v1s):
+    out, meta, ids = v1s["out"], v1s["meta"], v1["ids"]
+    gix = {g: i for i, g in enumerate(ids)}
+    units = I.split_units(v1["opened"])
+    assert I.verify(out, meta, {gix[g] for g in v1["eligible"]}, {gix[g] for g in v1["train"]}, {gix[g]: u for g, u in units.items()}) == []
+    m = meta["self_rows"].astype(np.int64)
+    assert m.max() >= 1 and m.max() <= A.MAX_SELF_COPY_ROWS and v1s["counts"]["self_triples"] > 0
+    T = I.TARGET
+    R = out["tok"].shape[1]
+    for t in range(len(out["tok"])):
+        k = int(m[t])
+        rows = slice(1, k + 1)
+        assert (out["genome"][t, rows] == out["genome"][t, 0]).all() and (out["genome_of_row"][t, rows] == 0).all()
+        assert (out["kind"][t, rows, T] == A.KIND_SELF_COPY).all() and (out["tier"][t, rows] == 0).all() and (meta["row_tier"][t, rows] == I.SELF_TIER).all()
+        assert (meta["row_gene"][t, rows] == -1).all() and np.isnan(meta["row_dist"][t, rows]).all()
+        assert (out["kind"][t, k + 1:, T][out["genome"][t, k + 1:] >= 0] == A.KIND_PRESENT).all()
+        assert int((out["genome"][t, 1:] >= 0).sum()) == k + int(meta["on_target"][t]) <= R - 1
+        assert not np.isin(out["kind"][t, rows, :T], (A.KIND_PRESENT, A.KIND_NOT_SEARCHED)).any()
+
+
+def test_self_copy_rows_are_the_right_copies(v1, v1s):
+    out, meta, ids, sgen = v1s["out"], v1s["meta"], v1["ids"], v1["sgen"]
+    sidx = {g["id"]: k for k, g in enumerate(sgen)}
+    T = I.TARGET
+    seen = 0
+    for t in range(len(out["tok"])):
+        v, a = int(meta["variant"][t]), ids[out["genome"][t, 0]]
+        i = int(meta["gene_i"][t])
+        owner = ids[meta["donor"][t]] if v == 0 else a
+        gene = int([meta["gene_j"][t], i, meta["gene_k"][t]][v])
+        arr = v1["rows_of"](owner)
+        pairs = range(int(arr["off"][gene]), int(arr["off"][gene + 1]))
+        allowed = {int(arr["tgene"][p]) for p in pairs if int(arr["tgenome"][p]) == sidx[a]} - {i, gene if owner == a else -1}
+        if v != 1:                                                     # the stand-in: the original's candidates when the table has none
+            ai = v1["rows_of"](a)
+            allowed |= {int(ai["tgene"][p]) for p in range(int(ai["off"][i]), int(ai["off"][i + 1])) if int(ai["tgenome"][p]) == sidx[a]} - {i}
+        for q in range(1, int(meta["self_rows"][t]) + 1):
+            assert int(out["row_gene"][t, q, T]) in allowed            # implant: A's genes paired with D:j; controls: A's other copies
+            seen += 1
+    assert seen > 0
+
+
+def test_self_copies_keep_the_triple_comparable(v1s):
+    out, meta = v1s["out"], v1s["meta"]
+    T = I.TARGET
+    for s in np.unique(meta["triple"]):
+        ts = np.flatnonzero(meta["triple"] == s)
+        assert len({int(meta["self_rows"][x]) for x in ts}) == 1
+        ctx = [np.delete(out["kind"][x], T, axis=1) for x in ts]
+        tok = [out["tok"][x][:, :I.SLICES[T][1]] for x in ts]
+        assert all((c == ctx[0]).all() for c in ctx) and all((x == tok[0]).all() for x in tok)
+
+
+def test_self_copies_leave_the_other_draws_as_they_were(v1, v1s):
+    a, b = v1["meta"], v1s["meta"]
+    n0 = int((a["scenario"] == 0).sum())
+    assert n0 == int((b["scenario"] == 0).sum())
+    for f in ("gene_i", "gene_j", "gene_k", "donor", "phase"):
+        assert (a[f][:n0] == b[f][:n0]).all()
+    ga, gb = v1["out"]["genome"][:n0], v1s["out"]["genome"][:n0]
+    R = ga.shape[1]
+    for t in range(n0):
+        k = int(b["self_rows"][t])
+        assert (gb[t, k + 1:] == ga[t, 1:R - k]).all()                 # the other rows: the same draw, the last k left out
+
+
+def test_tier_passes_keep_self_copies_and_presence_hides_them(v1s):
+    out, meta = v1s["out"], v1s["meta"]
+    t = int(np.flatnonzero(meta["self_rows"] > 0)[0])
+    tab = {k: out[k][t] for k in P.FIELDS}
+    ps = P.plan(tab, meta["row_tier"][t], t, presence=True, mask_id=int(meta["parent"][t]))
+    k = int(meta["self_rows"][t])
+    for p in ps:
+        if "-t" in p.name:
+            assert p.keep[1:k + 1].all()
+        if p.name.startswith(P.PRESENCE):
+            assert not p.visible[1:].any()
+    tiers = P.tiers_present(meta["row_tier"][t], P.present(tab))
+    assert all(x >= 0 for x in tiers)
+
+
+# ---- the strict offline rendering (protocol w18-v3; stage rel_w18_offline) ----
+def _offline(v, tables=None):
+    out, meta = v["out"], v["meta"]
+    N = len(out["tok"]) if tables is None else tables
+    arrays = P.offline_arrays(len(out["tok"]), out["tok"].shape[1])
+    failed = []
+    for t in range(N):
+        tab = {k: out[k][t] for k in P.FIELDS}
+        for fam, p in P.family_passes(tab, meta["row_tier"][t], t, int(meta["parent"][t])).items():
+            pl = P.strict_placement(tab, fam, p.visible)
+            ok, _, _ = P.fourth_test(tab, fam, p, pl, t)
+            if not ok:
+                failed.append((t, fam))
+            P.offline_put(arrays, t, fam, pl, tab)
+            back = P.offline_place(arrays, t, tab)[fam]
+            assert all((np.asarray(back[k]) == np.asarray(pl[k])).all() for k in pl)
+    return arrays, failed
+
+
+def test_offline_placements_pass_the_fourth_test(v1s):
+    arrays, failed = _offline(v1s)
+    assert failed == []
+    has = arrays["has"]
+    assert has[:, P.FAMILIES.index("T")].all() and has[:, P.FAMILIES.index("W")].all()
+
+
+def test_a_tier_pass_keeps_the_placement_of_its_rows(v1s):
+    out, meta = v1s["out"], v1s["meta"]
+    hits = 0
+    for t in range(len(out["tok"])):
+        tab = {k: out[k][t] for k in P.FIELDS}
+        ps = P.plan(tab, meta["row_tier"][t], t, mask_id=int(meta["parent"][t]))
+        full = P.strict_placement(tab, "T", [p for p in ps if p.name == "T"][0].visible)
+        for p in ps:
+            if p.name.startswith("T-t") and p.keep[1:].any():
+                alone = P.strict_placement(P.take(tab, p.keep), "T", p.visible[p.keep])
+                assert (alone["col"] == full["col"][p.keep]).all()
+                hits += 1
+    assert hits > 0
+
+
+def test_run_renders_passes_on_their_family_placement(v1s):
+    out, meta = v1s["out"], v1s["meta"]
+    arrays, _ = _offline(v1s)
+    seen = {}
+
+    def render(tab, vis, tgt):
+        g, tr, e = P.leakfree(tab, vis, tgt)
+        seen.setdefault("grids", []).append(g)
+        return g, tr, e
+
+    def score(items):
+        return [tuple(np.zeros(int((it[1] > 0).sum())) for _ in range(3)) for it in items]
+
+    class TS:
+        tables = len(out["tok"])
+
+        def load(self, a, b, fields):
+            return {f: out[f][a:b] for f in fields}
+
+    src = list(P.tables_of(TS(), meta, presence=True, offline=arrays))
+    assert all(P.PLACE in it[1] for it in src)
+    cells = P.run(src, render, score, presence=True)
+    plain = P.plan_digest(P.tables_of(TS(), meta, presence=True), True, True)
+    assert cells["digest"] == plain[0] and cells["passes"] == plain[2]
+    # a presence pass shows no codon of another row; its base pass shows some
+    t = int(np.flatnonzero(meta["on_target"] > 0)[0])
+    item = src[t]
+    got = {}
+    for p in P.plan({k: v for k, v in item[1].items() if k != P.PLACE}, item[2], t, presence=True, mask_id=item[3]):
+        got[p.name] = p
+    def one(name):
+        seen["grids"] = []
+        P.run([(t, item[1], item[2], item[3], True)], render, score, presence=True)
+        return seen["grids"]
+    grids = one("all")
+    names = [p.name for p in P.plan({k: v for k, v in item[1].items() if k != P.PLACE}, item[2], t, presence=True, mask_id=item[3])]
+    g = dict(zip(names, grids))
+    codon = lambda x: ((x[1:] >= 1) & (x[1:] <= 65)).sum()          # noqa: E731
+    assert codon(g["T"]) > 0 and codon(g["P:T"]) == 0 and codon(g["W"]) > 0 and codon(g["P:W"]) == 0
+    assert ((g["P:T"] != 0) == (g["T"] != 0)).all()                  # the pattern kept
+
+
+def test_offline_loader_checks_its_files(tmp_path, v1s):
+    import json
+    out = v1s["out"]
+    arrays, _ = _offline(v1s, tables=3)
+    base = tmp_path / P.OFFLINE_DIR
+    base.mkdir(parents=True)
+    files = []
+    for name, v in arrays.items():
+        q = base / (name + ".npy")
+        np.save(q, v)
+        files.append(dict(name=name, path=os.path.relpath(q, tmp_path), sha256=P._sha256(q), bytes=os.path.getsize(q)))
+    head = dict(format=P.OFFLINE_FORMAT, ruler=dict(sha256="abc"), plan=dict(version=P.VERSION, seed=P.SEED, rate=P.RATE),
+                fourth_test=dict(failures=0), files=files)
+    (base / P.OFFLINE_FILE).write_text(json.dumps(head))
+    got, _, sha = P.load_offline(str(tmp_path), "abc")
+    assert (got["T.col"] == arrays["T.col"]).all() and len(sha) == 64 and got["T.col"].shape[1] == out["tok"].shape[1]
+    with pytest.raises(ValueError):
+        P.load_offline(str(tmp_path), "another")
+    np.save(base / "W.frame_len.npy", arrays["W.frame_len"] + 1)
+    with pytest.raises(ValueError):
+        P.load_offline(str(tmp_path), "abc")

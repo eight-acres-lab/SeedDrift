@@ -53,6 +53,7 @@ MIN_GROUP, MIN_GROUPS, MIN_TRIPLES, MIN_UNITS = 10, 3, 30, 8
 NEAREST_BINS = ((0.0, 0.3, "<0.3"), (0.3, 0.5, "0.3-0.5"), (0.5, 0.7, "0.5-0.7"), (0.7, 1.01, ">=0.7"))
 FILL_BINS = ((0, 0, "0"), (1, 1, "1"), (2, 3, "2-3"), (4, 7, "4-7"), (8, 99, "8-15"))
 RATIO_BINS = ((0.0, 0.8, "<0.8"), (0.8, 1.25, "0.8-1.25"), (1.25, np.inf, ">=1.25"))
+LAYERS = ("other_genome_rows", "self_copies_only", "none")   # protocol w18-v3: a triple's relatives layer, by its rows
 T0_, T1_ = P.T0_, P.T1_
 BLOCK_OF, OFFSET_OF = P.BLOCK_OF, P.OFFSET_OF
 CLASS = {"archaea": "prokaryote", "bacteria": "prokaryote", "mobile.plasmid": "prokaryote"}
@@ -177,7 +178,7 @@ def readouts(cells, meta, n0, prefix=""):
             norel = _gain(cells, n, keep, value, meta["target_len"], "", "W0", "H10", "H20")
             out["gain_norel" + suffix] = norel
             out["gain_rel" + suffix] = gain - norel
-        if not prefix and not suffix:
+        if not suffix:                                              # T0 (row 0 alone) has no presence version: the same pass
             t0 = _mean(sums, "T0", n)
             ab = np.where(np.isfinite(t0), (t0 - t_all) < ABSTAIN, True).astype(np.float64)
             ab[~np.isfinite(t_all)] = np.nan
@@ -327,13 +328,16 @@ class Triples:
         self.group = np.asarray(group)[imp].astype(np.int64)
         self.unit_a, self.unit_d = meta["unit_a"][imp].astype(np.int64), meta["unit_d"][imp].astype(np.int64)
         self.scenario, self.tier, self.rows = meta["scenario"][imp], meta["donor_tier"][imp], meta["on_target"][imp]
+        self.self_rows = meta["self_rows"][imp].astype(np.int64) if "self_rows" in meta else np.zeros(len(imp), dtype=np.int64)
+        self.layer = np.where(self.rows > 0, LAYERS[0], np.where(self.self_rows > 0, LAYERS[1], LAYERS[2]))
         self.phase, self.context = meta["phase"][imp], meta["context_homolog"][imp]
         self.group_names = list(group_names)
         self.block = np.array([SC.block_of(group_names[g]) for g in self.group])
         dg = np.asarray(donor_group)[imp]
         self.direction = np.array([direction(d, group_names[g]) for d, g in zip(dg, self.group)])
         self.donor_block_same = np.array([SC.block_of(d) for d in dg]) == self.block
-        self.nearest = SC.nearest_identity(np.asarray(identity)[imp])
+        ident = np.where(np.asarray(meta["row_tier"]) == P.SELF_TIER, np.nan, np.asarray(identity, dtype=np.float64))   # never another lineage
+        self.nearest = SC.nearest_identity(ident[imp])
         ri = meta["row_tier"][imp]
         self.tiers_present = np.array([len({int(x) for x in r[1:] if x >= 0}) for r in ri])
         cov = meta["covered"].astype(np.float64)
@@ -361,6 +365,8 @@ class Triples:
             out[("shared_homolog", name)] = self.shared == name
         out[("donor_block", "same")] = self.donor_block_same
         out[("donor_block", "other")] = ~self.donor_block_same
+        for name in LAYERS:
+            out[("relatives_layer", name)] = self.layer == name
         out[("phase", "n=256")] = self.phase == 1
         out[("phase", "matched")] = self.phase == 2
         for d in sorted(set(self.direction.tolist())):
@@ -540,6 +546,99 @@ def defined_share_rows(shift, tr, population, boot, label="", tag=None):
             row["value"], row["lo"], row["hi"], _ = _agg([(x[0], x[1]) for x in items])
         rows.append(row)
     return rows
+
+
+def paired_share_rows(name, x, y, tr, population, boot, variant=OWN, label="", reference="", tag=None):
+    """The paired difference of a per-table share (x of an arm, y of a control, 0/1 or nan per table) on the tables of one
+    variant (the own control by default), per block: per group the mean over its triples where both are defined of
+    x - y, then the mean over the groups with MIN_GROUP triples, its interval from the same replicates; readable as
+    stat_rows reads a block (protocol w18-v3's criterion)."""
+    xv = np.asarray(x, dtype=np.float64)[tr.table[:, variant]]
+    yv = np.asarray(y, dtype=np.float64)[tr.table[:, variant]]
+    ok = population & np.isfinite(xv) & np.isfinite(yv)
+    rows = []
+    for block in SC.BLOCKS:
+        pb = ok & (tr.block == block)
+        items = []
+        for g in sorted(set(tr.group[pb].tolist())):
+            sel = np.flatnonzero(pb & (tr.group == g))
+            if len(sel) < MIN_GROUP:
+                continue
+            w = boot.weights(sel)
+            den = w.sum(axis=1)
+            d = xv[sel] - yv[sel]
+            with np.errstate(invalid="ignore", divide="ignore"):
+                items.append((float(d.mean()), np.where(den > 0, (w @ d) / np.where(den > 0, den, 1), np.nan), sel, float(xv[sel].mean()), float(yv[sel].mean())))
+        n_tr = sum(len(x_[2]) for x_ in items)
+        units = len({int(u) for x_ in items for u in tr.unit_a[x_[2]]})
+        row = dict(tag or {}, score=name, label=label, reference=reference, statistic="paired_share_difference", variant=("implant", "original", "own")[variant],
+                   block=block, groups=len(items), triples=n_tr, units=units,
+                   readable=bool(len(items) >= MIN_GROUPS and n_tr >= MIN_TRIPLES and units >= MIN_UNITS), value=None, lo=None, hi=None,
+                   arm_share=None, reference_share=None)
+        if items:
+            row["value"], row["lo"], row["hi"], _ = _agg([(x_[0], x_[1]) for x_ in items])
+            row["arm_share"], row["reference_share"] = float(np.mean([x_[3] for x_ in items])), float(np.mean([x_[4] for x_ in items]))
+        rows.append(row)
+    return rows
+
+
+CRITERION = ("defined_share", "abstention", "gain_rel_aa")
+SEE = "the readouts see the relatives"
+NOT_SHOWN = "not shown"
+CRITERION_STRATUM = ("relatives_layer", LAYERS[0])
+CRITERION_POPULATION = dict(scenario="in_place", rule9="on")
+
+
+def _part(rows, want, refs):
+    """(holds, readable, detail) of one part from its rows {reference: row}: every reference's paired difference has its
+    95% interval above 0 (want "above") or below 0 ("below")."""
+    holds, readable, detail = True, True, []
+    for ref in refs:
+        r = rows.get(ref)
+        if r is None or not r.get("readable") or r.get("lo") is None:
+            holds, readable = False, False
+            detail.append("%s: too few to read" % ref if r is not None else "%s: not read" % ref)
+            continue
+        ok = r["lo"] > 0 if want == "above" else r["hi"] < 0
+        holds = holds and ok
+        detail.append("%s: %+.3f [%+.3f, %+.3f]%s" % (ref, r["value"], r["lo"], r["hi"], "" if ok else " (fails)"))
+    return holds, readable, "; ".join(detail)
+
+
+def verdicts(stats, shares, arms):
+    """Protocol w18-v3's verdicts per arm with relatives (trained) and block, never pooled: the criterion ("the readouts
+    see the relatives" when its three parts hold: the defined share of the source shift above the untrained model's and
+    the arm's presence passes', the abstention below both, the paired win rate of gain_rel_aa above the untrained
+    model's; every interval the 95% interval of a paired difference) and the second verdict (the paired win rate of
+    source_shift_aa above the untrained model's and the presence passes'). stats: stat_rows' rows; shares:
+    paired_share_rows' rows (scores source_shift_aa_defined and abstain, references untrained and presence). Read in the
+    population in place, rule 9 on, the relatives layer of other-genome rows."""
+    out = []
+    pop = lambda r: all(r.get(k) == v for k, v in CRITERION_POPULATION.items())          # noqa: E731
+
+    def win(arm, block, score):
+        got = [r for r in stats if r["label"] == arm and r["block"] == block and r["score"] == score and r["statistic"] == "win" and r["comparison"] == "own"
+               and (r["stratum_kind"], r["stratum"]) == CRITERION_STRATUM and pop(r)]
+        if not got:
+            return {}
+        r = got[0]
+        return {ref: dict(readable=r["readable"], **r["vs_" + ref]) for ref in ("untrained", "presence") if r.get("vs_" + ref)}
+    for arm in arms:
+        for block in SC.BLOCKS:
+            parts = {}
+            for part, score, want in (("defined_share", "source_shift_aa_defined", "above"), ("abstention", "abstain", "below")):
+                rows = {r["reference"]: r for r in shares if r["label"] == arm and r["block"] == block and r["score"] == score and pop(r)}
+                parts[part] = _part(rows, want, ("untrained", "presence"))
+            g = win(arm, block, "gain_rel_aa")
+            parts["gain_rel_aa"] = _part({k: dict(v, value=v["diff"]) for k, v in g.items()}, "above", ("untrained",))
+            ss = win(arm, block, "source_shift_aa")
+            second = _part({k: dict(v, value=v["diff"]) for k, v in ss.items()}, "above", ("untrained", "presence"))
+            failed = [p for p in CRITERION if not parts[p][0]]
+            out.append(dict(arm=arm, block=block, verdict=SEE if not failed else NOT_SHOWN, failed=failed,
+                            readable=all(parts[p][1] for p in CRITERION), parts={p: dict(holds=parts[p][0], readable=parts[p][1], detail=parts[p][2]) for p in CRITERION},
+                            source_shift_verdict="source_shift_aa above the untrained model and the presence passes" if second[0] else NOT_SHOWN,
+                            source_shift=dict(holds=second[0], readable=second[1], detail=second[2])))
+    return out
 
 
 def coverage_table(tr, population, min_triples=MIN_GROUP):

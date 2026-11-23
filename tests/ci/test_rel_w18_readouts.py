@@ -304,3 +304,38 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+
+
+def test_layers_shares_and_the_two_verdicts_of_protocol_w18_v3():
+    meta, group, names = _triples(n_tr=80)
+    n_tr = len(np.unique(meta["triple"]))
+    meta["self_rows"] = np.repeat(np.where(np.arange(n_tr) % 4 == 0, 1, 0), 3).astype(np.int8)
+    meta["on_target"] = np.repeat(np.where(np.arange(n_tr) % 8 <= 1, 0, 3), 3).astype(np.int8)
+    meta["row_tier"][:, 1] = np.where(meta["self_rows"] > 0, P.SELF_TIER, meta["row_tier"][:, 1])
+    ident = np.where(meta["row_tier"] == P.SELF_TIER, 0.99, 0.4)
+    tr = R.Triples(meta, group, ident, ["bacteria"] * len(group), names)
+    assert set(tr.layer.tolist()) == set(R.LAYERS)
+    assert (tr.layer == "self_copies_only").sum() == ((np.arange(n_tr) % 8 == 0) & (np.arange(n_tr) % 4 == 0)).sum()
+    assert np.nanmax(tr.nearest) == 0.4                                # a self copy is never the nearest lineage
+    boot = R.Bootstrap(tr, reps=50)
+    pop = np.ones(n_tr, bool)
+    strata = {k: v for k, v in tr.strata().items() if k[0] in ("all", "relatives_layer")}
+    own = meta["variant"] == 2
+    arm = np.where(own, 1.0, 0.0)                                       # defined on every own table; the control on none
+    rows = R.paired_share_rows("source_shift_aa_defined", arm, np.zeros(len(arm)), tr, pop, boot, label="a", reference="untrained", tag=dict(scenario="in_place", rule9="on"))
+    euk = [r for r in rows if r["block"] == "eukaryotes"][0]
+    assert euk["value"] == 1.0 and euk["lo"] == 1.0 and euk["readable"] and euk["arm_share"] == 1.0 and euk["reference_share"] == 0.0
+    shares = rows + R.paired_share_rows("source_shift_aa_defined", arm, np.zeros(len(arm)), tr, pop, boot, label="a", reference="presence",
+                                        tag=dict(scenario="in_place", rule9="on"))
+    for ref in ("untrained", "presence"):
+        shares += R.paired_share_rows("abstain", 1 - arm, np.ones(len(arm)), tr, pop, boot, label="a", reference=ref, tag=dict(scenario="in_place", rule9="on"))
+    score = np.where(meta["variant"] == 0, 1.0, 0.0)
+    tag = dict(scenario="in_place", rule9="on")
+    stats = R.stat_rows(dict(gain_rel_aa=score, source_shift_aa=score), tr, pop, strata, boot, label="a", stats=("win",), tag=tag,
+                        reference=dict(untrained=np.zeros(len(score)), presence=np.zeros(len(score))))
+    v = {x["block"]: x for x in R.verdicts(stats, shares, ["a"])}
+    assert v["eukaryotes"]["verdict"] == R.SEE and v["eukaryotes"]["failed"] == [] and v["eukaryotes"]["source_shift"]["holds"]
+    assert v["prokaryotes, plasmids, viruses"]["verdict"] == R.NOT_SHOWN and not v["prokaryotes, plasmids, viruses"]["readable"]   # one group
+    worse = [dict(r, lo=-0.1) if r["score"] == "abstain" else r for r in shares]                  # abstention not below a control
+    w = {x["block"]: x for x in R.verdicts(stats, [dict(r, hi=0.2) if r["score"] == "abstain" else r for r in worse], ["a"])}
+    assert w["eukaryotes"]["verdict"] == R.NOT_SHOWN and w["eukaryotes"]["failed"] == ["abstention"]

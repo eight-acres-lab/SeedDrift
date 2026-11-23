@@ -1,0 +1,33 @@
+# Machine i-1: W3's fourth validity test on the training's own renderings (stage w3_traincheck, package W3), the gate
+# of round 1's third batch and of round 2 that the programme lead set on 2026-11-24: 1,000 training tables of version
+# 1 (the passed run of rel-dev-w12-v1-k3-i1), the rows of a sample drawn as the sampler draws them (row 0 and 4 to 32
+# rows in all), every mask scheme of the training (scattered in every row, a span in any row, the whole gene), each
+# rendered strictly (seeddrift/train/rel/tables/strict.py: aligned again with every hidden residue unknown, or laid on
+# the frame relative; then leak-free) and tested. No failure lets the round train on the strict rendering. Six
+# processes, numpy only: the select lock, no GPU. A few minutes; nothing written but the report.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 6
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w3_traincheck]
+rel_w3_traincheck:
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+  tablesets:
+    - {path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1}
+  tables: 1000
+  masks: [scattered, span, whole_gene]
+  rows: [4, 32]
+  seed: 20261124
+  processes: 6
+train:
+  gpu_lease: false
+  device: cpu

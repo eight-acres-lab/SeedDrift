@@ -1,6 +1,6 @@
 # Machine i-1: the report of round 1b's long arm (task-breakdown section 8.6; stage w6_report of package W6, alone): 30 M
 # at 1.5e-4 with the scattered and span samples leak-free and the whole gene stored, read leak-free on W3's strict
-# offline rendering (run 20261123T034727-exp-rel-6223f4ce-rel-r1blong-i2, i-2 alone, wall limit 11 h, the references at
+# offline rendering (run 20261123T035654-exp-rel-48d1de93-rel-r1blong-i2, i-2 alone, wall limit 11 h, the references at
 # every node; copied to i-1 without checkpoints), over passes of the training tables beside round 1a's long arm (30 M at
 # 3e-4, stored; run 20261122T162214, "w6-ref30m-s1 @long") and seed 2 of the evening (run 20261122T114919). The leak of
 # the stored layout at the same rate: round 1a's short 30 M arm at 1.5e-4 (stored; run 20261122T164736) against the long
@@ -31,7 +31,7 @@ rel_w6_report:
     - /hy-tmp/seeddrift-ci/runs/20261122T164736-exp-rel-r1a-098d93a7-rel-r1ashort1e4-i1
     - {run: /hy-tmp/seeddrift-ci/imports/runs/20261122T162214-exp-rel-r1a-098d93a7-rel-r1along30m-i2, label: long}
     - /hy-tmp/seeddrift-ci/runs/20261122T220626-exp-rel-0294e09d-rel-r1bshort-i1
-    - /hy-tmp/seeddrift-ci/imports/runs/20261123T034727-exp-rel-6223f4ce-rel-r1blong-i2
+    - /hy-tmp/seeddrift-ci/imports/runs/20261123T035654-exp-rel-48d1de93-rel-r1blong-i2
   seeds: [[w6-ref30m-s1, w6-ref30m-s2]]
   scale_exclude: [w6-ref10m-leakfree-s1, w6-ref30m-leakfree-s1, w6-ref30m-leakfree-hier-s1, w6-ref30m-leakfree-lr1.5e-4-s1]
   readings_exclude: [w6-ref30m-leakfree-hier-s1, w6-ref30m-lr1.5e-4-s1, w6-ref30m-lr6e-4-s1, w6-ref100m-lr1e-4-s1, "w6-ref30m-s1 @long"]

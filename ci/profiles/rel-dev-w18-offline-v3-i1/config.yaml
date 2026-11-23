@@ -19,8 +19,9 @@ rel:
   stages: [w18_offline]
 rel_w18_offline:
   tables:
-    run: /hy-tmp/seeddrift-ci/runs/W18-RULERS-V3-RUN-NOT-SET
+    run: /hy-tmp/seeddrift-ci/runs/20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1
     path: data/rel_w18/rulers/tableset.json
+    sha256: 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3
   processes: 8
   chunk: 64
 train:

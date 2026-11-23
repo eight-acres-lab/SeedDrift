@@ -414,6 +414,31 @@ def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
 
 
+def test_report_reads_over_fitting_group_by_group(tmp_path):
+    """The curve over passes read group by group: each group's lowest node and its change after it, against that group's
+    seeds' difference; a group that rose beyond it is a key point (the programme lead's ruling for round 1)."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    conds = list(cond.CONDITIONS)
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")              # the second seed 0.2 above the first at every node, every group
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.2) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
+    # one node more for the first seed: the first group still falls (5.2 to 4.9), the second rises by 0.5 (5.7 to 6.2)
+    later = [r for r in _rows(os.path.basename(run_dir), "w6-ref30m-s1", [(4000, 40000, 4.9)], 4.9, conds) if r["weights"] == "ema@tables=4000"]
+    later = [dict(r, bits=6.2) if r["group"] == GROUPS[1] and r["condition"] == cond.SCATTERED and r["stratum"] == SC.ALL else r for r in later]
+    q = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    SC.write_rows(q, SC.read_rows(q) + later)
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"]))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    by = {r[0]: r for r in rep["passes"][0]["groups"]}
+    g0, g1 = by[GROUPS[0]], by[GROUPS[1]]
+    assert g0[2] == 4000 and g0[8] is None and g0[10] == "no rise after it (the last node)"
+    assert g1[2] == 2000 and abs(g1[4] - 5.7) < 1e-9 and g1[5] == 4000 and abs(g1[6] - 0.5) < 1e-9 and abs(g1[8] - 0.5) < 1e-9
+    assert g1[9] == "0.200 (at 2,000 tables)" and g1[10] == "rose by more than the group's seeds' difference" and abs(g1[3] - 2000 / 100800) < 1e-12
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "Over-fitting by group (w6-ref30m-s1): %s lowest at 2,000 tables" % GROUPS[1] in text and "lowest at (tables)" in text
+
+
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
     run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref10m-s1"])), run_dir)

@@ -187,3 +187,38 @@ def test_the_use_of_target_genes_is_reported_per_group(runs, monkeypatch, tmp_pa
     with Stage(run_dir, "gates_rel_w12_tstats") as st:
         WT.gate(st, cfg, run_dir)
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w12_tstats.json")))["status"] == "pass"
+
+
+def test_the_held_out_tables_must_be_the_reference_s_byte_for_byte(runs, monkeypatch):
+    """rel_w12_v1.heldout_equals (the programme lead, 2026-11-23): the gate compares every held-out file of the set,
+    hashed again, with the reference set's; one byte changed fails it and names the file."""
+    TS.patch(monkeypatch, runs["tmp"])
+    ref = runs["out"]["v1"]
+    block = dict(search_from=runs["search"], expect=TS.SIZES, rows=32, train_per_group=40, heldout_per_group=2, shard_tables=20, processes=2,
+                 dist_k=4, dist_size=256, train_sampling="gene", heldout_equals=dict(run=ref["run_dir"], sha256=ref["doc"]["sha256"]))
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261123T000026-v1he", rel_w12_v1=block)
+    with Stage(run_dir, "rel_w12_v1") as st:
+        WV.build(st, cfg, run_dir, "v1")
+    with Stage(run_dir, "gates_rel_w12_v1") as st:
+        WV.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w12_v1.json")))["status"] == "pass"
+    folder = os.path.join(run_dir, "data", "rel_w12", "v1", "heldout")
+    name = sorted(n for n in os.listdir(folder) if n.endswith(".tok.npy"))[0]
+    p = os.path.join(folder, name)
+    body = bytearray(open(p, "rb").read())
+    body[-1] ^= 1
+    open(p, "wb").write(bytes(body))
+    with pytest.raises(GateFailure):
+        with Stage(run_dir, "gates_rel_w12_v1") as st:
+            WV.gate(st, cfg, run_dir)
+    ev = json.load(open(os.path.join(run_dir, "gates", "G4_rel_w12_v1.json")))
+    he = [x for x in ev["evidence"]["problems"] if x.get("check") == "heldout_equals"]
+    assert he and he[0]["files"] == [name]
+    body[-1] ^= 1
+    open(p, "wb").write(bytes(body))
+    bad = dict(cfg, rel_w12_v1=dict(block, heldout_equals=dict(run=ref["run_dir"], sha256="0" * 64)))
+    with pytest.raises(GateFailure):                                      # another reference than the one named
+        with Stage(run_dir, "gates_rel_w12_v1") as st:
+            WV.gate(st, bad, run_dir)
+    with pytest.raises(SystemExit, match="heldout_equals"):
+        WV.settings(dict(rel_w12_islands=dict(search_from="x", heldout_equals=dict(run="r", sha256="s"))), "islands")

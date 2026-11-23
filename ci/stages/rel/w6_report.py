@@ -438,6 +438,20 @@ def build(st, cfg, run_dir):
             table.append(row)
         seeds_out.append(dict(arms=have, seeds=[arms[a]["info"].get("seed") for a in have], runs=[arms[a]["run"] for a in have], rows=table))
 
+    # the seeds' largest spread per group under scattered at the last node they all reached (the noise of a group's
+    # reading: a group is read on its own 50 tables of the nodes, so its spread is larger than that of the mean)
+    group_spread = {}
+    for have in seed_groups:
+        common = sorted(set.intersection(*[set(nodes.get(a, [])) for a in have]) - {0})
+        if not common:
+            continue
+        for g in sorted({k[4] for k in bits if k[4] != SC.ALL}):
+            ys = [N(a, common[-1], cond.SCATTERED, g) for a in have]
+            if all(y is not None for y in ys):
+                d = max(ys) - min(ys)
+                if g not in group_spread or d > group_spread[g]["bits"]:
+                    group_spread[g] = dict(bits=d, node=common[-1])
+
     def noise(t, c, x=SC.ALL):
         """{bits, node}: the largest spread of the seeds under condition c at node t, on the stratum x of the nodes'
         tables; at a node they did not all reach (or at the end, t None), at the last node they all reached."""
@@ -657,7 +671,26 @@ def build(st, cfg, run_dir):
             rows_p.append([t, t / tt if tt else None, cur, N(a, t, cond.SCATTERED + NO_REL), N(a, t, cond.WHOLE_GENE + NO_REL), fall,
                            beyond(fall, n) if (fall is not None and n) else None, sum(near) / len(near) if near else None])
             prev = cur
-        over.append(dict(arm=a, train_tables=tt, rows=rows_p, final=dict(tables_seen=arms[a]["info"].get("tables_seen"),
+        # by group: the node of its lowest held-out bits, and how far they rose after it (the programme lead's ruling of
+        # 2026-11-23: the over-fitting of round 1 is read group by group; the mean over the groups hides a group that
+        # over-fits first, the eukaryotic viruses of version 1 say)
+        by_g = []
+        for g in group_set:
+            pts = [(t, N(a, t, cond.SCATTERED, g)) for t in nodes.get(a, []) if t > 0]
+            pts = [(t, y) for t, y in pts if y is not None]
+            if not pts:
+                continue
+            k = min(range(len(pts)), key=lambda i: pts[i][1])
+            t0, y0 = pts[k]
+            nxt = pts[k + 1] if k + 1 < len(pts) else None
+            rise = pts[-1][1] - y0 if k + 1 < len(pts) else None
+            gn = group_spread.get(g)
+            said = ("no rise after it (the last node)" if rise is None else
+                    (("rose by more than the group's seeds' difference" if rise > gn["bits"] else "within the group's seeds' difference")
+                     if gn else "no seeds' difference of the group"))
+            by_g.append([g, BLOCK_OF(g), t0, t0 / tt if tt else None, y0, nxt[0] if nxt else None, diff(nxt[1], y0) if nxt else None,
+                         pts[-1][0], rise, fmt_noise(gn) if gn else "none", said, F(a, cond.SCATTERED, g)])
+        over.append(dict(arm=a, train_tables=tt, rows=rows_p, groups=by_g, final=dict(tables_seen=arms[a]["info"].get("tables_seen"),
                                                                            passes=(arms[a]["info"].get("tables_seen") or 0) / tt if tt else None,
                                                                            bits={c: F(a, c) for c in sweep_conds})))
     # re-pairing, on the tables that can be re-paired
@@ -687,6 +720,12 @@ def build(st, cfg, run_dir):
     tsv(os.path.join(folder, "final.tsv"), ["kind", "variant", "condition", "group", "stratum", "bits"], fin)
 
     key = []                                                           # the key points, first
+    for o in over:                                                     # a group of a curve over passes that over-fits
+        risen = [r for r in o.get("groups") or [] if r[10] == "rose by more than the group's seeds' difference"]
+        if risen:
+            key.append("Over-fitting by group (%s): %s." % (o["arm"], "; ".join(
+                "%s lowest at %s tables (%.2f passes), then +%.3f by %s tables" % (r[0], "{:,}".format(r[2]), r[3] or 0, r[8], "{:,}".format(r[7]))
+                for r in risen)))
     if scale:
         key.append("Scale, at the last node every arm with relatives reached (%s tables seen): %s." % ("{:,}".format(scale["node"]), scale["verdict"]))
     if lr_check:
@@ -817,6 +856,14 @@ def build(st, cfg, run_dir):
         f = o["final"]
         md += ["", "End: %s tables (%s passes): %s." % ("{:,}".format(f["tables_seen"] or 0), "%.2f" % f["passes"] if f["passes"] else "?",
                                                       ", ".join("%s %.3f" % (c, v) for c, v in f["bits"].items() if v is not None))]
+        if o.get("groups"):
+            md += ["", "By group (scattered; each group on its own first held-out tables at the nodes, so a group's reading is noisier than "
+                   "the mean's; its threshold is the seeds' largest difference in that group at the last node they all reached): the node of "
+                   "the group's lowest held-out bits, the change to the next node and to the last node. A rise beyond the group's seeds' "
+                   "difference while the training loss falls is the group's over-fitting; the end is read on all held-out tables of the "
+                   "group (other tables than the nodes').", ""]
+            md += md_table(["group", "block", "lowest at (tables)", "passes there", "bits there", "next node", "change to it", "last node",
+                            "change to the last", "group's seeds' difference", "reading", "end (all tables)"], o["groups"])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]

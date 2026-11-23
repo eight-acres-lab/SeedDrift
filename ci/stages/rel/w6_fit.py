@@ -13,6 +13,10 @@ Profile block rel_w6_fit:
   wall_s     wall-clock limit of one training, its evaluations included (default 16200); a training ends in the
              normal way at its budget or at this limit, whichever comes first
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
+  micro_fallback  true: an arm that no longer fits the GPU memory free when its training is to start (another user's
+             process grew since its preflight) is preflighted again within what is free then, its micro-batch halved
+             until it fits (the tables per step unchanged; the micro-batch used is in its rows and in the index); default
+             false: the arm is refused and the run fails at its gate
   preflight_only  true: every arm preflighted on the real tables and nothing trained (round 1's probes: preflight_steps
              steps, the loss, the memory, tables per second, the sampler's cost); the index lists the arms with their
              preflight and no checkpoint
@@ -42,7 +46,8 @@ What the stage does:
      fall: the preflight fails and the arm is not trained; the learning rate is never lowered on its own unless the
      profile sets preflight_guard: reduce), 72 held-out tables scored (an evaluation batch at its largest);
   3. the arms that passed are trained, largest declared memory first, at most rel.parallel at once and only while the
-     memory their preflights measured fits beside what was free at the start;
+     memory their preflights measured fits beside what was free at the start and what is free when each is to start
+     (measured again then: another user's process on a shared GPU moves it);
   4. an arm that fails (preflight, training, its wall limit) is recorded with the end of its log and does not stop
      the others; the run then fails at its gate (below), its files kept for reading.
 Outputs under data/rel_w6/fit/: <arm>/ (preflight.json, steps.csv, results.tsv, summary.json, heldout_final.npz, the
@@ -74,7 +79,7 @@ OUT = os.path.join("data", "rel_w6", "fit")
 PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
            "extra_conditions", "only_conditions", "references_at_nodes", "eval_online", "end_controls", "keep_node_weights", "nodes_every",
            "nodes_every_from", "data_workers")
-BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files", "preflight_only"} | set(PASS_ON)
+BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files", "preflight_only", "micro_fallback"} | set(PASS_ON)
 FRAME = "frame"                                                   # whole_gene_layout: W3's strict aligner (tables/align.py frame_layout)
 NODE_WEIGHTS = "ema_tables%d.pt"                                  # the trainer's keep_node_weights files
 GRACE_S, POLL_S = 900, 5
@@ -105,7 +110,7 @@ def settings(st, cfg) -> dict:
     if unknown or not sc.get("tables") or not sc.get("arms"):
         raise SystemExit("rel_w6_fit: tables and arms are needed; unknown keys %s" % sorted(unknown))
     out = dict(wall_s=int(sc.get("wall_s", 16200)), probe=bool(sc.get("probe", False)), threads=int(sc.get("threads", 4)),
-               preflight_only=bool(sc.get("preflight_only", False)),
+               preflight_only=bool(sc.get("preflight_only", False)), micro_fallback=bool(sc.get("micro_fallback", False)),
                preflight_wall_s=int(sc.get("preflight_wall_s", 900)), verify_files=bool(sc.get("verify_files", True)),
                passed_on={k: sc[k] for k in PASS_ON if sc.get(k) is not None}, tables={}, arms=[])
     if set(sc["tables"]) - {"train", "heldout", "heldout_offline", "pair_index"}:
@@ -241,17 +246,8 @@ def build(st, cfg, run_dir):
         if cap is not None and cap < float(c["gpu_mb"]):
             c.update(gpu_mb=cap, gpu_mb_variant=c["gpu_mb"])
         write_json(conf, c)
-        log = os.path.join(folder, "preflight.log")
-        proc, lg = w6_tools.start(py, "preflight", conf, log, env)
-        try:
-            code = proc.wait(timeout=s["preflight_wall_s"])
-        except Exception:  # noqa: BLE001 - a preflight over its limit is a failed preflight
-            code = "over its limit of %d s" % s["preflight_wall_s"]
-        w6_tools.stop(proc, lg)
-        pre = read_json(os.path.join(folder, "preflight.json")) or {}
-        ok = code == 0 and pre.get("ok") is True
-        arms[a["name"]] = dict(arm=a, folder=folder, conf=conf, preflight=pre, status="preflighted" if ok else "failed",
-                               error=None if ok else "preflight (%s): %s" % (code, pre.get("error") or w6_tools.tail(log)))
+        ok, pre, error = preflight(py, env, s, folder, conf, "preflight.log")
+        arms[a["name"]] = dict(arm=a, folder=folder, conf=conf, preflight=pre, status="preflighted" if ok else "failed", error=error)
     if s["preflight_only"]:                                           # the probes: nothing is trained
         for x in arms.values():
             x.update(status="ok" if x["status"] == "preflighted" else "failed")
@@ -281,11 +277,32 @@ def build(st, cfg, run_dir):
         while pending and len(running) < parallel:
             n = pending[0]
             taken = sum(need[m] for m in running)
-            if free0 is not None and free0 - taken < need[n]:
+            avail = None
+            if free0 is not None:                                       # measured again: another user's process on a shared GPU moves it
+                now = w6_tools.gpu_free_mb()
+                avail = free0 - taken if now is None else min(free0 - taken, float(now))
+            if avail is not None and avail < need[n]:
                 if running:
                     break                                               # wait for memory
+                x = arms[n]
+                if s["micro_fallback"] and int(x["preflight"].get("micro") or 1) > 1 and not x.get("fallback"):
+                    # the profile's micro_fallback: preflighted again within what is free now, the micro-batch halved until it fits
+                    cap_now = int((avail - 500.0) / 1.1)
+                    c = read_json(x["conf"])
+                    c.update(gpu_mb=cap_now, gpu_mb_variant=c.get("gpu_mb_variant", c["gpu_mb"]))
+                    write_json(x["conf"], c)
+                    os.replace(os.path.join(x["folder"], "preflight.json"), os.path.join(x["folder"], "preflight_first.json"))
+                    ok, pre, error = preflight(py, env, s, x["folder"], x["conf"], "preflight_fallback.log")
+                    x["fallback"] = dict(free_mb=round(avail), needed_mb=round(need[n]), gpu_mb=cap_now, micro_from=int(x["preflight"].get("micro") or 0),
+                                         micro_to=pre.get("micro") if ok else None, ok=ok)
+                    if ok:
+                        x["preflight"] = pre
+                        need[n] = float(pre.get("reserved_mb") or 0) * 1.1 + 500
+                        continue                                        # decided again with the new need
                 pending.pop(0)
-                arms[n].update(status="failed", error="not enough GPU memory: %.0f MB free at the start, %.0f MB needed" % (free0, need[n]))
+                arms[n].update(status="failed", error="not enough GPU memory: %.0f MB free now (%.0f MB when the trainings began, less %.0f MB taken by "
+                                                      "the arms running), %.0f MB needed%s" % (
+                                                          avail, free0, taken, need[n], "; micro_fallback: %s" % x["fallback"] if x.get("fallback") else ""))
                 continue
             pending.pop(0)
             x = arms[n]
@@ -296,6 +313,20 @@ def build(st, cfg, run_dir):
             schedule.append(dict(arm=n, beside=len(running) - 1, started_s=round(time.time() - st.t0)))
         time.sleep(POLL_S)
     return finish(st, cfg, run_dir, s, sets, arms, schedule, free0, dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)))
+
+
+def preflight(py, env, s, folder, conf, log_name):
+    """One preflight of an arm in the model interpreter: (ok, preflight.json, error)."""
+    log = os.path.join(folder, log_name)
+    proc, lg = w6_tools.start(py, "preflight", conf, log, env)
+    try:
+        code = proc.wait(timeout=s["preflight_wall_s"])
+    except Exception:  # noqa: BLE001 - a preflight over its limit is a failed preflight
+        code = "over its limit of %d s" % s["preflight_wall_s"]
+    w6_tools.stop(proc, lg)
+    pre = read_json(os.path.join(folder, "preflight.json")) or {}
+    ok = code == 0 and pre.get("ok") is True
+    return ok, pre, None if ok else "preflight (%s): %s" % (code, pre.get("error") or w6_tools.tail(log))
 
 
 def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
@@ -311,7 +342,7 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
                     preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory"),
                                    guard=pre.get("guard"), steps_per_s=pre.get("steps_per_s"), tables_per_s=pre.get("tables_per_s"),
                                    data_wait_s_per_step=pre.get("data_wait_s_per_step"), sampler=pre.get("sampler"), gpu=pre.get("gpu")),
-                    schemes=summ.get("schemes"), data_wait_s=summ.get("data_wait_s"),
+                    schemes=summ.get("schemes"), data_wait_s=summ.get("data_wait_s"), micro_fallback=x.get("fallback"),
                     steps=summ.get("steps"), tables_seen=summ.get("tables_seen"), cells_seen=summ.get("cells_seen"), target_cells=summ.get("target_cells"),
                     cells_per_s=summ.get("cells_per_s"), tables_per_s=summ.get("tables_per_s"), train_s=summ.get("train_s"), eval_s=summ.get("eval_s"),
                     eval_overhead=summ.get("eval_overhead"), peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"),

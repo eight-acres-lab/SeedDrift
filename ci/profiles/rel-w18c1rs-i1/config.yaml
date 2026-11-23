@@ -1,0 +1,29 @@
+# Machine i-1: the stored-layout column of the counting reading of the HGT capability check (protocol w18-v3, version 4,
+# rendering.second_column): stage w18_readout on the per-cell files of rel-w18c1s-i1 (run 20261123T212850) and of
+# rel-w18c1s-i2 (copied from i-2 over R2 into imports/runs/), the same ruler set (run 20261123T132811), compared with the
+# strict reading rel-w18c1r-i1 for the 2 x 2 table (training layout x evaluation layout; the adapted diagnosis of
+# 2026-11-23 read another ruler set, version 1 without self-copy rows, and is cited apart). Run from commit 7f7bc6d plus
+# this profile only. CPU only. The runs of rel-w18c1s-i2 and rel-w18c1r-i1 are set below once they have passed.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_readout]
+rel_w18_readout:
+  tables: {run: /hy-tmp/seeddrift-ci/runs/20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1, path: data/rel_w18/rulers/tableset.json, sha256: 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3}
+  eval_run:
+    - /hy-tmp/seeddrift-ci/runs/20261123T212850-exp-rel-7f7bc6d5-rel-w18c1s-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/W18C1S-I2-RUN-NOT-SET
+  compare: [/hy-tmp/seeddrift-ci/runs/W18C1R-I1-RUN-NOT-SET]
+  reps: 2000
+train:
+  gpu_lease: false
+  device: cpu

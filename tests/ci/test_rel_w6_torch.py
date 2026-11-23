@@ -488,7 +488,7 @@ def test_strict_layout_trains_checks_and_reads_its_nodes_strictly():
     pre = loop.preflight(cfg)
     assert pre["ok"] and pre["sampler"]["strict_tables"] > 0 and pre["sampler"]["strict_s_per_table"] > 0
     out = loop.fit(cfg)
-    assert out["status"] == "ok" and out["traincheck"] == dict(checked=1, failures=0, every=1000)        # sample 0 of the 12
+    assert out["status"] == "ok" and out["traincheck"] == dict(checked=1, failures=0, every=1000, failed=[])   # sample 0 of the 12
     rows = SC.read_rows(os.path.join(cfg["out"], "results.tsv"))
     lay = {}
     for r in rows:

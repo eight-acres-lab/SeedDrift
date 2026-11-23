@@ -761,6 +761,7 @@ def fit(cfg):
     log.write("step,tables_seen,cells_seen,target_cells,alone_tables,loss_bits,lr,cells_per_s,peak_mb,grad_norm,wall_s," + ",".join("bits_" + m for m in names) +
               "," + ",".join("cells_" + m for m in names) + ",data_wait_s,traincheck_checked,traincheck_failures\n")
     k.update(tc_checked=0, tc_failed=0)                                # W3's fourth test on one sample in 1,000 (strict arms)
+    tc_where = []                                                      # the first failures: sample, table, scheme, rows
     ended_by, last_flush = None, time.time()
     feed = Feed(run.sampler, 0, int(cfg["data_workers"]))
     try:
@@ -784,6 +785,8 @@ def fit(cfg):
                 if "traincheck" in e:
                     k["tc_checked"] += 1
                     k["tc_failed"] += int(e["traincheck"])
+                    if e.get("traincheck_failed") and len(tc_where) < 20:
+                        tc_where.append(e["traincheck_failed"])
             if framed:
                 for lab, n in run.frame_tiers("train", examples).items():
                     frames[lab] = frames.get(lab, 0) + n
@@ -813,7 +816,7 @@ def fit(cfg):
         log.close()
         feed.close()
         state.update(status="diverged", error=str(err), steps=k["step"], tables_seen=k["tables"], cells_seen=k["cells"],
-                     traincheck=dict(checked=k["tc_checked"], failures=k["tc_failed"], every=S.CHECK_EVERY) if run.sampler.checks else None)
+                     traincheck=dict(checked=k["tc_checked"], failures=k["tc_failed"], every=S.CHECK_EVERY, failed=tc_where) if run.sampler.checks else None)
         write_json(summary, state)
         raise SystemExit("arm %s diverged at step %d: %s" % (cfg["name"], k["step"], err))
     log.close()
@@ -825,7 +828,7 @@ def fit(cfg):
                                 loss_share=round(x["bits"] / bits_all, 4) if bits_all else None,
                                 bits_per_cell=round(x["bits"] / x["target_cells"], 4) if x["target_cells"] else None) for m, x in shares.items()}
     state.update(data_workers=int(cfg["data_workers"]), data_wait_s=round(feed.wait_s, 1),
-                 traincheck=dict(checked=k["tc_checked"], failures=k["tc_failed"], every=S.CHECK_EVERY) if run.sampler.checks else None)
+                 traincheck=dict(checked=k["tc_checked"], failures=k["tc_failed"], every=S.CHECK_EVERY, failed=tc_where) if run.sampler.checks else None)
     state.update(status="evaluating", ended_by=ended_by, steps=k["step"], tables_seen=k["tables"], cells_seen=k["cells"], target_cells=k["targets"],
                  cells_per_s=round(rate, 1), tables_per_s=round(k["tables"] / k["train_s"], 3) if k["train_s"] > 0 else None, train_s=round(k["train_s"], 1),
                  eval_s=round(k["eval_s"], 1), eval_overhead=round(k["eval_s"] / k["train_s"], 4) if k["train_s"] > 0 else None,

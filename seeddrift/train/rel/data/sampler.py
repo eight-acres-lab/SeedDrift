@@ -145,6 +145,8 @@ class Sampler:
                     from seeddrift.train.rel.tables import strict as ST     # the fourth test on this rendering (W3)
                     got = ST.fourth_test(tab, visible, target, whole_gene=lay == FRAME, key=int(index), seed=CHECK_SEED)
                     out["traincheck"] = 0 if got["passed"] else 1
+                    if not got["passed"]:                               # enough to reproduce it with W3's fourth test (the same key)
+                        out["traincheck_failed"] = dict(sample=int(index), table=i, scheme=self.masks[s], rows=[int(r) for r in chosen])
                 if ext is not None:
                     out["ext"] = ext
                 if lay == FRAME:

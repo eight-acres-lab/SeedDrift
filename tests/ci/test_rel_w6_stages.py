@@ -515,6 +515,57 @@ def test_held_units_are_the_split_units_of_the_examined_genomes(tmp_path, monkey
     assert len(set(unit)) == 23
 
 
+def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_interval(tmp_path, monkeypatch):
+    """Round 1's readings: the threshold is max(the seeds' difference, threshold_floor); what relatives are worth at the
+    end counts only beyond it with its paired interval (the evaluator's, faked here) excluding 0, computed on the cells
+    both arms scored per table (heldout_final.npz, the arm without relatives at its best: heldout_best.npz), on the
+    tables with a relative on the target block; the mask schemes' shares and the frame relatives by distance are shown."""
+    import sys
+    import types
+    np = pytest.importorskip("numpy")
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")              # seeds 0.001 apart: the floor 0.008 is the threshold
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.001) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
+    fit = os.path.join(run_dir, w6_fit.OUT)
+    tab = np.array([0, 0, 1, 1, 2, 3])
+    np.savez(os.path.join(fit, "w6-ref30m-s1", "heldout_final.npz"), bits_scattered=np.full(6, 3.0), table_scattered=tab)
+    for which in ("final", "best"):
+        np.savez(os.path.join(fit, "w6-ref30m-norel-s1", "heldout_%s.npz" % which), bits_scattered__no_relatives=np.full(6, 5.0),
+                 table_scattered__no_relatives=tab)
+    for arm in ("w6-ref30m-s1", "w6-ref30m-norel-s1"):
+        with open(os.path.join(fit, arm, "conf.json"), "w") as f:
+            json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
+        sp = os.path.join(fit, arm, "summary.json")
+        sm = json.load(open(sp))
+        sm.update(schemes=dict(scattered=dict(tables=10, target_cells=100, cell_share=0.5, loss_share=0.4, bits_per_cell=4.0)),
+                  frame_tiers=dict(train=dict(tier_1=3, self_copy=1), heldout=dict(tier_1=2, none=1)))
+        json.dump(sm, open(sp, "w"))
+    x0 = w6_report.WITH_RELATIVES
+    monkeypatch.setattr(w6_report, "held_units", lambda conf, source: ([GROUPS[0], GROUPS[1], GROUPS[0], GROUPS[1]], ["u1", "u2", "u3", "u4"]))
+    monkeypatch.setattr(w6_report, "held_strata", lambda conf: {x0: np.array([True, True, True, False])})
+    seen = []
+
+    def boot(diff_sum, cells, group, unit, replicates=2000, seed=20261123, level=0.95, blocks=True):
+        seen.append(dict(diff=list(diff_sum), cells=list(cells), unit=list(unit)))
+        return {"all": dict(estimate=2.0, low=1.5, high=2.5, excludes_zero=True), "eukaryotes": dict(estimate=2.0, low=1.4, high=2.6, excludes_zero=True)}
+    import seeddrift.train.rel.evalh as evalh_pkg
+    fake = types.SimpleNamespace(paired_bootstrap=boot)
+    monkeypatch.setitem(sys.modules, "seeddrift.train.rel.evalh.intervals", fake)
+    monkeypatch.setattr(evalh_pkg, "intervals", fake, raising=False)
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], units_source="/x/runs/source",
+                                       threshold_floor=0.008))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    r = next(x for x in rep["relatives"] if x["with_relatives"] == "w6-ref30m-s1" and x["condition"] == cond.SCATTERED)
+    assert abs(r["noise_end"]["bits"] - 0.008) < 1e-12 and abs(r["noise_end"]["seeds"] - 0.001) < 1e-9          # the floor
+    assert seen and seen[0]["diff"] == [4.0, 4.0, 2.0] and seen[0]["cells"] == [2.0, 2.0, 1.0] and seen[0]["unit"] == ["u1", "u2", "u3"]
+    assert r["counts_end"] == "counts: beyond the threshold, its interval excludes 0"
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "1.500 to 2.500" in text and "the floor; the seeds' 0.001" in text
+    assert "## The mask schemes each arm trained on" in text and "## The whole gene's frame relative, by distance" in text
+
+
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
     run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref10m-s1"])), run_dir)

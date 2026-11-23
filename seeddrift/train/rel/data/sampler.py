@@ -7,12 +7,17 @@ exist, so that the table has between rows[0] and rows[1] rows (with relatives = 
 Mask scheme: one per table, drawn among `masks` (modules of seeddrift.train.rel.data.masks) with `weights`
 (uniform when not given). Layout: per mask scheme (`layouts`, default stored for every scheme): the stored placement
 (tables.render) or another layout of package W3's renderer (tables/render.py, e.g. leakfree), which also marks the
-cells it laid by extension (ext).
+cells it laid by extension (ext); or frame (whole gene only): the table, after its rows are drawn, laid on its frame
+relative by package W3's strict aligner (tables/align.py frame_layout, the function the evaluation uses), then
+rendered leak-free. The sampler counts the seconds it spends in frame_layout and the tables it laid (frame_s,
+frame_tables), in the process that draws.
 
 An example is a dict: grid uint8 [R, ROW_LEN] (what the model reads), truth uint8 [R, ROW_LEN] (0 = no target),
 scheme (index into masks), table, group, layout; and ext bool [R, ROW_LEN] when the layout is not stored.
 """
 from __future__ import annotations
+
+import time
 
 import numpy as np
 
@@ -22,7 +27,8 @@ from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.tables import render as RD
 
-SAMPLER_VERSION = "3"
+SAMPLER_VERSION = "4"
+FRAME = "frame"                 # the whole gene laid on its frame relative by W3's strict aligner, then rendered leak-free
 
 
 def mask_scheme(name):
@@ -39,8 +45,10 @@ class Sampler:
         self.frame_index = frame_index
         self.masks = [str(m) for m in masks]
         self.layouts = [str((layouts or {}).get(m, A.LAYOUT_STORED)) for m in self.masks]
-        if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS):
-            raise ValueError("layouts %r: a layout of %s for mask schemes among %r" % (layouts, RD.LAYOUTS, self.masks))
+        if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS) - {FRAME} or \
+                any(x == FRAME and m != "whole_gene" for m, x in zip(self.masks, self.layouts)):
+            raise ValueError("layouts %r: a layout of %s for mask schemes among %r (frame: whole_gene only)" % (layouts, RD.LAYOUTS, self.masks))
+        self.frame_s, self.frame_tables = 0.0, 0
         modules = [mask_scheme(m) for m in self.masks]
         self.plans = [m.plan for m in modules]
         weighted = {bool(getattr(m, "WEIGHTED", False)) for m in modules}
@@ -101,6 +109,12 @@ class Sampler:
             if lay == A.LAYOUT_STORED:
                 grid, truth = T.render(tab, visible, target)
                 ext = None
+            elif lay == FRAME:                                          # W3's strict aligner on the rows drawn, then leak-free
+                t0 = time.perf_counter()
+                col, frame_row, frame_len = AL.frame_layout(tab)
+                self.frame_s += time.perf_counter() - t0
+                self.frame_tables += 1
+                grid, truth, ext = RD.render(dict(tab, col=col, frame_row=frame_row, frame_len=frame_len), visible, target, layout=A.LAYOUT_LEAKFREE)
             else:
                 if self.masks[s] == "whole_gene" and self.frame_index is not None:   # the whole gene on its frame relative
                     col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(self.tables.meta(i), chosen), self.frame_index)

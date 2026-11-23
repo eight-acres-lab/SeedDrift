@@ -1,8 +1,10 @@
-# Round 1 (the programme lead's protocol of 2026-11-23, its first batch): the reference trunk on tables of version 1
-# (32 rows, 4 to 32 kept, row 0 always; KIND_ABSENT an input; self-copy rows in), every mask leak-free online, the
-# whole gene on its frame relative through the pair index of W12's uncapped search (package W3's online frame
-# layout); genome_of_row read only as equal or not, a learned bias of the column attention (genome_bias). The peak
-# rate the width rule gives, halved (task-breakdown 8.12). 100 M at 1e-4, the best of round 1a's 100 M; on i-1.
+# Round 1 (protocol configs/rel/protocols/round1.yaml, version 2): the reference trunk of rounds 1a and 1b, unchanged
+# (genome_of_row not read: the same-genome bias is an arm of batch 3), on tables of version 1 (32 rows, 4 to 32 kept,
+# row 0 always; KIND_ABSENT an input; self-copy rows in). Every mask scheme leak-free: scattered and span through the
+# online renderer, the whole gene laid on its frame relative by package W3's strict aligner (tables/align.py
+# frame_layout, after the rows are drawn; the function the evaluation uses). 4 tables per step.
+# 100 M at 1e-4 (half the width rule; the lowest rate round 1a tried for 100 M): arm ref100m-long of batch 2, alone on
+# i-1.
 name: w6-ref100m-v1
 author: w6
 api: 1
@@ -10,13 +12,13 @@ model: axial
 objective: mlm
 masks: [scattered, span, whole_gene]      # one scheme per table, drawn uniformly
 layout: leakfree
-whole_gene_layout: leakfree               # on the frame relative, online (tables.pair_index of the profile)
+whole_gene_layout: frame                  # W3's strict aligner on the rows drawn, then rendered leak-free
 rows: [4, 32]
 columns: 1024
-size: {layers: 12, width: 768, genome_bias: true}
+size: {layers: 12, width: 768}
 relatives: true
 optimizer: {lr: 1.0e-4}
-gpu_mb: 40000                             # the preflight halves the tables of a micro-batch until the memory fits
 micro: 1
-alone_share: 0.05                         # tables without other rows at most 5% of a group's draws
+gpu_mb: 40000                             # micro-batches of 1 table as the protocol says; the probe measures it
+alone_share: 0.05                         # tables without other rows at most 5% of a group's draws (arms with relatives)
 tables: real

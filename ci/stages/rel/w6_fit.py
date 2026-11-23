@@ -13,6 +13,9 @@ Profile block rel_w6_fit:
   wall_s     wall-clock limit of one training, its evaluations included (default 16200); a training ends in the
              normal way at its budget or at this limit, whichever comes first
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
+  preflight_only  true: every arm preflighted on the real tables and nothing trained (round 1's probes: preflight_steps
+             steps, the loss, the memory, tables per second, the sampler's cost); the index lists the arms with their
+             preflight and no checkpoint
   optional   eval_per_group (50), eval_first (1000 tables), final_per_group (0: all), eval_max_rows, warmup_steps (1000),
              ema (true), preflight_steps (200), preflight_guard (stop), max_steps, threads, preflight_wall_s, verify_files (default true: every
              file of the table sets is hashed against its manifest before any training starts), extra_conditions (evaluator
@@ -20,10 +23,13 @@ Profile block rel_w6_fit:
              and a leak-free arm's stored readings at the final evaluation only), eval_online (true: a leak-free arm
              without a strict offline rendering is scored online, the anchors the stored pairs), end_controls ([shuffle,
              presence]: package W3's controls of the renderer, at the final evaluation, scattered and whole_gene),
-             keep_node_weights (false; true: the moving average of every node kept, node_<tables seen>.pt, for readings
-             of two arms at a node both reached)
+             keep_node_weights (false; true: the moving average of every node kept, ema_tables<tables seen>.pt, for
+             readings of two arms at a node both reached), only_conditions (the conditions alone, e.g. round 1's four in
+             the loop), nodes_every and nodes_every_from (nodes also every nodes_every tables from nodes_every_from on,
+             default 100000), data_workers (0: the examples drawn in the training's process; n: by n background processes)
   tables     ... pair_index {run, path}: the pair index of the uncapped search (package W12, a folder of a passed run),
-             for arms that lay the whole gene on its frame relative online
+             for arms that lay the whole gene on its frame relative online by the stored pairs (whole_gene_layout
+             leakfree); whole_gene_layout frame (W3's strict aligner) needs none
 The number of trainings at once is rel.parallel (never above the machine's parallel_max, configs/rel/machines.json).
 
 What the stage does:
@@ -64,8 +70,11 @@ from seeddrift.train.rel.evalh import shards
 
 OUT = os.path.join("data", "rel_w6", "fit")
 PASS_ON = ("eval_per_group", "eval_first", "final_per_group", "eval_max_rows", "warmup_steps", "ema", "preflight_steps", "preflight_guard", "max_steps",
-           "extra_conditions", "references_at_nodes", "eval_online", "end_controls", "keep_node_weights")
-BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files"} | set(PASS_ON)
+           "extra_conditions", "only_conditions", "references_at_nodes", "eval_online", "end_controls", "keep_node_weights", "nodes_every",
+           "nodes_every_from", "data_workers")
+BLOCK_KEYS = {"tables", "arms", "wall_s", "probe", "threads", "preflight_wall_s", "verify_files", "preflight_only"} | set(PASS_ON)
+FRAME = "frame"                                                   # whole_gene_layout: W3's strict aligner (tables/align.py frame_layout)
+NODE_WEIGHTS = "ema_tables%d.pt"                                  # the trainer's keep_node_weights files
 GRACE_S, POLL_S = 900, 5
 VARIANT_NEED = ("name", "author", "api", "model", "size", "objective", "masks", "layout", "rows", "columns", "relatives", "optimizer", "gpu_mb", "tables")
 VARIANT_MAY = ("mask_weights", "micro", "note", "alone_share", "whole_gene_layout")
@@ -94,6 +103,7 @@ def settings(st, cfg) -> dict:
     if unknown or not sc.get("tables") or not sc.get("arms"):
         raise SystemExit("rel_w6_fit: tables and arms are needed; unknown keys %s" % sorted(unknown))
     out = dict(wall_s=int(sc.get("wall_s", 16200)), probe=bool(sc.get("probe", False)), threads=int(sc.get("threads", 4)),
+               preflight_only=bool(sc.get("preflight_only", False)),
                preflight_wall_s=int(sc.get("preflight_wall_s", 900)), verify_files=bool(sc.get("verify_files", True)),
                passed_on={k: sc[k] for k in PASS_ON if sc.get(k) is not None}, tables={}, arms=[])
     if set(sc["tables"]) - {"train", "heldout", "heldout_offline", "pair_index"}:
@@ -164,7 +174,7 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     off = s["tables"].get("heldout_offline")
     if off and v["layout"] != api.LAYOUT_STORED:                      # a leak-free arm is scored on the strict offline rendering
         conf.update(heldout_offline_tables=os.path.join(off["run"], off["path"]), heldout_offline_root=off["run"])
-    if s.get("pair_index") and (v.get("whole_gene_layout") or v["layout"]) != api.LAYOUT_STORED:
+    if s.get("pair_index") and (v.get("whole_gene_layout") or v["layout"]) not in (api.LAYOUT_STORED, FRAME):
         conf.update(pair_index=os.path.join(s["pair_index"]["run"], s["pair_index"]["path"]))
     conf.update(s["passed_on"])
     return conf
@@ -191,7 +201,7 @@ def build(st, cfg, run_dir):
     if any(v["variant"]["tables"] != sets["train"]["doc"]["kind"] for v in s["arms"]):
         raise SystemExit("rel_w6_fit: a variant is written for another kind of tables than %s" % sets["train"]["doc"]["kind"])
     leakfree = [a["name"] for a in s["arms"] if a["variant"]["layout"] != api.LAYOUT_STORED]
-    framed = [a["name"] for a in s["arms"] if (a["variant"].get("whole_gene_layout") or a["variant"]["layout"]) != api.LAYOUT_STORED]
+    framed = [a["name"] for a in s["arms"] if (a["variant"].get("whole_gene_layout") or a["variant"]["layout"]) not in (api.LAYOUT_STORED, FRAME)]
     if framed and not s["probe"]:                                     # the whole gene on its frame relative: W12's pair index
         pi = s.get("pair_index")
         rec = read_json(os.path.join(pi["run"], "record.json")) if pi else None
@@ -231,6 +241,11 @@ def build(st, cfg, run_dir):
         ok = code == 0 and pre.get("ok") is True
         arms[a["name"]] = dict(arm=a, folder=folder, conf=conf, preflight=pre, status="preflighted" if ok else "failed",
                                error=None if ok else "preflight (%s): %s" % (code, pre.get("error") or w6_tools.tail(log)))
+    if s["preflight_only"]:                                           # the probes: nothing is trained
+        for x in arms.values():
+            x.update(status="ok" if x["status"] == "preflighted" else "failed")
+        return finish(st, cfg, run_dir, s, sets, arms, [], None if cpu else w6_tools.gpu_free_mb(),
+                      dict(python=py, python_lock=lock, model_env_sha256=sha256_json(have)))
     # the trainings: largest declared memory first, at most `parallel` at once, each beside what the others were measured to take
     free0 = None if cpu else w6_tools.gpu_free_mb()
     need = {n: float(x["preflight"].get("reserved_mb") or 0) * 1.1 + 500 for n, x in arms.items()}
@@ -283,7 +298,9 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
         info = dict(seed=a["seed"], budget_cells=a["budget_cells"], params=pre.get("params"), flops_per_cell=pre.get("flops_per_cell"), micro=pre.get("micro"),
                     lr_peak=a["lr"], lr=pre.get("lr"), lr_reduced=pre.get("lr_reduced"),
                     preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory"),
-                                   guard=pre.get("guard")),
+                                   guard=pre.get("guard"), steps_per_s=pre.get("steps_per_s"), tables_per_s=pre.get("tables_per_s"),
+                                   data_wait_s_per_step=pre.get("data_wait_s_per_step"), sampler=pre.get("sampler"), gpu=pre.get("gpu")),
+                    schemes=summ.get("schemes"), data_wait_s=summ.get("data_wait_s"),
                     steps=summ.get("steps"), tables_seen=summ.get("tables_seen"), cells_seen=summ.get("cells_seen"), target_cells=summ.get("target_cells"),
                     cells_per_s=summ.get("cells_per_s"), tables_per_s=summ.get("tables_per_s"), train_s=summ.get("train_s"), eval_s=summ.get("eval_s"),
                     eval_overhead=summ.get("eval_overhead"), peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"),
@@ -298,7 +315,7 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
             if x["status"] == "ok" and os.path.exists(p):
                 cks.append(dict(which=which, budget=None, path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p)))
         for t in (summ.get("node_weights") or []) if x["status"] == "ok" else []:    # keep_node_weights: the moving average of every node
-            p = os.path.join(x["folder"], "node_%d.pt" % int(t))
+            p = os.path.join(x["folder"], NODE_WEIGHTS % int(t))
             if os.path.exists(p):
                 cks.append(dict(which="ema", budget="tables=%d" % int(t), path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False),
                                 bytes=os.path.getsize(p)))
@@ -307,7 +324,8 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
     doc = handoff.finish(dict(format="rel-models", format_version=1,
                               tablesets=[dict(run_id=os.path.basename(s["tables"][k]["run"]), name=t["doc"]["name"], sha256=t["doc"]["sha256"], use=k,
                                               split=s["tables"][k]["split"]) for k, t in sets.items()],
-                              variants=variants, probe=s["probe"], wall_s=s["wall_s"], schedule=schedule, gpu_free_mb_at_start=free0, model_env=env_info,
+                              variants=variants, probe=s["probe"], preflight_only=bool(s.get("preflight_only")), wall_s=s["wall_s"], schedule=schedule,
+                              gpu_free_mb_at_start=free0, model_env=env_info,
                               groups=sets["heldout"].get("groups") or [], row_groups={str(k): v for k, v in (sets["heldout"].get("row_groups") or {}).items()},
                               producer=dict(stage="w6_fit", package="W6", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     st.output("results", results)
@@ -337,13 +355,13 @@ def gate(st, cfg, run_dir):
     p = os.path.join(run_dir, OUT, "models.json")
     with open(p) as f:
         doc = json.load(f)
-    probe = bool(doc.get("probe"))
-    problems = [e for e in handoff.models_problems(doc, run_dir) if not (probe and "checkpoints are" in str(e.get("error")))]
+    probe, only = bool(doc.get("probe")), bool(doc.get("preflight_only"))
+    problems = [e for e in handoff.models_problems(doc, run_dir) if not ((probe or only) and "checkpoints are" in str(e.get("error")))]
     ok = [v for v in doc.get("variants") or [] if v.get("status") == "ok"]
     if not ok:
-        problems.append(dict(error="no arm was trained"))
-    final = final_rows(run_dir)
-    for v in ok:
+        problems.append(dict(error="no arm was %s" % ("preflighted" if only else "trained")))
+    final = {} if only else final_rows(run_dir)
+    for v in [] if only else ok:
         want = (read_json(os.path.join(run_dir, v["info"]["folder"], "summary.json")) or {}).get("conditions") or list(cond.CONDITIONS)
         have = final.get(v["name"], {})
         lack = [c for c in want if c not in have or not 0 < have[c] < 20]

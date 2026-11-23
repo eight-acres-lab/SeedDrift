@@ -1,0 +1,56 @@
+# Machine i-1: W13 step 2, part B of the build of corpus medium-k3 (configs/corpus/medium-k3.yaml: corpus medium and the
+# 526 close relatives that run 20261122T183639 named, k = 3 per genome): the whole corpus, built up to train_data
+# (rel_w13_build.upto: all): the search of part 3's genomes only (the other genomes' hit files are taken per genome from
+# the medium search run and runs S1 and S2, reuse_check 0), then train_data (three-way split; each relative in its
+# anchor's unit) and the checks of stage w13_build: the pinned splits of round R3's run, the relatives' splits, no new
+# training genome in a held-out or test unit, the sealed check. 12 threads, about 3 hours (it can be resumed at a stage boundary); never beside W12's search
+# on the same machine. Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 40
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.05
+  threads: 8
+  retry_s: [10, 30, 90]
+  server_errors_unavailable: true
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search, /hy-tmp/seeddrift-ci/runs/20261122T213618-exp-rel-d571b283-rel-dev-w13-search1-i1, /hy-tmp/seeddrift-ci/runs/20261123T000253-exp-rel-f0a63533-rel-dev-w13-search2-i1]
+  reuse_per_genome: true
+  reuse_check: 0
+train_data:
+  test_split: true
+  hits: 32
+rel:
+  machine: i1
+  stages: [w13_build]
+rel_w13_build:
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261122T183639-exp-rel-7711a333-rel-dev-w13-pick-i1
+  upto: all
+  pinned_from: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  pinned_index_sha256: a6f098f8863f3624e9051e40f754f36b7ebaead8b56f88df8636f40b610f07e9
+train:
+  gpu_lease: false
+  device: cpu

@@ -267,7 +267,7 @@ def collect(st, run_dir, s):
     fits = own + [f for f in s["fits"] if not (os.path.realpath(f["run"]) == os.path.realpath(run_dir) and f["folder"] == FIT)]
     if not fits:
         raise SystemExit("rel_w6_report: no fit to report (this run trained nothing and rel_w6_report.fits names no run)")
-    rows, arms, sources, groups = [], {}, [], []
+    rows, arms, sources, groups, online = [], {}, [], [], {}
     for spec in fits:
         f, folder, label = spec["run"], spec["folder"], spec["label"]
         key = lambda name: name + (" @" + label if label else "")                                   # noqa: E731
@@ -276,6 +276,10 @@ def collect(st, run_dir, s):
         else:
             doc = index_of(f, os.path.join(folder, "models.json"), spec["accept"])
         for v in doc["variants"]:
+            if (v.get("info") or {}).get("render") == "online":          # the same final weights read online (w6_eval online_too)
+                if v.get("status") == "ok":
+                    online[key(v["name"][:-len(".online")])] = dict(folder=os.path.join(f, v["info"]["folder"]), run=os.path.basename(f))
+                continue
             pre = read_json(os.path.join(f, v["info"]["folder"], "preflight.json")) or {}
             node_items = {}
             try:                                                       # the digest of the cells the nodes scored (the same subset at every node)
@@ -320,7 +324,7 @@ def collect(st, run_dir, s):
             sub["digests"].update({c: x.get("sha256") for c, x in ((res.get("subset") or {}).get("items") or {}).items() if isinstance(x, dict)})
         sources.append(dict(run=os.path.basename(b["run"]), baselines=b["path"], sha256=sha256_file(p, use_sidecar=False), rows=len(got),
                             subset_rows=os.path.exists(q)))
-    return rows, arms, base, digests, sources, groups, sub
+    return rows, arms, base, digests, sources, groups, sub, online
 
 
 def point_of(r):
@@ -427,7 +431,7 @@ def scale_readings(rel, params, nodes, N, noise=None):
 
 def build(st, cfg, run_dir):
     s = settings(cfg)
-    rows, arms, base, digests, sources, groups, sub = collect(st, run_dir, s)
+    rows, arms, base, digests, sources, groups, sub, online = collect(st, run_dir, s)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     bits = index_rows(rows, arms, base)
@@ -967,6 +971,59 @@ def build(st, cfg, run_dir):
     for r in relatives:
         md += ["", "%s against %s, %s, by bin (end):" % (r["without"], r["with_relatives"], r["condition"]), ""]
         md += md_table(["nearest identity", "bits without", "bits with", "worth"], r["by_bin"])
+    # the online rendering of the nodes against the strict offline one: the same final weights, the same tables (w6_eval
+    # online_too), the difference and its paired interval, by the three relatives strata (the programme lead's ruling)
+    online_rows = []
+    for a, o in sorted(online.items()):
+        if a not in arms:
+            continue
+        sm = read_json(os.path.join(o["folder"], "summary.json")) or {}
+        h = held_of(a)
+        for c in sm.get("conditions") or []:
+            off_c, on_c = table_cells(a, "final", c), None
+            p_on = os.path.join(o["folder"], "heldout_final.npz")
+            if os.path.exists(p_on):
+                z = np.load(p_on)
+                cc = c.replace("+", "__")
+                if "bits_" + cc in z:
+                    t = np.asarray(z["table_" + cc]).astype(np.int64)
+                    n = int(t.max()) + 1 if len(t) else 0
+                    on_c = (np.bincount(t, weights=np.asarray(z["bits_" + cc], dtype=np.float64), minlength=n), np.bincount(t, minlength=n).astype(np.float64))
+            for x in [None] + list(getattr(SC, "RELATIVE_KINDS", ())):
+                why, iv = None, None
+                try:
+                    from seeddrift.train.rel.evalh import intervals as IV
+                except ImportError:
+                    IV, why = None, "no intervals module of the evaluator"
+                if off_c is None or on_c is None:
+                    why = why or "no cells per table"
+                elif h is None:
+                    why = why or "no split units (units_source)"
+                elif IV is not None:
+                    group, unit, strata = h
+                    n = min(len(off_c[0]), len(on_c[0]), len(group))
+                    keep = (off_c[1][:n] > 0) & (on_c[1][:n] > 0)
+                    if x is not None:
+                        keep &= np.asarray(strata.get(x, np.zeros(len(group), bool)))[:n]
+                    if not keep.any():
+                        why = "no tables"
+                    elif not np.array_equal(off_c[1][:n][keep], on_c[1][:n][keep]):
+                        why = "not the same cells"
+                    else:
+                        idx = np.flatnonzero(keep)
+                        iv = IV.paired_bootstrap((on_c[0][:n] - off_c[0][:n])[idx], off_c[1][:n][idx], [group[k] for k in idx], [unit[k] for k in idx])
+                xs = x or SC.ALL
+                online_rows.append([a, c, xs, F(a, c, SC.ALL, xs), (sm.get("final") or {}).get(c) if x is None else None,
+                                    iv["all"]["estimate"] if iv else None, fmt_iv(iv["all"]) if iv else why or "",
+                                    "; ".join("%s %s" % (k, fmt_iv(v)) for k, v in (iv or {}).items() if k != "all")])
+    if online_rows:
+        md += ["", "## The online rendering of the nodes against the strict offline rendering", "",
+               "The same final weights on the same held-out tables, rendered online (the leak-free renderer of the training and of the "
+               "nodes: the anchors of scattered and span are the stored pairs, aligned while the hidden residues were visible) and "
+               "strictly offline (package W3; the rendering every scored reading uses): online minus offline (negative: the online "
+               "rendering reads too low), with its paired interval, over all tables and by the relatives strata.", ""]
+        md += md_table(["arm", "condition", "tables", "bits offline", "bits online (all)", "online minus offline", "95% interval", "by block"],
+                       online_rows)
     # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
     shares_rows, tiers = [], {}
     for a in names:

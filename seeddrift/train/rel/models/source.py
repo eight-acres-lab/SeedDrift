@@ -230,6 +230,7 @@ class Source(nn.Module):
                 self.ev_table = nn.Parameter(torch.zeros(N_OUT, N_OUT))
                 self.ev_none = nn.Parameter(torch.zeros(N_OUT))
         self.ext = nn.Embedding(1, width) if spec["ext"] else None
+        self.version1 = False                                    # the paths of version 1 (reference_paths; the tests only)
         C.init_weights(self, self.blocks)
         with torch.no_grad():
             eye = torch.eye(N_OUT)
@@ -256,11 +257,17 @@ class Source(nn.Module):
                 x = x + ext.to(x.dtype)[..., None] * self.ext.weight[0]
             elif bool(ext.any()):
                 raise ValueError("cells laid by extension, for a model built without ext (a stored-layout arm)")
+        alone = C.table_layout([1] * int(grid.shape[0]), grid.device) if self.version1 else None
         h_self = None
         for k, block in enumerate(self.blocks):
             if k == self.self_layers:
                 h_self = x
-            x = self.alone_block(block, x, keys) if k < self.self_layers else block(x, self.cos, self.sin, layout, keys)
+            if k >= self.self_layers:
+                x = block(x, self.cos, self.sin, layout, keys)
+            elif self.version1:                                  # version 1: the column attention run on lone rows
+                x = block(x, self.cos, self.sin, alone, keys)
+            else:
+                x = self.alone_block(block, x, keys)
         return h_self, x
 
     def alone_block(self, block, x, keys):
@@ -339,11 +346,15 @@ class Source(nn.Module):
         B, P = col.shape
         up = u[:, :, col]                                                                          # [T, R, B, P, S]
         up = torch.where(real[None, None, :, :, None], up, torch.zeros((), dtype=up.dtype, device=up.device))
-        cc = torch.expm1(p["kappa"][:, :, col].clamp(max=KAPPA_MAX))
         first = torch.zeros_like(real)
         first[:, 0] = True
-        cc = cc.masked_fill((~real | first)[None, None], 0.0)
-        post, logz = chain(up.reshape(T * R * B, P, S), cc.reshape(T * R * B, P))
+        if self.version1:                                        # version 1: the log-space recursion
+            lk = log_expm1(p["kappa"][:, :, col].clamp(1e-6, KAPPA_MAX)).masked_fill((~real | first)[None, None], NEG)
+            post, logz = chain_log(up.reshape(T * R * B, P, S), lk.reshape(T * R * B, P))
+        else:
+            cc = torch.expm1(p["kappa"][:, :, col].clamp(max=KAPPA_MAX))
+            cc = cc.masked_fill((~real | first)[None, None], 0.0)
+            post, logz = chain(up.reshape(T * R * B, P, S), cc.reshape(T * R * B, P))
         post = post.view(T, R, B, P, S)
         cell = torch.zeros(T, R, Cn, S, dtype=post.dtype, device=post.device)
         cell[:, :, col[real]] = post[:, :, real]
@@ -377,6 +388,22 @@ class Source(nn.Module):
 
     def logp(self, grid, sizes, row, col, ext=None):
         return torch.log_softmax(self.forward(grid, sizes, row, col, ext), dim=-1)
+
+
+class reference_paths:
+    """with reference_paths(model): the model computes by the paths of version 1 (the own-row blocks run their column
+    attention on lone rows; S1's chain in log space). For the tests of version 2 against version 1 only."""
+
+    def __init__(self, model):
+        self.model = model
+
+    def __enter__(self):
+        self.model.version1 = True
+        return self.model
+
+    def __exit__(self, *exc):
+        self.model.version1 = False
+        return False
 
 
 def logp(model, grid, sizes, row, col, ext=None):
@@ -516,6 +543,63 @@ def test_chain_against_enumeration():
     assert torch.allclose(a.exp(), b.exp(), atol=1e-4) and torch.allclose(za, zb, rtol=1e-4)
     (a.exp()[..., :4].sum() + za.sum()).backward()
     assert torch.isfinite(u32.grad).all() and (u32.grad[:, :, 5] == 0).all()
+
+
+def test_version_2_is_version_1():
+    """Version 2 (the own-row blocks without their column attention, S1's chain in probability space) gives what version
+    1 gives, in fp32: the distributions, the loss and the gradient of every parameter (zero in version 1 where version 2
+    leaves a parameter unused: the own-row blocks' column projections and norms)."""
+    for arm in ARMS:
+        for ext in (False, True):
+            torch.manual_seed(37)
+            model = Source(3, 256, arm, 2, ext=ext)
+            grid = _grid(9, 38, specials=0.3)
+            sizes = [5, 1, 3]
+            row, col = _cells(400, 9, 39)
+            grid[row, col] = A.MASK
+            mark = (torch.rand(grid.shape, generator=torch.Generator().manual_seed(40)) < 0.1) if ext else None
+            token = torch.randint(0, 65, (400,), generator=torch.Generator().manual_seed(41))
+            out = {}
+            for version in (1, 2):
+                model.zero_grad(set_to_none=True)
+                if version == 1:
+                    with reference_paths(model):
+                        lp = model(grid, sizes, row, col, mark)
+                else:
+                    lp = model(grid, sizes, row, col, mark)
+                loss = F.cross_entropy(lp, token)
+                loss.backward()
+                grads = {k: (p.grad.clone() if p.grad is not None else torch.zeros_like(p)) for k, p in model.named_parameters()}
+                out[version] = (lp.detach(), loss.item(), grads)
+            (lp1, l1, g1), (lp2, l2, g2) = out[1], out[2]
+            assert torch.allclose(lp1.exp(), lp2.exp(), atol=1e-6) and abs(l1 - l2) < 1e-5, (arm, ext, float((lp1 - lp2).abs().max()), l1, l2)
+            for k in g1:
+                scale = float(g1[k].abs().max()) + 1e-8
+                assert torch.allclose(g1[k], g2[k], atol=2e-5 * max(1.0, scale), rtol=1e-3), (arm, ext, k, float((g1[k] - g2[k]).abs().max()), scale)
+            assert not model.version1
+
+
+def test_chain_float32_long_sequences_do_not_underflow():
+    """The chain in probability space, fp32, renormalised at every position with its log scale summed: on 512
+    positions of 33 states with potentials spread over +-60 nats, unavailable states, restarts and stay bonuses from 0
+    to the cap, its posteriors and log Z are those of the log-space recursion in float64 (no posterior that is not
+    negligible lost to underflow; log Z finite)."""
+    g = torch.Generator().manual_seed(42)
+    K, P, S = 16, 512, 33
+    u = torch.randn(K, P, S, generator=g, dtype=torch.float64) * 20
+    u[torch.rand(K, P, S, generator=g) < 0.3] = NEG
+    u[:, :, -1] = torch.randn(K, P, generator=g, dtype=torch.float64) * 20          # one state always available
+    kappa = torch.rand(K, P, generator=g, dtype=torch.float64) * KAPPA_MAX
+    kappa[:, ::97] = 0.0                                                           # restarts
+    c = torch.expm1(kappa)
+    lk = torch.where(kappa > 0, log_expm1(kappa.clamp_min(1e-12)), torch.full_like(kappa, NEG))
+    ref_post, ref_z = chain_log(u, lk)                                             # float64, log space
+    post, z = chain(u.float(), c.float())
+    assert torch.isfinite(z).all() and torch.allclose(z.double(), ref_z, rtol=1e-5), float((z.double() - ref_z).abs().max())
+    p, rp = post.double().exp(), ref_post.exp()
+    assert torch.allclose(p.sum(-1), torch.ones(K, P, dtype=torch.float64), atol=1e-5)
+    assert torch.allclose(p, rp, atol=1e-4), float((p - rp).abs().max())
+    assert not ((rp > 1e-6) & (p == 0)).any()                                      # nothing that counts underflowed
 
 
 def test_alone_block_is_the_block_on_lone_rows():

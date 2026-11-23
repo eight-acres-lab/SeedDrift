@@ -1,0 +1,113 @@
+# Protocol w18 version 3: the counting reading of the HGT capability check, on round 1's arms (package W18). Written
+# before the reading; committed by the programme lead before any of its readouts is read. Everything not stated here is
+# protocol w18-v0 (version 2) as committed: the readouts and their definitions, the controls, the paired win rate inside a
+# triple, the two-level bootstrap on split units, the readability rules, the populations (scenario, rule 9), rule 7's
+# coverage table, and the rule that no W18 result chooses an arm, a head, a threshold or a readout.
+# Draft 1 (rel-w18, 2026-11-23), committed by the programme lead the same day with two changes: the node rule and a
+# second verdict for the source shift.
+name: w18-v3
+version: 3
+extends: w18-v0 (version 2)
+what: >
+  The counting reading of the HGT capability check: round 1's arms, trained on tables of version 1 under the leak-free
+  layout, read the implant tables of version 1 rendered strictly offline, with a criterion written before the reading for
+  "the readouts see the relatives". Construct only, as every W18 result. The evening's adapted reading (arms of version 0
+  on adapted tables of version 1, profile rel-w18v1a-i1) is a diagnosis and stays outside this protocol.
+
+coverage:
+  groups: every group of the kingdom map, as the group of A (12)
+  scenarios:
+    - "in place, from a held-out donor of the standard code, every donor distance the split offers"
+    - "donor unsampled (the rows closer to D than to A removed)"
+    - "near-tier donors without near reference rows (tiers 0 and 1; reported apart, not the close-transfer scenario)"
+  not_covered:
+    - "close transfer with near reference rows (waits for the context rule D5)"
+    - "partial transfer (generator by 2026-11-29) and a high foreign share (by 2026-12-03), both later on tables of version 1"
+    - donors of the training split; non-standard genetic codes; the sealed test split
+
+# ---------------------------------------------------------------------------------------------------------------------
+arms:
+  with_relatives: [ref30m-long, ref30m-s2, ref30m-s3, ref100m-long]
+  without_relatives: [norel30m]           # the composition readout
+  untrained: "the variant of ref30m (round 1's 30 M with relatives, its layout and ext vector), initialised with seed 1 and never trained"
+  presence: "the presence passes on every arm with relatives (the criterion below needs each arm's own presence control)"
+  node: >
+    each arm's own verdicts are read at its last node (its final moving-average weights); an arm that round 1's rule
+    calls over-fitted (round1.readings.over_fitting) is read at its lowest node instead, stated in every row of it.
+    Comparisons between arms (sizes, seeds) are read in addition at the largest node of round 1's schedule that both
+    arms reached, from the moving-average weights stored at that node.
+  machines: each arm on the machine that trained it (its node weights stay there); the ruler set and its offline parts are copied to the other machine over R2, every file checked by sha256
+  compute: protocol w18-v0's switch holds (over 5 GPU hours: the untrained arm and the presence passes on the in-place triples only)
+
+# ---------------------------------------------------------------------------------------------------------------------
+tables:
+  ruler_set: >
+    implant tables of version 1 (stage w18_rulers, version 1) on the combined search of round 1's tables (corpus
+    medium-k3), as w18-v0 builds them, with one change: self-copy rows (below). 32 rows, drawn tier by tier, one row per
+    other genome.
+  self_copies: >
+    up to 2 self-copy rows per table (the contract's MAX_SELF_COPY_ROWS), as round 1 trained on them: rows of A itself
+    showing another copy of the target gene (KIND_SELF_COPY on the target, KIND_ABSENT on every other block,
+    genome_of_row 0). For the original and own tables, A's other copies of A:i and of A:k; for the implant, A's genes that
+    the search pairs with D:j (the stand-in for an A paralog of a transferred gene). The three tables of a triple carry
+    the same number of self-copy rows: the smallest number the three have, drawn at random in each. A self-copy row has
+    no distance tier: it is never removed by a tier pass, never in a tier of the source shift, the best-similarity rule
+    or the coverage shift, and never counted as another lineage.
+  relatives_layers: >
+    every triple in one of three layers, by its rows: other-genome rows present (at least one row of another genome on
+    the target block); self copies only (no other-genome row, at least one self-copy row); none. Every reading is reported
+    per layer; the criterion below is read in the first layer only.
+
+# ---------------------------------------------------------------------------------------------------------------------
+rendering:
+  primary: >
+    the strict offline rendering of package W3 for every mask the passes use, built before the reading in a CPU stage of
+    W18 that calls W3's functions (seeddrift/train/rel/tables/align.py; no second aligner): for the masks of passes T, C,
+    H1 and H2 (scattered target, scattered context, either half of the target) the correspondence of every other row is
+    aligned anew wherever the mask hides residues of row 0, the hidden residues unknown to the aligner (align.strict); for
+    pass W (the whole target hidden) the target block is laid on its frame relative (align.frame_layout). A pass that
+    removes rows keeps the placement of the rows it keeps (every row is aligned to row 0 or to the frame relative alone;
+    W has no tier passes). The masks are the passes' own (hashed on the triple), so the three tables of a triple stay
+    comparable cell for cell. Rendered with W3's leak-free renderer, its cells placed by extension marked.
+  validity: W3's fourth validity test on every table and mask (hidden residues replaced by random codons, their stored positions erased, aligned again: the same grid, cell for cell); a table that fails stops the stage
+  second_column: >
+    the stored layout of the same ruler set, as the second column of the 2 x 2 table (training layout x evaluation
+    layout): rows "leak-free, tables of version 1" (round 1's arms) and "stored, tables of version 0, adapted" (the
+    evening's diagnosis, labelled as such); the cell "stored training, strict evaluation" is the adapted diagnosis read
+    under the strict rendering if its arms accept the leak-free input, else "not read"
+
+# ---------------------------------------------------------------------------------------------------------------------
+criterion:                              # "the readouts see the relatives": written now, read once
+  population: in place, rule 9 on, the layer "other-genome rows present"; per block (eukaryotes; prokaryotes, plasmids, viruses); per arm with relatives
+  parts:
+    defined_share: >
+      the share of own-control tables whose source shift (amino-acid bits) is defined, among those whose rows span two
+      tiers or more, is higher than the untrained model's and than the same arm's presence passes': each paired difference
+      (the same replicates of the two-level bootstrap) has a 95% interval above 0
+    abstention: >
+      the share of own-control tables that abstain is lower than the untrained model's and than the presence passes':
+      each paired difference has a 95% interval below 0
+    gain_rel_aa: >
+      the paired win rate of gain_rel_aa (implant against own) is higher than the untrained model's: the paired difference
+      has a 95% interval above 0
+  verdict: >
+    "the readouts see the relatives" for an arm and a block when all three parts hold; "not shown" otherwise, with the
+    parts that failed.
+  second_verdict: >
+    "the source shift detects implants beyond its controls" for an arm and a block when the paired win rate of
+    source_shift_aa (implant against own, on the primary subset) is higher than the untrained model's and than the same
+    arm's presence passes': each paired difference has a 95% interval above 0. Reported beside the first verdict, read
+    in the same population. A verdict is a description of the ruler, never a selection; it is reported for every arm with
+    relatives and never pooled across arms or blocks.
+  note: >
+    the parts compare an arm with controls that share its tables, masks and cells; the presence passes remove the
+    relatives' content and keep their pattern, the untrained model keeps neither the learning nor the content.
+
+# ---------------------------------------------------------------------------------------------------------------------
+reported: >
+  as w18-v0, for every arm at its node and for each evaluation layout: the coverage table; the win rates by donor tier
+  with "too few to read" stated; per relatives layer; the criterion's three parts with their intervals and the verdict;
+  the near-tier section; the exploratory host amino-acid model and composition strata (outside the protocol, marked so).
+not_concluded: >
+  no threshold, no selection of arm, head, readout or node, no claim about natural transfer; the criterion speaks of the
+  ruler only.

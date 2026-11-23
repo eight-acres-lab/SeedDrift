@@ -43,7 +43,8 @@ from seeddrift.train.rel.tables import v1_hits as H
 WHICH = dict(v1=dict(block="rel_w12_v1", stage="w12_v1", out=os.path.join("data", "rel_w12", "v1"), parts=("train", "heldout")),
              islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)))
 SEARCH = os.path.join("data", "rel_w12", "search")
-KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed"}
+KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed",
+        "frame_index"}
 
 
 def settings(cfg, which="v1") -> dict:
@@ -55,8 +56,9 @@ def settings(cfg, which="v1") -> dict:
     out = dict(search_from=str(c["search_from"]), expect={str(k): int(v) for k, v in (c.get("expect") or {}).items()}, rows=int(c.get("rows", 32)),
                train_per_group=int(c.get("train_per_group", 8400)), heldout_per_group=int(c.get("heldout_per_group", 250)),
                per_chromosome=int(c.get("per_chromosome", 500)), shard_tables=int(c.get("shard_tables", 2400)), processes=int(c.get("processes", 8)),
-               dist_k=int(c.get("dist_k", 6)), dist_size=int(c.get("dist_size", 4096)), seed=int(c.get("seed", cfg.get("seed", 1))), max_left_out=20)
-    if not (2 <= out["rows"] <= 64 and out["shard_tables"] >= 1 and 1 <= out["processes"] <= 16):
+               dist_k=int(c.get("dist_k", 6)), dist_size=int(c.get("dist_size", 4096)), seed=int(c.get("seed", cfg.get("seed", 1))),
+               frame_index=str(c.get("frame_index", "none")), max_left_out=20)
+    if not (2 <= out["rows"] <= 64 and out["shard_tables"] >= 1 and 1 <= out["processes"] <= 16) or out["frame_index"] not in ("none", "target", "all"):
         raise SystemExit("%s: settings out of range: %r" % (w["block"], out))
     return out
 
@@ -203,6 +205,18 @@ def build(st, cfg, run_dir, which="v1"):
                            shards=[dict(name=n, tables=m) for n, m in shards], sha256=sha256_json(sorted([n, f, h["sha256"]] for n, fs in hashes.items() for f, h in fs.items())))
         counts[part] = {k: v.tolist() for k, v in census.to_arrays().items()}
         say("part %s: %d tables" % (part, len(plan[0])))
+    frame_ix = None
+    if s["frame_index"] != "none":                                  # the pairs the online frame layout reads, for a machine without the search's index
+        fi = os.path.join(base, "frame_index")
+        sizes = V1.frame_index(os.path.join(s["search_from"], (man.get("index") or {}).get("folder", os.path.join(SEARCH, "index"))),
+                               [(os.path.join(base, p), [x["name"] for x in parts[p]["shards"]]) for p in parts], fi,
+                               blocks=(V1.TARGET,) if s["frame_index"] == "target" else None, processes=s["processes"])
+        for k in sorted(os.listdir(fi)):
+            fp = os.path.join(fi, k)
+            out_files.append(dict(path=os.path.relpath(fp, run_dir), sha256=sha256_file(fp, use_sidecar=False), bytes=os.path.getsize(fp), role="index"))
+        frame_ix = dict(sizes, folder=os.path.relpath(fi, run_dir), blocks=s["frame_index"],
+                        note="the pairs of the search's index that align.frame_layout_online looks up for these tables (v1_hits.Index)")
+        say("frame index: %d pairs" % sizes["pairs"])
     index = dict(format="rel-w12-v1-index", version=1, table_version=V1.TABLE_VERSION, api_version=api.API, rows=s["rows"], groups=groups, parts=parts,
                  search=prov, tier_edges=list(V1.TIER_EDGES), genomes=[dict(id=g["id"], group=g["group"], split=g["split"], taxid=g.get("taxid")) for g in genomes])
     cen = census_doc(counts, groups, s["rows"], prov)
@@ -215,19 +229,22 @@ def build(st, cfg, run_dir, which="v1"):
         f.write(census_page(cen))
     st.output(w["stage"] + "_census", page)
     listed = [dict(id=genomes[i]["id"], taxid=genomes[i].get("taxid"), split=genomes[i]["split"]) for i in sorted(used)]
+    rel_of = {g["id"]: g.get("relation", "") for g in W.source(man["settings"]["source"], pairs=False)["index"]["genomes"]}
+    n_close = sum(1 for g in genomes if rel_of.get(g["id"]) in ("same species", "same genus"))
     island = which == "islands"
     doc = handoff.finish(dict(
         format="rel-tableset", format_version=1, name="w12-%s-r%d-s%d" % (which, s["rows"], s["seed"]), kind=api.TABLE_REAL, api_version=V0.API_VERSION,
         table_version=V1.TABLE_VERSION, layout=api.LAYOUT_STORED, purpose="heldout" if island else None, not_for_training=island or None,
         coverage=dict(groups=["bacteria"] if island else groups,
                       scenarios=["the island set's development chromosomes as examined genomes, other rows training genomes (task breakdown 8.8)" if island
-                                 else "far relatives of the medium corpus, rows drawn by distance tier among the genomes with a homolog (the uncapped search)"],
-                      not_covered=["close relatives (the corpus has few)", "the sealed test split and the sealed chromosomes"] + (
+                                 else "far relatives of the medium corpus, rows drawn by distance tier among the genomes with a homolog (the uncapped search)"]
+                      + (["close relatives: %d genomes of the same species or genus as a corpus genome (package W13's first batch)" % n_close] if n_close else []),
+                      not_covered=([] if n_close else ["close relatives (the corpus has few)"]) + ["the sealed test split and the sealed chromosomes"] + (
                           ["any training: these tables are for diagnosis only"] if island else []),
                       note=("Development chromosomes as row 0; never read by any training (not_for_training)." if island else
                             "Tables of version 1: rows from the uncapped search; stored placement from the alignment anchored on the examined gene.")),
         tables=sum(p["tables"] for p in parts.values()), rows=s["rows"], seed=s["seed"], parts=parts, files=out_files, group_names=groups, genomes=listed,
-        search=prov, islands=island_prov, sealed_check=dict(passed=True, **sealed_ev), index=os.path.join(w["out"], "index.json"),
+        search=prov, islands=island_prov, sealed_check=dict(passed=True, **sealed_ev), index=os.path.join(w["out"], "index.json"), frame_index=frame_ix,
         producer=dict(stage=w["stage"], package="W12", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
     doc = handoff.finish({k: v for k, v in doc.items() if v is not None})
     p = os.path.join(base, "tableset.json")

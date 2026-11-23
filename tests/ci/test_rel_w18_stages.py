@@ -61,7 +61,7 @@ def patch(mp, tmp):
     mp.setattr(w18_rulers, "declared_tables", lambda path: {})
     mp.setattr(w18_rulers, "nuclear_codes", lambda taxdump, taxids, tax=None: {int(t): 11 for t in taxids})
     real = kinds.reads
-    mp.setattr(kinds, "reads", lambda name, *a: ("ruler",) if name == "w18_readout" else real(name, *a))   # until the stage is registered
+    mp.setattr(kinds, "reads", lambda name, *a: ("ruler",) if name in ("w18_readout", "w18_offline") else real(name, *a))   # until registered
 
 
 @pytest.fixture(scope="module")
@@ -433,3 +433,101 @@ def test_arms_of_version_0_read_adapted_tables_of_version_1(v1stage, tmp_path_fa
     with pytest.raises(SystemExit, match="adapted in different ways"):
         with Stage(ev, "rel_w18_readout") as st:
             w18_readout.build(st, cfg, ev)
+
+
+def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkeypatch):
+    """Protocol w18-v3: stage rel_w18_offline builds the strict placements of every table and mask family with W3's
+    aligner and passes the fourth test; run_ruler renders a leak-free reading on them (and only on them); the readout
+    stage reads it and names the placements."""
+    from ci.stages.rel import w18_offline, w18_readout
+    from seeddrift.train.rel.data import tables as T
+    tmp, run_dir, doc = v1stage["tmp"], v1stage["run_dir"], v1stage["doc"]
+    patch(monkeypatch, tmp)
+    with open(os.path.join(run_dir, "stages", "rel_w18_rulers.json")) as f:
+        stage = json.load(f)
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(dict(run_id=os.path.basename(run_dir), status="passed", stages=[stage]), f)
+    off, cfg = RF.rel_run(tmp_path_factory.mktemp("w18off"), kind="rel_tables", stages=("w18_rulers",), run_id="20261124T000001-exp-rel-00000000-offline")
+    path = os.path.join("data", "rel_w18", "rulers", "tableset.json")
+    cfg = dict(cfg, rel=dict(machine="i1", stages=["w18_offline"]), rel_w18_offline=dict(tables=dict(run=run_dir, path=path), processes=2, chunk=4))
+    with Stage(off, "rel_w18_offline") as st:
+        w18_offline.build(st, cfg, off)
+    with Stage(off, "gates_rel_w18_offline") as st:
+        w18_offline.gate(st, cfg, off)
+    assert _gate(off, "G4_rel_w18_offline")["status"] == "pass"
+    head = json.load(open(os.path.join(off, P.OFFLINE_DIR, P.OFFLINE_FILE)))
+    assert head["fourth_test"]["failures"] == 0 and head["fourth_test"]["checked"] >= head["ruler"]["tables"] * 2
+    assert "W18 strict offline rendering" in w18_offline.summary(off)["md"][0]
+    ev, ecfg = RF.rel_run(tmp_path_factory.mktemp("w18lf"), kind="rel_traineval", stages=("w6_eval",), run_id="20261124T000002-exp-rel-00000000-eval")
+    tabs = T.open_split(run_dir, doc, 1)
+    base = dict(weights="final", relatives=True, layout="leakfree", render_version="leakfree-1", run=os.path.basename(ev), commit="0" * 40, root=run_dir)
+    with pytest.raises(ValueError, match="strictly offline"):
+        P.run_ruler(w6_form, tabs, dict(base, arm="x"), str(tmp / "x"))
+    with pytest.raises(ValueError, match="leak-free layout"):
+        P.run_ruler(w6_form, tabs, dict(base, arm="x", layout="stored"), str(tmp / "x"), offline=off)
+    seen = []
+
+    def watch(examples):
+        seen.append(sum(int(e["ext"].sum()) for e in examples if e.get("ext") is not None))
+        return w6_form(examples)
+    with Stage(ev, "rel_w6_eval") as st:
+        for folder, info in (("lf", dict(base, arm="lf")), ("lf-norel", dict(base, arm="lf-norel", relatives=False))):
+            out = os.path.join(ev, "data", "rel_w6", "eval", folder)
+            h = P.run_ruler(watch, tabs, info, out, presence=True, offline=off)
+            assert h["offline"] == os.path.basename(off) and len(h["offline_sha256"]) == 64
+            st.output("ruler_cells_" + folder, os.path.join(out, P.RULER_CELLS))
+    assert sum(seen) > 0                                               # cells laid by extension reach the scorer
+    ecfg = dict(ecfg, rel=dict(machine="i1", stages=["w6_eval", "w18_readout"]),
+                rel_w18_readout=dict(tables=dict(run=run_dir, path=path), reps=20))
+    with Stage(ev, "rel_w18_readout") as st:
+        rep = w18_readout.build(st, ecfg, ev)
+    assert rep["layout"] == dict(layout="leakfree", offline=os.path.basename(off), offline_sha256=h["offline_sha256"])
+    # the 2 x 2 table: the same arms read under the stored layout in another run, compared
+    ev2, ecfg2 = RF.rel_run(tmp_path_factory.mktemp("w18st"), kind="rel_traineval", stages=("w6_eval",), run_id="20261124T000003-exp-rel-00000000-eval")
+    with Stage(ev2, "rel_w6_eval") as st:
+        for folder, info in (("lf", dict(base, arm="lf", layout="stored", render_version=T.RENDER_VERSION)),):
+            out = os.path.join(ev2, "data", "rel_w6", "eval", folder)
+            P.run_ruler(w6_form, tabs, info, out, presence=True)
+            st.output("ruler_cells_" + folder, os.path.join(out, P.RULER_CELLS))
+    ecfg2 = dict(ecfg2, rel=dict(machine="i1", stages=["w6_eval", "w18_readout"]),
+                 rel_w18_readout=dict(tables=dict(run=run_dir, path=path), reps=20, compare=[ev]))
+    with Stage(ev2, "rel_w18_readout") as st:
+        rep2 = w18_readout.build(st, ecfg2, ev2)
+    cells = {(r["training"], r["evaluation"]) for r in rep2["two_by_two"]}
+    assert cells == {(w18_readout.TRAIN_ROWS[0], w18_readout.EVAL_COLS[0]), (w18_readout.TRAIN_ROWS[0], w18_readout.EVAL_COLS[1])}
+    assert {(c["training"], c["evaluation"]) for c in rep2["not_read"]} == {(w18_readout.TRAIN_ROWS[1], c) for c in w18_readout.EVAL_COLS}
+    assert "Training layout x evaluation layout" in open(os.path.join(ev2, w18_readout.OUT, "report.md")).read()
+
+
+def test_rulers_with_self_copies_run_the_donor_search(v1stage, tmp_path_factory, monkeypatch):
+    """Protocol w18-v3: with self_copies the stage searches every implanted D:j against A's own proteins (W12's DIAMOND,
+    here its stand-in) before drawing the self-copy rows and reading rule 9; the pairs reach held-out A only."""
+    import stat
+    import sys
+    import test_rel_w12_search as T12
+    tmp, base_cfg = v1stage["tmp"], v1stage["cfg"]
+    patch(monkeypatch, tmp)
+    fake = tmp / "diamond2"
+    fake.write_text(T12.FAKE % dict(python=sys.executable))
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    run_dir, cfg = RF.rel_run(tmp_path_factory.mktemp("w18self"), run_id="20261124T000004-exp-rel-00000000-rulers")
+    cfg = dict(cfg, tools=dict(diamond=str(fake)), rel=dict(machine="i1", stages=["w18_rulers"]),
+               rel_w18_rulers=dict(base_cfg["rel_w18_rulers"], self_copies=2))
+    monkeypatch.setattr(w18_rulers, "declared_tables", lambda path: {m["id"]: 11 for m in v1stage["metas"]})
+    with Stage(run_dir, "rel_w18_rulers") as st:
+        doc = w18_rulers.build(st, cfg, run_dir)
+    assert doc["name"].startswith("w18-implant-v1") and "w18-implant-3" in doc["table_version"]
+    with open(os.path.join(run_dir, w18_rulers.OUT, "index.json")) as f:
+        index = json.load(f)
+    rec = index["donor_search"]
+    assert rec["queries"] > 0 and rec["queries"] == index["counts"]["donor_queries"] and index["rule9_bit1"].startswith("read")
+    assert not os.path.exists(os.path.join(run_dir, w18_rulers.OUT, "donor_search.tmp", "donor_queries.faa"))
+    with Stage(run_dir, "gates_rel_w18_rulers") as st:
+        w18_rulers.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w18_rulers")["status"] == "pass"
+    meta = P.load_meta(run_dir, doc)
+    assert "self_rows" in meta and (meta["self_rows"] <= 2).all()
+    off = dict(cfg, rel_w18_rulers=dict(cfg["rel_w18_rulers"], self_copies=0))
+    assert w18_rulers.settings(off)["donor_search"] is False
+    with pytest.raises(SystemExit, match="version 1"):
+        w18_rulers.settings(dict(cfg, rel_w18_rulers=dict(source="x", dist="y", donor_search=True)))

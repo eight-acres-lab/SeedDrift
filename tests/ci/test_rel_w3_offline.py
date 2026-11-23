@@ -320,3 +320,132 @@ def test_online_frame_layout_reads_the_other_direction_when_the_target_is_not_in
         col, frame_row, frame_len, placed = AL.frame_layout_online(tab, meta, ix, columns=fake_columns)
         assert np.array_equal(col, want) and np.array_equal(frame_row, off_fr) and np.array_equal(frame_len, off_len)
     assert all(v > 0 for v in used.values()), used
+
+
+V1_MANIFEST = os.path.join("data", "rel_w12", "v1", "tableset.json")
+
+
+def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False):
+    """A tables run of the shape of version 1 made from the fixture's held-out tables: 32 rows (the fixture's rows and
+    copies of them), rows 1 and 2 self-copies, ABSENT and TRUNCATED blocks, the fields the contract adds, and for a
+    ruler set a meta file of its own and an index, as W18's implant set has."""
+    from ci.hashing import sha256_file
+    from seeddrift.train.rel import handoff
+    from seeddrift.train.rel.tables import v0_io as IO
+    src, doc = built["run_dir"], built["doc"]
+    held = shards.by_split(src, [doc])[shards.SPLIT_HELDOUT]
+    a = held.load(0, held.tables, list(held.fields))
+    N, r0 = a["tok"].shape[:2]
+    R = 32
+    out = IO.alloc(N, R, version=1)
+    spec = IO.fields(r0, 0)
+    for f, x in a.items():
+        if spec[f][1][:1] == (r0,):
+            out[f][:, :r0] = x
+            out[f][:, r0:2 * r0 - 1] = x[:, 1:]                                 # more rows: copies of rows 1..
+        else:
+            out[f][:] = x
+    rng = np.random.default_rng(5)
+    exists = (out["kind"] != A.KIND_NONE).any(axis=2)
+    out["genome_of_row"][:] = np.where(exists, np.arange(R)[None, :] - 2, -1)
+    out["genome_of_row"][:, :3] = np.where(exists[:, :3], 0, -1)
+    for r in (1, 2):
+        out["kind"][:, r] = np.where(out["kind"][:, r] == A.KIND_PRESENT, A.KIND_SELF_COPY, out["kind"][:, r])
+    has = out["n"] > 0
+    out["row_gene"][:] = np.where(has, rng.integers(0, 500, has.shape), -1)
+    out["row_first"][:] = np.where(has, 0, -1)
+    for r, b, k in ((3, 0, A.KIND_ABSENT), (4, 2, A.KIND_ABSENT), (5, 5, A.KIND_TRUNCATED), (6, A.N_BLOCKS - 1, A.KIND_ABSENT)):
+        s0, e0 = RD.SLICES[b][1], RD.SLICES[b][2]
+        live = out["kind"][:, r, b] != A.KIND_NONE
+        out["n"][live, r, b], out["kind"][live, r, b] = 0, k
+        out["tok"][live, r, s0:e0], out["col"][live, r, s0:e0] = A.PAD, -1
+        out["row_gene"][live, r, b], out["row_first"][live, r, b] = -1, -1
+    run_dir = str(tmp / "ci-root" / "runs" / ("20261123T000000-exp-rel-00000000-" + name))
+    folder = os.path.join(run_dir, "data", "rel_w12", "v1", "heldout")
+    written = IO.write(folder, out, 10, version=1)
+    files = [dict(path=os.path.relpath(IO.shard_path(folder, sh, f), run_dir), sha256=sha256_file(IO.shard_path(folder, sh, f), use_sidecar=False),
+                  bytes=os.path.getsize(IO.shard_path(folder, sh, f)), role="shard" if f in shards.SHARD_KNOWN else "meta")
+             for sh, _ in written for f in out]
+    if extra:
+        for fname, role, write in (("w18_meta.npz", "meta", lambda p: np.savez(p, case=np.arange(N, dtype=np.int32))),
+                                   ("index.json", "index", lambda p: json.dump(dict(triples=N // 3), open(p, "w")))):
+            p = os.path.join(run_dir, "data", "rel_w12", "v1", fname)
+            write(p)
+            files.append(dict(path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p), role=role))
+    body = {k: v for k, v in doc.items() if k not in ("sha256", "parts", "files", "tables", "name", "kind", "purpose")}
+    new = handoff.finish(dict(body, name=name, kind=kind, rows=R, tables=N, files=files, table_version="w12-v1-1",
+                              parts=dict(heldout=dict(split=shards.SPLIT_HELDOUT, tables=N, folder=os.path.relpath(folder, run_dir),
+                                                      shards=[dict(name=sh, tables=m) for sh, m in written])),
+                              **({"purpose": purpose} if purpose else {})))
+    mp = os.path.join(run_dir, V1_MANIFEST)
+    with open(mp, "w") as f:
+        json.dump(new, f)
+    with open(os.path.join(run_dir, "record.json"), "w") as f:
+        json.dump(dict(run_id=os.path.basename(run_dir), status="passed", pipeline="rel_tables",
+                       stages=[dict(name="rel_w12_v1", status="passed", outputs=[dict(name="tableset", path=V1_MANIFEST, sha256=sha256_file(mp, use_sidecar=False))])]), f)
+    return run_dir, new, out
+
+
+def test_stage_renders_tables_of_version_1_and_ruler_sets(tmp_path_factory, monkeypatch):
+    built = _tables_run(tmp_path_factory)
+    tmp = built["tmp"]
+    W2S.patch(monkeypatch, tmp)
+    monkeypatch.setattr(common, "sealed_set", RT._sealed)
+    src, doc, arrays = _v1_like(built, tmp, "w12-v1like-r32")
+    outs = {}
+    for processes in (1, 2):
+        block = dict(tables_from=src, tablesets=[dict(path=V1_MANIFEST, sha256=doc["sha256"])], shard_tables=7, processes=processes)
+        run_dir, cfg = RF.rel_run(tmp / ("w3v1-%d" % processes), stages=["w3_offline"], rel_w3_offline=block)
+        with Stage(run_dir, w3_offline.STAGE) as st:
+            outs[processes] = (w3_offline.build(st, cfg, run_dir), run_dir, cfg)
+    out, run_dir, cfg = outs[1]
+    assert out["name"] == "w3-strict-w12-v1like-r32-s%d" % cond.SEED and out["kind"] == A.TABLE_REAL and out["rows"] == 32
+    assert out["source_table_version"] == 1 and "purpose" not in out and out["source_files"] == []
+    rep = json.load(open(os.path.join(run_dir, w3_offline.OUT, "report.json")))
+    rep2 = json.load(open(os.path.join(outs[2][1], w3_offline.OUT, "report.json")))
+    N = arrays["tok"].shape[0]
+    for c in (cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE):
+        r = rep["conditions"][c]
+        assert r["tables"] == N and r["fourth_test_failures"] == 0 and r["dropped_targets"] == 0, (c, r)
+        assert {k: v for k, v in r.items() if k != "seconds"} == {k: v for k, v in rep2["conditions"][c].items() if k != "seconds"}, c
+        assert out["parts"][c]["items_sha256"] == outs[2][0]["parts"][c]["items_sha256"]
+    sets, sets2 = shards.parts(run_dir, out), shards.parts(outs[2][1], outs[2][0])
+    for c in (cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE):
+        new, new2 = sets[c].load(0, N, sets[c].fields), sets2[c].load(0, N, sets2[c].fields)
+        assert sorted(new) == sorted(arrays) and all(np.array_equal(new[f], new2[f], equal_nan=True) for f in new), c   # processes: the same
+        for f in ("tok", "n", "kind", "genome_of_row", "row_gene", "row_first", "identity"):
+            assert np.array_equal(new[f], arrays[f], equal_nan=True), (c, f)
+        for t in range(N):                                                       # absent blocks stay absent in the grid
+            tab = w3_offline.one(new, t)
+            m = cond.materialise({f: new[f][t:t + 1] for f in ("tok", "n", "col", "kind")}, [t], c)
+            grid = RD.render(tab, m["visible"][0], m["target"][0])[0]
+            for r, b in ((3, 0), (4, 2), (6, A.N_BLOCKS - 1)):
+                f0 = int(tab["frame_len"][b])
+                if tab["kind"][r, b] == A.KIND_ABSENT and f0:
+                    assert (grid[r, RD.SLICES[b][1]:RD.SLICES[b][1] + f0] == A.ABSENT).all()
+    wg = sets[cond.WHOLE_GENE].load(0, N, ("n", "kind", "frame_row"))
+    seen_self = 0
+    for t in range(N):                                                           # the frame relative: the first row with a stretch, a self-copy too
+        rows = [r for r in range(1, 32) if wg["n"][t, r, -1] > 0]
+        assert wg["frame_row"][t, -1] == (rows[0] if rows else 0)
+        seen_self += bool(rows) and wg["kind"][t, rows[0], -1] == A.KIND_SELF_COPY
+    assert seen_self > 0
+    with Stage(run_dir, "gates_rel_w3_offline", requires=("pre",)) as st:
+        w3_offline.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w3_offline.json")))["status"] == "pass"
+    rsrc, rdoc, _ = _v1_like(built, tmp, "w18-implant-v1like-r32", kind=A.TABLE_RULER, purpose="ruler", extra=True)
+    block = dict(tables_from=rsrc, tablesets=[dict(path=V1_MANIFEST, sha256=rdoc["sha256"])], shard_tables=7, conditions=[cond.WHOLE_GENE])
+    rrun, rcfg = RF.rel_run(tmp / "w3ruler", stages=["w3_offline"], rel_w3_offline=block)
+    with pytest.raises(SystemExit):                                              # a ruler set only where the profile allows it
+        with Stage(rrun, w3_offline.STAGE) as st:
+            w3_offline.build(st, rcfg, rrun)
+    rrun, rcfg = RF.rel_run(tmp / "w3ruler2", stages=["w3_offline"], rel_w3_offline=dict(block, allow_kinds=[A.TABLE_RULER]))
+    with Stage(rrun, w3_offline.STAGE) as st:
+        rout = w3_offline.build(st, rcfg, rrun)
+    assert rout["kind"] == A.TABLE_RULER and rout["purpose"] == "ruler" and rout["name"].startswith("w3-strict-w18-implant-v1like-r32")
+    assert sorted((f["source"], f["role"]) for f in rout["source_files"]) == [("data/rel_w12/v1/index.json", "index"), ("data/rel_w12/v1/w18_meta.npz", "meta")]
+    with np.load(os.path.join(rrun, next(f["path"] for f in rout["source_files"] if f["role"] == "meta"))) as z:
+        assert np.array_equal(z["case"], np.arange(N))
+    assert shards.parts(rrun, rout)[cond.WHOLE_GENE].tables == N
+    with Stage(rrun, "gates_rel_w3_offline", requires=("pre",)) as st:
+        w3_offline.gate(st, rcfg, rrun)

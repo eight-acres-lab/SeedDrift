@@ -326,3 +326,19 @@ def test_the_use_of_targets_of_version_0_is_reported(built, monkeypatch):
     assert rep["parts"]["train"]["by_group"]["all"]["genomes"] == len(train) and rep["parts"]["train"]["sampling"] == "genome"
     with Stage(run_dir, "gates_rel_w12_tstats") as st:
         WT.gate(st, cfg, run_dir)
+
+
+def test_the_genomes_of_version_0_are_listed_by_group(built, monkeypatch):
+    from ci.stages.rel import w12_compo as WCO
+    patch(monkeypatch, built["tmp"])
+    rp = os.path.join(built["run_dir"], "record.json")
+    with open(rp) as f:
+        rec = json.load(f)
+    with open(rp, "w") as f:
+        json.dump(dict(rec, status="passed"), f)
+    run_dir, cfg = RF.rel_run(built["tmp"], stages=("w2_v0",), run_id="20261124T000011-compo0",
+                              rel_w12_compo=dict(sets=[dict(name="v0", run=built["run_dir"], which="v0")], dist_k=4, dist_size=256))
+    with Stage(run_dir, "rel_w12_compo") as st:
+        rep = WCO.build(st, cfg, run_dir)
+    d = rep["sets"][0]["groups"]["eukaryota.fungi"]
+    assert sum(g["tables"] for g in d["genomes"] if g["split"] == "train") == 6 and any(g["split"] == "heldout" and g["nearest_by_taxonomy"] for g in d["genomes"])

@@ -9,7 +9,7 @@
 | G01 | EV037 (Giardia); EV038 (Giardia) | C 2 | EV037-EV038: radius Giardia / Giardia; paper 10.1128/ec.1.2.181-190.2002 |
 | G02 | EV039 (Braconidae) | C 1 | - |
 | G03 | EV042 (Acyrthosiphon) | A 1 | - |
-| G04 | EV045 (Wolbachia) | B 1 | - |
+| G04 | EV045 (Wolbachia) | C 1 | - |
 
 Ungrouped: EV036 (Trichomonas; D; claim_set); EV040 (Chordopoxvirinae; C; claim_set); EV041 (Nicotiana; D; event); EV043 (Halobacteria; C; claim_set); EV044 (Prosthecobacter; D; event).
 
@@ -18,8 +18,8 @@ Ungrouped: EV036 (Trichomonas; D; claim_set); EV040 (Chordopoxvirinae; C; claim_
 | label | records | groups |
 |---|---|---|
 | A | 1 | 1 |
-| B | 1 | 1 |
-| C | 5 | 2 |
+| B | 0 | 0 |
+| C | 6 | 3 |
 | D | 3 | 0 |
 | disputed | 0 | 0 |
 | overturned | 0 | 0 |
@@ -30,7 +30,7 @@ Scenario cells (direction x recipient group). Each filled cell lists its records
 
 | direction | bacteria | archaea | mammals | other_vertebrates | invertebrates | plants_algae | fungi | protists | phage | eukaryotic_virus | giant_virus | plasmid |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| prok>prok | B1 | C1 |  |  |  |  |  |  |  |  |  |  |
+| prok>prok | C1 | C1 |  |  |  |  |  |  |  |  |  |  |
 | prok>euk |  |  |  |  | A1 |  |  | C2 D1 |  |  |  |  |
 | euk>prok | D1 |  |  |  |  |  |  |  |  |  |  |  |
 | euk>euk |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -42,8 +42,8 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 
 | | A | B | C | D | disputed | overturned |
 |---|---|---|---|---|---|---|
-| near |  | 1 |  |  |  |  |
-| replacement |  | 1 |  |  |  |  |
+| near |  |  | 1 |  |  |  |
+| replacement |  |  | 1 |  |  |  |
 | ancient |  |  | 2 |  |  |  |
 | donor_unsampled |  |  |  | 1 |  |  |
 | partial | 1 |  |  |  |  |  |
@@ -55,14 +55,14 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 | intron_gain | 1 |  |  |  |  |  |
 | large_insert |  |  | 1 |  |  |  |
 | route ? |  |  | 4 | 3 |  |  |
-| route P |  | 1 | 1 |  |  |  |
+| route P |  |  | 2 |  |  |  |
 | route S | 1 |  |  |  |  |  |
-| full text n |  | 1 | 5 | 3 |  |  |
+| full text n |  |  | 6 | 3 |  |  |
 | full text y | 1 |  |  |  |  |  |
 
 ## 3. Recheckable evidence
 
-0 of 10 records (0%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 0 of the 4 groups. By label: A 0 of 1, B 0 of 1, C 0 of 5, D 0 of 3.
+0 of 10 records (0%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 0 of the 4 groups. By label: A 0 of 1, C 0 of 6, D 0 of 3.
 
 ## 4. Exclusion and exposure
 

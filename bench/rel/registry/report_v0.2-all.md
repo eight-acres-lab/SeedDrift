@@ -20,7 +20,7 @@
 | G12 | EV028 (Helicobacter) | B 1 | - |
 | G13 | EV037 (Giardia); EV038 (Giardia) | C 2 | EV037-EV038: radius Giardia / Giardia; paper 10.1128/ec.1.2.181-190.2002 |
 | G14 | EV039 (Braconidae) | C 1 | - |
-| G15 | EV045 (Wolbachia) | B 1 | - |
+| G15 | EV045 (Wolbachia) | C 1 | - |
 
 Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event); EV021 (Saccharomycetaceae; D; event); EV025 (Mimiviridae; C; claim_set); EV027 (Campylobacter; A; claim_set); EV029 (Schistosoma; overturned; event); EV030 (Homo; overturned; claim_set); EV036 (Trichomonas; D; claim_set); EV040 (Chordopoxvirinae; C; claim_set); EV041 (Nicotiana; D; event); EV043 (Halobacteria; C; claim_set); EV044 (Prosthecobacter; D; event).
 
@@ -29,8 +29,8 @@ Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV00
 | label | records | groups |
 |---|---|---|
 | A | 14 | 6 |
-| B | 2 | 2 |
-| C | 13 | 9 |
+| B | 1 | 1 |
+| C | 14 | 10 |
 | D | 10 | 0 |
 | disputed | 0 | 0 |
 | overturned | 6 | 0 |
@@ -41,7 +41,7 @@ Scenario cells (direction x recipient group). Each filled cell lists its records
 
 | direction | bacteria | archaea | mammals | other_vertebrates | invertebrates | plants_algae | fungi | protists | phage | eukaryotic_virus | giant_virus | plasmid |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| prok>prok | A1 B2 D2 | C2 |  |  |  |  |  |  |  |  |  | A1 |
+| prok>prok | A1 B1 C1 D2 | C2 |  |  |  |  |  |  |  |  |  | A1 |
 | prok>euk |  |  | overturned2 |  | A4 overturned1 | D1 | D1 | C2 D1 |  |  |  |  |
 | euk>prok | C1 D1 |  |  |  |  |  |  |  |  |  |  |  |
 | euk>euk |  |  |  | A1 | C2 overturned2 | A1 D1 | A1 C1 | overturned1 |  |  |  |  |
@@ -53,8 +53,8 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 
 | | A | B | C | D | disputed | overturned |
 |---|---|---|---|---|---|---|
-| near | 4 | 2 |  | 1 |  |  |
-| replacement | 1 | 2 |  | 1 |  |  |
+| near | 4 | 1 | 1 | 1 |  |  |
+| replacement | 1 | 1 | 1 | 1 |  |  |
 | ancient | 1 |  | 5 | 2 |  | 1 |
 | donor_unsampled | 1 |  | 1 | 1 |  |  |
 | partial | 1 |  |  |  |  |  |
@@ -67,9 +67,9 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 | large_insert | 3 |  | 2 |  |  |  |
 | route ? |  |  | 8 | 4 |  | 1 |
 | route N | 7 | 1 | 1 | 4 |  |  |
-| route P | 1 | 1 | 3 |  |  | 2 |
+| route P | 1 |  | 4 |  |  | 2 |
 | route S | 6 |  | 1 | 2 |  | 3 |
-| full text n |  | 2 | 8 | 9 |  | 2 |
+| full text n |  | 1 | 9 | 9 |  | 2 |
 | full text partial | 12 |  | 4 | 1 |  | 4 |
 | full text y | 2 |  | 1 |  |  |  |
 
@@ -77,7 +77,7 @@ Grades that would change if `donor_structure` were accepted as evidence of forei
 
 ## 3. Recheckable evidence
 
-21 of 45 records (47%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 8 of the 15 groups. By label: A 12 of 14, B 0 of 2, C 4 of 13, D 2 of 10, overturned 3 of 6.
+21 of 45 records (47%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 8 of the 15 groups. By label: A 12 of 14, B 0 of 1, C 4 of 14, D 2 of 10, overturned 3 of 6.
 
 ## 4. Exclusion and exposure
 

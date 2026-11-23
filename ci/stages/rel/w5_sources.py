@@ -7,7 +7,11 @@ The model interpreter runs seeddrift/train/rel/readouts/w5_sources.py (its docst
 This stage then sums the cells by stratum: every cell, the bins of the nearest identity (the evaluator's FINE), the
 two blocks (eukaryotes; prokaryotes, plasmids and viruses), with and without other rows; and sets beside it, from the
 result rows of the trainings' final evaluations, the bits each arm gains from relatives (no relatives minus with
-relatives, per bin of the nearest identity) and the share of the reference arm's gain each S arm reaches.
+relatives, per bin of the nearest identity) and the share of the reference arm's gain each S arm reaches. Cell by cell
+(the per-cell bits every training's final evaluation keeps, heldout_final.npz, in the evaluator's order of cells): the
+gain of each S arm against the reference arm's gain on the same cell, per bin of the nearest identity; and, joined to
+the readout's cells (the same cells in the same order, checked), the weight an S arm gives its sources on the cells
+where the reference arm gains little, some or much.
 
 Profile block rel_w5_sources: arms [{name, run, folder}] (a passed training run and the arm's folder under
 data/rel_w6/fit/), reference {name, run, folder} (its result rows only), conditions ({condition: layout}, default
@@ -86,6 +90,63 @@ def gains(rows, layout="leakfree"):
     return out
 
 
+GAIN_BANDS = ((-math.inf, 0.25), (0.25, 1.0), (1.0, 3.0), (3.0, math.inf))       # the reference arm's gain on a cell, bits
+
+
+def final_cells(fit):
+    """{condition: (bits, table)} of the per-cell file of a training's final evaluation (heldout_final.npz)."""
+    with np.load(os.path.join(fit, "heldout_final.npz")) as z:
+        keys = {k[len("bits_"):] for k in z.files if k.startswith("bits_")}
+        return {k.replace("__", "+"): (z["bits_" + k], z["table_" + k]) for k in keys}
+
+
+def cell_gain(cells, with_rel, without):
+    """(gain per cell: bits without relatives minus with, table per cell): the two conditions score the same cells."""
+    (bw, tw), (bo, to) = cells[with_rel], cells[without]
+    if not np.array_equal(tw, to):
+        raise SystemExit("%s: %s and %s do not score the same cells" % (STAGE, with_rel, without))
+    return bo - bw, tw
+
+
+def gains_by_cell(arm_cells, ref_cells, identity, pairs=(("scattered", "scattered+no_relatives"), ("whole_gene@stored", "whole_gene+no_relatives"))):
+    """Per pair of conditions and bin of the nearest identity: the cells, the mean gain of the arm and of the reference
+    arm on the same cells, their ratio, the share of cells where the arm gains at least as much, the correlation."""
+    fine = SC.fine_stratum(identity)
+    out = {}
+    for w, o in pairs:
+        if w not in arm_cells or o not in arm_cells or w not in ref_cells or o not in ref_cells:
+            continue
+        ga, ta = cell_gain(arm_cells, w, o)
+        gr, tr = cell_gain(ref_cells, w, o)
+        if not np.array_equal(ta, tr):
+            raise SystemExit("%s: the arm and the reference arm scored other cells under %s" % (STAGE, w))
+        res = {}
+        for k, lab in [(None, "all")] + list(enumerate(SC.FINE)):
+            m = np.ones(len(ta), dtype=bool) if k is None else fine[ta] == k
+            if not m.any():
+                continue
+            a, r = ga[m], gr[m]
+            res[lab] = dict(cells=int(m.sum()), arm=float(a.mean()), reference=float(r.mean()),
+                            ratio=float(a.mean() / r.mean()) if r.mean() != 0 else None, arm_at_least=float(np.mean(a >= r)),
+                            correlation=float(np.corrcoef(a, r)[0, 1]) if m.sum() > 2 and a.std() > 0 and r.std() > 0 else None)
+        out[w] = res
+    return out
+
+
+def by_reference_gain(read, ref_gain, arm_gain):
+    """Per band of the reference arm's gain on a cell: the cells, the mean weight the arm gives its sources (lambda) and
+    the weight of no source, the mean gains of the arm and of the reference arm."""
+    out = {}
+    lam = 1.0 - read["none"]
+    for lo, hi in GAIN_BANDS:
+        m = (ref_gain >= lo) & (ref_gain < hi)
+        if m.any():
+            out["reference gain %s to %s" % (lo, hi)] = dict(cells=int(m.sum()), lam=float(lam[m].mean()), none=float(read["none"][m].mean()),
+                                                         arm_gain=float(arm_gain[m].mean()), reference_gain=float(ref_gain[m].mean()),
+                                                         entropy=float(read["entropy"][m].mean()))
+    return out
+
+
 def heldout_meta(fit):
     """identity (N, R) and group names (N,) of the held-out set the arm was scored on."""
     with open(os.path.join(fit, "conf.json")) as f:
@@ -158,6 +219,7 @@ def build(st, cfg, run_dir):
         done = json.load(f)
     ref_rows = final_rows(s["reference"]["fit"])
     ref_gain = gains(ref_rows)
+    ref_cells = final_cells(s["reference"]["fit"])
     report = dict(version=1, python=py, python_lock=lock, model_env_sha256=sha256_json(have), torch=done.get("torch"), gpu_hidden=done.get("gpu_hidden"),
                   per_group=s["per_group"], conditions=s["conditions"], reference=dict(name=s["reference"]["name"], run=os.path.basename(s["reference"]["run"]),
                   gain=ref_gain), arms={})
@@ -170,8 +232,10 @@ def build(st, cfg, run_dir):
             trained_layout = json.load(f).get("layout")
         rows = final_rows(a["fit"])
         g = gains(rows)
+        arm_cells = final_cells(a["fit"])
         entry = dict(run=os.path.basename(a["run"]), folder=a["folder"], arm=head["arm"], variant=head["variant"], tables_seen=head["tables_seen"],
-                     gain=g, share_of_reference_gain={k: (v / ref_gain[k]) if ref_gain.get(k) else None for k, v in g.items()}, conditions={})
+                     gain=g, share_of_reference_gain={k: (v / ref_gain[k]) if ref_gain.get(k) else None for k, v in g.items()},
+                     gain_by_cell=gains_by_cell(arm_cells, ref_cells, identity), conditions={})
         for c, layout in s["conditions"].items():
             h = head["conditions"][c]
             key = "%s@stored" % c if layout == "stored" and trained_layout != "stored" else c      # the final evaluation's own key
@@ -180,6 +244,17 @@ def build(st, cfg, run_dir):
             entry["conditions"][c] = dict(layout=layout, tables=h["tables"], cells=h["cells"], items_sha256=h["items_sha256"],
                                           same_cells_as_final=h["items_sha256"] == final_items.get(key), seconds=h["seconds"],
                                           strata=summarise(cells, identity, group))
+            pair = {"scattered": ("scattered", "scattered+no_relatives"), "whole_gene": ("whole_gene@stored", "whole_gene+no_relatives")}.get(c)
+            if pair and all(x in arm_cells and x in ref_cells for x in pair):      # the readout's cells beside the final evaluation's
+                ga, ta = cell_gain(arm_cells, *pair)
+                gr, _ = cell_gain(ref_cells, *pair)
+                fb = arm_cells[pair[0]][0]
+                aligned = bool(np.array_equal(cells["table"], ta) and len(cells["bits"]) == len(fb))
+                x = entry["conditions"][c]
+                x["aligned_with_final"] = aligned
+                if aligned:
+                    x["bits_difference_to_final"] = float(np.mean(np.abs(cells["bits"] - fb)))
+                    x["by_reference_gain"] = by_reference_gain(cells, gr, ga)
         report["arms"][a["name"]] = entry
     report["seconds"] = round(time.time() - t0, 1)
     p = os.path.join(folder, "report.json")
@@ -207,6 +282,21 @@ def markdown(report):
                     v["entropy"], v["top"], "%.3f" % v["top_identity"] if v["top_identity"] is not None else "-", v["top_is_nearest"],
                     "/".join("%.2f" % q for q in v["level"])))
             out.append("")
+        for w, res in (a.get("gain_by_cell") or {}).items():
+            out += ["### cell by cell, %s: the gain from relatives of this arm and of the reference arm on the same cells" % w, "",
+                    "| stratum | cells | this arm | reference | ratio | arm at least as much | correlation |", "|---|---|---|---|---|---|---|"]
+            for lab, v in res.items():
+                out.append("| %s | %d | %.3f | %.3f | %s | %.3f | %s |" % (lab, v["cells"], v["arm"], v["reference"], "%.2f" % v["ratio"] if v["ratio"] is not None else "-",
+                                                                     v["arm_at_least"], "%.2f" % v["correlation"] if v["correlation"] is not None else "-"))
+            out.append("")
+        for c, x in a["conditions"].items():
+            if x.get("by_reference_gain"):
+                out += ["### %s: the weight this arm gives its sources, by the reference arm's gain on the cell (bits read again on the CPU differ from the final evaluation's by %.4f on average)"
+                        % (c, x.get("bits_difference_to_final", float("nan"))), "", "| band | cells | lambda | none | entropy | this arm's gain | reference's gain |",
+                        "|---|---|---|---|---|---|---|"]
+                for band, v in x["by_reference_gain"].items():
+                    out.append("| %s | %d | %.3f | %.3f | %.3f | %.3f | %.3f |" % (band, v["cells"], v["lam"], v["none"], v["entropy"], v["arm_gain"], v["reference_gain"]))
+                out.append("")
         out += ["### bits gained from relatives (scattered, final; no relatives minus with), beside the reference arm (%s)" % report["reference"]["name"], "",
                 "| stratum | reference | this arm | share |", "|---|---|---|---|"]
         for lab, gr in report["reference"]["gain"].items():
@@ -237,6 +327,8 @@ def gate(st, cfg, run_dir):
                 continue
             if not x.get("same_cells_as_final"):
                 problems.append(dict(arm=a["name"], condition=c, error="the cells read are not those of the training's final evaluation"))
+            if x.get("aligned_with_final") is False:
+                problems.append(dict(arm=a["name"], condition=c, error="the readout's cells are not in the order of the final evaluation's"))
             bad = [lab for lab, v in x["strata"].items() if not all(math.isfinite(v[k]) for k in ("bits", "none", "entropy", "top"))]
             if bad:
                 problems.append(dict(arm=a["name"], condition=c, error="a mean is not finite", strata=bad[:5]))

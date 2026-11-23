@@ -100,6 +100,8 @@ def test_the_sources_readout_on_saved_weights():
             ti = z["top_identity"][np.isfinite(z["top_identity"])]
             assert ((ti >= 0) & (ti <= 1)).all()
             assert ("none_given_truth" in z.files) == (arm == "s1")
+            fin = np.load(os.path.join(root, "out", "heldout_final.npz"))                # the final evaluation's cells: same order, same bits
+            assert np.array_equal(z["table"], fin["table_%s" % c]) and np.allclose(z["bits"], fin["bits_%s" % c], atol=1e-4), (arm, c)
 
 
 if __name__ == "__main__":

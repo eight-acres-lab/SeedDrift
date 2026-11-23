@@ -1,0 +1,41 @@
+# Machine i-1: the full uncapped search of package W12 on the corpus with the first batch of close relatives (task
+# breakdown 8.11: merged; the programme lead's decision of 2026-11-23): stage w12_search over the training data of run
+# B of the W13 build (corpus medium-k3: medium and 526 close relatives), the 1,093 training genomes as the database,
+# their proteins and those of the 422 held-out genomes as queries, the held-out ones also against their own genome, and
+# the 24 development chromosomes of the island set (from round R3's run) as extra queries only. Every target and every
+# alignment is kept; no score or rank is stored; the sealed test split is not opened. About 5.6 hours (4.9-6.5) with 12
+# threads, in segments: the stage stops before a call that would end after wall_s (10,500 s) and the run is resumed.
+# Output about 36 GB, about 72 GB while it is written. CPU only (the select lock). Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 1
+disk_gb: 80
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w12_search]
+rel_w12_search:
+  source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  islands: true
+  islands_from: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  sample: 1.0
+  seed: 1
+  threads: 12
+  block_size: 4
+  sensitivity: sensitive
+  evalue: 1.0e-5
+  chunk_proteins: 60000
+  self_batch_proteins: 30000
+  probe_proteins: 0
+  wall_s: 10500
+  reserve_gb: 30
+train:
+  gpu_lease: false
+  device: cpu

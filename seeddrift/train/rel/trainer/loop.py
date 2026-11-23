@@ -63,7 +63,9 @@ STRICT = S.STRICT                               # layout: scattered and span lai
 TRAINED_LAYOUTS = (A.LAYOUT_STORED, A.LAYOUT_LEAKFREE, STRICT)  # the layouts a training renders its tables in
 FRAME = S.FRAME                                 # whole_gene_layout: the whole gene laid by W3's strict aligner (align.frame_layout)
 ONLINE = "leakfree-online"                      # the layout column of rows rendered leak-free online (not W3's offline rendering)
-ONLINE_STRICT = "leakfree-strict"               # ... rendered online by W3's strict aligner (an arm trained strictly)
+ONLINE_STRICT = A.LAYOUT_LEAKFREE               # ... rendered online by W3's strict aligner (an arm trained strictly): under the
+#                                                 evaluator's plans (row 0 hidden only) the very cells of W3's offline rendering
+#                                                 (package W5's test of tables/strict.py), so labelled as it
 NODE_WEIGHTS = "ema_tables%d.pt"                # keep_node_weights: the moving average at a node of that many tables seen
 # the part of package W3's strict offline rendering a condition of a leak-free arm is scored on (made for its mask)
 OFFLINE_PART = {cond.SCATTERED: "scattered", cond.WHOLE_GENE: "whole_gene", cond.WHOLE_GENE + "+" + cond.REPAIRED: "whole_gene",

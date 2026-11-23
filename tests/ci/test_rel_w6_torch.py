@@ -472,7 +472,7 @@ def test_round1_whole_gene_by_the_strict_aligner_nodes_online_end_offline():
 
 def test_strict_layout_trains_checks_and_reads_its_nodes_strictly():
     """layout strict (round 1's third batch on): scattered and span trained on W3's strict rendering, the whole gene on
-    its frame relative; the nodes read scattered strictly online (rows leakfree-strict), the end on W3's offline
+    its frame relative; the nodes read scattered strictly online (the cells of W3's offline rendering: rows leakfree), the end on W3's offline
     rendering; W3's fourth test on sample 0 and every 1,000th, counted in steps.csv and the summary, none failing."""
     try:
         from seeddrift.train.rel.tables import strict as ST  # noqa: F401
@@ -493,7 +493,7 @@ def test_strict_layout_trains_checks_and_reads_its_nodes_strictly():
     lay = {}
     for r in rows:
         lay.setdefault((r["weights"] == "ema@final", r["condition"]), set()).add(r["layout"])
-    assert lay[(False, cond.SCATTERED)] == {"leakfree-strict"} and lay[(True, cond.SCATTERED)] == {"leakfree"}
+    assert lay[(False, cond.SCATTERED)] == {"leakfree"} and lay[(True, cond.SCATTERED)] == {"leakfree"}     # one rendering, online and offline
     with open(os.path.join(cfg["out"], "steps.csv")) as f:
         steps = list(csv.DictReader(f))
     assert steps[-1]["traincheck_checked"] == "1" and steps[-1]["traincheck_failures"] == "0"

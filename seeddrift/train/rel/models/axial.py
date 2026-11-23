@@ -18,8 +18,9 @@ loci), the base arm every other arm is compared with.
     as they read the plain head. It writes the standard genetic code into the model.
 
 Sizes (SIZES): 10m is 8 layers of width 256, 30m 12 x 384, 100m 12 x 768, 200m 12 x 1024. A size given as a dict may add
-gate: true (the switch of the reference trunk: relation-block cells attend along the row to relation blocks only) and
-head: hierarchical (the output head above; default flat).
+gate: true (the switch of the reference trunk: relation-block cells attend along the row to relation blocks only),
+head: hierarchical (the output head above; default flat) and genome_bias: true (tables of version 1: a learned bias of
+the column attention between two rows of one genome, genome_of_row read as equal or not only).
 
 `python -m seeddrift.train.rel.trainer.run selftest` calls every test_ function of this module on the CPU.
 """
@@ -97,12 +98,14 @@ def gate_columns(slices=None):
 
 
 class Axial(nn.Module):
-    def __init__(self, layers, width, slices=None, gate=False, head="flat", ext=False):
+    def __init__(self, layers, width, slices=None, gate=False, head="flat", ext=False, genome_bias=False):
         """gate: the switch of the reference trunk (off by default): when on, the cells of the relation blocks attend
         along the row only to relation blocks, so what a row is elsewhere is not coloured by its focus locus; the cells
         of the focus blocks attend to every block. head: flat (65 classes) or hierarchical (amino acid, then codon).
         ext: a learned vector added to the cells the renderer laid by extension (a layout other than stored marks
-        them; off for the stored layout, which marks none, so such an arm has neither the parameter nor the sum)."""
+        them; off for the stored layout, which marks none, so such an arm has neither the parameter nor the sum).
+        genome_bias: in every column attention a learned bias per head between two rows of one genome (genome_of_row,
+        tables of version 1), read as equal or not only."""
         super().__init__()
         if head not in HEADS:
             raise ValueError("head is one of %s, not %r" % (HEADS, head))
@@ -115,7 +118,8 @@ class Axial(nn.Module):
         self.register_buffer("sin", sin, persistent=False)
         self.token = nn.Embedding(A.VOCAB, width)
         self.role = nn.Embedding(4, width)
-        self.blocks = nn.ModuleList([C.AxialBlock(width, ROW_HEAD, COLUMN_HEAD, RATIO) for _ in range(layers)])
+        self.genome_bias = bool(genome_bias)
+        self.blocks = nn.ModuleList([C.AxialBlock(width, ROW_HEAD, COLUMN_HEAD, RATIO, genome_bias) for _ in range(layers)])
         self.norm = nn.LayerNorm(width)
         self.head = nn.Linear(width, N_OUT)
         self.head_kind = head
@@ -125,9 +129,9 @@ class Axial(nn.Module):
         self.ext = nn.Embedding(1, width) if ext else None             # registered last: the other weights draw as before
         C.init_weights(self, self.blocks)
 
-    def trunk(self, grid, sizes, ext=None):
+    def trunk(self, grid, sizes, ext=None, genome=None):
         """grid long [N, C]: the rows of the tables of a micro-batch, table after table; sizes: rows per table; ext bool
-        [N, C] or None: the cells laid by extension."""
+        [N, C] or None: the cells laid by extension; genome long [N] or None: genome_of_row (read with genome_bias only)."""
         if grid.shape[0] != sum(sizes) or grid.shape[1] != self.role_of_column.shape[0]:
             raise ValueError("grid %s does not fit %d rows of %d columns" % (tuple(grid.shape), sum(sizes), self.role_of_column.shape[0]))
         layout = C.table_layout(sizes, grid.device)
@@ -141,46 +145,48 @@ class Axial(nn.Module):
                 x = x + ext.to(x.dtype)[..., None] * self.ext.weight[0]
             elif bool(ext.any()):
                 raise ValueError("cells laid by extension, for a model built without ext (a stored-layout arm)")
+        g = genome.long() if (genome is not None and self.genome_bias) else None
         for block in self.blocks:
-            x = block(x, self.cos, self.sin, layout, keys, self.gate)
+            x = block(x, self.cos, self.sin, layout, keys, self.gate, g)
         return x
 
-    def forward(self, grid, sizes, row, col, ext=None):
+    def forward(self, grid, sizes, row, col, ext=None, genome=None):
         """Logits float32 [M, 65] over the residues 1..65 for the cells (row[m], col[m]); with the hierarchical head
         they are already normalised log-probabilities (so cross-entropy and log_softmax read them unchanged)."""
         on_gpu = grid.device.type == "cuda"
         with torch.autocast(device_type=grid.device.type, dtype=torch.bfloat16, enabled=on_gpu):
-            x = self.trunk(grid, sizes, ext)
+            x = self.trunk(grid, sizes, ext, genome)
         with torch.autocast(device_type=grid.device.type, enabled=False):
             h = self.norm(x[row, col].float())
             if self.head_kind == "hierarchical":
                 return hierarchical_logp(self.head(h), self.group_head(h), self.groups)
             return self.head(h)
 
-    def logp(self, grid, sizes, row, col, ext=None):
+    def logp(self, grid, sizes, row, col, ext=None, genome=None):
         """For every target cell a normalised distribution over the tokens 1..65: log-probabilities float32 [M, 65]
         (column c is token c + 1)."""
-        return torch.log_softmax(self.forward(grid, sizes, row, col, ext), dim=-1)
+        return torch.log_softmax(self.forward(grid, sizes, row, col, ext, genome), dim=-1)
 
 
-def logp(model, grid, sizes, row, col, ext=None):
+def logp(model, grid, sizes, row, col, ext=None, genome=None):
     """The contract's reading of an arm: for every target cell a normalised distribution over the tokens 1..65."""
-    return model.logp(grid, sizes, row, col, ext)
+    return model.logp(grid, sizes, row, col, ext, genome)
 
 
 def build(size):
-    """size: a name of SIZES or a dict with layers and width (and optionally gate, head, ext)."""
+    """size: a name of SIZES or a dict with layers and width (and optionally gate, head, ext, genome_bias)."""
     spec = SIZES[size] if isinstance(size, str) else size
     return Axial(int(spec["layers"]), int(spec["width"]), gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")),
-                 ext=bool(spec.get("ext", False)))
+                 ext=bool(spec.get("ext", False)), genome_bias=bool(spec.get("genome_bias", False)))
 
 
 def info(size, rows=16):
     spec = SIZES[size] if isinstance(size, str) else size
     layers, width = int(spec["layers"]), int(spec["width"])
-    params = count_parameters(layers, width, head=str(spec.get("head", "flat"))) + (width if spec.get("ext") else 0)
+    params = count_parameters(layers, width, head=str(spec.get("head", "flat"))) + (width if spec.get("ext") else 0) \
+        + (layers * (width // COLUMN_HEAD) if spec.get("genome_bias") else 0)
     return dict(module=MODULE, params=params, layers=layers, width=width, gate=bool(spec.get("gate", False)), head=str(spec.get("head", "flat")),
-                ext=bool(spec.get("ext", False)),
+                ext=bool(spec.get("ext", False)), genome_bias=bool(spec.get("genome_bias", False)),
                 flops_per_cell=A.flops_per_cell(params, layers, width, A.ROW_LEN + rows),
                 factorisation="independent", layout="any", common_version=C.COMMON_VERSION)
 
@@ -438,6 +444,37 @@ def test_ext_cells():
         pass
     else:
         raise AssertionError("a model built without ext read cells laid by extension")
+
+
+def test_genome_bias_is_equivariant():
+    """The same-genome bias: zero at the start (the output equals the model's without it); once set, the grouping of
+    rows into genomes changes the output; permuting the rows of a table (their genome numbers with them) permutes the
+    output, and renumbering the genomes changes nothing: the numbers are read as equal or not only."""
+    torch.manual_seed(0)
+    model = Axial(2, 256, genome_bias=True).eval()
+    plain = Axial(2, 256).eval()
+    plain.load_state_dict({k: v for k, v in model.state_dict().items() if "same_genome" not in k})
+    assert sum(p.numel() for p in model.parameters()) == count_parameters(2, 256) + 2 * 2 == info(dict(layers=2, width=256, genome_bias=True))["params"]
+    grid = _random_grid(6, 21)
+    sizes = [5, 1]
+    row, col = _all_cells(6)
+    genome = torch.tensor([0, 3, 3, 7, 0, 0])                  # rows 1 and 2 of one genome, row 4 a self-copy of row 0
+    with torch.no_grad():
+        assert torch.allclose(model(grid, sizes, row, col, genome=genome), plain(grid, sizes, row, col), atol=1e-6)
+        for blk in model.blocks:
+            blk.column.same_genome.fill_(1.5)
+        a = model(grid, sizes, row, col, genome=genome).view(6, A.ROW_LEN, N_OUT)
+        apart = model(grid, sizes, row, col, genome=torch.arange(6)).view(6, A.ROW_LEN, N_OUT)
+        assert not torch.allclose(a[:5], apart[:5], atol=1e-4)                            # the grouping is read
+        perm = torch.tensor([3, 1, 4, 0, 2])                                              # the rows of the first table
+        full = torch.cat([perm, torch.tensor([5])])
+        b = model(grid[full], sizes, row, col, genome=genome[full]).view(6, A.ROW_LEN, N_OUT)
+        assert torch.allclose(b[:5], a[perm], atol=1e-5)
+        renamed = torch.tensor([9, 1, 1, 4, 9, 2])                                         # the same grouping, other numbers
+        c = model(grid, sizes, row, col, genome=renamed).view(6, A.ROW_LEN, N_OUT)
+        assert torch.allclose(c[:5], a[:5], atol=1e-5) and torch.allclose(c[5], a[5], atol=1e-5)
+        assert torch.allclose(model(grid, sizes, row, col).view(6, A.ROW_LEN, N_OUT), plain(grid, sizes, row, col).view(6, A.ROW_LEN, N_OUT),
+                              atol=1e-6)                                                  # no genome given: no bias
 
 
 def test_backward():

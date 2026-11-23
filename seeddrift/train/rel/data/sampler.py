@@ -19,9 +19,10 @@ import numpy as np
 from seeddrift.train.rel import api as A
 from seeddrift.train.rel import registry
 from seeddrift.train.rel.data import tables as T
+from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.tables import render as RD
 
-SAMPLER_VERSION = "2"
+SAMPLER_VERSION = "3"
 
 
 def mask_scheme(name):
@@ -30,8 +31,12 @@ def mask_scheme(name):
 
 class Sampler:
     def __init__(self, tables, seed, masks=("scattered", "span", "whole_gene"), weights=None, rows=(4, 16), relatives=True, per_step=4, alone_share=None,
-                 layouts=None):
+                 layouts=None, frame_index=None):
+        """frame_index: the pair index of the uncapped search (package W2's v1_hits.Index): a whole-gene sample in a
+        layout other than stored is placed on its frame relative online (package W3's align.frame_layout_online), after
+        the rows are drawn; without it such a sample is laid from the first column of the block (W3's fallback)."""
         self.tables, self.seed, self.per_step, self.relatives = tables, int(seed), int(per_step), bool(relatives)
+        self.frame_index = frame_index
         self.masks = [str(m) for m in masks]
         self.layouts = [str((layouts or {}).get(m, A.LAYOUT_STORED)) for m in self.masks]
         if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS):
@@ -97,12 +102,17 @@ class Sampler:
                 grid, truth = T.render(tab, visible, target)
                 ext = None
             else:
+                if self.masks[s] == "whole_gene" and self.frame_index is not None:   # the whole gene on its frame relative
+                    col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(self.tables.meta(i), chosen), self.frame_index)
+                    tab = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)
                 grid, truth, ext = RD.render(tab, visible, target, layout=lay)
             if truth.any():
                 out = dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others),
                            cells=int(T.inside(tab).sum()), layout=lay, rows=chosen)
                 if ext is not None:
                     out["ext"] = ext
+                if "genome_of_row" in tab:
+                    out["genome_of_row"] = np.asarray(tab["genome_of_row"]).astype(np.int64)
                 return out
         raise RuntimeError("sixteen tables in a row gave no target cell: the table set or the mask schemes are wrong")
 
@@ -129,6 +139,8 @@ def collate(examples):
     first = np.cumsum([0] + sizes)
     example = (np.searchsorted(first, row, side="right") - 1).astype(np.int64)
     out = dict(grid=grid, sizes=sizes, row=row.astype(np.int64), col=col.astype(np.int64), token=truth[row, col].astype(np.int64), example=example)
+    if all("genome_of_row" in e for e in examples):                 # the genome of every row (read as equal or not only)
+        out["genome"] = np.concatenate([np.asarray(e["genome_of_row"], dtype=np.int64) for e in examples])
     if any("ext" in e for e in examples):                            # the cells a renderer laid by extension
         out["ext"] = np.concatenate([np.asarray(e["ext"], dtype=bool) if "ext" in e else np.zeros(e["grid"].shape, dtype=bool) for e in examples], axis=0)
     if all("weight" in e for e in examples):

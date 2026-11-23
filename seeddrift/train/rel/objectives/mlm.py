@@ -15,7 +15,7 @@ FACTORISATION = "independent"
 def loss(model, batch):
     """batch: grid long [N, C], sizes, and for the target cells row, col and token (1..65). Returns the summed loss in
     nats and the loss of every target cell (float32 [M], in the order of the batch's cells)."""
-    extra = {"ext": batch["ext"]} if "ext" in batch else {}          # the cells laid by extension (a layout other than stored)
+    extra = {k: batch[k] for k in ("ext", "genome") if k in batch}   # cells laid by extension; the genome of every row
     logits = model(batch["grid"], batch["sizes"], batch["row"], batch["col"], **extra)
     per = F.cross_entropy(logits, batch["token"] - A.TARGET_MIN, reduction="none")
     w = batch.get("weight")

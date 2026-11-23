@@ -368,6 +368,14 @@ def test_report_reads_learning_rate_sweeps_and_the_curve_over_passes(tmp_path):
         w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(passes=["nobody"])), run_dir)
 
 
+def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref10m-s1"])), run_dir)
+    assert rep["scale"] is None and [r["with_relatives"] for r in rep["relatives"]] == ["w6-ref30m-s1", "w6-ref30m-s1"]
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref30m-s1"])), run_dir)
+    assert rep["scale"] is None and {r["with_relatives"] for r in rep["relatives"]} == {"w6-ref30m-s1"}      # still read for relatives
+
+
 def test_learning_rate_check_has_three_conclusions():
     def reading(bits, noise=lambda t, c: dict(bits=0.05, node=32000), diverged=False):
         return w6_report.lr_reading("s", "l", "h", 64000, lambda a, t, c: bits[a][0 if c == cond.SCATTERED else 1], noise, diverged)

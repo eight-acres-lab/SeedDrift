@@ -14,6 +14,7 @@ from seeddrift.train.rel import registry
 FOLDER = os.path.join(ROOT, "configs", "rel", "variants")
 ARMS = {"w5-src30m-s1": ("s1", "w6-ref30m-leakfree-lr1.5e-4"), "w5-src30m-s2": ("s2", "w6-ref30m-leakfree-lr1.5e-4"),    # tables of version 0
         "w5-src30m-s1-v1": ("s1", "w6-ref30m-v1"), "w5-src30m-s2-v1": ("s2", "w6-ref30m-v1"),                        # round 1
+        "w5-src30m-s1-strict-v1": ("s1", "w6-ref30m-strict-v1"), "w5-src30m-s2-strict-v1": ("s2", "w6-ref30m-strict-v1"),  # round 1, batch 3
         "w5-copy-aa30m": ("s2", "w6-ref30m-leakfree-lr1.5e-4")}                                                     # S2 with the amino-acid level
 SWITCHES = {"w5-copy-aa30m": {"aa_level": True}}
 SOURCE = os.path.join(ROOT, "seeddrift", "train", "rel", "models", "source.py")

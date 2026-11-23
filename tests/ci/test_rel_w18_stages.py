@@ -497,3 +497,37 @@ def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkey
     assert cells == {(w18_readout.TRAIN_ROWS[0], w18_readout.EVAL_COLS[0]), (w18_readout.TRAIN_ROWS[0], w18_readout.EVAL_COLS[1])}
     assert {(c["training"], c["evaluation"]) for c in rep2["not_read"]} == {(w18_readout.TRAIN_ROWS[1], c) for c in w18_readout.EVAL_COLS}
     assert "Training layout x evaluation layout" in open(os.path.join(ev2, w18_readout.OUT, "report.md")).read()
+
+
+def test_rulers_with_self_copies_run_the_donor_search(v1stage, tmp_path_factory, monkeypatch):
+    """Protocol w18-v3: with self_copies the stage searches every implanted D:j against A's own proteins (W12's DIAMOND,
+    here its stand-in) before drawing the self-copy rows and reading rule 9; the pairs reach held-out A only."""
+    import stat
+    import sys
+    import test_rel_w12_search as T12
+    tmp, base_cfg = v1stage["tmp"], v1stage["cfg"]
+    patch(monkeypatch, tmp)
+    fake = tmp / "diamond2"
+    fake.write_text(T12.FAKE % dict(python=sys.executable))
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    run_dir, cfg = RF.rel_run(tmp_path_factory.mktemp("w18self"), run_id="20261124T000004-exp-rel-00000000-rulers")
+    cfg = dict(cfg, tools=dict(diamond=str(fake)), rel=dict(machine="i1", stages=["w18_rulers"]),
+               rel_w18_rulers=dict(base_cfg["rel_w18_rulers"], self_copies=2))
+    monkeypatch.setattr(w18_rulers, "declared_tables", lambda path: {m["id"]: 11 for m in v1stage["metas"]})
+    with Stage(run_dir, "rel_w18_rulers") as st:
+        doc = w18_rulers.build(st, cfg, run_dir)
+    assert doc["name"].startswith("w18-implant-v1") and "w18-implant-3" in doc["table_version"]
+    with open(os.path.join(run_dir, w18_rulers.OUT, "index.json")) as f:
+        index = json.load(f)
+    rec = index["donor_search"]
+    assert rec["queries"] > 0 and rec["queries"] == index["counts"]["donor_queries"] and index["rule9_bit1"].startswith("read")
+    assert not os.path.exists(os.path.join(run_dir, w18_rulers.OUT, "donor_search.tmp", "donor_queries.faa"))
+    with Stage(run_dir, "gates_rel_w18_rulers") as st:
+        w18_rulers.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w18_rulers")["status"] == "pass"
+    meta = P.load_meta(run_dir, doc)
+    assert "self_rows" in meta and (meta["self_rows"] <= 2).all()
+    off = dict(cfg, rel_w18_rulers=dict(cfg["rel_w18_rulers"], self_copies=0))
+    assert w18_rulers.settings(off)["donor_search"] is False
+    with pytest.raises(SystemExit, match="version 1"):
+        w18_rulers.settings(dict(cfg, rel_w18_rulers=dict(source="x", dist="y", donor_search=True)))

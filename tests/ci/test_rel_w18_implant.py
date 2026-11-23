@@ -521,3 +521,22 @@ def test_offline_loader_checks_its_files(tmp_path, v1s):
     np.save(base / "W.frame_len.npy", arrays["W.frame_len"] + 1)
     with pytest.raises(ValueError):
         P.load_offline(str(tmp_path), "abc")
+
+
+def test_append_pairs_keeps_every_alignment_gene_by_gene():
+    from seeddrift.train.rel.tables import v1_hits as H
+    a, b = H.Collector(4), H.Collector(4, np.array([0, 1, 0, 1], np.uint8))
+    a.add(0, 3, 7, 1, 10, 1, 10, b"10M")
+    a.add(0, 3, 7, 12, 20, 12, 20, b"9M")
+    a.add(2, 5, 1, 1, 30, 2, 31, b"30M")
+    b.add(1, 9, 4, 1, 8, 1, 8, b"8M")
+    b.add(3, 9, 2, 3, 9, 3, 8, b"3M1I3M")
+    x, y = a.arrays(), b.arrays()
+    got = I.append_pairs(x, y)
+    assert H.check(got, 10) == []
+    assert got["off"].tolist() == [0, 1, 2, 3, 4] and got["tgenome"].tolist() == [3, 9, 5, 9] and got["tgene"].tolist() == [7, 4, 1, 2]
+    assert got["hsp_off"].tolist() == [0, 2, 3, 4, 5] and got["qs"].tolist() == [1, 12, 1, 1, 3]
+    cig = [bytes(got["cigar"][got["cigar_off"][h]:got["cigar_off"][h + 1]]) for h in range(5)]
+    assert cig == [b"10M", b"9M", b"8M", b"30M", b"3M1I3M"] and got["searched"].tolist() == [1, 1, 1, 1]
+    same = I.append_pairs(x, H.empty(4, np.zeros(4, np.uint8)))
+    assert all((np.asarray(same[k]) == np.asarray(x[k])).all() for k in x)

@@ -1,7 +1,8 @@
 # Machine i-2, round 1 (protocol round1, version 3): the start gate's probe of batch 1's long arm, 50 steps of the
 # preflight on the real tables of version 1 as copied to i-2 over R2 (every file checked by sha256), beside the vLLM
-# service, which is never stopped: finite loss, peak memory (the preflight halves the micro-batch to 1 table if 2 do
-# not fit), tables per second. Nothing trained, no checkpoint kept. CI 0.6, round 1's foundation. Development diagnosis.
+# service, which is never stopped: finite loss, peak memory at micro-batches of 1 table (arms[].micro, as the long arm
+# and i-1's arms of batch 1), tables per second. Nothing trained, no checkpoint kept. CI 0.6, round 1's foundation.
+# Development diagnosis.
 pipeline: rel_traineval
 tier: medium
 seed: 1
@@ -27,7 +28,7 @@ rel_w6_fit:
     heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 1}
     heldout_offline: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json, sha256: 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496}
   arms:
-    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 1}
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 1, micro: 1}
   preflight_only: true           # round 1's probe: every arm preflighted on the real tables, nothing trained, no checkpoint
   preflight_steps: 50
   wall_s: 1800

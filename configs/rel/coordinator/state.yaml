@@ -116,6 +116,18 @@ runs:               # runs started by the coordinator: {run_id, machine, profile
   - {run_id: 20261123T130917-exp-rel-af4ef952-rel-dev-w5-source-selftest-i1, machine: i1, profile: rel-dev-w5-source-selftest-i1, commit: af4ef95231ff9e1803046dc1b0addb34757fe5b3, status: passed}
   - {run_id: 20261123T131605-exp-rel-878c0c30-rel-dev-w18-rulers-v1-i1, machine: i1, profile: rel-dev-w18-rulers-v1-i1, commit: 878c0c302e6d77f54c03adbf8c34d195f1186385, status: passed,
      note: "W18's implant tables of version 1: 5,622 tables of 32 rows, manifest bea1f8de5ccf345407c2c19808ba5fbb0e51319c85cc60b11efde277ae749b24; 571 s"}
+  - {run_id: 20261123T132643-exp-rel-fa0cd396-rel-dev-w12-tstats-i1, machine: i1, profile: rel-dev-w12-tstats-i1, commit: fa0cd396a7918b898ea1770d9607b8d55ad85199, status: passed,
+     note: "how often the targets of round 1's version-1 tables are used, per group"}
+  - {run_id: 20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1, machine: i1, profile: rel-dev-w18-rulers-v3-i1, commit: fa0cd396a7918b898ea1770d9607b8d55ad85199, status: passed,
+     note: "W18's implant tables of version 3, manifest 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3"}
+  - {run_id: 20261123T133202-exp-rel-5a043df4-rel-w18v1a-i1, machine: i1, profile: rel-w18v1a-i1, commit: 5a043df4443aedfcae74090e8f68a1c7b4b52743, status: passed,
+     note: "W18's diagnosis: the arms of version 0 on the implant tables of version 1 (adapted); 70 min on a GPU shared with another user's processes, before batch 1 (the programme lead's rule: HGT first when it takes an hour or less)"}
+  - {run_id: 20261123T134111-exp-rel-8cdddebc-rel-dev-w5-sources-i1, machine: i1, profile: rel-dev-w5-sources-i1, commit: 8cdddebca7aa62880f558fc330dab95da98fb0b9, status: started,
+     note: "W5's readout of D7's arms S1 and S2 (110619) beside the reference arm (122356); CPU, nice 10"}
+  - {run_id: 20261123T144249-exp-rel-5a043df4-rel-r1probe-i1, machine: i1, profile: rel-r1probe-i1, commit: 5a043df4443aedfcae74090e8f68a1c7b4b52743, status: passed,
+     note: "round 1's i-1 probe at micro-batches of 1: peaks 9,592 (ref30m s2, s3), 1,095 (norel30m), 20,232 MB (ref100m); margin (sum x 1.1 + 6 GB) 28,451 MB against 72,447 MB free"}
+  - {run_id: 20261123T144801-exp-rel-6bb5f500-rel-r1short-i1, machine: i1, profile: rel-r1short-i1, commit: 6bb5f500e935f2dc412913dff31edf6e115b01e8, status: started,
+     note: "round 1, batch 1 on i-1: ref30m-s2, ref30m-s3, norel30m at micro-batches of 1, three at once, 6 h each"}
 queue: []           # requests waiting (configs/rel/requests/), in the order they will run
 # tables copied between machines over R2 (checked by sha256 on arrival): {run_id, from, to, files, bytes, checked, date}
 copies:
@@ -135,6 +147,10 @@ copies:
   - {run_id: 20261122T132634-exp-rel-0200cd06-rel-dev-w3-offline-i1, from: i1, to: i2, route: R2, files: 90, bytes: 483194520,
      what: "record.json, config, stages, gates, data/rel_w3/offline into imports/runs/ on i-2, for round 1b's long arm (tables.heldout_offline)",
      checked: "every file of the manifest by sha256 on i-2; the manifest against the run's stage record", date: 2026-11-23}
+  - {run_id: 20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, from: i1, to: i2, route: R2, files: 111, bytes: 998895762,
+     checked: "every file by sha256 against the manifest 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496", date: 2026-11-23}
+  - {run_id: 20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, from: i1, to: i2, route: R2, files: 1551, bytes: 22694836482,
+     checked: "every file by sha256 against the manifest dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1", date: 2026-11-23}
 # branches of round configurations: commit 3382ed5 (the evening's code) plus profiles and variants only, so the arms
 # train exactly as the evening's arms did
 round_branches:

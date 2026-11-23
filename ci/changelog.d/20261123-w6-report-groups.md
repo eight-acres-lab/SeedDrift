@@ -8,3 +8,8 @@
 - A group's threshold is at least 0.02 bits (one pair of seeds can differ by 0 in a group by chance).
 - The trainer keeps every node's bits per held-out table and condition (`node_cells.npz`: the summed bits and the scored
   cells of every table of the nodes' subset), for paired intervals between two nodes of an arm on the same tables.
+- A group's change from its lowest node to the last is read with the evaluator's paired bootstrap
+  (`evalh/intervals.paired_bootstrap`: split units inside the group, 2,000 replicates, seed 20261123, 95%) on the
+  trainer's `node_cells.npz`; the units are the examined genomes' split units (`bench/rel/implant.split_units` on the
+  training-data index of `rel_w6_report.units_source`). A group over-fits (a key point) only beyond its threshold and with
+  its interval above 0; either alone is listed only.

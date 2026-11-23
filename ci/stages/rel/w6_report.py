@@ -54,6 +54,7 @@ import json
 import os
 import re
 
+import numpy as np
 import yaml
 
 from ci.gates import GateResult, require
@@ -73,6 +74,34 @@ NONE_BIN = SC.FINE[-1]
 WITH_RELATIVES = getattr(SC, "RELATIVES", (None,))[0]               # the stratum of the tables with a relative on the target
 WITHOUT_RELATIVES = getattr(SC, "RELATIVES", (None, None))[1]
 GROUP_FLOOR = 0.02                    # the least threshold of a group's own reading (the programme lead, 2026-11-23)
+NODE_CELLS = "node_cells.npz"         # the trainer's bits per held-out table at every node
+
+
+def held_units(conf, source):
+    """(group name, split unit) of every held-out table of an arm (its training configuration conf: heldout_tables,
+    heldout_root): the examined genome (row 0) of every table, by the genome list of the table set's index, and its
+    split unit as stage train_data forms them (bench/rel/implant.split_units, package W18's copy of its rule) on the
+    training-data index of the source run; units never cross the splits, so the held-out genomes alone give them."""
+    from bench.rel import implant as I
+    from ci.stages.rel import w2_v0
+    from seeddrift.train.rel.data import tables as T
+    held = T.open_split(conf["heldout_root"], conf["heldout_tables"], 1)
+    doc = T.read_manifest(conf["heldout_tables"])
+    idx = next((e for e in doc.get("files") or [] if e.get("role") == "index" and os.path.basename(str(e.get("path"))) == "index.json"), None)
+    if idx is None:
+        raise ValueError("the table set lists no index.json")
+    with open(os.path.join(conf["heldout_root"], idx["path"])) as f:
+        index = json.load(f)
+    listed = index.get("genomes") or []
+    names = [str(g.get("name")) if isinstance(g, dict) else str(g) for g in index.get("groups") or []]
+    ids = [str(g["id"]) if isinstance(g, dict) else str(g) for g in listed]
+    rows0 = np.asarray(held.load(("genome",))["genome"])[:, 0].astype(np.int64)
+    mine = {ids[k] for k in rows0 if 0 <= k < len(ids)}
+    metas = [m for m in w2_v0.source(source, pairs=False)["index"]["genomes"] if m["id"] in mine]
+    units = I.split_units(metas)
+    group = [names[int(g)] if int(g) < len(names) else str(int(g)) for g in np.asarray(held.group)]
+    unit = [units.get(ids[k], ids[k]) if 0 <= k < len(ids) else "row0-%d" % i for i, k in enumerate(rows0)]
+    return group, unit
 BLOCK_OF = getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
 BLOCKS = getattr(SC, "BLOCKS", ("eukaryotes", "prokaryotes, plasmids, viruses"))
 CAVEATS = [
@@ -101,7 +130,7 @@ CAVEATS = [
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
     unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs",
-                         "scale_exclude"}
+                         "scale_exclude", "units_source"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     lr = sc.get("lr_check")
@@ -124,7 +153,8 @@ def settings(cfg) -> dict:
                            for w in sc.get("lr_sweeps") or []],
                 passes=[str(a) for a in sc.get("passes") or []], notes=[str(x) for x in sc.get("notes") or []],
                 pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []],
-                scale_exclude=[str(a) for a in sc.get("scale_exclude") or []])
+                scale_exclude=[str(a) for a in sc.get("scale_exclude") or []],
+                units_source=str(sc["units_source"]) if sc.get("units_source") else None)
 
 
 LR_CONCLUSIONS = {
@@ -650,7 +680,46 @@ def build(st, cfg, run_dir):
     # the curve over passes of the training tables: held-out bits at every node, the fall from the node before, and the
     # training loss of the 1,000 tables before the node (a fall of the training loss beside a rise of the held-out bits
     # is overfitting)
-    over = []
+    over, iv_why, iv_cache = [], {}, {}
+
+    def interval(a, g, t_lo, t_hi):
+        """The paired bootstrap (the evaluator's intervals.paired_bootstrap: split units inside the group, 2,000 replicates,
+        seed 20261123) of the change of arm a's scattered bits in group g from node t_lo to node t_hi, on the nodes' tables;
+        None (the reason in iv_why) without the trainer's node_cells.npz, the units' source or the evaluator's intervals."""
+        if a not in iv_cache:
+            iv_cache[a] = None
+            folder = os.path.join(arms[a]["run_dir"], FIT, os.path.basename(arms[a]["info"]["folder"]))
+            if not os.path.exists(os.path.join(folder, NODE_CELLS)):
+                iv_why[a] = "no bits per table at the nodes (trained before node_cells.npz)"
+                return None
+            if not s["units_source"]:
+                iv_why[a] = "no split units (units_source not given)"
+                return None
+            try:
+                from seeddrift.train.rel.evalh import intervals as IV
+            except ImportError:
+                iv_why[a] = "no intervals module of the evaluator"
+                return None
+            try:
+                group, unit = held_units(read_json(os.path.join(folder, "conf.json")) or {}, s["units_source"])
+            except (OSError, ValueError, KeyError, SystemExit) as err:
+                iv_why[a] = "no split units (%s)" % str(err)[:200]
+                return None
+            iv_cache[a] = (IV, np.load(os.path.join(folder, NODE_CELLS)), group, unit)
+        if iv_cache[a] is None:
+            return None
+        IV, nc, group, unit = iv_cache[a]
+        lo, hi = ("t%d_%s" % (t, cond.SCATTERED) for t in (t_lo, t_hi))
+        if lo + "_bits" not in nc or hi + "_bits" not in nc or not np.array_equal(nc[lo + "_cells"], nc[hi + "_cells"]):
+            return None
+        tabs = np.asarray(nc["tables"]).astype(np.int64)
+        m = np.array([group[k] == g for k in tabs])
+        if not m.any():
+            return None
+        got = IV.paired_bootstrap((nc[hi + "_bits"] - nc[lo + "_bits"])[m], nc[hi + "_cells"][m], [group[k] for k in tabs[m]],
+                                  [unit[k] for k in tabs[m]], blocks=False)
+        return got.get("all")
+
     for a in s["passes"]:
         if a not in arms:
             raise SystemExit("rel_w6_report.passes: %s is no arm of the report" % a)
@@ -687,11 +756,17 @@ def build(st, cfg, run_dir):
             rise = pts[-1][1] - y0 if k + 1 < len(pts) else None
             gn = group_spread.get(g)
             gn = dict(gn, bits=max(gn["bits"], GROUP_FLOOR)) if gn else None        # a pair of seeds can differ by 0 in a group by chance
+            above = rise is not None and gn is not None and rise > gn["bits"]
+            iv = interval(a, g, t0, pts[-1][0]) if rise is not None else None   # paired, the same tables at the two nodes
+            excl = bool(iv and iv["excludes_zero"] and iv["low"] > 0)
             said = ("no rise after it (the last node)" if rise is None else
-                    (("rose by more than the group's seeds' difference" if rise > gn["bits"] else "within the group's seeds' difference")
-                     if gn else "no seeds' difference of the group"))
+                    "over-fits: beyond the threshold, its interval above 0" if above and excl else
+                    "beyond the threshold only" if above else "its interval above 0 only" if excl else
+                    ("within the threshold" if gn else "no seeds' difference of the group"))
             by_g.append([g, BLOCK_OF(g), t0, t0 / tt if tt else None, y0, nxt[0] if nxt else None, diff(nxt[1], y0) if nxt else None,
-                         pts[-1][0], rise, fmt_noise(gn) if gn else "none", said, F(a, cond.SCATTERED, g)])
+                         pts[-1][0], rise, fmt_noise(gn) if gn else "none",
+                         ("%.3f to %.3f (%d units)" % (iv["low"], iv["high"], iv["units"])) if iv else iv_why.get(a, "none"), said,
+                         F(a, cond.SCATTERED, g)])
         over.append(dict(arm=a, train_tables=tt, rows=rows_p, groups=by_g, final=dict(tables_seen=arms[a]["info"].get("tables_seen"),
                                                                            passes=(arms[a]["info"].get("tables_seen") or 0) / tt if tt else None,
                                                                            bits={c: F(a, c) for c in sweep_conds})))
@@ -723,7 +798,7 @@ def build(st, cfg, run_dir):
 
     key = []                                                           # the key points, first
     for o in over:                                                     # a group of a curve over passes that over-fits
-        risen = [r for r in o.get("groups") or [] if r[10] == "rose by more than the group's seeds' difference"]
+        risen = [r for r in o.get("groups") or [] if r[11] == "over-fits: beyond the threshold, its interval above 0"]
         if risen:
             key.append("Over-fitting by group (%s): %s." % (o["arm"], "; ".join(
                 "%s lowest at %s tables (%.2f passes), then +%.3f by %s tables" % (r[0], "{:,}".format(r[2]), r[3] or 0, r[8], "{:,}".format(r[7]))
@@ -863,10 +938,12 @@ def build(st, cfg, run_dir):
                    "the mean's; its threshold is the seeds' largest difference in that group at the last node they all reached, at least "
                    "0.02 bits): the node of "
                    "the group's lowest held-out bits, the change to the next node and to the last node. A rise beyond the group's seeds' "
-                   "difference while the training loss falls is the group's over-fitting; the end is read on all held-out tables of the "
-                   "group (other tables than the nodes').", ""]
+                   "difference whose paired interval (split units inside the group, 2,000 replicates, seed 20261123, 95%) lies above 0 is "
+                   "the group's over-fitting (a key point); one of the two alone is listed only. The end is read on all held-out tables "
+                   "of the group (other tables than the nodes').", ""]
             md += md_table(["group", "block", "lowest at (tables)", "passes there", "bits there", "next node", "change to it", "last node",
-                            "change to the last", "group's seeds' difference", "reading", "end (all tables)"], o["groups"])
+                            "change to the last", "threshold (group's seeds' difference, at least 0.02)", "95% interval of that change",
+                            "reading", "end (all tables)"], o["groups"])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]

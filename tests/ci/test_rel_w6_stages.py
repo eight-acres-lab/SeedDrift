@@ -432,11 +432,84 @@ def test_report_reads_over_fitting_group_by_group(tmp_path):
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
     by = {r[0]: r for r in rep["passes"][0]["groups"]}
     g0, g1 = by[GROUPS[0]], by[GROUPS[1]]
-    assert g0[2] == 4000 and g0[8] is None and g0[10] == "no rise after it (the last node)"
+    assert g0[2] == 4000 and g0[8] is None and g0[11] == "no rise after it (the last node)"
     assert g1[2] == 2000 and abs(g1[4] - 5.7) < 1e-9 and g1[5] == 4000 and abs(g1[6] - 0.5) < 1e-9 and abs(g1[8] - 0.5) < 1e-9
-    assert g1[9] == "0.200 (at 2,000 tables)" and g1[10] == "rose by more than the group's seeds' difference" and abs(g1[3] - 2000 / 100800) < 1e-12
+    assert g1[9] == "0.200 (at 2,000 tables)" and abs(g1[3] - 2000 / 100800) < 1e-12
+    # no bits per table at the nodes (arms trained before node_cells.npz): no interval, so beyond the threshold only, no key point
+    assert g1[10].startswith("no bits per table at the nodes") and g1[11] == "beyond the threshold only"
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
-    assert "Over-fitting by group (w6-ref30m-s1): %s lowest at 2,000 tables" % GROUPS[1] in text and "lowest at (tables)" in text
+    assert "Over-fitting by group" not in text and "lowest at (tables)" in text and "95% interval of that change" in text
+
+
+def test_report_over_fitting_by_group_needs_its_threshold_and_its_interval(tmp_path, monkeypatch):
+    """With the trainer's bits per table at the nodes and the split units: the paired bootstrap of the change from the
+    group's lowest node to the last, on that group's tables (the evaluator's intervals, faked here so that the reading
+    is tested on its own); beyond the threshold with its interval above 0 is a key point, either alone is listed only."""
+    import sys
+    import types
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    second, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(second, os.path.join(w6_fit.OUT, "models.json"))
+    conds = list(cond.CONDITIONS)
+    p = os.path.join(second, w6_fit.OUT, "results.tsv")
+    SC.write_rows(p, [dict(r, bits=float(r["bits"]) + 0.2) if r["weights"].startswith("ema@tables=") else r for r in SC.read_rows(p)])
+    later = [r for r in _rows(os.path.basename(run_dir), "w6-ref30m-s1", [(4000, 40000, 4.9)], 4.9, conds) if r["weights"] == "ema@tables=4000"]
+    later = [dict(r, bits=6.2) if r["group"] == GROUPS[1] and r["condition"] == cond.SCATTERED and r["stratum"] == SC.ALL else r for r in later]
+    q = os.path.join(run_dir, w6_fit.OUT, "results.tsv")
+    SC.write_rows(q, SC.read_rows(q) + later)
+    folder = os.path.join(run_dir, w6_fit.OUT, "w6-ref30m-s1")         # the nodes' bits per table: tables 0..3, groups alternating
+    np = pytest.importorskip("numpy")
+    cells = np.array([10, 20, 30, 40])
+    np.savez(os.path.join(folder, "node_cells.npz"), tables=np.arange(4), t2000_scattered_bits=np.array([52.0, 114.0, 156.0, 228.0]),
+             t2000_scattered_cells=cells, t4000_scattered_bits=np.array([49.0, 124.0, 147.0, 248.0]), t4000_scattered_cells=cells)
+    with open(os.path.join(folder, "conf.json"), "w") as f:
+        json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
+    monkeypatch.setattr(w6_report, "held_units", lambda conf, source: ([GROUPS[0], GROUPS[1]] * 2, ["u1", "u2", "u3", "u4"]))
+    seen = []
+
+    def boot(diff_sum, cells, group, unit, replicates=2000, seed=20261123, level=0.95, blocks=True):
+        seen.append(dict(diff=list(diff_sum), cells=list(cells), group=list(group), unit=list(unit), blocks=blocks))
+        lo = 0.1 if len(seen) == 1 else -0.1                           # the first call: above 0; a later one would straddle 0
+        return {"all": dict(estimate=0.5, low=lo, high=0.9, excludes_zero=lo > 0, units=len(set(unit)), groups=1, tables=len(unit))}
+    monkeypatch.setitem(sys.modules, "seeddrift.train.rel.evalh.intervals", types.SimpleNamespace(paired_bootstrap=boot))
+    cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"],
+                                       units_source="/x/runs/source"))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    by = {r[0]: r for r in rep["passes"][0]["groups"]}
+    assert len(seen) == 1 and seen[0]["group"] == [GROUPS[1]] * 2 and seen[0]["unit"] == ["u2", "u4"] and seen[0]["blocks"] is False
+    assert seen[0]["diff"] == [10.0, 20.0] and seen[0]["cells"] == [20, 40]          # the second group's tables: node 4,000 minus node 2,000
+    g1 = by[GROUPS[1]]
+    assert g1[10] == "0.100 to 0.900 (2 units)" and g1[11] == "over-fits: beyond the threshold, its interval above 0"
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "Over-fitting by group (w6-ref30m-s1): %s lowest at 2,000 tables" % GROUPS[1] in text
+
+
+def test_held_units_are_the_split_units_of_the_examined_genomes(tmp_path, monkeypatch):
+    """held_units: every held-out table's group (by the index's names) and the split unit of its row-0 genome, by the
+    genome list of the table set's index and train_data's rule (bench/rel/implant.split_units) on the source's index:
+    two genomes of one group that share a genus are one unit."""
+    import hashlib
+    import test_rel_w6_data as D
+    from ci.stages.rel import w2_v0
+    held = D.random_tables(24, rows=4, seed=3, split=1)                 # table t: row 0 is genome t of the list, group t % 12
+    man = D.write_tableset(str(tmp_path), [("heldout/s0000", held)], kind="real")
+    names = ["g%02d" % g for g in range(12)]
+    ip = os.path.join(str(tmp_path), "tables", "index.json")
+    with open(ip, "w") as f:
+        json.dump(dict(groups=names, genomes=[dict(id="G%d" % t, group=names[t % 12], split="heldout") for t in range(24)]), f)
+    with open(man) as f:
+        doc = json.load(f)
+    for e in doc["files"]:
+        if e["path"].endswith("index.json"):
+            e["sha256"], e["bytes"] = hashlib.sha256(open(ip, "rb").read()).hexdigest(), os.path.getsize(ip)
+    with open(man, "w") as f:
+        json.dump(doc, f)
+    # genomes 0 and 12 (group g00) share genus 7; every other genome has a genus of its own
+    metas = [dict(id="G%d" % t, group=names[t % 12], split="heldout", ranks=[0, 0, 0, 0, 7 if t in (0, 12) else 100 + t, 0]) for t in range(24)]
+    monkeypatch.setattr(w2_v0, "source", lambda run, pairs=True: dict(index=dict(genomes=metas)))
+    group, unit = w6_report.held_units(dict(heldout_tables=man, heldout_root=str(tmp_path)), "/x/runs/source")
+    assert group == [names[t % 12] for t in range(24)] and unit[0] == unit[12] == "g00|g:7" and unit[1] == "g01|g:101"
+    assert len(set(unit)) == 23
 
 
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):

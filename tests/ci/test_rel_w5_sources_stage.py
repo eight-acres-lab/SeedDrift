@@ -29,7 +29,7 @@ def test_settings_and_registry():
     cfg = yaml.safe_load(open(os.path.join(ROOT, "ci", "profiles", "rel-dev-w5-sources-i1", "config.yaml")))
     s = W.settings(cfg)
     assert [a["name"] for a in s["arms"]] == ["S1", "S2"] and s["reference"]["folder"].startswith("w6-ref")
-    assert s["conditions"] == {"scattered": "leakfree", "whole_gene": "stored"} and s["per_group"] == 50
+    assert s["conditions"] == {"scattered": "leakfree"} and s["per_group"] == 50
     assert s["arms"][0]["fit"].endswith(os.path.join("data", "rel_w6", "fit", "w5-src30m-s1-s1"))
     d = kinds.stage("w5_sources")
     assert d["kind"] == "rel_traineval" and d["module"] == "ci.stages.rel.w5_sources" and d["output"] == os.path.join(W.OUT, "report.json")

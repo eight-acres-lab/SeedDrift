@@ -1,0 +1,28 @@
+# Machine i-1: how many genomes eukaryotic viruses and plants and algae could still gain (stage w13_supply; package W13;
+# the programme lead, 2026-11-23, with the user's word "先数"): NCBI genome reports of complete viral assemblies and of
+# annotated plant and algal assemblies, metadata only; counted against the corpus medium-k3 of run B
+# (20261123T023429) with the selection's rules and host snapshots. No sequence is downloaded; the sealed test genomes
+# are not read. CPU only (the select lock), about 30 minutes, 2 cores, CPU priority below the training beside it.
+# Development diagnosis only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w13_supply]
+rel_w13_supply:
+  select_from: /hy-tmp/seeddrift-ci/runs/20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium
+  source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  cds_bp: 1300
+train:
+  gpu_lease: false
+  device: cpu

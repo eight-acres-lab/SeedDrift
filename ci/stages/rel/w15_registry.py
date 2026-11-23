@@ -329,15 +329,17 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
                 rec["fulltext"] = dict(got, source="pmc-oa-opendata")
             else:
                 rec.setdefault("article_files", []).append(got)
-        if supplements:
+        if supplements and plan["supplements"]:
             files = [_s3_file(k, oa, opener, waits, sleep, cap) for k, n in plan["supplements"]]
             stored = [f for f in files if f.get("sha256")]
             rec["supplements"] = dict(source="pmc-oa-opendata", files=files, bytes=sum(f["bytes"] for f in stored))
             if stored:
                 rec["supplements"]["sha256"] = hashlib.sha256("".join(sorted(f["sha256"] for f in stored)).encode()).hexdigest()
-            elif files:
+            else:
                 rec["supplements"].update(error_type="NoneStored", status=None, error="no supplementary file stored")
-        if (rec.get("fulltext") or {}).get("sha256") and (not supplements or rec.get("supplements")):
+        elif supplements:                      # the dataset holds no supplementary file (figures aside): try Europe PMC
+            rec["pmc_oa"]["supplements"] = "none in the open-access dataset"
+        if (rec.get("fulltext") or {}).get("sha256") and (not supplements or (rec.get("supplements") or {}).get("sha256")):
             return rec
     for what, path, cap_mb in (("fulltext", "fullTextXML", None), ("supplements", "supplementaryFiles", max_supplement_mb)):
         if (what == "supplements" and not supplements) or (rec.get(what) or {}).get("sha256"):

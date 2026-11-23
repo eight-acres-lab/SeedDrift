@@ -323,3 +323,27 @@ def test_the_open_access_dataset_comes_first_latest_version_no_figures(tmp_path)
 def test_s3_plan_without_the_article_in_the_dataset():
     assert W.s3_plan("PMC8", []) == {}
     assert W.s3_plan("PMC8", [("PMC80.1/PMC80.1.xml", 3)]) == {}           # another article's prefix is not this one
+
+
+def test_no_supplement_in_the_dataset_falls_back_to_europe_pmc(tmp_path):
+    meta = json.dumps(dict(resultList=dict(result=[dict(pmcid="PMC9")])))
+    listing = (b'<?xml version="1.0"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+               b'<Contents><Key>PMC9.1/PMC9.1.xml</Key><Size>10</Size></Contents>'
+               b'<Contents><Key>PMC9.1/fig1.jpg</Key><Size>8</Size></Contents></ListBucketResult>')
+    seen = []
+
+    def opener(req, timeout):
+        seen.append(req.full_url)
+        if "search?" in req.full_url:
+            return Resp(meta.encode())
+        if req.full_url.startswith(W.S3 + "?"):
+            return Resp(listing)
+        if req.full_url.startswith(W.S3):
+            return Resp(b"<article/>")
+        if req.full_url.endswith("supplementaryFiles"):
+            return Resp(b"PK\x03\x04epmc")
+        raise AssertionError(req.full_url)
+
+    rec = W.fetch("10.1/n", str(tmp_path / "n"), opener=opener, supplements=True, pause_s=0, sleep=lambda s: None)
+    assert rec["fulltext"]["source"] == "pmc-oa-opendata" and rec["supplements"]["source"] == "europepmc"
+    assert rec["pmc_oa"]["supplements"] == "none in the open-access dataset"

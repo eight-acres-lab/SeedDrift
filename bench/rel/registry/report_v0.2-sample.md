@@ -1,6 +1,6 @@
 # Event registry report (rules version 0.2; no scores)
 
-20 records (claim_set 6, event 14). 8 of them take part in grouping and form 7 groups (overlapping exclusion radii, a shared paper or a shared assembly); disputed, overturned and grade-D records and claim sets stay ungrouped (RULES.md section 7).
+20 records (claim_set 5, event 15). 9 of them take part in grouping and form 8 groups (overlapping exclusion radii, a shared paper or a shared assembly); disputed, overturned and grade-D records and claim sets stay ungrouped (RULES.md section 7).
 
 ## 1. Association graph by exclusion lineage
 
@@ -9,23 +9,28 @@
 | G01 | EV001 (Drosophila) | A 1 | - |
 | G02 | EV002 (Acyrthosiphon); EV003 (Aphidomorpha) | A 1, C 1 | EV002-EV003: radius Acyrthosiphon / Aphidomorpha |
 | G03 | EV004 (Bemisia) | C 1 | - |
-| G04 | EV008 (Legionella) | C 1 | - |
-| G05 | EV011 (Kyanoviridae) | A 1 | - |
-| G06 | EV012 (environmental samples) | C 1 | - |
-| G07 | EV014 (Methanosarcina) | C 1 | - |
+| G04 | EV006 (Alloteropsis) | B 1 | - |
+| G05 | EV008 (Legionella) | C 1 | - |
+| G06 | EV011 (Kyanoviridae) | A 1 | - |
+| G07 | EV012 (environmental samples) | C 1 | - |
+| G08 | EV014 (Methanosarcina) | C 1 | - |
 
-Ungrouped: EV005 (Triticeae; D; event); EV006 (Alloteropsis; A; claim_set); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
+Group numbers follow row order and change when records are added or split: compare groups by their members, not by number.
+
+Ungrouped: EV005 (Triticeae; D; event); EV007 (Ipomoea; D; event); EV009 (Hominoidea; D; event); EV010 (Muroidea; D; event); EV013 (Thermotoga; D; claim_set); EV015 (Neisseria; D; event); EV016 (Bdelloidea; A; claim_set); EV017 (Hypsibius; overturned; claim_set); EV018 (Vertebrata; overturned; claim_set); EV019 (Bacillariophyta; overturned; claim_set); EV020 (Elysia; overturned; event).
 
 ## 2. Counts
 
 | label | records | groups |
 |---|---|---|
-| A | 5 | 3 |
-| B | 0 | 0 |
+| A | 4 | 3 |
+| B | 1 | 1 |
 | C | 5 | 5 |
 | D | 6 | 0 |
 | disputed | 0 | 0 |
 | overturned | 4 | 0 |
+
+Concentration in groups: largest group G01 holds 1 of the 4 A; largest group G04 holds 1 of the 1 B; largest group G02 holds 1 of the 5 C.
 
 Label: the transfer grade, except that disputed and overturned records count under their status. Statuses: overturned 4, replicated 6, standing 10. Discovery route: ? 3, N 5, P 3, S 9. Truth class: contamination 2, native 1, transfer 16, unresolved 1. Category: organelle_derived 1, protein_coding 19.
 
@@ -36,7 +41,7 @@ Scenario cells (direction x recipient group). Each filled cell lists its records
 | prok>prok | D2 | C1 |  |  |  |  |  |  |  |  |  |  |
 | prok>euk |  |  | overturned1 |  | A3 overturned1 | D1 |  |  |  |  |  |  |
 | euk>prok | C1 |  |  |  |  |  |  |  |  |  |  |  |
-| euk>euk |  |  |  |  | C2 overturned1 | A1 D1 |  | overturned1 |  |  |  |  |
+| euk>euk |  |  |  |  | C2 overturned1 | B1 D1 |  | overturned1 |  |  |  |  |
 | virus>host |  |  | D2 |  |  |  |  |  |  |  |  |  |
 | host>virus |  |  |  |  |  |  |  |  | A1 |  |  |  |
 | virus>virus |  |  |  |  |  |  |  |  |  | C1 |  |  |
@@ -45,35 +50,71 @@ Complex scenarios of charter section 1 (scenario tags), discovery routes and whe
 
 | | A | B | C | D | disputed | overturned |
 |---|---|---|---|---|---|---|
-| near | 1 |  |  | 1 |  |  |
+| near |  | 1 |  | 1 |  |  |
 | replacement |  |  |  | 1 |  |  |
 | ancient | 1 |  | 3 | 2 |  | 1 |
 | donor_unsampled |  |  | 1 |  |  |  |
 | partial |  |  |  |  |  |  |
-| serial | 2 |  |  |  |  |  |
+| serial | 1 |  |  |  |  |  |
 | high_foreign | 1 |  |  | 1 |  | 1 |
 | chimeric_virus |  |  | 1 |  |  |  |
 | contamination_vs_integration | 1 |  |  |  |  | 2 |
 | multicopy | 2 |  | 1 |  |  |  |
 | intron_gain | 1 |  |  |  |  |  |
-| large_insert | 2 |  |  |  |  |  |
+| large_insert | 1 |  |  |  |  |  |
 | route ? |  |  | 3 |  |  |  |
 | route N | 1 |  |  | 4 |  |  |
 | route P |  |  | 1 |  |  | 2 |
-| route S | 4 |  | 1 | 2 |  | 2 |
+| route S | 3 | 1 | 1 | 2 |  | 2 |
 | full text n |  |  | 2 | 5 |  | 1 |
-| full text partial | 4 |  | 2 | 1 |  | 3 |
-| full text y | 1 |  | 1 |  |  |  |
+| full text partial | 4 | 1 | 2 | 1 |  | 3 |
+| full text y |  |  | 1 |  |  |  |
 
 Grades that would change if `donor_structure` were accepted as evidence of foreign origin (RULES.md section 11): EV007 D -> A; EV009 D -> A.
 
+### Concentration of sources (RULES.md section 8a; events only, claim sets apart)
+
+20 source clusters (records joined by a shared DOI in papers). A cell is flagged when its largest source cluster or its largest exclusion lineage holds more than 30% of its events.
+
+Charter section 3 also reports any cell with fewer than 30 events or 5 lineages case by case only, so a small cell is flagged by its size alone; the flag matters where a source fills a cell that is otherwise large.
+
+| cell | events | sources | lineages | largest source (share) | largest lineage (share) | over 30% | claim sets |
+|---|---|---|---|---|---|---|---|
+| euk>euk|invertebrates | 3 | 3 | 3 | S03 (10.1093/molbev/msr206) (33%) | Aphidomorpha (33%) | **yes** | 0 |
+| euk>euk|plants_algae | 2 | 2 | 2 | S05 (10.1126/science.aba5435) (50%) | Triticeae (50%) | **yes** | 0 |
+| euk>prok|bacteria | 1 | 1 | 1 | S08 (10.1111/j.1462-5822.2009.01328.x) (100%) | Legionella (100%) | **yes** | 0 |
+| host>virus|phage | 1 | 1 | 1 | S11 (10.1038/424741a) (100%) | Kyanoviridae (100%) | **yes** | 0 |
+| prok>euk|invertebrates | 2 | 2 | 2 | S01 (10.1126/science.1142490) (50%) | Drosophila (50%) | **yes** | 2 |
+| prok>euk|plants_algae | 1 | 1 | 1 | S07 (10.1073/pnas.1419685112) (100%) | Ipomoea (100%) | **yes** | 0 |
+| prok>prok|archaea | 1 | 1 | 1 | S14 (10.1128/jb.01382-07) (100%) | Methanosarcina (100%) | **yes** | 0 |
+| prok>prok|bacteria | 1 | 1 | 1 | S15 (10.1073/pnas.86.22.8988) (100%) | Neisseria (100%) | **yes** | 1 |
+| virus>host|mammals | 2 | 2 | 2 | S09 (10.1038/35001608) (50%) | Hominoidea (50%) | **yes** | 0 |
+| virus>virus|eukaryotic_virus | 1 | 1 | 1 | S12 (10.1186/1745-6150-7-13) (100%) | environmental samples (100%) | **yes** | 0 |
+
+Cells with claim sets only: euk>euk|protists (1), prok>euk|mammals (1).
+
+The same cells counted once per source cluster (a cluster counts once for each label it holds in the cell):
+
+| cell | A | B | C | D | disputed | overturned |
+|---|---|---|---|---|---|---|
+| euk>euk|invertebrates |  |  | 2 |  |  | 1 |
+| euk>euk|plants_algae |  | 1 |  | 1 |  |  |
+| euk>prok|bacteria |  |  | 1 |  |  |  |
+| host>virus|phage | 1 |  |  |  |  |  |
+| prok>euk|invertebrates | 2 |  |  |  |  |  |
+| prok>euk|plants_algae |  |  |  | 1 |  |  |
+| prok>prok|archaea |  |  | 1 |  |  |  |
+| prok>prok|bacteria |  |  |  | 1 |  |  |
+| virus>host|mammals |  |  |  | 2 |  |  |
+| virus>virus|eukaryotic_virus |  |  | 1 |  |  |  |
+
 ## 3. Recheckable evidence
 
-11 of 20 records (55%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 5 of the 7 groups. By label: A 4 of 5, C 3 of 5, D 2 of 6, overturned 2 of 4.
+11 of 20 records (55%) name evidence a fixed check can re-examine (read archives, a second assembly, population data); they lie in 6 of the 8 groups. By label: A 3 of 4, B 1 of 1, C 3 of 5, D 2 of 6, overturned 2 of 4.
 
 ## 4. Exclusion and exposure
 
-Provisional list covers the radius: n 3, partial 5, y 12. Genomes inside the radius in the medium corpus: ? 2, n 14, y 4. Overlap with sealed genera or the sealed test part: ? 1, n 19. Exposure: ? 19, L4 1.
+Provisional list covers the radius: n 3, partial 5, y 12. Genomes inside the radius in the medium corpus: n 16, y 4. Overlap with sealed genera or the sealed test part: n 20. Exposure: ? 19, L4 1.
 
 ## 5. Double registration (rules 0.1, before regrading)
 

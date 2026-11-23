@@ -1,0 +1,31 @@
+# Machine i-1: who the training and held-out genomes of plants and algae are, beside fungi and other vertebrates, in the
+# tables of version 0 (run 20261122T061139) and version 1 (run 20261123T122205) (stage w12_compo; package W12; the
+# programme lead, 2026-11-23: plants and algae overfit in round 1a for no reason found yet). By kind (land plant or
+# which alga), tables as row 0, split unit, and each held-out genome's nearest training genome by taxonomy and k-mer
+# distance. Reads the sets' manifests, the taxonomy and the codon arrays of these groups; trains nothing, writes no
+# table. A few minutes, 2 cores, low priority. Development diagnosis only.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w12_compo]
+rel_w12_compo:
+  sets:
+    - {name: version 0, run: /hy-tmp/seeddrift-ci/runs/20261122T061139-exp-rel-b6b3e7e3-rel-dev-w2-v0-i1, which: v0}
+    - {name: version 1, run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, which: v1}
+  groups: [eukaryota.plants_algae, eukaryota.fungi, eukaryota.other_vertebrates]
+  dist_k: 6
+  dist_size: 4096
+  processes: 2
+train:
+  gpu_lease: false
+  device: cpu

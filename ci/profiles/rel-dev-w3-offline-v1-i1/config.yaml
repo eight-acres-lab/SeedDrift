@@ -6,8 +6,8 @@
 # in table order, with a stretch there, a self-copy row too; every other row aligned to it offline, never through the
 # examined row). The fourth validity test on every table. Six processes; numpy only: the select lock, no GPU. About
 # 1 GB written. Evaluation renders these parts with the leak-free layout and the same plan (seed 20261122).
-# BEFORE LAUNCH: tables_from is the passed run of rel-dev-w12-v1-k3-i1 and sha256 its manifest's; both are filled in
-# once that run has passed.
+# tables_from: the passed run of rel-dev-w12-v1-k3-i1 (20261123T122205, 201,600 training and 3,000 held-out tables);
+# sha256: its manifest's.
 pipeline: rel_tables
 needs_gpu: false
 tier: medium
@@ -23,9 +23,9 @@ rel:
   machine: i1
   stages: [w3_offline]
 rel_w3_offline:
-  tables_from: /hy-tmp/seeddrift-ci/runs/RUN-OF-rel-dev-w12-v1-k3-i1
+  tables_from: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
   tablesets:
-    - {path: data/rel_w12/v1/tableset.json, sha256: null}
+    - {path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1}
   conditions: [scattered, suffix, whole_gene]
   seed: 20261122
   shard_tables: 2400

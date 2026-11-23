@@ -23,8 +23,8 @@ rel_w6_selftest:
   wall_s: 840
 rel_w6_fit:
   tables:
-    train: {run: /hy-tmp/seeddrift-ci/imports/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 0}
-    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/RUN-OF-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, split: 1}
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 1}
     heldout_offline: {run: /hy-tmp/seeddrift-ci/imports/runs/RUN-OF-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json}
   arms:
     - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 1}

@@ -224,3 +224,22 @@ def test_plan_by_gene_uses_every_gene_of_a_group_before_any_twice(setup):
         for x in range(0, len(mine), n):                                  # one pass over the group's genes: no repeat
             assert len(set(mine[x:x + n])) == len(mine[x:x + n])
         assert all(j in set(valid[gid].tolist()) for gid, j in mine)
+
+
+def test_a_group_takes_at_most_max_uses_tables_per_gene(setup):
+    genomes = setup["genomes"]
+    valid = {g["id"]: np.flatnonzero(np.diff(setup["arrays"][g["id"]].coff) > 0) for g in genomes if g["split"] == "train"}
+    free = V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid)
+    capped = V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid, max_uses=1)
+    for gi, g in enumerate(GROUPS):
+        n = sum(len(valid[x["id"]]) for x in genomes if x["split"] == "train" and x["group"] == g)
+        if not n:
+            continue
+        mine = [(capped[0][t], capped[4][t]) for t in range(len(capped[0])) if capped[1][t] == gi]
+        assert len(mine) == min(50, n) == capped[5][g] and len(set(mine)) == len(mine)       # every gene once at most
+        assert sum(1 for x in free[1] if x == gi) == 50                                    # without the cap: the group's share
+    small = [g for g in GROUPS if capped[5].get(g, 50) < 50]
+    assert small and len(capped[0]) == sum(capped[5].values()) < len(free[0])              # no group takes the tables another leaves
+    order = [(free[0][t], free[1][t], free[4][t]) for t in range(len(free[0]))]
+    assert order == [(a, b, c) for a, b, c in zip(*V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid, max_uses=10 ** 6)[:2],
+                                                    V1.plan_by_gene(genomes, GROUPS, "train", 50, 7, valid, max_uses=10 ** 6)[4])]

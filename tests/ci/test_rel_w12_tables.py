@@ -154,7 +154,7 @@ def test_training_targets_drawn_over_the_group_and_the_same_held_out_tables(runs
     those of the other way, byte for byte."""
     TS.patch(monkeypatch, runs["tmp"])
     block = dict(search_from=runs["search"], expect=TS.SIZES, rows=32, train_per_group=40, heldout_per_group=2, shard_tables=20, processes=2,
-                 dist_k=4, dist_size=256, train_sampling="gene")
+                 dist_k=4, dist_size=256, train_sampling="gene", max_uses_per_target=1)
     run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261123T000024-v1g", rel_w12_v1=block)
     with Stage(run_dir, "rel_w12_v1") as st:
         doc = WV.build(st, cfg, run_dir, "v1")
@@ -165,9 +165,10 @@ def test_training_targets_drawn_over_the_group_and_the_same_held_out_tables(runs
     for g, d in t["by_group"].items():
         if g == "all":
             continue
-        mean = d["tables"] / d["targetable_genes"]
-        assert d["max_uses"] <= int(np.ceil(mean)) and d["distinct"] == min(d["tables"], d["targetable_genes"]), (g, d)
-    assert t["by_group"]["all"]["tables"] == 40 * len(doc["group_names"])
+        assert d["max_uses"] == 1 and d["tables"] == min(40, d["targetable_genes"]) == t["tables_by_group"][g], (g, d)   # at most one use each
+    assert t["max_uses_per_target"] == 1 and t["by_group"]["all"]["tables"] == sum(t["tables_by_group"].values()) == doc["parts"]["train"]["tables"]
+    with pytest.raises(SystemExit, match="max_uses_per_target"):
+        WV.settings(dict(rel_w12_v1=dict(search_from="x", max_uses_per_target=5)))
 
 
 def test_the_use_of_target_genes_is_reported_per_group(runs, monkeypatch, tmp_path):

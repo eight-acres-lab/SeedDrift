@@ -44,7 +44,7 @@ WHICH = dict(v1=dict(block="rel_w12_v1", stage="w12_v1", out=os.path.join("data"
              islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)))
 SEARCH = os.path.join("data", "rel_w12", "search")
 KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed",
-        "frame_index"}
+        "frame_index", "name"}
 
 
 def settings(cfg, which="v1") -> dict:
@@ -57,7 +57,7 @@ def settings(cfg, which="v1") -> dict:
                train_per_group=int(c.get("train_per_group", 8400)), heldout_per_group=int(c.get("heldout_per_group", 250)),
                per_chromosome=int(c.get("per_chromosome", 500)), shard_tables=int(c.get("shard_tables", 2400)), processes=int(c.get("processes", 8)),
                dist_k=int(c.get("dist_k", 6)), dist_size=int(c.get("dist_size", 4096)), seed=int(c.get("seed", cfg.get("seed", 1))),
-               frame_index=str(c.get("frame_index", "none")), max_left_out=20)
+               frame_index=str(c.get("frame_index", "none")), name=str(c["name"]) if c.get("name") else None, max_left_out=20)
     if not (2 <= out["rows"] <= 64 and out["shard_tables"] >= 1 and 1 <= out["processes"] <= 16) or out["frame_index"] not in ("none", "target", "all"):
         raise SystemExit("%s: settings out of range: %r" % (w["block"], out))
     return out
@@ -233,7 +233,7 @@ def build(st, cfg, run_dir, which="v1"):
     n_close = sum(1 for g in genomes if rel_of.get(g["id"]) in ("same species", "same genus"))
     island = which == "islands"
     doc = handoff.finish(dict(
-        format="rel-tableset", format_version=1, name="w12-%s-r%d-s%d" % (which, s["rows"], s["seed"]), kind=api.TABLE_REAL, api_version=V0.API_VERSION,
+        format="rel-tableset", format_version=1, name=s["name"] or "w12-%s-r%d-s%d" % (which, s["rows"], s["seed"]), kind=api.TABLE_REAL, api_version=V0.API_VERSION,
         table_version=V1.TABLE_VERSION, layout=api.LAYOUT_STORED, purpose="heldout" if island else None, not_for_training=island or None,
         coverage=dict(groups=["bacteria"] if island else groups,
                       scenarios=["the island set's development chromosomes as examined genomes, other rows training genomes (task breakdown 8.8)" if island

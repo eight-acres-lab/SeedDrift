@@ -471,7 +471,10 @@ def test_report_over_fitting_by_group_needs_its_threshold_and_its_interval(tmp_p
         seen.append(dict(diff=list(diff_sum), cells=list(cells), group=list(group), unit=list(unit), blocks=blocks))
         lo = 0.1 if len(seen) == 1 else -0.1                           # the first call: above 0; a later one would straddle 0
         return {"all": dict(estimate=0.5, low=lo, high=0.9, excludes_zero=lo > 0, units=len(set(unit)), groups=1, tables=len(unit))}
-    monkeypatch.setitem(sys.modules, "seeddrift.train.rel.evalh.intervals", types.SimpleNamespace(paired_bootstrap=boot))
+    fake = types.SimpleNamespace(paired_bootstrap=boot)
+    monkeypatch.setitem(sys.modules, "seeddrift.train.rel.evalh.intervals", fake)
+    import seeddrift.train.rel.evalh as evalh_pkg                     # the real module, once imported, is the package's attribute
+    monkeypatch.setattr(evalh_pkg, "intervals", fake, raising=False)
     cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"],
                                        units_source="/x/runs/source"))
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)

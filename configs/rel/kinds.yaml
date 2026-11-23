@@ -158,6 +158,13 @@ kinds:
     lock: gpu
     target: rel_all
     stages:
+      w5_sources:
+        package: W5
+        rule: rel_w5_sources
+        output: data/rel_w5/sources/report.json
+        module: ci.stages.rel.w5_sources
+        gates: [G4_rel_w5_sources]
+        side: eval
       w6_selftest:
         package: W6
         rule: rel_w6_selftest

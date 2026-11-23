@@ -56,6 +56,8 @@ def test_tables_of_version_1(runs, monkeypatch):
     doc, run_dir = r["doc"], r["run_dir"]
     assert handoff.tableset_problems(doc, run_dir) == [] and doc["table_version"] == V1.TABLE_VERSION and doc["sealed_check"]["passed"]
     assert {k: v["tables"] for k, v in doc["parts"].items()} == dict(train=36, heldout=24) and "not_for_training" not in doc
+    t = doc["parts"]["train"]["targets"]
+    assert t["tables"] == 36 and 0 < t["distinct"] <= 36 and t["max_times"] >= 1
     roles = {os.path.basename(f["path"]).split(".")[1]: f["role"] for f in doc["files"] if f["path"].endswith(".npy")}
     assert roles["genome_of_row"] == "shard" and roles["row_gene"] == "meta" and roles["row_first"] == "meta" and roles["tok"] == "shard"
     with open(os.path.join(run_dir, doc["index"])) as f:

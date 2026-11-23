@@ -171,3 +171,25 @@ def test_placement_keeps_collinear_alignments_and_drops_the_rest():
     assert q.tolist() == list(range(4, 15)) + list(range(19, 25)) and t.tolist() == list(range(19, 30)) + list(range(39, 45))
     q2, t2, _ = V1.placement(hits, 8, 100)                              # only the query columns inside the frame
     assert q2.tolist() == list(range(4, 8)) and t2.tolist() == list(range(19, 23))
+
+
+def test_a_gene_is_the_target_again_only_after_every_gene_of_its_genome(setup, tmp_path):
+    genomes = setup["genomes"]
+    plan = V1.plan_set(genomes, GROUPS, "train", 30, 11)
+    assert len(plan) == 4 and all(plan[3][t] == sum(1 for u in range(t) if plan[0][u] == plan[0][t]) for t in range(len(plan[0])))
+    shards, _ = V1.build_set(setup["builder"], GROUPS, "train", plan, str(tmp_path / "t"), shard_tables=50, seed=11, processes=2)
+    gene = np.concatenate([np.load(os.path.join(tmp_path, "t", "%s.gene.npy" % n))[:, V1.TARGET] for n, _ in shards])
+    gid = {g["id"]: i for i, g in enumerate(genomes)}
+    for g in set(plan[0]):
+        a = setup["arrays"][g]
+        ok = {int(j) for j in np.flatnonzero(np.diff(a.coff) > 0)}
+        mine = [int(gene[t]) for t in range(len(plan[0])) if plan[0][t] == g]       # in the order of the plan
+        n = len(ok)
+        for x in range(0, len(mine), n):
+            chunk = mine[x:x + n]
+            assert len(set(chunk)) == len(chunk) and set(chunk) <= ok              # no repeat inside one pass over the genome
+        assert set(mine[:n]) == (ok if len(mine) >= n else set(mine[:n]))
+    del gid
+    again = V1.build_set(setup["builder"], GROUPS, "train", plan, str(tmp_path / "u"), shard_tables=50, seed=11, processes=1)[0]
+    g2 = np.concatenate([np.load(os.path.join(tmp_path, "u", "%s.gene.npy" % n))[:, V1.TARGET] for n, _ in again])
+    assert np.array_equal(gene, g2)

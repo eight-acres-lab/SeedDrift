@@ -98,10 +98,51 @@ def v1_tables(n_tables, rows=8, seed=0, split=0):
     return out
 
 
+class FakeIndex:
+    """The interface of package W2's index of the uncapped search (pairs, tgene, alignments), holding given alignments
+    (as package W3's test of the online frame layout has it; here without pytest, for the model interpreter)."""
+
+    def __init__(self):
+        self.store, self.t = {}, []
+
+    def add(self, qg, tg, qi, ti, hsps):
+        self.store.setdefault((qg, tg, qi), []).append(len(self.t))
+        self.t.append((ti, hsps))
+
+    def pairs(self, qg, tg, qi):
+        return list(self.store.get((qg, tg, qi), []))
+
+    def tgene(self, p):
+        return self.t[p][0]
+
+    def alignments(self, p):
+        return self.t[p][1]
+
+
+def to_hsp(col, qf, tf):
+    """One alignment (qs, qe, ss, se, cigar), 1-based in the two genes, of the pairs col[j] = query position (-1 none)
+    of target position j, shifted by the stretches' first codons qf and tf."""
+    pairs = [(int(c), j) for j, c in enumerate(col) if c >= 0]
+    ops, (pq, pt) = [], pairs[0]
+    run = 1
+    for q, t in pairs[1:]:
+        dq, dt = q - pq - 1, t - pt - 1
+        if dq or dt:
+            ops.append(b"%dM" % run)
+            run = 0
+            if dq:
+                ops.append(b"%dI" % dq)
+            if dt:
+                ops.append(b"%dD" % dt)
+        run += 1
+        pq, pt = q, t
+    ops.append(b"%dM" % run)
+    return (pairs[0][0] + qf + 1, pq + qf + 1, pairs[0][1] + tf + 1, pt + tf + 1, b"".join(ops))
+
+
 def frame_index_of(arrays, ix=None):
-    """An index of the interface of W2's search (package W3's test FakeIndex) holding, for every two rows of every
-    table, the alignment of their target-block stretches their stored columns imply (codons on one frame column)."""
-    from test_rel_w3_offline import FakeIndex, to_hsp
+    """A FakeIndex holding, for every two rows of every table, the alignment of their target-block stretches their
+    stored columns imply (codons on one frame column)."""
     ix = FakeIndex() if ix is None else ix
     b = A.N_BLOCKS - 1
     s = T.SLICES[b][1]

@@ -155,7 +155,8 @@ def test_leakfree_layout_trains():
     assert out["final_items"]["whole_gene@stored"] == out["final_items"]["whole_gene"]
     real_root = tempfile.mkdtemp()                                # outside probe mode a leak-free arm needs the strict offline rendering
     try:
-        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, max_steps=1, eval_first=4))
+        loop.fit(_config(real_root, kind=A.TABLE_REAL, probe=False, layout=A.LAYOUT_LEAKFREE, whole_gene_layout=A.LAYOUT_STORED, max_steps=1,
+                         eval_first=4))
     except SystemExit as err:
         assert "offline" in str(err)
     else:

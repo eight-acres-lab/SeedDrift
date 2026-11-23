@@ -43,7 +43,7 @@ def _trainer(ended_by="max_steps", preflight_fails=()):
         name, folder = c["name"], c["out"]
         if mode == "preflight":
             ok = name not in preflight_fails
-            pre = dict(ok=ok, params=1000, micro=4, lr=c["lr"], peak_mb=RESERVED[name] - 400, reserved_mb=RESERVED[name], cells_per_s=10.0,
+            pre = dict(ok=ok, params=1000, micro=int(c["micro"]), lr=c["lr"], peak_mb=RESERVED[name] - 400, reserved_mb=RESERVED[name], cells_per_s=10.0,
                        flops_per_cell=1, guard=dict(failed=not ok), error=None if ok else "the loss did not fall")
             with open(os.path.join(folder, "preflight.json"), "w") as f:
                 json.dump(pre, f)
@@ -121,3 +121,26 @@ def test_a_preflight_only_run_with_an_arm_not_preflighted_fails(tmp_path, monkey
 def test_the_budget_an_arm_must_reach(ended_by, budget, max_steps, ok):
     doc = dict(variants=[dict(name="a", status="ok", info=dict(ended_by=ended_by, budget_cells=budget))])
     assert (w6_fit.arm_problems(doc, dict(rel_w6_fit=dict(max_steps=max_steps))) == []) is ok
+
+
+def test_an_arm_may_lower_its_micro_batch(tmp_path, monkeypatch):
+    """rel_w6_fit.arms[].micro: the micro-batch an arm starts its preflight with, lowered from the variant's (the
+    programme lead's margin rule on a shared GPU); the trainer's configuration and the index carry it, and a micro-batch
+    above the variant's, below 1 or not a whole number is refused."""
+    from ci.stages.common import Stage as St
+    st0 = St.__new__(St)
+    block = dict(tables=dict(train=dict(run="/x/runs/a", path="data/rel_w2/v0/tableset.json", split=0),
+                             heldout=dict(run="/x/runs/a", path="data/rel_w2/v0/tableset.json", split=1)),
+                 arms=[dict(ARMS[0], micro=1), ARMS[1]])
+    s = w6_fit.settings(st0, dict(rel_w6_fit=block))
+    assert [a["micro"] for a in s["arms"]] == [1, None]
+    conf = w6_fit.trainer_conf(dict(git=dict(sha="0" * 40)), s, s["arms"][0], None, "/x", "/x/runs/r")
+    assert conf["micro"] == 1
+    assert w6_fit.trainer_conf(dict(git=dict(sha="0" * 40)), s, s["arms"][1], None, "/x", "/x/runs/r")["micro"] == int(s["arms"][1]["variant"].get("micro", 4))
+    for bad in (0, 8, 1.5, True, "1"):
+        with pytest.raises(SystemExit):
+            w6_fit.settings(st0, dict(rel_w6_fit=dict(block, arms=[dict(ARMS[0], micro=bad)])))
+    doc, g = _fit(tmp_path, monkeypatch, free_mb=80000, block=dict(arms=[dict(ARMS[0], micro=1), ARMS[1]]))
+    by = {v["name"]: v for v in doc["variants"]}
+    assert by["w6-ref30m-s1"]["info"]["micro"] == 1 and by["w6-ref30m-s1"]["info"]["micro_profile"] == 1
+    assert by["w6-ref10m-s1"]["info"]["micro_profile"] is None and g["status"] == "pass"

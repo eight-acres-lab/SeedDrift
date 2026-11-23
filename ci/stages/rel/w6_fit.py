@@ -7,9 +7,12 @@ Profile block rel_w6_fit:
   tables     train and heldout, each {run, path, sha256, split}: a table-set manifest (path, relative) of a passed run
              of this machine (run, its directory), the manifest's sha256 when it is to be pinned, and the metadata
              split to take (0 train, 1 held out; omitted: every table). Both may name the same manifest.
-  arms       [{variant, seed, budget_cells, lr}]: a variant file (configs/rel/variants/<author>-<name>.yaml), a seed, and
-             optionally a budget in cells seen (without it the wall limit is the budget) and a peak learning rate that
-             replaces the variant's. The arm is <name>-s<seed>.
+  arms       [{variant, seed, budget_cells, lr, micro}]: a variant file (configs/rel/variants/<author>-<name>.yaml), a seed, and
+             optionally a budget in cells seen (without it the wall limit is the budget), a peak learning rate that
+             replaces the variant's, and a micro-batch (tables per micro-batch, 1 to the variant's) that replaces the
+             variant's: the tables per step stay the same, only fewer are run at once (less GPU memory; the programme
+             lead's margin rule of 2026-11-23 on a shared GPU). The micro-batch trained with is in the rows and the index.
+             The arm is <name>-s<seed>.
   wall_s     wall-clock limit of one training, its evaluations included (default 16200); a training ends in the
              normal way at its budget or at this limit, whichever comes first
   probe      true: only tables that are not real, no checkpoint kept (default false: only real tables)
@@ -132,14 +135,17 @@ def settings(st, cfg) -> dict:
             raise SystemExit("rel_w6_fit.tables.%s: run, path, and optionally sha256 and split (0 or 1): %r" % (which, t))
         out["tables"][which] = dict(run=str(t["run"]), path=str(t["path"]), sha256=t.get("sha256"), split=t.get("split"))
     for a in sc["arms"]:
-        if set(a) - {"variant", "seed", "budget_cells", "lr"} or not a.get("variant") or "seed" not in a:
-            raise SystemExit("rel_w6_fit.arms: each has a variant file and a seed, and optionally budget_cells and lr: %r" % (a,))
+        if set(a) - {"variant", "seed", "budget_cells", "lr", "micro"} or not a.get("variant") or "seed" not in a:
+            raise SystemExit("rel_w6_fit.arms: each has a variant file and a seed, and optionally budget_cells, lr and micro: %r" % (a,))
         v = load_variant(st, a["variant"])
         lr = float(a["lr"]) if a.get("lr") is not None else float(v["optimizer"]["lr"])
         if not 0 < lr < 0.1:
             raise SystemExit("rel_w6_fit.arms: a peak learning rate in (0, 0.1): %r" % (a,))
+        micro = a.get("micro")
+        if micro is not None and (isinstance(micro, bool) or not isinstance(micro, int) or not 1 <= micro <= int(v.get("micro", 4))):
+            raise SystemExit("rel_w6_fit.arms: a micro-batch from 1 to the variant's (%s): %r" % (v.get("micro", 4), a))
         out["arms"].append(dict(name="%s-s%d" % (v["name"], int(a["seed"])), file=str(a["variant"]), sha256=sha256_file(st.repo(a["variant"]), use_sidecar=False),
-                                seed=int(a["seed"]), budget_cells=int(a["budget_cells"]) if a.get("budget_cells") else None, lr=lr, variant=v))
+                                seed=int(a["seed"]), budget_cells=int(a["budget_cells"]) if a.get("budget_cells") else None, lr=lr, micro=micro, variant=v))
     names = [a["name"] for a in out["arms"]]
     if len(set(names)) != len(names):
         raise SystemExit("rel_w6_fit.arms: an arm (variant and seed) is listed twice: %s" % names)
@@ -177,7 +183,7 @@ def trainer_conf(cfg, s, arm, sets, folder, run_dir) -> dict:
     tc = cfg.get("train") or {}
     conf = dict(name=arm["name"], author=v["author"], api=v["api"], model=v["model"], size=v["size"], objective=v["objective"], masks=v["masks"],
                 mask_weights=v.get("mask_weights"), layout=v["layout"], whole_gene_layout=v.get("whole_gene_layout"), rows=v["rows"], columns=v["columns"], relatives=bool(v["relatives"]),
-                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
+                lr=arm["lr"], gpu_mb=v["gpu_mb"], micro=int(arm.get("micro") or v.get("micro", 4)), alone_share=v.get("alone_share"), seed=arm["seed"], budget_cells=arm["budget_cells"],
                 wall_s=s["wall_s"], probe=s["probe"], threads=s["threads"], device="cpu" if tc.get("device") == "cpu" else "auto",
                 out=folder, run=os.path.basename(run_dir), commit=cfg["git"]["sha"],
                 group_names={str(k): v for k, v in ((sets or {}).get("heldout") or {}).get("row_groups", {}).items()})
@@ -344,6 +350,7 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
     for n, x in arms.items():
         a, pre, summ = x["arm"], x["preflight"], x.get("summary") or {}
         info = dict(seed=a["seed"], budget_cells=a["budget_cells"], params=pre.get("params"), flops_per_cell=pre.get("flops_per_cell"), micro=pre.get("micro"),
+                    micro_profile=a.get("micro"),
                     lr_peak=a["lr"], lr=pre.get("lr"), lr_reduced=pre.get("lr_reduced"),
                     preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory"),
                                    guard=pre.get("guard"), steps_per_s=pre.get("steps_per_s"), tables_per_s=pre.get("tables_per_s"),

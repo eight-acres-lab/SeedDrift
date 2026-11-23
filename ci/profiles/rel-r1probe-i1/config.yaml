@@ -2,7 +2,8 @@
 # arm, 50 steps of the preflight each on the real tables of version 1 (finite loss, peak memory, tables per second,
 # the sampler's and the strict aligner's cost), each arm alone one after another (the stage preflights so; batch 1's
 # start needs the sum of their peaks x 1.1 + 6 GB free, the programme lead's rule of 2026-11-23), nothing trained.
-# The tables: the version-1 set of stage w12_v1 on the combined search 20261123T061001 (201,600 training tables) and
+# The batch-1 arms at micro-batches of 1 table (arms[].micro): at the variants' 2 they did not fit beside another user's
+# processes (run 20261123T130420, 2026-11-23). The tables: the version-1 set of stage w12_v1 on the combined search 20261123T061001 (201,600 training tables) and
 # the strict offline rendering of its held-out set. CI 0.6, round 1's foundation. Development diagnosis only.
 pipeline: rel_traineval
 tier: medium
@@ -29,9 +30,9 @@ rel_w6_fit:
     heldout: {run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 1}
     heldout_offline: {run: /hy-tmp/seeddrift-ci/runs/20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json, sha256: 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496}
   arms:
-    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 2}
-    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 3}
-    - {variant: configs/rel/variants/w6-ref30m-norel-v1.yaml, seed: 2}
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 2, micro: 1}
+    - {variant: configs/rel/variants/w6-ref30m-v1.yaml, seed: 3, micro: 1}
+    - {variant: configs/rel/variants/w6-ref30m-norel-v1.yaml, seed: 2, micro: 1}
     - {variant: configs/rel/variants/w6-ref100m-v1.yaml, seed: 1}
   preflight_only: true           # round 1's probe: every arm preflighted on the real tables, nothing trained, no checkpoint
   preflight_steps: 50

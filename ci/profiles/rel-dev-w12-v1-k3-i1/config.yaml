@@ -4,7 +4,9 @@
 # itself less; each genome's target genes in a shuffled order, a gene again only after all of its genome's), held-out
 # tables 250 per group, and the island set's tables (the 24 development chromosomes as row 0, never for training).
 # 32 rows, 8 processes; about 45 GB of training tables (110,919 bytes each), about 0.5-1.5 hours. Never beside a
-# search on the same machine. CPU only (the select lock). Development diagnosis only.
+# search on the same machine. The training set also carries the pairs of the search's index that the online frame
+# layout reads (frame_index: all, about 10 GB), so i-2 needs those, not the whole index (about 27 GB). CPU only (the
+# select lock). Development diagnosis only.
 pipeline: rel_tables
 needs_gpu: false
 tier: medium
@@ -28,6 +30,7 @@ rel_w12_v1:
   shard_tables: 2400
   processes: 8
   seed: 1
+  frame_index: all
 rel_w12_islands:
   search_from: /hy-tmp/seeddrift-ci/runs/20261123T061001-exp-rel-c8f59d82-rel-dev-w12-full-k3-i1
   expect: {train: 1093, heldout: 422, test: 257}

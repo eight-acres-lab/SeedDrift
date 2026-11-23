@@ -524,7 +524,10 @@ def test_parameter_count():
         reached = sum(p.numel() for p in model.parameters() if p.grad is not None)
         i = info(dict(layers=3, width=256, arm=arm, self_layers=2))
         assert reached == i["params_used"] == i["params"] - unused_parameters(256, 2), (arm, reached, i["params_used"])
+    for P_, L_, W_, R_ in ((28463681, 12, 384, 32), (1000, 2, 256, 1)):           # the contract's formula, the reference arm's:
+        assert flops_per_cell(P_, L_, W_, 0, R_) == A.flops_per_cell(P_, L_, W_, A.ROW_LEN + R_)   # with no own-row block, equal
     ref = AX.info("30m", rows=32)["flops_per_cell"]
+    assert ref == A.flops_per_cell(AX.info("30m")["params"], 12, 384, A.ROW_LEN + 32)
     for name in ("s1-30m", "s2-30m"):
         f = info(name, rows=32)["flops_per_cell"]
         assert 0.9 * ref < f < ref, (name, f, ref)                               # a little less than the reference trunk's

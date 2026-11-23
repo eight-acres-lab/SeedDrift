@@ -12,8 +12,8 @@ from ci.stages.rel import w6_fit
 from seeddrift.train.rel import registry
 
 FOLDER = os.path.join(ROOT, "configs", "rel", "variants")
-ARMS = {"w5-src30m-s1": "s1", "w5-src30m-s2": "s2"}
-REFERENCE = "w6-ref30m-leakfree-lr1.5e-4"
+ARMS = {"w5-src30m-s1": ("s1", "w6-ref30m-leakfree-lr1.5e-4"), "w5-src30m-s2": ("s2", "w6-ref30m-leakfree-lr1.5e-4"),    # tables of version 0
+        "w5-src30m-s1-v1": ("s1", "w6-ref30m-v1"), "w5-src30m-s2-v1": ("s2", "w6-ref30m-v1")}                        # round 1
 SOURCE = os.path.join(ROOT, "seeddrift", "train", "rel", "models", "source.py")
 
 
@@ -32,8 +32,8 @@ def _module_constant(name):
 
 def test_variants_load_and_follow_the_reference_arm():
     st = Stage.__new__(Stage)
-    ref = _load(REFERENCE)
-    for name, arm in ARMS.items():
+    for name, (arm, reference) in ARMS.items():
+        ref = _load(reference)
         v = w6_fit.load_variant(st, "configs/rel/variants/%s.yaml" % name)
         assert v["name"] == name and v["author"] == "w5" and v["model"] == "source" and "source" in registry.available("model")
         rest = {k: x for k, x in v.items() if k not in ("name", "author", "model", "size", "gpu_mb")}

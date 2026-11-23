@@ -1,4 +1,4 @@
-# Machine i-1: the event registry drafts of the relational-model line (the sample, batch 2 and batch 3) checked on the server (stage w15_registry,
+# Machine i-1: the event registry drafts of the relational-model line (the sample and batches 2 to 4) checked on the server (stage w15_registry,
 # ci/stages/rel/w15_registry.py; package W15). No model output and no score is read. The draft's own checks; every
 # exclusion taxon looked up in the run's NCBI taxdump; genomes inside each radius counted in the train and held-out
 # splits of round R3's training-data index (the sealed test split is never looked at); overlap with the sealed island
@@ -24,6 +24,7 @@ rel_w15_registry:
     - bench/rel/registry/events_v0.2-sample.tsv
     - bench/rel/registry/events_v0.2-batch2.tsv
     - bench/rel/registry/events_v0.2-batch3.tsv
+    - bench/rel/registry/events_v0.2-batch4.tsv
   source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
   fetch: true
   supplements:

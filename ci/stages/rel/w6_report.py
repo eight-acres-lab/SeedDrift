@@ -102,6 +102,23 @@ def held_units(conf, source):
     group = [names[int(g)] if int(g) < len(names) else str(int(g)) for g in np.asarray(held.group)]
     unit = [units.get(ids[k], ids[k]) if 0 <= k < len(ids) else "row0-%d" % i for i, k in enumerate(rows0)]
     return group, unit
+
+
+def held_strata(conf):
+    """{stratum label: bool per held-out table}: the evaluator's strata of the arm's held-out set (score.strata_of, with
+    the kinds of the rows where it reads them), as the trainer's evaluation forms them."""
+    import inspect
+    from seeddrift.train.rel.data import tables as T
+    held = T.open_split(conf["heldout_root"], conf["heldout_tables"], 1)
+    got = held.load(("kind", "identity"))
+    kind, identity = np.asarray(got["kind"]), np.asarray(got["identity"])
+    other = cond.present_rows(kind)[:, 1:].sum(axis=1)
+    strata = SC.strata_of(identity, other, kind) if "kind" in inspect.signature(SC.strata_of).parameters else SC.strata_of(identity, other)
+    out = {}
+    for labels, index in strata:
+        for k, lab in enumerate(labels):
+            out[lab] = np.asarray(index) == k
+    return out
 BLOCK_OF = getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
 BLOCKS = getattr(SC, "BLOCKS", ("eukaryotes", "prokaryotes, plasmids, viruses"))
 CAVEATS = [
@@ -130,9 +147,12 @@ CAVEATS = [
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
     unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs",
-                         "scale_exclude", "units_source"}
+                         "scale_exclude", "units_source", "threshold_floor", "worth_without"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
+    if str(sc.get("worth_without") or "lower") not in ("lower", "end"):
+        raise SystemExit("rel_w6_report.worth_without: lower (the arm without relatives at the lower of its best node and its end) or end "
+                         "(end against end, round 1's protocol), not %r" % sc.get("worth_without"))
     lr = sc.get("lr_check")
     if lr is not None and (set(lr) - {"small", "low", "high", "note"} or not all(lr.get(k) for k in ("small", "low", "high"))):
         raise SystemExit("rel_w6_report.lr_check: {small, low, high: arms; note: text}: %r" % (lr,))
@@ -154,7 +174,8 @@ def settings(cfg) -> dict:
                 passes=[str(a) for a in sc.get("passes") or []], notes=[str(x) for x in sc.get("notes") or []],
                 pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []],
                 scale_exclude=[str(a) for a in sc.get("scale_exclude") or []],
-                units_source=str(sc["units_source"]) if sc.get("units_source") else None)
+                units_source=str(sc["units_source"]) if sc.get("units_source") else None,
+                threshold_floor=float(sc.get("threshold_floor") or 0.0), worth_without=str(sc.get("worth_without") or "lower"))
 
 
 LR_CONCLUSIONS = {
@@ -249,7 +270,7 @@ def collect(st, run_dir, s):
     fits = own + [f for f in s["fits"] if not (os.path.realpath(f["run"]) == os.path.realpath(run_dir) and f["folder"] == FIT)]
     if not fits:
         raise SystemExit("rel_w6_report: no fit to report (this run trained nothing and rel_w6_report.fits names no run)")
-    rows, arms, sources, groups = [], {}, [], []
+    rows, arms, sources, groups, online = [], {}, [], [], {}
     for spec in fits:
         f, folder, label = spec["run"], spec["folder"], spec["label"]
         key = lambda name: name + (" @" + label if label else "")                                   # noqa: E731
@@ -258,6 +279,10 @@ def collect(st, run_dir, s):
         else:
             doc = index_of(f, os.path.join(folder, "models.json"), spec["accept"])
         for v in doc["variants"]:
+            if (v.get("info") or {}).get("render") == "online":          # the same final weights read online (w6_eval online_too)
+                if v.get("status") == "ok":
+                    online[key(v["name"][:-len(".online")])] = dict(folder=os.path.join(f, v["info"]["folder"]), run=os.path.basename(f))
+                continue
             pre = read_json(os.path.join(f, v["info"]["folder"], "preflight.json")) or {}
             node_items = {}
             try:                                                       # the digest of the cells the nodes scored (the same subset at every node)
@@ -302,7 +327,7 @@ def collect(st, run_dir, s):
             sub["digests"].update({c: x.get("sha256") for c, x in ((res.get("subset") or {}).get("items") or {}).items() if isinstance(x, dict)})
         sources.append(dict(run=os.path.basename(b["run"]), baselines=b["path"], sha256=sha256_file(p, use_sidecar=False), rows=len(got),
                             subset_rows=os.path.exists(q)))
-    return rows, arms, base, digests, sources, groups, sub
+    return rows, arms, base, digests, sources, groups, sub, online
 
 
 def point_of(r):
@@ -409,7 +434,7 @@ def scale_readings(rel, params, nodes, N, noise=None):
 
 def build(st, cfg, run_dir):
     s = settings(cfg)
-    rows, arms, base, digests, sources, groups, sub = collect(st, run_dir, s)
+    rows, arms, base, digests, sources, groups, sub, online = collect(st, run_dir, s)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     bits = index_rows(rows, arms, base)
@@ -490,9 +515,86 @@ def build(st, cfg, run_dir):
         if not at:
             return None
         u = at[-1] if t is None or t > at[-1] else max([v for v in at if v <= t] or at[:1])
-        return dict(bits=spread[(u, c, x)], node=u)
+        return dict(bits=max(spread[(u, c, x)], s["threshold_floor"]), node=u, seeds=spread[(u, c, x)])
     beyond = lambda d, n: None if d is None or n is None else ("beyond the seeds' difference" if abs(d) > n["bits"] else "cannot be read")   # noqa: E731
-    fmt_noise = lambda n: "%.3f (at %s tables)" % (n["bits"], "{:,}".format(n["node"])) if n else "none"                                    # noqa: E731
+    fmt_noise = lambda n: ("%.3f (at %s tables)" % (n["bits"], "{:,}".format(n["node"])) if n.get("seeds", n["bits"]) >= n["bits"] else      # noqa: E731
+                           "%.3f (the floor; the seeds' %.3f at %s tables)" % (n["bits"], n["seeds"], "{:,}".format(n["node"]))) if n else "none"
+    # the cells of an arm per held-out table, for paired intervals (the evaluator's intervals.paired_bootstrap)
+    cache = {}
+
+    def folder_with(a, name):
+        """The folder of arm a that holds `name`: its own (the run that read it last), else its training run's."""
+        base = os.path.basename(arms[a]["info"]["folder"])
+        for f in [os.path.join(arms[a]["run_dir"], arms[a]["info"]["folder"])] + [os.path.join(x["run"], FIT, base) for x in s["fits"]] + \
+                [os.path.join(run_dir, FIT, base)]:
+            if os.path.exists(os.path.join(f, name)):
+                return f
+        return None
+
+    def held_of(a):
+        """(group, unit, strata {label: bool per table}) of the held-out set arm a was read on; None without units_source."""
+        f = folder_with(a, "conf.json")
+        conf = read_json(os.path.join(f, "conf.json")) if f else None
+        if not conf or not s["units_source"]:
+            return None
+        key = conf.get("heldout_tables")
+        if key not in cache:
+            try:
+                group, unit = held_units(conf, s["units_source"])
+                cache[key] = (group, unit, held_strata(conf))
+            except (OSError, ValueError, KeyError, SystemExit):
+                cache[key] = None
+        return cache[key]
+
+    def table_cells(a, which, c):
+        """(bits summed per held-out table, cells per table) of arm a under condition c: which "final" or "best" (the
+        cells of its last evaluation, heldout_<which>.npz) or a node of tables seen (node_cells.npz)."""
+        cc = c.replace("+", "__")
+        if isinstance(which, int):
+            f = folder_with(a, NODE_CELLS)
+            if f is None:
+                return None
+            z = np.load(os.path.join(f, NODE_CELLS))
+            k = "t%d_%s" % (which, cc)
+            if k + "_bits" not in z:
+                return None
+            n = int(np.max(z["tables"])) + 1 if len(z["tables"]) else 0
+            bits_t, cells_t = np.zeros(n), np.zeros(n)
+            bits_t[z["tables"]], cells_t[z["tables"]] = z[k + "_bits"], z[k + "_cells"]
+            return bits_t, cells_t
+        f = folder_with(a, "heldout_%s.npz" % which)
+        if f is None:
+            return None
+        z = np.load(os.path.join(f, "heldout_%s.npz" % which))
+        if "bits_" + cc not in z:
+            return None
+        t = np.asarray(z["table_" + cc]).astype(np.int64)
+        n = int(t.max()) + 1 if len(t) else 0
+        return np.bincount(t, weights=np.asarray(z["bits_" + cc], dtype=np.float64), minlength=n), np.bincount(t, minlength=n).astype(np.float64)
+
+    def paired(a, wa, ca, b, wb, cb, x):
+        """The paired bootstrap of (b under cb at wb) minus (a under ca at wa) on the tables of stratum x both scored
+        on the same cells: {"all", block: dict(estimate, low, high, excludes_zero, ...)}, or None (and why)."""
+        try:
+            from seeddrift.train.rel.evalh import intervals as IV
+        except ImportError:
+            return None, "no intervals module of the evaluator"
+        h = held_of(a)
+        if h is None:
+            return None, "no split units (units_source)"
+        A, B = table_cells(a, wa, ca), table_cells(b, wb, cb)
+        if A is None or B is None:
+            return None, "no cells per table"
+        group, unit, strata = h
+        n = min(len(A[0]), len(B[0]), len(group))
+        keep = (A[1][:n] > 0) & (B[1][:n] > 0) & np.asarray(strata.get(x, np.ones(len(group), bool)))[:n]
+        if not keep.any():
+            return None, "no tables"
+        if not np.array_equal(A[1][:n][keep], B[1][:n][keep]):
+            return None, "not the same cells"
+        idx = np.flatnonzero(keep)
+        return IV.paired_bootstrap((B[0][:n] - A[0][:n])[idx], A[1][:n][idx], [group[k] for k in idx], [unit[k] for k in idx]), None
+    fmt_iv = lambda r: "%.3f to %.3f" % (r["low"], r["high"]) if r else ""                                                                     # noqa: E731
 
     # arms
     arm_rows = []
@@ -549,17 +651,29 @@ def build(st, cfg, run_dir):
                 # (the best node is chosen on the nodes' tables, the end is evaluated on all tables too)
                 at_best = lambda x, c=c: bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, x)) if has_best else None     # noqa: E731
                 at_end = lambda x, c=c: F(b, c + NO_REL, SC.ALL, x)                                                                      # noqa: E731
-                use_best = at_best(x0) is not None and (at_end(x0) is None or at_best(x0) <= at_end(x0))
+                use_best = at_best(x0) is not None and (at_end(x0) is None or at_best(x0) <= at_end(x0)) and s["worth_without"] != "end"
                 without = at_best if use_best else at_end
                 common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
                 last = common_nodes[-1] if common_nodes else None
                 worth_end = diff(without(x0), F(a, c, SC.ALL, x0))
                 worth_node = diff(N(b, last, c + NO_REL, SC.ALL, x0), N(a, last, c, SC.ALL, x0)) if last else None
                 n_end, n_node = noise(None, c, x0), (noise(last, c, x0) if last else None)
+                iv_end, why_end = paired(a, "final", c, b, ("best" if use_best else "final"), c + NO_REL, x0)
+                iv_node, why_node = paired(a, last, c, b, last, c + NO_REL, x0) if last else (None, "no common node")
+
+                def counts(worth, n, iv):
+                    if worth is None or n is None:
+                        return None
+                    above, excl = abs(worth) > n["bits"], bool(iv and iv["all"]["excludes_zero"])
+                    return ("counts: beyond the threshold, its interval excludes 0" if above and excl else
+                            "beyond the threshold only" if above else "its interval only" if excl else "cannot be read")
                 relatives.append(dict(with_relatives=a, without=b, condition=c, tables=x0, noise_end=n_end, reading_end=beyond(worth_end, n_end),
+                                      interval_end=iv_end, interval_end_why=why_end, interval_node=iv_node, interval_node_why=why_node,
+                                      counts_end=counts(worth_end, n_end, iv_end), counts_node=counts(worth_node, n_node, iv_node),
                                       noise_at_node=n_node, reading_at_node=beyond(worth_node, n_node),
                                       without_at=("best node (tables %s)" % best.get("tables_seen")) if use_best else
-                                      ("end (below its best node at tables %s)" % best.get("tables_seen") if has_best else "end"),
+                                      ("end (end against end)" if s["worth_without"] == "end" else
+                                       "end (below its best node at tables %s)" % best.get("tables_seen") if has_best else "end"),
                                       bits_without_best_node=at_best(x0), bits_without_end=at_end(x0),
                                       bits_without=without(x0), bits_with_end=F(a, c, SC.ALL, x0), worth=worth_end,
                                       same_model_rows_removed=diff(F(a, c + NO_REL, SC.ALL, x0), F(a, c, SC.ALL, x0)), node=last,
@@ -836,19 +950,109 @@ def build(st, cfg, run_dir):
            "test set, one of two, whose effect is small); then at the same node, on the tables of the nodes. The column "
            "'same model' removes the rows from the arm with relatives at evaluation. Then by bin of the nearest identity, without the bin of no "
            "other rows.", ""]
+    if s["worth_without"] == "end":
+        md += ["End against end (the protocol of round 1): the arm without relatives is read at its end; its best node is listed beside, "
+               "never read.", ""]
     md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth", "same model, rows removed",
-                    "last common node", "worth at that node"],
+                    "last common node", "worth at that node", "without at its best node (beside)"],
                    [[r["with_relatives"], r["without"], r["condition"], r["without_at"], r["bits_without"], r["bits_with_end"], r["worth"],
-                     r["same_model_rows_removed"], r["node"], r["worth_at_node"]] for r in relatives])
+                     r["same_model_rows_removed"], r["node"], r["worth_at_node"], r["bits_without_best_node"]] for r in relatives])
     if spread:
         md += ["", "Against the seeds' difference (on the same tables with a relative on the target block; at the end, the difference at the last "
                    "node the seeds all reached):", ""]
         md += md_table(["with", "without", "condition", "worth (end)", "seeds' difference", "reading", "worth at the node", "seeds' difference there", "reading"],
                        [[r["with_relatives"], r["without"], r["condition"], r["worth"], fmt_noise(r["noise_end"]), r["reading_end"], r["worth_at_node"],
                          fmt_noise(r["noise_at_node"]), r["reading_at_node"]] for r in relatives])
+    if any(r.get("interval_end") or r.get("interval_node") for r in relatives) or any(r.get("interval_end_why") for r in relatives):
+        md += ["", "With intervals (the protocol's rule: a difference counts only beyond its threshold and with its 95% interval excluding 0; a "
+                   "paired bootstrap over the held-out split units inside each group, 2,000 replicates, seed 20261123, on the cells both arms "
+                   "scored, the tables with a relative on the target block; the blocks apart):", ""]
+        rows_iv = []
+        for r in relatives:
+            ie, inn = r.get("interval_end") or {}, r.get("interval_node") or {}
+            rows_iv.append([r["with_relatives"], r["without"], r["condition"], r["worth"], fmt_iv(ie.get("all")) or r.get("interval_end_why") or "",
+                            "; ".join("%s %s" % (k, fmt_iv(v)) for k, v in ie.items() if k != "all"), r.get("counts_end") or "",
+                            r["worth_at_node"], fmt_iv(inn.get("all")) or r.get("interval_node_why") or "", r.get("counts_node") or ""])
+        md += md_table(["with", "without", "condition", "worth (end)", "95% interval (all)", "by block", "reading", "worth at the node",
+                        "95% interval there", "reading there"], rows_iv)
     for r in relatives:
         md += ["", "%s against %s, %s, by bin (end):" % (r["without"], r["with_relatives"], r["condition"]), ""]
         md += md_table(["nearest identity", "bits without", "bits with", "worth"], r["by_bin"])
+    # the online rendering of the nodes against the strict offline one: the same final weights, the same tables (w6_eval
+    # online_too), the difference and its paired interval, by the three relatives strata (the programme lead's ruling)
+    online_rows = []
+    for a, o in sorted(online.items()):
+        if a not in arms:
+            continue
+        sm = read_json(os.path.join(o["folder"], "summary.json")) or {}
+        h = held_of(a)
+        for c in sm.get("conditions") or []:
+            off_c, on_c = table_cells(a, "final", c), None
+            p_on = os.path.join(o["folder"], "heldout_final.npz")
+            if os.path.exists(p_on):
+                z = np.load(p_on)
+                cc = c.replace("+", "__")
+                if "bits_" + cc in z:
+                    t = np.asarray(z["table_" + cc]).astype(np.int64)
+                    n = int(t.max()) + 1 if len(t) else 0
+                    on_c = (np.bincount(t, weights=np.asarray(z["bits_" + cc], dtype=np.float64), minlength=n), np.bincount(t, minlength=n).astype(np.float64))
+            for x in [None] + list(getattr(SC, "RELATIVE_KINDS", ())):
+                why, iv = None, None
+                try:
+                    from seeddrift.train.rel.evalh import intervals as IV
+                except ImportError:
+                    IV, why = None, "no intervals module of the evaluator"
+                if off_c is None or on_c is None:
+                    why = why or "no cells per table"
+                elif h is None:
+                    why = why or "no split units (units_source)"
+                elif IV is not None:
+                    group, unit, strata = h
+                    n = min(len(off_c[0]), len(on_c[0]), len(group))
+                    keep = (off_c[1][:n] > 0) & (on_c[1][:n] > 0)
+                    if x is not None:
+                        keep &= np.asarray(strata.get(x, np.zeros(len(group), bool)))[:n]
+                    if not keep.any():
+                        why = "no tables"
+                    elif not np.array_equal(off_c[1][:n][keep], on_c[1][:n][keep]):
+                        why = "not the same cells"
+                    else:
+                        idx = np.flatnonzero(keep)
+                        iv = IV.paired_bootstrap((on_c[0][:n] - off_c[0][:n])[idx], off_c[1][:n][idx], [group[k] for k in idx], [unit[k] for k in idx])
+                xs = x or SC.ALL
+                online_rows.append([a, c, xs, F(a, c, SC.ALL, xs), (sm.get("final") or {}).get(c) if x is None else None,
+                                    iv["all"]["estimate"] if iv else None, fmt_iv(iv["all"]) if iv else why or "",
+                                    "; ".join("%s %s" % (k, fmt_iv(v)) for k, v in (iv or {}).items() if k != "all")])
+    if online_rows:
+        md += ["", "## The online rendering of the nodes against the strict offline rendering", "",
+               "The same final weights on the same held-out tables, rendered online (the leak-free renderer of the training and of the "
+               "nodes: the anchors of scattered and span are the stored pairs, aligned while the hidden residues were visible) and "
+               "strictly offline (package W3; the rendering every scored reading uses): online minus offline (negative: the online "
+               "rendering reads too low), with its paired interval, over all tables and by the relatives strata.", ""]
+        md += md_table(["arm", "condition", "tables", "bits offline", "bits online (all)", "online minus offline", "95% interval", "by block"],
+                       online_rows)
+    # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
+    shares_rows, tiers = [], {}
+    for a in names:
+        f = folder_with(a, "summary.json")
+        sm = (read_json(os.path.join(f, "summary.json")) or {}) if f else {}
+        for m, x in (sm.get("schemes") or {}).items():
+            shares_rows.append([a, m, x.get("tables"), x.get("target_cells"), x.get("cell_share"), x.get("loss_share"), x.get("bits_per_cell")])
+        if sm.get("frame_tiers"):
+            tiers[a] = sm["frame_tiers"]
+    if shares_rows:
+        md += ["", "## The mask schemes each arm trained on", "",
+               "Their realised shares of the target cells and of the training loss (the arms with and without relatives optimise different "
+               "mixtures), from every step of the training.", ""]
+        md += md_table(["arm", "scheme", "tables", "target cells", "share of the cells", "share of the loss", "bits per cell"], shares_rows)
+    if tiers:
+        labels = sorted({k for t in tiers.values() for w in t.values() for k in w}, key=lambda k: (k != "self_copy", k == "none", k))
+        md += ["", "## The whole gene's frame relative, by distance", "",
+               "The row the whole gene was laid on: in training, the frame relative of the rows drawn; in the evaluation, that of every "
+               "held-out table laid whole (self_copy: a row of the examined genome's own copies; tier_<t>: the row's distance tier; none: no "
+               "other row has a stretch in the target block).", ""]
+        md += md_table(["arm", "tables of"] + labels, [[a, w] + [tiers[a][w].get(k, 0) for k in labels] for a in tiers for w in ("train", "heldout")
+                                                       if w in tiers[a]])
     md += ["", "## Scale", ""]
     read_by = lambda r: "; ".join("%s: %s" % (k, " + ".join(v) if len(v) == len(levels[k]) and len(v) > 1 else "only " + ", ".join(v))   # noqa: E731
                                   for k, v in r["seeds_read"].items()) or ""

@@ -8,3 +8,10 @@ rule rel_w3_offline:
     input: "gates/pre.ok"
     output: "data/rel_w3/offline/tableset.json"
     shell: STAGE.format(name="rel.w3_offline")
+
+# w3_traincheck: W3's fourth validity test on the training's own renderings (strict, every mask scheme) of a sample of
+# the training tables, before a round trains on them (ci/stages/rel/w3_traincheck.py; numpy only)
+rule rel_w3_traincheck:
+    input: "gates/pre.ok"
+    output: "data/rel_w3/traincheck/report.json"
+    shell: STAGE.format(name="rel.w3_traincheck")

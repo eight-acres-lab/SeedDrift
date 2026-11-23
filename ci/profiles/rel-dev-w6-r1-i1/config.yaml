@@ -1,0 +1,58 @@
+# Machine i-1: the report of round 1's batch 1 (protocol round1, version 9; stage w6_report of package W6, alone): the arms
+# of run 20261123T144801 (ref30m-s2, ref30m-s3, norel30m; i-1 at once, micro-batches of 1 table) on tables of version 1,
+# read at the end on all 3,000 held-out tables of version 1 rendered strictly offline (run 20261123T220309, stage w6_eval:
+# final and best weights, the controls, the final weights again under the online rendering), beside the classical
+# baselines of package W5 on the same cells. The threshold is the two seeds' difference at their last common node, at
+# least 0.008 bits; what relatives are worth is read end against end on the tables with other-genome rows on the target
+# block, with paired intervals over the split units (the units of the training-data source of the search). Reads result
+# rows, model indexes, preflight records, the arms' steps.csv, node_cells.npz and their cells per table; CPU only.
+# Development diagnosis only. Run after the evaluation run has passed.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261123T144801-exp-rel-6bb5f500-rel-r1short-i1
+    - {run: /hy-tmp/seeddrift-ci/runs/20261123T220309-exp-rel-7c02795e-rel-r1eval-i1, folder: data/rel_w6/eval}
+  seeds: [[w6-ref30m-v1-s2, w6-ref30m-v1-s3]]
+  threshold_floor: 0.008
+  worth_without: end
+  units_source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  passes: [w6-ref30m-v1-s2, w6-ref30m-v1-s3]
+  notes:
+    - >-
+      The readings that count are those at the end, on all 3,000 held-out tables rendered strictly offline (package W3).
+      The nodes are rendered online (rows leakfree-online): the anchors of scattered and span are the stored pairs,
+      aligned while the hidden residues were visible, so the nodes read scattered and span too low; the node curves
+      compare arms with one another only, never with the end. The section on the two renderings gives the difference on
+      the same final weights and tables.
+    - >-
+      The arms trained on that online rendering for scattered and span, slightly leaky inputs; the whole gene was laid on
+      its frame relative by W3's strict aligner after the rows were drawn, the evaluation's own layout. From round 1's
+      third batch on, scattered and span train on the strict rendering (protocol round1, version 9).
+    - >-
+      What relatives are worth is read end against end on the strict offline rendering, the arm without relatives at its
+      final weights (its best node listed beside, never read); the readings at the nodes are listed too and read too high
+      (the online rendering of the arm with relatives). The best weights were picked on the online curve and scored on
+      all 3,000 tables strictly offline.
+    - >-
+      Batch 1 trained the three arms at once on i-1 at micro-batches of 1 table (the margin rule of the protocol, version
+      6), four tables per step: ref30m-s2 and ref30m-s3 saw about 94,000 tables (0.46 passes over the 201,600 training
+      tables), norel30m 167,028 (0.83 passes). Below 2.5 passes the over-fitting reading is "not reached", never "no
+      over-fitting".
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261123T221348-exp-rel-7c02795e-rel-dev-w5-baselines-v1-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

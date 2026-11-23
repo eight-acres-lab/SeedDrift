@@ -531,6 +531,17 @@ def build(st, cfg, run_dir):
                 return f
         return None
 
+    def training_summary(a):
+        """The summary the arm's training wrote (its mask schemes, frame relatives, ...): the first summary.json of its
+        folders that has them; {} without."""
+        base = os.path.basename(arms[a]["info"]["folder"])
+        for f in [os.path.join(arms[a]["run_dir"], arms[a]["info"]["folder"])] + [os.path.join(x["run"], FIT, base) for x in s["fits"]] + \
+                [os.path.join(run_dir, FIT, base)]:
+            sm = read_json(os.path.join(f, "summary.json")) or {}
+            if sm.get("schemes") or sm.get("frame_tiers"):
+                return sm
+        return {}
+
     def held_of(a):
         """(group, unit, strata {label: bool per table}) of the held-out set arm a was read on; None without units_source."""
         f = folder_with(a, "conf.json")
@@ -802,8 +813,8 @@ def build(st, cfg, run_dir):
         None (the reason in iv_why) without the trainer's node_cells.npz, the units' source or the evaluator's intervals."""
         if a not in iv_cache:
             iv_cache[a] = None
-            folder = os.path.join(arms[a]["run_dir"], FIT, os.path.basename(arms[a]["info"]["folder"]))
-            if not os.path.exists(os.path.join(folder, NODE_CELLS)):
+            folder = folder_with(a, NODE_CELLS)                        # the training run's folder (an evaluation again has none)
+            if folder is None:
                 iv_why[a] = "no bits per table at the nodes (trained before node_cells.npz)"
                 return None
             if not s["units_source"]:
@@ -840,7 +851,7 @@ def build(st, cfg, run_dir):
         tt = arms[a]["train_tables"] or 0
         steps = []
         try:
-            with open(os.path.join(arms[a]["run_dir"], FIT, os.path.basename(arms[a]["info"]["folder"]), "steps.csv")) as fh:
+            with open(os.path.join(folder_with(a, "steps.csv") or os.devnull + ".none", "steps.csv")) as fh:
                 head = fh.readline().strip().split(",")
                 ti, li = head.index("tables_seen"), head.index("loss_bits")
                 steps = [(int(x[ti]), float(x[li])) for x in (line.strip().split(",") for line in fh) if len(x) > li]
@@ -1034,8 +1045,7 @@ def build(st, cfg, run_dir):
     # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
     shares_rows, tiers = [], {}
     for a in names:
-        f = folder_with(a, "summary.json")
-        sm = (read_json(os.path.join(f, "summary.json")) or {}) if f else {}
+        sm = training_summary(a)                                       # the training's own summary (an evaluation again writes another)
         for m, x in (sm.get("schemes") or {}).items():
             shares_rows.append([a, m, x.get("tables"), x.get("target_cells"), x.get("cell_share"), x.get("loss_share"), x.get("bits_per_cell")])
         if sm.get("frame_tiers"):

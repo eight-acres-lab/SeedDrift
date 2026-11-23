@@ -339,3 +339,12 @@ def test_layers_shares_and_the_two_verdicts_of_protocol_w18_v3():
     worse = [dict(r, lo=-0.1) if r["score"] == "abstain" else r for r in shares]                  # abstention not below a control
     w = {x["block"]: x for x in R.verdicts(stats, [dict(r, hi=0.2) if r["score"] == "abstain" else r for r in worse], ["a"])}
     assert w["eukaryotes"]["verdict"] == R.NOT_SHOWN and w["eukaryotes"]["failed"] == ["abstention"]
+
+
+def test_the_status_line_names_the_tables_and_the_rendering():
+    from ci.stages.rel import w18_readout as RO
+    assert RO.status_of(True, None, 1) == RO.STATUS_V3
+    a = RO.status_of(False, 16, 1)
+    assert a.startswith("ADAPTED") and "version 0 (rows chosen" not in a and a.endswith(RO.TAIL)
+    assert RO.status_of(False, 16, 0).endswith(RO.STATUS) and RO.status_of(False, None, 0) == RO.STATUS
+    assert "stored layout" in RO.status_of(False, None, 1) and "version 1" in RO.status_of(False, None, 1)

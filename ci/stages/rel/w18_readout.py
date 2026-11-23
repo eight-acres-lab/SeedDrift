@@ -87,6 +87,21 @@ EVAL_COLS = ("strict offline (leak-free)", "stored")
 TWO_SCORES = ("gain_rel_aa", "source_shift_aa", "gain_aa")
 
 
+TAIL = "A ruler, not a transfer label: these numbers choose no arm, head, threshold, readout or node."
+STORED_V1 = ("implant tables of version 1 under the stored layout, which places relatives by the hidden residues: a diagnosis or the "
+             "stored column of protocol w18-v3's 2 x 2 table, never the counting reading. Construct only.")
+
+
+def status_of(strict, adapt, version):
+    """The page's status line: the counting reading (strict), an adapted diagnosis, the stored layout on tables of
+    version 1, or the preliminary reading of version 0."""
+    if strict:
+        return STATUS_V3
+    if adapt:
+        return (ADAPTED % int(adapt)) + " " + ((STORED_V1 + " " + TAIL) if version else STATUS)
+    return (STORED_V1 + " " + TAIL) if version else STATUS
+
+
 def cell_of(rep):
     """(training layout, evaluation layout) of a reading: adapted arms were trained on tables of version 0 under the
     stored layout, the others are round 1's (version 1, leak-free); the evaluation layout is the reading's rendering."""
@@ -330,7 +345,7 @@ def build(st, cfg, run_dir):
     write_rows(dp, defined)
     write_rows(cp, cover)
     write_rows(kp, shares)
-    status = (STATUS_V3 if strict else STATUS) if not adapt else (ADAPTED % int(adapt)) + " " + STATUS
+    status = status_of(strict, adapt, int(doc.get("tables_of_version", 0)))
     rep = dict(format="rel-w18-readout", version=3, protocol="w18-v3" if strict else "w18-v0", status=status, adapt_v0=adapt, layout=lay,
                run=os.path.basename(run_dir), commit=cfg["git"]["sha"], verdicts=verdict, layers=list(R.LAYERS),
                layer_triples={name: int(((tr.layer == name) & pops[("in_place", "on")]).sum()) for name in R.LAYERS},
@@ -416,7 +431,9 @@ def _table(rows, block, scenario, rule9, statistic, comparison, tiers, expectati
 def criterion_md(rep):
     """Protocol w18-v3's two verdicts, per arm with relatives and block (never pooled)."""
     lay = rep.get("layout") or {}
-    md = ["## Criterion (protocol w18-v3): do the readouts see the relatives?", "",
+    head = ("## Criterion (protocol w18-v3): do the readouts see the relatives?" if rep.get("protocol") == "w18-v3" else
+            "## Protocol w18-v3's criterion applied to this reading (a diagnosis, not the counting reading)")
+    md = [head, "",
           "Read once, in place, rule 9 on, the triples with other-genome rows on the target (%d of them in place, rule 9 off included in the count of "
           "the layer below). Every part compares the arm with controls that share its tables, masks and cells: the untrained model (no learning, "
           "no content) and the arm's own presence passes (the relatives' pattern without their content). Parts: the defined share of the source "

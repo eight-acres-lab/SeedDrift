@@ -304,3 +304,25 @@ def test_source_checks_fail(built, monkeypatch, tmp_path):
         w2_v0.source(src)
     idx = os.path.join(built["src"], "data", "train_data", "index.json")
     assert V.sha256_of(idx) == sha256_file(idx, use_sidecar=False)
+
+
+def test_the_use_of_targets_of_version_0_is_reported(built, monkeypatch):
+    """Stage w12_tstats on a set of version 0 (package W12): per group the genomes of the part, the genes that can be a
+    target and how often they are used, the source run read from the set's index."""
+    from ci.stages.rel import w12_tstats as WT
+    patch(monkeypatch, built["tmp"])
+    rp = os.path.join(built["run_dir"], "record.json")
+    with open(rp) as f:
+        rec = json.load(f)
+    with open(rp, "w") as f:
+        json.dump(dict(rec, status="passed"), f)
+    run_dir, cfg = RF.rel_run(built["tmp"], stages=("w2_v0",), run_id="20261124T000009-tstats0", rel_w12_tstats=dict(tables_from=built["run_dir"], which="v0"))
+    with Stage(run_dir, "rel_w12_tstats") as st:
+        rep = WT.build(st, cfg, run_dir)
+    train = [m for m in built["metas"] if m["split"] == "train" and m["id"] != LEFT_OUT]
+    for g in TINY:
+        d = rep["parts"]["train"]["by_group"][g]
+        assert d["genomes"] == sum(1 for m in train if m["group"] == g) and d["tables"] == 6 and d["targetable_genes"] > 0
+    assert rep["parts"]["train"]["by_group"]["all"]["genomes"] == len(train) and rep["parts"]["train"]["sampling"] == "genome"
+    with Stage(run_dir, "gates_rel_w12_tstats") as st:
+        WT.gate(st, cfg, run_dir)

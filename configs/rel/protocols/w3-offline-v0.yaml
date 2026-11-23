@@ -1,7 +1,7 @@
 # Protocol w3-offline-v0: the strict offline rendering of evaluation items under the leak-free layout (package W3).
 # Committed 2026-11-22 by the programme lead.
 name: w3-offline-v0
-version: 1
+version: 2
 what: >
   Evaluation items are rendered offline so that no input depends on a hidden residue: the hidden residues are replaced
   by "unknown" and the blocks of row 0 that hold hidden cells are aligned again; the online renderer used in training is
@@ -24,3 +24,4 @@ controls_after_placement:
   column_shuffle: one permutation per block shared by every other row except the frame row (only the correspondence to row 0 is broken)
   presence_only: every residue cell of the other rows shown as MASK
 training_round_1b: scattered and span samples fully leak-free; whole-gene samples keep the stored layout, labelled
+training_round_1: every scheme leak-free; the whole gene placed on the frame relative with the strict aligner above (tables/align.py frame_layout), the same function the evaluation uses (protocol round1, 2026-11-23)

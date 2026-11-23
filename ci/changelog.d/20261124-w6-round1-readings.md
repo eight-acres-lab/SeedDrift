@@ -13,3 +13,6 @@
   variant too; no controls, no best), and the report sets the online reading against the strict offline one: the
   difference and its paired interval over all tables and by the relatives strata (the programme lead's ruling of
   2026-11-24: the nodes' online rendering of scattered and span reads too low).
+- `rel_w6_report.worth_without: end` (round 1): what relatives are worth is read end against end, the arm without
+  relatives at its end (its best node listed beside, never read); `lower` (the default, earlier rounds): the lower of its
+  best node and its end.

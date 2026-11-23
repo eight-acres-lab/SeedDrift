@@ -147,9 +147,12 @@ CAVEATS = [
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
     unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs",
-                         "scale_exclude", "units_source", "threshold_floor"}
+                         "scale_exclude", "units_source", "threshold_floor", "worth_without"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
+    if str(sc.get("worth_without") or "lower") not in ("lower", "end"):
+        raise SystemExit("rel_w6_report.worth_without: lower (the arm without relatives at the lower of its best node and its end) or end "
+                         "(end against end, round 1's protocol), not %r" % sc.get("worth_without"))
     lr = sc.get("lr_check")
     if lr is not None and (set(lr) - {"small", "low", "high", "note"} or not all(lr.get(k) for k in ("small", "low", "high"))):
         raise SystemExit("rel_w6_report.lr_check: {small, low, high: arms; note: text}: %r" % (lr,))
@@ -172,7 +175,7 @@ def settings(cfg) -> dict:
                 pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []],
                 scale_exclude=[str(a) for a in sc.get("scale_exclude") or []],
                 units_source=str(sc["units_source"]) if sc.get("units_source") else None,
-                threshold_floor=float(sc.get("threshold_floor") or 0.0))
+                threshold_floor=float(sc.get("threshold_floor") or 0.0), worth_without=str(sc.get("worth_without") or "lower"))
 
 
 LR_CONCLUSIONS = {
@@ -648,7 +651,7 @@ def build(st, cfg, run_dir):
                 # (the best node is chosen on the nodes' tables, the end is evaluated on all tables too)
                 at_best = lambda x, c=c: bits.get((b, "best", best.get("tables_seen"), c + NO_REL, SC.ALL, x)) if has_best else None     # noqa: E731
                 at_end = lambda x, c=c: F(b, c + NO_REL, SC.ALL, x)                                                                      # noqa: E731
-                use_best = at_best(x0) is not None and (at_end(x0) is None or at_best(x0) <= at_end(x0))
+                use_best = at_best(x0) is not None and (at_end(x0) is None or at_best(x0) <= at_end(x0)) and s["worth_without"] != "end"
                 without = at_best if use_best else at_end
                 common_nodes = sorted(set(nodes.get(a, [])) & set(nodes.get(b, [])) - {0})
                 last = common_nodes[-1] if common_nodes else None
@@ -669,7 +672,8 @@ def build(st, cfg, run_dir):
                                       counts_end=counts(worth_end, n_end, iv_end), counts_node=counts(worth_node, n_node, iv_node),
                                       noise_at_node=n_node, reading_at_node=beyond(worth_node, n_node),
                                       without_at=("best node (tables %s)" % best.get("tables_seen")) if use_best else
-                                      ("end (below its best node at tables %s)" % best.get("tables_seen") if has_best else "end"),
+                                      ("end (end against end)" if s["worth_without"] == "end" else
+                                       "end (below its best node at tables %s)" % best.get("tables_seen") if has_best else "end"),
                                       bits_without_best_node=at_best(x0), bits_without_end=at_end(x0),
                                       bits_without=without(x0), bits_with_end=F(a, c, SC.ALL, x0), worth=worth_end,
                                       same_model_rows_removed=diff(F(a, c + NO_REL, SC.ALL, x0), F(a, c, SC.ALL, x0)), node=last,
@@ -946,10 +950,13 @@ def build(st, cfg, run_dir):
            "test set, one of two, whose effect is small); then at the same node, on the tables of the nodes. The column "
            "'same model' removes the rows from the arm with relatives at evaluation. Then by bin of the nearest identity, without the bin of no "
            "other rows.", ""]
+    if s["worth_without"] == "end":
+        md += ["End against end (the protocol of round 1): the arm without relatives is read at its end; its best node is listed beside, "
+               "never read.", ""]
     md += md_table(["with", "without", "condition", "without read at", "bits without", "bits with (end)", "worth", "same model, rows removed",
-                    "last common node", "worth at that node"],
+                    "last common node", "worth at that node", "without at its best node (beside)"],
                    [[r["with_relatives"], r["without"], r["condition"], r["without_at"], r["bits_without"], r["bits_with_end"], r["worth"],
-                     r["same_model_rows_removed"], r["node"], r["worth_at_node"]] for r in relatives])
+                     r["same_model_rows_removed"], r["node"], r["worth_at_node"], r["bits_without_best_node"]] for r in relatives])
     if spread:
         md += ["", "Against the seeds' difference (on the same tables with a relative on the target block; at the end, the difference at the last "
                    "node the seeds all reached):", ""]

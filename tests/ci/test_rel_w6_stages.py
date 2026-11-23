@@ -563,6 +563,14 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     assert r["counts_end"] == "counts: beyond the threshold, its interval excludes 0"
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "1.500 to 2.500" in text and "the floor; the seeds' 0.001" in text
+    # end against end (round 1): the arm without relatives read at its end whatever its best node, the best listed beside
+    os.remove(os.path.join(fit, "w6-ref30m-norel-s1", "heldout_best.npz"))
+    seen.clear()
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(cfg["rel_w6_report"], worth_without="end")), run_dir)
+    r = next(x for x in rep["relatives"] if x["with_relatives"] == "w6-ref30m-s1" and x["condition"] == cond.SCATTERED)
+    assert r["without_at"] == "end (end against end)" and abs(r["bits_without"] - r["bits_without_end"]) < 1e-12 and seen      # final cells only
+    with pytest.raises(SystemExit):
+        w6_report.settings(dict(rel_w6_report=dict(worth_without="best")))
     assert "## The mask schemes each arm trained on" in text and "## The whole gene's frame relative, by distance" in text
 
 

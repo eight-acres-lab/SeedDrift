@@ -1,0 +1,14 @@
+package: W5
+kind: to_package
+to: C0
+what: >-
+  register stage w5_sources under kind rel_traineval in configs/rel/kinds.yaml (package W5, rule rel_w5_sources,
+  output data/rel_w5/sources/report.json, module ci.stages.rel.w5_sources, gates [G4_rel_w5_sources], side eval; the
+  entry is in the package's commit, for the coordinator to keep or redo), then start profile rel-dev-w5-sources-i1 on
+  i-1 under the select lock, below the training of round 1's first batch
+why: >-
+  the programme lead (2026-11-23) approved the readout of the early D7 comparison: what arms S1 and S2 take from their
+  sources (lambda, the levels, the entropy, the weight of no source), beside the reference arm's gain from relatives by
+  identity; delivered before 2026-11-25. CPU only, nothing trained, no model code changed
+size: {hours: 1.5, threads: 4, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-24

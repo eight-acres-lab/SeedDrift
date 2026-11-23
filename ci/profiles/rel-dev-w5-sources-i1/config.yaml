@@ -1,0 +1,37 @@
+# Machine i-1: what arms S1 and S2 of decision D7 take from their sources (stage w5_sources, package W5), read with the
+# final weights of the early comparison on tables of version 0 (S1 and S2: run 20261123T110619; the reference arm's
+# result rows: run 20261123T122356), on the 600 held-out tables of their final evaluation: scattered on W3's strict
+# offline rendering, the whole gene in the stored layout the arms were trained in. Per stratum of the nearest identity
+# and per block: the weight of no source, lambda, the entropy of the source weights, the levels of the substitution,
+# the identity of the largest source; beside it the bits each arm gains from relatives and its share of the reference
+# arm's gain. The model interpreter on the CPU, four threads, the GPUs hidden; about an hour; nothing trained, no model
+# code changed. A diagnosis for the programme lead (2026-11-23), never a selection.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w5_sources]
+  parallel: 1
+rel_w5_sources:
+  arms:
+    - {name: S1, run: /hy-tmp/seeddrift-ci/runs/20261123T110619-exp-rel-632d6978-rel-srcearly-i1, folder: w5-src30m-s1-s1}
+    - {name: S2, run: /hy-tmp/seeddrift-ci/runs/20261123T110619-exp-rel-632d6978-rel-srcearly-i1, folder: w5-src30m-s2-s1}
+  reference: {name: ref, run: /hy-tmp/seeddrift-ci/runs/20261123T122356-exp-rel-c76dd7cd-rel-srcearlyref-i1, folder: w6-ref30m-leakfree-lr1.5e-4-s1}
+  conditions: {scattered: leakfree, whole_gene: stored}
+  per_group: 50
+  threads: 4
+  wall_s: 10800
+train:
+  gpu_lease: false
+  device: cpu
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

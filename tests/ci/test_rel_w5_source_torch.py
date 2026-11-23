@@ -72,6 +72,36 @@ def test_the_source_readout_on_a_trained_model():
     assert torch.allclose(r["given_truth"].sum(-1), torch.ones(50), atol=1e-5)
 
 
+def test_the_sources_readout_on_saved_weights():
+    """readouts/w5_sources on the final weights of tiny trainings of both arms: the cells read are those of the
+    training's final evaluation (the evaluator's digest), every per-cell quantity is in its range, and the bits are the
+    model's own."""
+    import numpy as np
+    from seeddrift.train.rel.readouts import w5_sources as RO
+    for arm in SR.ARMS:
+        root = tempfile.mkdtemp()
+        cfg = W6._config(root, kind=A.TABLE_REAL, probe=False, model="source", author="w5", size=dict(layers=2, width=256, arm=arm, self_layers=1),
+                         max_steps=4, per_step=4, micro=4, eval_first=4)
+        out = loop.fit(cfg)
+        import json
+        with open(os.path.join(root, "out", "conf.json"), "w") as f:              # as stage w6_fit leaves it beside the arm
+            json.dump(cfg, f)
+        folder = tempfile.mkdtemp()
+        head = RO.read_arm(arm, os.path.join(root, "out"), {"scattered": "stored", "whole_gene": "stored"}, 0, 32, folder, log=lambda s: None)
+        assert head["arm"] == arm and head["tables_seen"] == out["tables_seen"]
+        for c in ("scattered", "whole_gene"):
+            h = head["conditions"][c]
+            assert h["items_sha256"] == out["final_items"][c] and h["cells"] > 0, (arm, c)
+            z = np.load(os.path.join(folder, "%s.%s.npz" % (arm, c)))
+            assert len(z["bits"]) == h["cells"] and np.isfinite(z["bits"]).all() and (z["bits"] >= 0).all()
+            assert ((z["none"] >= 0) & (z["none"] <= 1 + 1e-6)).all() and (z["entropy"] >= -1e-9).all()
+            copy = z["none"] < 1 - 1e-6
+            assert np.allclose(z["level"][copy].sum(axis=1), 1.0, atol=1e-5)
+            ti = z["top_identity"][np.isfinite(z["top_identity"])]
+            assert ((ti >= 0) & (ti <= 1)).all()
+            assert ("none_given_truth" in z.files) == (arm == "s1")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

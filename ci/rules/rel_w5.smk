@@ -28,3 +28,10 @@ rule rel_w5_baselines:
     input: "gates/pre.ok"
     output: "data/rel_w5/baselines/results.json"
     shell: STAGE.format(name="rel.w5_baselines")
+
+# w5_sources: what arms S1 and S2 of decision D7 take from their sources, read with the final weights of a passed
+# training (ci/stages/rel/w5_sources.py; the model interpreter on the CPU, the GPUs hidden; a diagnosis, nothing trained)
+rule rel_w5_sources:
+    input: "gates/pre.ok"
+    output: "data/rel_w5/sources/report.json"
+    shell: STAGE.format(name="rel.w5_sources")

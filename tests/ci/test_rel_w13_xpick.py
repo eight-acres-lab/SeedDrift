@@ -261,3 +261,22 @@ def test_sources_the_source_run_could_not_fetch_leave_the_spec(made, monkeypatch
     out = yaml.safe_load(open(os.path.join(run_dir, WX.OUT, "corpus.yaml")))
     assert gone not in {x["id"] for x in out["sources"]} and len(out["sources"]) == len(made["metas"]) + 2
     assert rep["left_out_of_the_spec"]["sources"] == [gone] and "less 1 sources" in open(os.path.join(run_dir, WX.OUT, "corpus.yaml")).read()
+
+
+def test_the_corpus_built_in_processes_is_the_corpus_built_in_one(tmp_path):
+    pytest.importorskip("Bio")
+    import gzip as _gz
+    from ci.stages import corpus as C
+    z = tmp_path / "p.ncbi.zip"
+    z.write_bytes(ncbi_zip("GCA_000000605.1"))
+    ens = tmp_path / "e.cds.all.fa.gz"
+    with _gz.open(ens, "wt") as f:
+        f.write(">T1.1 cds chromosome:X:1:100:225:1 gene:G1.1 gene_biotype:protein_coding transcript_biotype:protein_coding\n%s\n" % GOOD)
+    srcs = [dict(id="a", source_kind="annotated_cds", taxid=1, files=[str(z)], max_genes=2), dict(id="b", source_kind="annotated_cds", taxid=1, files=[str(ens)]),
+            dict(id="c", source_kind="annotated_cds", taxid=1, files=[str(z)])]
+    one = C.build_all(srcs, [str(tmp_path / "one" / s["id"]) for s in srcs], str(tmp_path / "one"), 1)
+    two = C.build_all(srcs, [str(tmp_path / "two" / s["id"]) for s in srcs], str(tmp_path / "two"), 2)
+    strip = lambda b: [(n, m, [(os.path.basename(f["path"]), f["sha256"]) for f in fs]) for n, m, fs in b]     # noqa: E731
+    assert strip(one) == strip(two) and [x[0] for x in one] == [2, 1, 4]
+    with pytest.raises(SystemExit, match="source d"):
+        C.build_all(srcs + [dict(id="d", source_kind="nothing", taxid=1, files=[])], [str(tmp_path / "three" / k) for k in "abcd"], str(tmp_path / "three"), 2)

@@ -83,6 +83,17 @@ def supply_run(run):
                       catalogues={k: dict(records=v["records"], sha256=v["sha256"], fetched=v.get("fetched")) for k, v in lock["catalogues"].items()})
 
 
+def unfetched(run):
+    """The ids of the sources stage fetch of the source run listed as unavailable (no record in the archive; its corpus
+    stage left them out), from its fetch manifest (an output of its stage fetch); none when it has no fetch stage."""
+    p = os.path.join(run, "data", "fetch", "manifest.json")
+    if not os.path.exists(p):
+        return set()
+    W._output(run, "fetch", "fetch_manifest", p)
+    with open(p) as f:
+        return {m["id"] for m in (json.load(f).get("meta") or {}).get("unavailable") or []}
+
+
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
 
@@ -197,10 +208,15 @@ def build(st, cfg, run_dir):
     spec_path = st.repo(cfg["corpus_spec"])
     with open(spec_path) as f:
         spec = yaml.safe_load(f)
-    old_ids = {x_["id"] for x_ in spec["sources"]}
     index_ids = {g["id"] for g in src["index"]["genomes"] if g.get("source", "corpus") == "corpus"}
-    if old_ids != index_ids:
-        raise SystemExit("rel_w13_xpick: the corpus spec %s is not the source run's corpus (%d sources, %d corpus genomes)" % (cfg["corpus_spec"], len(old_ids), len(index_ids)))
+    fetch_gone = unfetched(s["source"])
+    spec_ids = {x_["id"] for x_ in spec["sources"]}
+    if not index_ids <= spec_ids or spec_ids - index_ids != fetch_gone & spec_ids:
+        raise SystemExit("rel_w13_xpick: the corpus spec %s is not the source run's corpus (%d sources, %d corpus genomes, %d sources its fetch could not get)" % (
+            cfg["corpus_spec"], len(spec_ids), len(index_ids), len(fetch_gone)))
+    dropped = sorted(spec_ids - index_ids)                           # sources the source run's fetch could not get: not in the new spec
+    spec = dict(spec, sources=[x_ for x_ in spec["sources"] if x_["id"] not in fetch_gone])
+    old_ids = {x_["id"] for x_ in spec["sources"]}
     cands, why = candidates(x, recs, s)
     moved, split = splits_of(src["index"]["genomes"], cands, tax)
     if moved:
@@ -251,10 +267,11 @@ def build(st, cfg, run_dir):
         head = [ln for ln in f.read(6000).splitlines() if ln.startswith("#")]
     cp = os.path.join(folder, "corpus.yaml")
     with open(cp, "w") as f:
-        f.write("# Corpus %s: corpus %s (%s; its header follows) and the supplement of %d eukaryotic viruses and %d plants and algae of\n"
-                "# the training and held-out units, picked by stage rel_w13_xpick of run %s (the user's decision of 2026-11-24). Edit the stage, not this file.\n"
+        f.write("# Corpus %s: corpus %s (%s; its header follows; less %d sources its build could not fetch) and the supplement of %d eukaryotic\n"
+                "# viruses and %d plants and algae of the training and held-out units, picked by stage rel_w13_xpick of run %s (the user's decision\n"
+                "# of 2026-11-24). Edit the stage, not this file.\n"
                 "# Viral genes are called by pyrodigal (metagenome mode), as for every virus of the corpus: spliced genes and polyproteins are not called right.\n"
-                % (s["name"], spec["name"], cfg["corpus_spec"], sum(1 for c in picked if c["kind"] == "virus"), sum(1 for c in picked if c["kind"] == "plant"),
+                % (s["name"], spec["name"], cfg["corpus_spec"], len(dropped), sum(1 for c in picked if c["kind"] == "virus"), sum(1 for c in picked if c["kind"] == "plant"),
                    os.path.basename(run_dir)))
         f.write("\n".join(head) + "\n")
         f.write(yaml.safe_dump(new_spec, sort_keys=False, width=160))
@@ -280,6 +297,7 @@ def build(st, cfg, run_dir):
                lookups=dict(viruses=n_look, unavailable=len(unavailable), unavailable_share=round(len(unavailable) / max(1, n_look), 4), max_unavailable=s["max_unavailable"],
                             by_reason=_tally(unavailable.values())),
                split_check=dict(corpus_genomes=len(index_ids), moved=0, moved_without_test_units=0),
+               left_out_of_the_spec=dict(sources=dropped, reason="the source run's stage fetch could not get them (its corpus has no such genome)"),
                download_estimate=dict(virus_bases=sum(r["bases"] for r in rel if r["group"] == "viruses.eukaryotic"),
                                       plant_genes=sum(r["proteins"] for r in rel if r["group"] == "eukaryota.plants_algae")),
                sealed_ids=ev_ids, lineage=lin, files=dict(corpus=dict(path=os.path.relpath(cp, run_dir), sha256=sha256_file(cp, use_sidecar=False)),
@@ -324,6 +342,7 @@ def page_of(rep):
         fmt(lk["viruses"]), fmt(lk["unavailable"]), 100 * lk["unavailable_share"], 100 * lk["max_unavailable"],
         "; ".join("%s %d" % kv for kv in lk["by_reason"].items()) or "none"),
           "Split: stage train_data's three_way() with the candidates keeps the split of all %s corpus genomes, with and without the candidates of the test units." % fmt(rep["split_check"]["corpus_genomes"]),
+          "Sources of the corpus spec its build could not fetch, not in the new spec: %s." % (", ".join(rep["left_out_of_the_spec"]["sources"]) or "none"),
           "Coding sequences of plants and algae must start with ATG and end with a stop codon: %s." % ("yes" if rep["settings"]["require_start_stop"] else "no (the rule of the Ensembl sources)"), ""]
     return "\n".join(L)
 

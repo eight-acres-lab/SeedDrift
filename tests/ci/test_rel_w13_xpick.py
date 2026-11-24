@@ -74,13 +74,13 @@ def made(tmp_path, monkeypatch):
     return dict(tmp=tmp_path, src=src, metas=metas, sel=sel, spec=str(spec), supply=sup)
 
 
-def run_xpick(made, monkeypatch, **extra):
+def run_xpick(made, monkeypatch, run_id="20261124T000020-xpick", **extra):
     def replicons(acc):
         if acc == "GCA_000000502.1":
             raise NoRecord(acc)
         return [("SEQ%s.1" % acc[-5:-2], "Chromosome")]
     monkeypatch.setattr(WP, "replicons", replicons)
-    run_dir, cfg = RF.rel_run(made["tmp"], kind="rel_corpus", stages=("w13_supply",), run_id="20261124T000020-xpick", corpus_spec=made["spec"],
+    run_dir, cfg = RF.rel_run(made["tmp"], kind="rel_corpus", stages=("w13_supply",), run_id=run_id, corpus_spec=made["spec"],
                               rel_w13_xpick=dict(dict(supply_from=made["supply"], select_from=made["sel"], source=made["src"], expect=TS.SIZES, name="src-x"), **extra))
     with Stage(run_dir, "rel_w13_xpick") as st:
         rep = WX.build(st, cfg, run_dir)
@@ -242,3 +242,22 @@ def test_the_build_names_genomes_that_lose_many_genes_to_the_start_stop_rule(tmp
     page = WB.page_of(dict(upto="search", note="n", corpus_spec="s", corpus_spec_sha256="0" * 64, pick=dict(run_id="p"), totals=dict(relatives=3, unavailable=[]),
                            fetch={}, search=None, pinned=None, counts={}, cds=rep, disk=dict(run_gb={}, free_gb=1, total_gb=2), problems=[]))
     assert "| b | 1,000 | 300 | 30.0% | 700 |" in page and "Genomes above 20% (their annotation is doubtful; kept, named here): 1." in page
+
+
+def test_sources_the_source_run_could_not_fetch_leave_the_spec(made, monkeypatch):
+    from ci.hashing import sha256_file
+    gone = "virus_phage_GCA_000000999.1"
+    spec = yaml.safe_load(open(made["spec"]))
+    spec["sources"].append(dict(id=gone, source_kind="raw_virus", taxid=10702, accession="GCA_000000999.1", ena_assembly="GCA_000000999.1"))
+    open(made["spec"], "w").write("# Corpus src (a fixture).\n" + yaml.safe_dump(spec, sort_keys=False))
+    with pytest.raises(SystemExit, match="not the source run's corpus"):              # a source the source run neither built nor could fetch
+        run_xpick(made, monkeypatch, max_unavailable=0.6)
+    fm = os.path.join(made["src"], "data", "fetch", "manifest.json")
+    os.makedirs(os.path.dirname(fm), exist_ok=True)
+    json.dump(dict(entries=[], meta=dict(unavailable=[dict(id=gone, reason="https://www.ebi.ac.uk/ena/browser/api/fasta/X.1?gzip=true: HTTP 404")])), open(fm, "w"))
+    json.dump(dict(name="fetch", status="passed", outputs=[dict(name="fetch_manifest", path="data/fetch/manifest.json", sha256=sha256_file(fm, use_sidecar=False))]),
+              open(os.path.join(made["src"], "stages", "fetch.json"), "w"))
+    run_dir, cfg, rep = run_xpick(made, monkeypatch, run_id="20261124T000021-xpick", max_unavailable=0.6)
+    out = yaml.safe_load(open(os.path.join(run_dir, WX.OUT, "corpus.yaml")))
+    assert gone not in {x["id"] for x in out["sources"]} and len(out["sources"]) == len(made["metas"]) + 2
+    assert rep["left_out_of_the_spec"]["sources"] == [gone] and "less 1 sources" in open(os.path.join(run_dir, WX.OUT, "corpus.yaml")).read()

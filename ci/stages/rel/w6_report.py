@@ -606,7 +606,7 @@ def build(st, cfg, run_dir):
         n = int(t.max()) + 1 if len(t) else 0
         return np.bincount(t, weights=np.asarray(z["bits_" + cc], dtype=np.float64), minlength=n), np.bincount(t, minlength=n).astype(np.float64)
 
-    def paired(a, wa, ca, b, wb, cb, x):
+    def paired(a, wa, ca, b, wb, cb, x, only_group=None):
         """The paired bootstrap of (b under cb at wb) minus (a under ca at wa) on the tables of stratum x both scored
         on the same cells: {"all", block: dict(estimate, low, high, excludes_zero, ...)}, or None (and why)."""
         try:
@@ -622,6 +622,8 @@ def build(st, cfg, run_dir):
         group, unit, strata = h
         n = min(len(A[0]), len(B[0]), len(group))
         keep = (A[1][:n] > 0) & (B[1][:n] > 0) & np.asarray(strata.get(x, np.ones(len(group), bool)))[:n]
+        if only_group is not None:
+            keep &= np.array([gname == only_group for gname in group[:n]])
         if not keep.any():
             return None, "no tables"
         if not np.array_equal(A[1][:n][keep], B[1][:n][keep]):
@@ -1095,6 +1097,41 @@ def build(st, cfg, run_dir):
                "exist). The control minus the plain reading (positive: the control loses bits), paired on the same cells.", ""]
         md += md_table(["arm", "condition", "control", "bits plain", "bits under the control", "control minus plain", "95% interval", "threshold",
                         "reading"], control_rows)
+    # a node's moving average read again on all held-out tables (w6_eval weights node@<n>: the entry <arm>.node@<n>)
+    # against the arm's end on the same cells: the end minus the node (positive: worse at the end), over all tables and by
+    # group, paired; beside it the arm's own node at its last node on the nodes' tables (the programme lead's ruling for
+    # round 1's long arm: the eukaryotic viruses' whole gene at its lowest node, strictly offline)
+    again_rows = []
+    for p_arm in sorted(arms):
+        m = re.match(r"^(.*)\.node@(\d+)$", p_arm)
+        if not m or m.group(1) not in arms:
+            continue
+        base, t_n = m.group(1), int(m.group(2))
+        last = max([u for u in nodes.get(base, []) if u > 0] or [0]) or None
+        for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix")):
+            for g in [SC.ALL] + group_set:
+                at_node = N(p_arm, t_n, c, g)
+                end = F(base, c, g)
+                if at_node is None or end is None:
+                    continue
+                iv, why = paired(p_arm, "final", c, base, "final", c, SC.ALL, only_group=None if g == SC.ALL else g)
+                n_end = group_spread.get((g, c)) if g != SC.ALL else noise(None, c)
+                if n_end and g != SC.ALL:
+                    n_end = dict(n_end, bits=max(n_end["bits"], GROUP_FLOOR))
+                d = diff(end, at_node)
+                above, excl = d is not None and n_end is not None and abs(d) > n_end["bits"], bool(iv and iv["all"]["excludes_zero"])
+                said = ("counts: beyond the threshold, its interval excludes 0" if above and excl else "beyond the threshold only" if above else
+                        "its interval only" if excl else "cannot be read") if d is not None and n_end is not None else ""
+                again_rows.append([base, "{:,}".format(t_n), c, g, at_node, N(base, last, c, g) if last else None, "{:,}".format(last) if last else "",
+                                   end, d, fmt_iv((iv or {}).get("all")) or why or "", fmt_noise(n_end) if n_end else "none", said])
+    if again_rows:
+        md += ["", "## Node weights read again on all held-out tables", "",
+               "The moving average an arm kept at a node, read again on all held-out tables strictly offline (stage w6_eval, weights "
+               "node@<tables>), against the arm's end on the same cells: the end minus the node (positive: the end is worse, the arm "
+               "over-fitted after the node), over all tables and by group, with its paired interval over the split units; beside it the "
+               "arm's own reading at its last node on the nodes' tables (online for scattered and span).", ""]
+        md += md_table(["arm", "node read again", "condition", "group", "bits at that node (all tables)", "bits at its last node (nodes' tables)",
+                        "last node", "bits at the end", "end minus the node", "95% interval", "threshold", "reading"], again_rows)
     # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
     shares_rows, tiers = [], {}
     for a in names:

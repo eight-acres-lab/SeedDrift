@@ -957,6 +957,8 @@ def test_evaluation_again_reads_the_weights_each_entry_names(tmp_path, monkeypat
     at = {(r["arm"], r["point"], r["tables_seen"]): r for r in curve}
     assert abs(float(at[("w6-ref30m-s1", "node", "1000")]["scattered"]) - 5.75) < 1e-9          # the training's own node
     assert ("w6-ref30m-s1.node@1000", "node", "1000") in at
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "## Node weights read again on all held-out tables" in text                    # the node read again against the arm's end
 
 
 def test_evaluation_again_reads_the_final_weights_online_too(tmp_path, monkeypatch):

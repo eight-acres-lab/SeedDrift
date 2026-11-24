@@ -6,6 +6,7 @@
 # the control of every arm. Run from commit 7f7bc6d plus this profile only (the commit of the four scorings), so that
 # the renderer, the passes and the readouts are those the arms were scored with. ref100m-long follows in another
 # reading once it has trained. CPU only. The run of rel-w18c1-i2 is set below once it has passed and been copied.
+needs_gpu: false               # a readout on the CPU (the select lock): it runs beside a training on the GPU
 pipeline: rel_traineval
 tier: medium
 seed: 1

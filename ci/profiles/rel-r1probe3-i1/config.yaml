@@ -35,6 +35,7 @@ rel_w6_fit:
     - {variant: configs/rel/variants/w5-src30m-s2-strict-v1.yaml, seed: 4, micro: 1}
     - {variant: configs/rel/variants/w6-ref30m-wholegene-strict-v1.yaml, seed: 4, micro: 1}
     - {variant: configs/rel/variants/w6-ref30m-samegenome-strict-v1.yaml, seed: 4, micro: 1}
+    # a sixth arm goes here, at seed 4 and micro 1, if the protocol adds copy-aa30m to batch 3 (its strict variant, after its development comparison)
   preflight_only: true           # round 1's probe: every arm preflighted on the real tables, nothing trained, no checkpoint
   preflight_steps: 50
   wall_s: 1800

@@ -4,6 +4,9 @@
 # whole_gene, scattered+no_relatives, whole_gene+no_relatives, whole_gene+repaired and suffix (extra_conditions), and
 # W3's two render-mode controls under scattered and whole_gene (end_controls: shuffle, presence); the strict offline
 # rendering of run 20261123T124714 as copied to i-2. Nothing is trained. Development diagnosis only.
+# Run from round branch exp/rel-r1evali2 (commit 7c02795 plus this comment): the evaluation code of rel-r1eval-i1
+# (run 20261123T220309), before the trainer's strict layout was merged, so that both machines' end evaluations of
+# round 1 are read by one code (the programme lead, 2026-11-24).
 pipeline: rel_traineval
 tier: medium
 seed: 1

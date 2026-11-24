@@ -33,6 +33,7 @@ rel_w6_report:
   threshold_floor: 0.008
   worth_without: end
   units_source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  heldout_tables: {run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json}
   passes: [w6-ref30m-v1-s1]
   readings_exclude: [w6-ref30m-v1-s1, w6-ref30m-v1-s1.node@100000, w6-ref30m-v1-s1.node@128000, w6-ref30m-v1-s1.node@256000,
                      "w6-ref30m-leakfree-lr1.5e-4-s1 @v0"]

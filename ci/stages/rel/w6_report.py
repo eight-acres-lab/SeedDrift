@@ -22,6 +22,10 @@ Profile block rel_w6_report (all optional):
              lower rate (low) and a small arm (small), at the last node all three reached and at the end, against the
              seeds' difference; one of three conclusions (caught up: the rate; better than the lower rate but not caught
              up: part; diverged or no better: not the rate); note is printed with it (the machines, say)
+  units_source  a run directory whose training-data index gives the split units of the held-out tables' examined genomes
+             (the paired intervals); heldout_tables {run, path}: this machine's copy of the baselines' held-out table
+             set, read for the units and the strata in place of the one an arm's configuration names (an arm trained or
+             read again on another machine names that machine's path)
   pairs      [{name, first, second}]: two arms side by side (the second minus the first) at every node both reached and
              at the end, under scattered, whole_gene and suffix, against the seeds' difference
   notes      [text, ...]: what these runs do not show, added to the report's caveats (the machines they ran on, say)
@@ -148,7 +152,7 @@ CAVEATS = [
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
     unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs",
-                         "scale_exclude", "units_source", "threshold_floor", "worth_without"}
+                         "scale_exclude", "units_source", "threshold_floor", "worth_without", "heldout_tables"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     if str(sc.get("worth_without") or "lower") not in ("lower", "end"):
@@ -176,7 +180,8 @@ def settings(cfg) -> dict:
                 pairs=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"])) for q in sc.get("pairs") or []],
                 scale_exclude=[str(a) for a in sc.get("scale_exclude") or []],
                 units_source=str(sc["units_source"]) if sc.get("units_source") else None,
-                threshold_floor=float(sc.get("threshold_floor") or 0.0), worth_without=str(sc.get("worth_without") or "lower"))
+                threshold_floor=float(sc.get("threshold_floor") or 0.0), worth_without=str(sc.get("worth_without") or "lower"),
+                heldout_tables=dict(run=str(sc["heldout_tables"]["run"]), path=str(sc["heldout_tables"]["path"])) if sc.get("heldout_tables") else None)
 
 
 LR_CONCLUSIONS = {
@@ -581,6 +586,9 @@ def build(st, cfg, run_dir):
         conf = read_json(os.path.join(f, "conf.json")) if f else None
         if not conf or not s["units_source"]:
             return None
+        if s["heldout_tables"] and a not in other_set:                # this machine's copy of the baselines' held-out set (an arm
+            conf = dict(conf, heldout_tables=os.path.join(s["heldout_tables"]["run"], s["heldout_tables"]["path"]),     # trained or read
+                        heldout_root=s["heldout_tables"]["run"])     # on another machine names that machine's path)
         key = conf.get("heldout_tables")
         if key not in cache:
             try:
@@ -625,7 +633,7 @@ def build(st, cfg, run_dir):
             return None, "no intervals module of the evaluator"
         h = held_of(a)
         if h is None:
-            return None, "no split units (units_source)"
+            return None, "no split units (units_source, or the held-out set of the arm's configuration is not on this machine: heldout_tables)"
         A, B = table_cells(a, wa, ca), table_cells(b, wb, cb)
         if A is None or B is None:
             return None, "no cells per table"
@@ -860,11 +868,11 @@ def build(st, cfg, run_dir):
             except ImportError:
                 iv_why[a] = "no intervals module of the evaluator"
                 return None
-            try:
-                group, unit = held_units(read_json(os.path.join(folder, "conf.json")) or {}, s["units_source"])
-            except (OSError, ValueError, KeyError, SystemExit) as err:
-                iv_why[a] = "no split units (%s)" % str(err)[:200]
+            h = held_of(a)                                             # this machine's held-out set where the profile names it
+            if h is None:
+                iv_why[a] = "no split units (units_source, or the held-out set of the arm's configuration is not on this machine)"
                 return None
+            group, unit = h[0], h[1]
             iv_cache[a] = (IV, np.load(os.path.join(folder, NODE_CELLS)), group, unit)
         if iv_cache[a] is None:
             return None

@@ -583,6 +583,14 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     assert r["without_at"] == "end (end against end)" and abs(r["bits_without"] - r["bits_without_end"]) < 1e-12 and seen      # final cells only
     with pytest.raises(SystemExit):
         w6_report.settings(dict(rel_w6_report=dict(worth_without="best")))
+    got = w6_report.settings(dict(rel_w6_report=dict(heldout_tables=dict(run="/x/runs/t", path="data/rel_w12/v1/tableset.json"))))
+    assert got["heldout_tables"] == dict(run="/x/runs/t", path="data/rel_w12/v1/tableset.json")
+    # an arm read on another machine: its configuration names that machine's path, the profile's copy is read instead
+    monkeypatch.setattr(w6_report, "held_strata", lambda conf: (seen_conf.append(conf), {x0: np.array([True, True, True, False])})[1])
+    seen_conf = []
+    cfg2 = dict(cfg, rel_w6_report=dict(cfg["rel_w6_report"], heldout_tables=dict(run="/here/runs/t", path="h1.json")))
+    w6_report.build(Stage(run_dir, "rel_w6_report"), cfg2, run_dir)
+    assert seen_conf and all(c["heldout_tables"] == os.path.join("/here/runs/t", "h1.json") and c["heldout_root"] == "/here/runs/t" for c in seen_conf)
     assert "## The mask schemes each arm trained on" in text and "## The whole gene's frame relative, by distance" in text
     assert "## The controls of the renderer" in text                    # the control apart, the plain reading not replaced by it
     plain = next(float(x["bits"]) for x in SC.read_rows(q) if x["variant"] == "w6-ref30m-s1" and x["weights"] == "ema@final" and

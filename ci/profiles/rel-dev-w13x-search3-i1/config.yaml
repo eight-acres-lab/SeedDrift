@@ -1,0 +1,58 @@
+# Machine i-1: the build of corpus medium-k3x (configs/corpus/medium-k3x.yaml: medium-k3's 1,772 genomes and the supplement of
+# 6,213 eukaryotic viruses and 487 plants and algae that run 20261124T042814-exp-rel-933e8b09-rel-dev-w13-xpick-i1 named), search part
+# 3 of 5: the corpus's earlier genomes and part 3's 1,340 new genomes alone (configs/corpus/medium-k3x-part3of5.yaml, written by
+# `python -m ci.stages.rel.w13_build part 3 5 ... --only`; about 168,000 new proteins), built up to the search (rel_w13_build.upto: search):
+# the earlier genomes' hit files are taken per genome from run B of medium-k3 (20261123T023429, reuse_check 0, hard links), the new
+# genomes are searched against the reference. The five parts take nothing from each other (any order); the run of the whole spec takes
+# their hit files. 12 threads (its search block must stay run B's), the corpus built in 12 processes; about 2-2.7 hours, about 5 GB
+# of disk (the corpus 2.8 GB, the new hit files 1.8 GB, the reference 0.7 GB); never beside W12's search on the same machine.
+# Development data only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 20
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium-k3x-part3of5.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+corpus:
+  processes: 12
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.05
+  threads: 8
+  retry_s: [10, 30, 90]
+  server_errors_unavailable: true
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1]
+  reuse_per_genome: true
+  reuse_check: 0
+train_data:
+  test_split: true
+  hits: 32
+rel:
+  machine: i1
+  stages: [w13_build]
+rel_w13_build:
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261124T042814-exp-rel-933e8b09-rel-dev-w13-xpick-i1
+  upto: search
+train:
+  gpu_lease: false
+  device: cpu

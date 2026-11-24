@@ -18,6 +18,8 @@ Source kinds:
 Remote sources (ena_assembly, ena_sequences, ensembl, ncbi_datasets) take their files from the fetch stage (data/fetch/manifest.json).
 Every genome gets data/corpus/<id>/{genes.tsv, proteins.faa, cds.fna}; the manifest (data/corpus/manifest.json,
 content-addressed copy in manifests/) lists each genome with taxid, source kind, protein count and file hashes.
+Profile block corpus: `processes` (default 1) builds the genomes in that many processes; each genome is built alone,
+so the files and the manifest (in the spec's order) are the same as with one.
 """
 from __future__ import annotations
 
@@ -330,6 +332,33 @@ def build_one(src, out_dir):
     return genes, mode
 
 
+def _build(job):
+    """One genome of build_all(): (proteins, gene calling, file entries); a refusal raised as an error a process pool
+    hands back (SystemExit would end the worker)."""
+    src, out_dir, run_dir = job
+    try:
+        genes, mode = build_one(src, out_dir)
+    except SystemExit as err:
+        raise RuntimeError("source %s: %s" % (src["id"], err))
+    return len(genes), mode, [M.file_entry(os.path.join(out_dir, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
+
+
+def build_all(srcs, out_dirs, run_dir, processes=1):
+    """[(proteins, gene calling, file entries)] of every source, in order; in `processes` processes."""
+    jobs = [(src, d, run_dir) for src, d in zip(srcs, out_dirs)]
+    if processes > 1 and len(jobs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        try:
+            with ProcessPoolExecutor(processes) as pool:
+                return list(pool.map(_build, jobs, chunksize=4))
+        except RuntimeError as err:
+            raise SystemExit(str(err))
+    try:
+        return [_build(j) for j in jobs]
+    except RuntimeError as err:
+        raise SystemExit(str(err))
+
+
 def main():
     run_dir = main_args()
     with Stage(run_dir, "corpus", requires=("pre",)) as st:
@@ -345,13 +374,13 @@ def main():
             unavailable = {m["id"] for m in (fman.get("meta") or {}).get("unavailable") or []}
             st.extra["left_out_no_record"] = sorted(unavailable)
         entries = []
-        for src in sources_of(spec, st.repo, fetched, unavailable):
-            out_dir = st.path("corpus", src["id"], "x")[:-2]
-            genes, mode = build_one(src, out_dir)
-            files = [M.file_entry(os.path.join(out_dir, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
+        srcs = sources_of(spec, st.repo, fetched, unavailable)
+        out_dirs = [st.path("corpus", src["id"], "x")[:-2] for src in srcs]
+        built = build_all(srcs, out_dirs, run_dir, int((st.config.get("corpus") or {}).get("processes", 1)))
+        for src, out_dir, (n_genes, mode, files) in zip(srcs, out_dirs, built):
             qp = os.path.join(out_dir, "cds_quality.json")                # the counts of an NCBI Datasets source only
             extra = dict(cds_quality=json.load(open(qp))) if os.path.exists(qp) else {}
-            entries.append(dict(id=src["id"], taxid=int(src["taxid"]), source_kind=src["source_kind"], proteins=len(genes), gene_calling=mode, files=files,
+            entries.append(dict(id=src["id"], taxid=int(src["taxid"]), source_kind=src["source_kind"], proteins=n_genes, gene_calling=mode, files=files,
                                 accession=src.get("accession", ""), paired_accession=src.get("paired_accession", ""),
                                 **({k: src[k] for k in ("cluster", "relation") if src.get(k)}), **extra))
         meta = dict(spec=st.config["corpus_spec"])

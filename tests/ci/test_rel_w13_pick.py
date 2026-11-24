@@ -269,6 +269,9 @@ def test_parts_split_the_search_and_keep_the_old_sources(picked, tmp_path):
     spec, full = yaml.safe_load(out), yaml.safe_load(text)
     keep = WB.parts(rel, 2)[0]
     assert yaml.safe_load(WB.part_spec(text, rel, 2, 2))["sources"] == full["sources"]
+    second = yaml.safe_load(WB.part_spec(text, rel, 2, 2, only=True))              # part 2 alone: the old sources and part 2's relatives
+    assert [x["id"] for x in second["sources"]] == [x["id"] for x in full["sources"] if x["id"] not in {r["id"] for r in rel} or x["id"] in WB.parts(rel, 2)[1]]
+    assert second["name"].endswith("-part2of2-only") and "--only" in WB.part_spec(text, rel, 2, 2, only=True)[:400]
     ids = {x["id"] for x in rel}
     assert [x["id"] for x in spec["sources"]] == [x["id"] for x in full["sources"] if x["id"] not in ids or x["id"] in keep]
     p = tmp_path / "part1.yaml"

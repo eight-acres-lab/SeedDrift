@@ -21,7 +21,8 @@ parts of a few hours; files fetched before are taken from the content store, hit
   fetch   stage fetch only: the downloads (sources, bytes, unavailable) of the relatives
   search  up to the search: the relatives' hit files (the search stage searches only genomes no run of
           search.reuse_from has); with the corpus specs of parts 1..i of n (`python -m ci.stages.rel.w13_build part
-          I N ...`) the search of the new genomes takes n runs, each reusing the earlier ones per genome
+          I N ...`) the search of the new genomes takes n runs, each reusing the earlier ones per genome; with part i
+          alone (`... --only`) the n runs take nothing from each other and the run of the whole spec takes them all
   all     up to train_data, with the checks above (the default)
 Sources the fetch stage could not get (a 404, or a server error or no connection through every try with the profile's
 fetch.retry_s and fetch.server_errors_unavailable) are listed; more than max_unavailable (default 5%) of the relatives
@@ -77,18 +78,23 @@ def parts(rel, n):
     return out
 
 
-def part_spec(text, rel, i, n):
+def part_spec(text, rel, i, n, only=False):
     """The corpus spec of parts 1..i of n: the pick's corpus.yaml (text) without the relatives of the later parts, so
-    run i searches part i and takes the earlier parts' hit files per genome."""
+    run i searches part i and takes the earlier parts' hit files per genome; with `only`, part i alone (the corpus's
+    earlier genomes and that part's relatives: the runs of the parts take nothing from each other, and the run of the
+    whole spec takes every part's hit files)."""
     import yaml
     spec = yaml.safe_load(text)
     ids = {x["id"] for x in rel}
-    keep = set().union(*parts(rel, n)[:i])
+    keep = parts(rel, n)[i - 1] if only else set().union(*parts(rel, n)[:i])
     head = [x for x in text[:6000].splitlines() if x.startswith("#")]
-    spec = dict(spec, name="%s-part%dof%d" % (spec["name"], i, n), sources=[x for x in spec["sources"] if x["id"] not in ids or x["id"] in keep])
-    return ("# Parts 1-%d of %d of the corpus below, for the search of its new genomes in %d runs (stage rel_w13_build, upto search): the\n"
-            "# relatives of the later parts are left out (parts(): about equal proteins). Made by `python -m ci.stages.rel.w13_build part`.\n"
-            % (i, n, n) + "\n".join(head) + "\n" + yaml.safe_dump(spec, sort_keys=False, width=160))
+    spec = dict(spec, name=("%s-part%dof%d-only" if only else "%s-part%dof%d") % (spec["name"], i, n),
+                sources=[x for x in spec["sources"] if x["id"] not in ids or x["id"] in keep])
+    what = ("part %d of %d of the corpus below alone (its earlier genomes and that part's relatives)" % (i, n) if only else
+            "parts 1-%d of %d of the corpus below (the relatives of the later parts are left out)" % (i, n))
+    return ("# The %s, for the search of its new genomes in %d runs (stage rel_w13_build, upto search;\n"
+            "# parts(): about equal proteins). Made by `python -m ci.stages.rel.w13_build part%s`.\n"
+            % (what, n, " --only" if only else "") + "\n".join(head) + "\n" + yaml.safe_dump(spec, sort_keys=False, width=160))
 
 
 def _json(p):
@@ -374,10 +380,10 @@ def summary(run_dir):
 
 
 def main():
-    if len(sys.argv) == 6 and sys.argv[1] == "part":                 # python -m ci.stages.rel.w13_build part I N CORPUS_YAML RELATIVES_JSON
+    if len(sys.argv) >= 6 and sys.argv[1] == "part":                 # python -m ci.stages.rel.w13_build part I N CORPUS_YAML RELATIVES_JSON [--only]
         with open(sys.argv[4]) as f:
             text = f.read()
-        sys.stdout.write(part_spec(text, _json(sys.argv[5])["relatives"], int(sys.argv[2]), int(sys.argv[3])))
+        sys.stdout.write(part_spec(text, _json(sys.argv[5])["relatives"], int(sys.argv[2]), int(sys.argv[3]), only="--only" in sys.argv[6:]))
         return
     run_dir = main_args()
     with common.RelStage(run_dir, "rel_w13_build") as st:

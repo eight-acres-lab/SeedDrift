@@ -193,6 +193,14 @@ def test_an_extended_search_is_the_full_search_with_diamond(run_source, tmp_path
             out["full search cut into other calls"] = same_search(f_dir, g_dir) or "the same"
             out["genes that differ when cut into other calls"] = gene_differences(f_dir, g_dir)
         out[label] = same_search(x_dir, f_dir) or "the same"
+    for k, flags in enumerate((["--ext-chunk-size", "100000"], ["--ext", "full"], ["--gapped-filter-evalue", "0"], ["--algo", "1"],
+                               ["--ext-chunk-size", "100000", "--ext", "full", "--gapped-filter-evalue", "0"])):
+        w = tmp_path / ("diamond-%d" % k)                                # DIAMOND with more options on every search
+        w.write_text("#!/bin/sh\nif [ \"$1\" = blastp ]; then exec %s \"$@\" %s; fi\nexec %s \"$@\"\n" % (d, " ".join(flags), d))
+        w.chmod(0o755)
+        a_dir, _ = search(source, tmp_path, "20261124T00005%d-full" % k, source["src"], TS.SIZES, str(w), dbsize=letters, algo=0, self_batch_proteins=1)
+        b_dir, _ = search(source, tmp_path, "20261124T00006%d-full" % k, source["src"], TS.SIZES, str(w), dbsize=letters, algo=0, self_batch_proteins=1, chunk_proteins=37)
+        out["cut into other calls with " + " ".join(flags)] = gene_differences(a_dir, b_dir) or "the same"
     msg = json.dumps(out, indent=1)
     assert out["earlier search with algo 0"] == "the same" and out["earlier search with algo 0 and dbsize"] == "the same", msg
     assert out["full search cut into other calls"] == "the same", msg

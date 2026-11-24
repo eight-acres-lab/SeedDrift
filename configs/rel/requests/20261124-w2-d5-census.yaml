@@ -1,0 +1,7 @@
+package: W2
+kind: cpu_run
+to: C0
+what: Register w2_d5_census in rel_tables, rule rel_w2_d5_census, module ci.stages.rel.w2_d5_census, gate G4_rel_w2_d5_census, output data/rel_w2/d5_census/report.json, side data. Set rel_w2_d5_census.tables_from to round 1 run 20261123T122205. Its sibling 20261123T061001 supplies the pinned search roster. The stage checks the physical SHA-256 of both JSON indices and the tableset, and the canonical digest of the 3,000 ordered row-zero IDs from the two memory-mapped genome arrays. Full shard digests in the report are declarations from the pinned tableset. Report missing ranks, clusters, distances and measured close-row coverage as unknown.
+why: D5 phase 1 baseline roster and original table-plan coverage from open metadata
+size: {hours: 0.1, threads: 1, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-26

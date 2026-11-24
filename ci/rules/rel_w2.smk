@@ -29,3 +29,9 @@ rule rel_w2_census:
     input: ["gates/pre.ok"] + (["gates/rel_w2_v0.ok"] if "w2_v0" in REL_ON else [])
     output: "data/rel_w2/census/report.json"
     shell: STAGE.format(name="rel.w2_census")
+
+# D5 phase 1 metadata inventory of the original 3,000 held-out tables
+rule rel_w2_d5_census:
+    input: "gates/pre.ok"
+    output: "data/rel_w2/d5_census/report.json"
+    shell: STAGE.format(name="rel.w2_d5_census")

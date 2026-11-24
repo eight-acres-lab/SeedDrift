@@ -40,6 +40,9 @@ def revcomp(s):
 REMOTE = ("ena_assembly", "ena_sequences", "ensembl", "ncbi_datasets")
 NUCLEAR = {"", "Chromosome", "Linkage Group"}                       # NCBI sequence reports: other location types are organelles
 STOPS = ("TAA", "TAG", "TGA")
+NCBI_MODE = {True: "annotated (NCBI Datasets; complete coding sequences only: an ATG start and a stop codon)", False: "annotated (NCBI Datasets)"}
+CDS_RULES = ("sources from NCBI Datasets (cds_quality): complete coding sequences only (an ATG start and a stop codon) with require_start_stop; "
+             "sources from Ensembl (cds.all): whole codons, no stop codon inside and at least 30 codons, start and stop not checked")
 ORGANELLE = {"MT", "Mt", "mt", "MtDNA", "mitochondrion", "Mito", "Pt", "chloroplast", "plastid", "apicoplast", "M"}
 
 
@@ -284,7 +287,9 @@ def ncbi_cds(path, table=1, max_genes=0, require_start_stop=True):
         g["protein"] = p.rstrip("*")
         genes.append(g)
     q["kept"] = len(genes)
-    return genes, "annotated (NCBI Datasets)", q
+    q["left_out_start_stop"] = q["no_atg_start"] + q["no_stop_codon"]
+    q["left_out_start_stop_share"] = round(q["left_out_start_stop"] / q["genes"], 4) if q["genes"] else 0.0
+    return genes, NCBI_MODE[bool(require_start_stop)], q
 
 
 def build_one(src, out_dir):
@@ -349,7 +354,10 @@ def main():
             entries.append(dict(id=src["id"], taxid=int(src["taxid"]), source_kind=src["source_kind"], proteins=len(genes), gene_calling=mode, files=files,
                                 accession=src.get("accession", ""), paired_accession=src.get("paired_accession", ""),
                                 **({k: src[k] for k in ("cluster", "relation") if src.get(k)}), **extra))
-        man = M.build(spec["name"], "corpus", entries, meta=dict(spec=st.config["corpus_spec"]))
+        meta = dict(spec=st.config["corpus_spec"])
+        if any("cds_quality" in e for e in entries):                     # a corpus with both kinds of annotated sources says so
+            meta["cds_rules"] = CDS_RULES
+        man = M.build(spec["name"], "corpus", entries, meta=meta)
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("corpus", "manifest.json")
         write_json(mp, dict(sha256=sha, dataset_id=M.dataset_id(man), **man))

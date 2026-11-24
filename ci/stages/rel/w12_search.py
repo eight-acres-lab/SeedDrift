@@ -36,7 +36,10 @@ and every held-out genome's own proteins again (the extended search's were again
 changed the e-values). Before the long calls about verify_proteins genes (default 2,000) of the earlier genomes are
 searched again against the whole database (verify_sample()): their rows must be the kept rows and the rows against the
 new training genomes, alignment by alignment and in order, and again after the calls; any difference stops the stage
-(the search is then made in full).
+(the search is then made in full). DIAMOND itself does not give that equality in general: a weak gapped alignment can
+depend on the other queries of its call (test_rel_w12_extend), so two searches cut into calls differently differ in a
+few alignments, and an extension at scale is expected to stop; it serves to measure that difference first (the
+programme lead, 2026-11-24: round 2 searches in full with round 1's settings).
 Outputs under data/rel_w12/search/: <genome>.npz per query genome (v1_hits.py), genomes.json (the genome list the
 arrays index), index/ (the lookup index of all of them, memory-mappable: v1_hits.Index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
 run, the linear extrapolation to the full search with the disk it needs).
@@ -622,7 +625,9 @@ def page_of(rep):
               "| alignments | %s |" % "{:,}".format(int(e["hsps"])),
               "| pairs | %s |" % "{:,}".format(int(e["pairs"])),
               "| disk | %.1f GB of output, %.1f GB needed while it is written; %s |" % (e["bytes"] / 1e9, e["disk_needed_gb"], "fits" if e["disk_fits"] else "DOES NOT FIT")]
-    L += ["", "Development diagnosis. The sealed test split was not opened; no score or rank is stored.", ""]
+    L += ["", "DIAMOND (2.2.8) finds some weak gapped alignments or not depending on the other queries of the same call "
+          "(test_rel_w12_extend, 2026-11-24): two searches whose queries are cut into calls differently are not the same pair by pair.",
+          "", "Development diagnosis. The sealed test split was not opened; no score or rank is stored.", ""]
     return "\n".join(L)
 
 

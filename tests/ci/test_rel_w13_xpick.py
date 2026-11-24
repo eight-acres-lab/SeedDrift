@@ -208,13 +208,15 @@ def test_corpus_reads_the_coding_sequences_of_an_ncbi_datasets_file(tmp_path):
     p = tmp_path / "x.ncbi.zip"
     p.write_bytes(ncbi_zip("GCA_000000605.1"))
     genes, mode, q = C.ncbi_cds(str(p), 1, max_genes=3)
-    assert [g["gene_id"] for g in genes] == ["GeneID_1", "LT_12", "GeneID_11"] and mode == "annotated (NCBI Datasets)"
+    assert [g["gene_id"] for g in genes] == ["GeneID_1", "LT_12", "GeneID_11"] and mode == C.NCBI_MODE[True] and "ATG" in mode
     assert len(genes[0]["protein"]) == 51 and genes[0]["start"] == 100 and genes[0]["end"] == 355     # the longest coding sequence of a gene
     assert q["records"] == 13 and q["pseudogene"] == 1 and q["organelle"] == 1 and q["organelle_by_type"] == {"Mitochondrion": 1}
     assert q["another_genetic_code"] == 1 and q["other_isoforms"] == 1 and q["genes"] == 9 and q["partial"] == 2
     assert (q["length_not_multiple_of_3"], q["stop_codon_inside"], q["fewer_than_30_codons"], q["no_atg_start"], q["no_stop_codon"]) == (1, 1, 1, 1, 1)
     assert q["passed"] == 4 and q["kept"] == 3 and q["beyond_max_genes"] == 1
-    loose, _, q2 = C.ncbi_cds(str(p), 1, require_start_stop=False)
+    assert q["left_out_start_stop"] == 2 and q["left_out_start_stop_share"] == round(2 / 9, 4)
+    loose, mode2, q2 = C.ncbi_cds(str(p), 1, require_start_stop=False)
+    assert mode2 == "annotated (NCBI Datasets)"
     assert q2["passed"] == 6 and q2["no_atg_start"] == 0 and [g["gene_id"] for g in loose][-1] == "GeneID_10"
     assert [g["strand"] for g in loose if g["gene_id"] == "GeneID_10"] == ["-"]
     out = tmp_path / "g"
@@ -222,3 +224,21 @@ def test_corpus_reads_the_coding_sequences_of_an_ncbi_datasets_file(tmp_path):
     assert len(genes) == 2 and json.load(open(out / "cds_quality.json"))["kept"] == 2
     with pytest.raises(SystemExit, match="replicons"):
         C.build_one(dict(id=A605, source_kind="annotated_cds", taxid=ALGA2, files=[str(p)], replicons=["NC_1.1"]), str(tmp_path / "h"))
+
+
+def test_the_build_names_genomes_that_lose_many_genes_to_the_start_stop_rule(tmp_path):
+    from ci.stages.rel import w13_build as WB
+    d = tmp_path / "data" / "corpus"
+    d.mkdir(parents=True)
+
+    def q(genes, lost):
+        return dict(records=genes, genes=genes, kept=min(1500, genes - lost), no_atg_start=lost // 2, no_stop_codon=lost - lost // 2,
+                    left_out_start_stop=lost, left_out_start_stop_share=round(lost / genes, 4), organelle_by_type={})
+    ents = [dict(id="a", cds_quality=q(1000, 50), gene_calling="x"), dict(id="b", cds_quality=q(1000, 300), gene_calling="x"), dict(id="c")]
+    json.dump(dict(entries=ents, meta=dict(cds_rules="the rules")), open(d / "manifest.json", "w"))
+    rep = WB.cds_report(str(tmp_path), [dict(id="a"), dict(id="b"), dict(id="c")], 0.2)
+    assert rep["genomes"] == 2 and [x["id"] for x in rep["flagged"]] == ["b"] and rep["flagged"][0]["share"] == 0.3
+    assert rep["totals"]["no_atg_start"] == 25 + 150 and rep["rules"] == "the rules" and WB.cds_report(str(tmp_path), [dict(id="c")], 0.2) is None
+    page = WB.page_of(dict(upto="search", note="n", corpus_spec="s", corpus_spec_sha256="0" * 64, pick=dict(run_id="p"), totals=dict(relatives=3, unavailable=[]),
+                           fetch={}, search=None, pinned=None, counts={}, cds=rep, disk=dict(run_gb={}, free_gb=1, total_gb=2), problems=[]))
+    assert "| b | 1,000 | 300 | 30.0% | 700 |" in page and "Genomes above 20% (their annotation is doubtful; kept, named here): 1." in page

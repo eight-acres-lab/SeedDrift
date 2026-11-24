@@ -44,7 +44,7 @@ from ci.stages.rel import common
 from ci.stages.rel import w13_pick
 
 OUT = os.path.join("data", "rel_w13", "build")
-KEYS = {"pick_from", "pinned_from", "pinned_index_sha256", "upto", "max_unavailable"}
+KEYS = {"pick_from", "pinned_from", "pinned_index_sha256", "upto", "max_unavailable", "flag_start_stop_share"}
 UPTO = ("fetch", "search", "all")
 
 
@@ -55,7 +55,8 @@ def settings(cfg) -> dict:
     need = {"pick_from"} | ({"pinned_from", "pinned_index_sha256"} if upto == "all" else set())
     if unknown or need - set(c) or upto not in UPTO:
         raise SystemExit("rel_w13_build: needs %s, upto one of %s; unknown keys %s" % (sorted(need), UPTO, sorted(unknown)))
-    return dict({k: str(c[k]) for k in KEYS if k in c}, upto=upto, max_unavailable=float(c.get("max_unavailable", 0.05)))
+    return dict({k: str(c[k]) for k in KEYS if k in c}, upto=upto, max_unavailable=float(c.get("max_unavailable", 0.05)),
+                flag_start_stop_share=float(c.get("flag_start_stop_share", 0.2)))
 
 
 def estimate(x):
@@ -205,6 +206,32 @@ def disk(run_dir, data_root):
     return dict(run_gb=out, free_gb=round(u.free / 1e9, 1), total_gb=round(u.total / 1e9, 1))
 
 
+def cds_report(run_dir, scope, flag_share):
+    """The coding sequences the corpus stage left out of the new genomes read from NCBI Datasets files (their corpus
+    manifest entries' cds_quality): totals by reason, and per genome those left out for want of an ATG start or a stop
+    codon; a genome that lost more than flag_share of its genes that way is flagged (its annotation is doubtful; it is
+    kept and named, the programme lead, 2026-11-24)."""
+    p = os.path.join(run_dir, "data", "corpus", "manifest.json")
+    if not os.path.exists(p):
+        return None
+    ids = {x["id"] for x in scope}
+    ents = [e for e in _json(p)["entries"] if e["id"] in ids and e.get("cds_quality")]
+    if not ents:
+        return None
+    totals, per = {}, []
+    for e in ents:
+        q = e["cds_quality"]
+        for k, v in q.items():
+            if isinstance(v, int):
+                totals[k] = totals.get(k, 0) + v
+        per.append(dict(id=e["id"], genes=q["genes"], kept=q["kept"], left_out_start_stop=q.get("left_out_start_stop", 0),
+                        share=q.get("left_out_start_stop_share", 0.0), gene_calling=e.get("gene_calling")))
+    flagged = sorted((x for x in per if x["share"] > flag_share), key=lambda x: (-x["share"], x["id"]))
+    return dict(genomes=len(per), totals=totals, flag_share=flag_share, flagged=flagged,
+                rules=(_json(p).get("meta") or {}).get("cds_rules"), share_quantiles={str(qq): round(float(sorted(x["share"] for x in per)[min(len(per) - 1, int(qq * len(per)))]), 4)
+                                                                                    for qq in (0.5, 0.9, 0.99)})
+
+
 def fetch_report(run_dir, scope):
     fm = _json(os.path.join(run_dir, "data", "fetch", "manifest.json"))
     unavailable = {m["id"] for m in ((fm.get("meta") or {}).get("unavailable") or [])}
@@ -249,6 +276,7 @@ def build(st, cfg, run_dir):
         if no_hits:
             problems.append(dict(check="search", error="relatives without a hit file", examples=no_hits[:5]))
     by = {x["id"]: x for x in scope}
+    cds = cds_report(run_dir, [x for x in scope if x["id"] not in unavailable], s["flag_start_stop_share"]) if s["upto"] in ("search", "all") else None
     if s["upto"] == "all":
         pp = os.path.join(s["pinned_from"], "data", "train_data", "index.json")
         if sha256_file(pp, use_sidecar=False) != s["pinned_index_sha256"]:
@@ -268,7 +296,7 @@ def build(st, cfg, run_dir):
     st.extra["sealed_check"] = ev
     rep = dict(format="rel-w13-build", version=1, note=__doc__.strip().splitlines()[0], upto=s["upto"], corpus_spec=cfg["corpus_spec"], corpus_spec_sha256=mine,
                pick=prov, pinned=dict(run=os.path.basename(os.path.normpath(s["pinned_from"])), index_sha256=s["pinned_index_sha256"]) if s["upto"] == "all" else None,
-               totals=totals, counts=counts, fetch=by_fetch, search=search, problems=problems, disk=disk(run_dir, cfg["data_root"]), sealed_check=ev)
+               totals=totals, counts=counts, fetch=by_fetch, search=search, problems=problems, disk=disk(run_dir, cfg["data_root"]), sealed_check=ev, cds=cds)
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     page = os.path.join(folder, "report.md")
@@ -302,6 +330,23 @@ def page_of(rep):
         for g, d in sorted(by.items()):
             L.append("| %s | %d | %s | %d |" % (g, d["genomes"], "{:,}".format(d["genes"]), d["with_hits"]))
         L.append("")
+    c = rep.get("cds")
+    if c:
+        t_ = c["totals"]
+        L += ["## Coding sequences of the NCBI Datasets files", "", c.get("rules") or "", "",
+              "%d genomes: %s coding sequences, %s genes, %s kept (at most the cap). Left out: %s." % (
+                  c["genomes"], "{:,}".format(t_.get("records", 0)), "{:,}".format(t_.get("genes", 0)), "{:,}".format(t_.get("kept", 0)),
+                  "; ".join("%s %s" % (k, "{:,}".format(t_.get(k, 0))) for k in ("pseudogene", "organelle", "another_genetic_code", "other_isoforms",
+                                                                                   "length_not_multiple_of_3", "stop_codon_inside", "fewer_than_30_codons",
+                                                                                   "no_atg_start", "no_stop_codon", "beyond_max_genes"))),
+              "Share of a genome's genes left out for want of an ATG start or a stop codon: median %s, 90%% %s, 99%% %s." % (
+                  c["share_quantiles"]["0.5"], c["share_quantiles"]["0.9"], c["share_quantiles"]["0.99"]),
+              "Genomes above %.0f%% (their annotation is doubtful; kept, named here): %d." % (100 * c["flag_share"], len(c["flagged"])), ""]
+        if c["flagged"]:
+            L += ["| genome | genes | left out (start, stop) | share | kept |", "|---|---|---|---|---|"]
+            L += ["| %s | %s | %s | %.1f%% | %s |" % (x["id"], "{:,}".format(x["genes"]), "{:,}".format(x["left_out_start_stop"]), 100 * x["share"], "{:,}".format(x["kept"]))
+                  for x in c["flagged"]]
+            L.append("")
     d = rep["disk"]
     L += ["Disk: this run %s GB (%s); %s GB free of %s GB." % (round(sum(v for v in d["run_gb"].values() if v > 0), 1),
                                                          ", ".join("%s %s" % (k, v) for k, v in d["run_gb"].items()), d["free_gb"], d["total_gb"]), ""]

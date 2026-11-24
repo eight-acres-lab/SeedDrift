@@ -7,6 +7,7 @@
 # the renderer, the passes and the readouts are those the arms were scored with. ref100m-long follows in another
 # reading once it has trained. CPU only. The run of rel-w18c1-i2 is set below once it has passed and been copied.
 pipeline: rel_traineval
+needs_gpu: false
 tier: medium
 seed: 1
 cores: 4

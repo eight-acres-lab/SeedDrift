@@ -5,6 +5,7 @@
 # 2026-11-23 read another ruler set, version 1 without self-copy rows, and is cited apart). Run from commit 7f7bc6d plus
 # this profile only. CPU only. The runs of rel-w18c1s-i2 and rel-w18c1r-i1 are set below once they have passed.
 pipeline: rel_traineval
+needs_gpu: false
 tier: medium
 seed: 1
 cores: 4

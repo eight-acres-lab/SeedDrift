@@ -33,10 +33,13 @@ estimate; the choice of the rows biases that worth in a direction not known.
 
 Outputs under data/rel_w5/baselines/: rows.tsv (the result table, columns of the contract, item_half "all"),
 rows_subset.tsv (the same on the subset of the evaluation during training, item_half "subset"), params.json (the fitted
-numbers), report.md, results.json (written last: the headline numbers, the digests of what was scored on all tables and
-on the subset, the inputs).
+numbers), cells.npz (the bits of every scored cell, so that the strata can be formed again without scoring again: per
+condition the held-out table of every cell and, per baseline, its bits and the bits of its amino acid, float32; the
+group of every held-out table; results.json's "cells" names the arrays), report.md, results.json (written last: the
+headline numbers, the digests of what was scored on all tables and on the subset, the inputs).
 Gate G4_rel_w5_baselines: the results are complete, finite and normalised, the fit read training tables only and the
-scoring held-out tables only.
+scoring held-out tables only; cells.npz is the file results.json names and gives again, from its cells, every row over
+all groups and strata.
 """
 from __future__ import annotations
 
@@ -158,6 +161,53 @@ def headline(rows):
     return dict(bits=main, by_nearest_identity=strata)
 
 
+def write_cells(path, results, group):
+    """cells.npz: per condition (in results' order) c<i>_table, the held-out table (position) of every scored cell, and
+    per baseline c<i>_b<j> its bits and c<i>_a<j> the bits of the amino acid (not for the joint reading), float32;
+    group, the group index of every held-out table. Returns the index results.json keeps: {condition: dict(table,
+    cells, baselines {name: dict(bits, amino_acid_bits)})}."""
+    arrays, index = dict(group=np.asarray(group).astype(np.int16)), {}
+    for i, (c, r) in enumerate(results.items()):
+        entry = dict(table="c%d_table" % i, cells=int(r["cell_table"].shape[0]), baselines={})
+        arrays[entry["table"]] = np.asarray(r["cell_table"]).astype(np.int32)
+        for j, (n, b) in enumerate(r["bits"].items()):
+            e = dict(bits="c%d_b%d" % (i, j))
+            arrays[e["bits"]] = np.asarray(b, dtype=np.float32)
+            if n in (r.get("amino_acid_bits") or {}):
+                e["amino_acid_bits"] = "c%d_a%d" % (i, j)
+                arrays[e["amino_acid_bits"]] = np.asarray(r["amino_acid_bits"][n], dtype=np.float32)
+            entry["baselines"][n] = e
+        index[c] = entry
+    np.savez(path, **arrays)
+    return index
+
+
+def cells_check(path, index, rows):
+    """Problems of cells.npz against rows.tsv: every row over all groups and strata (the mean over the groups of the
+    group means) given again by the cells within float32's rounding."""
+    problems = []
+    top = {(r["condition"], r["variant"]): float(r["bits"]) for r in rows if r["group"] == score.ALL and r["stratum"] == score.ALL}
+    with np.load(path) as z:
+        group = z["group"].astype(np.int64)
+        for c, e in index.items():
+            t = z[e["table"]].astype(np.int64)
+            if t.shape[0] != e["cells"]:
+                problems.append(dict(condition=c, error="cells.npz holds %d cells, results.json %d" % (t.shape[0], e["cells"])))
+                continue
+            g = group[t]
+            for n, k in e["baselines"].items():
+                b = z[k["bits"]].astype(np.float64)
+                if b.shape[0] != t.shape[0] or not np.isfinite(b).all():
+                    problems.append(dict(condition=c, baseline=n, error="bits missing or not finite"))
+                    continue
+                cnt = np.bincount(g, minlength=int(group.max()) + 1)
+                tot = np.bincount(g, weights=b, minlength=cnt.shape[0])
+                again = float((tot[cnt > 0] / cnt[cnt > 0]).mean())
+                if (c, n) in top and abs(again - top[(c, n)]) > 1e-4:
+                    problems.append(dict(condition=c, baseline=n, error="the cells give %.6f bits, rows.tsv %.6f" % (again, top[(c, n)])))
+    return problems
+
+
 def main():
     run_dir = main_args()
     with common.RelStage(run_dir, STAGE) as st:
@@ -230,9 +280,10 @@ def main():
         fine = score.fine_stratum(meta["identity"], tables["kind"], coverage)
         cov_by = score.coverage_by_stratum(fine, score.nearest_coverage(meta["identity"], coverage, tables["kind"]))
 
-        rows_path, sub_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in
-                                                                   ("rows.tsv", "rows_subset.tsv", "params.json", "report.md", "results.json"))
+        rows_path, sub_path, params_path, report_path, out_path, cells_path = (st.path("rel_w5", "baselines", n) for n in
+                                                                               ("rows.tsv", "rows_subset.tsv", "params.json", "report.md", "results.json", "cells.npz"))
         score.write_rows(rows_path, rows)
+        cells_index = write_cells(cells_path, results, meta["group"])
         score.write_rows(sub_path, rows_sub)
         write_json(params_path, params)
         title = "Classical baselines on table set %s (%d held-out tables, seed %d)" % (held.manifest["name"], n_held, seed)
@@ -256,9 +307,12 @@ def main():
                          coverage=held.manifest.get("coverage")),
             tables_run=dict(run_id=os.path.basename(os.path.normpath(src)), tablesets=[dict(name=d["name"], sha256=d["sha256"], tables=d["tables"]) for d in docs]),
             sealed=sealed, rows=len(rows), rows_sha256=sha256_file(rows_path), seconds=round(time.time() - t0, 1),
+            cells=dict(file="cells.npz", sha256=sha256_file(cells_path, use_sidecar=False), dtype="float32", score_version=score.VERSION,
+                       conditions=cells_index),
         )
         write_json(out_path, doc)
-        for name, p in (("rows", rows_path), ("rows_subset", sub_path), ("params", params_path), ("report", report_path), ("results", out_path)):
+        for name, p in (("rows", rows_path), ("rows_subset", sub_path), ("params", params_path), ("cells", cells_path), ("report", report_path),
+                        ("results", out_path)):
             st.output(name, p)
         st.extra.update(tables_scored=n_held, tables_fitted=n_fit, rows=len(rows))
         log("done: %d rows" % len(rows))
@@ -315,6 +369,14 @@ def gate(st, cfg, run_dir):
             missing = [n for n in brun.names_under(c, bool(doc.get("chain"))) if (c, n) not in top]
             if missing or not (sub.get("items") or {}).get(c, {}).get("sha256"):
                 problems.append(dict(condition=c, error="the subset lacks rows over all groups or the digest of its cells", baselines=missing))
+    cells = doc.get("cells") or {}
+    cells_path = os.path.join(folder, "cells.npz")
+    if not cells or not os.path.exists(cells_path) or sha256_file(cells_path, use_sidecar=False) != cells.get("sha256"):
+        problems.append(dict(error="cells.npz is missing or not the file results.json names"))
+    else:
+        if sorted(cells.get("conditions") or {}) != sorted(doc.get("conditions") or []):
+            problems.append(dict(error="cells.npz does not hold every condition scored"))
+        problems += cells_check(cells_path, cells.get("conditions") or {}, rows)
     if doc.get("heldout", {}).get("kind") == api.TABLE_REAL and doc.get("n_groups") != 12:
         problems.append(dict(error="a real table set has 12 groups, the results have %s" % doc.get("n_groups")))
     if not doc.get("fit", {}).get("tables") or not doc.get("heldout", {}).get("tables"):

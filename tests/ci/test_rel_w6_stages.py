@@ -473,6 +473,7 @@ def test_report_over_fitting_by_group_needs_its_threshold_and_its_interval(tmp_p
     with open(os.path.join(folder, "conf.json"), "w") as f:
         json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
     monkeypatch.setattr(w6_report, "held_units", lambda conf, source: ([GROUPS[0], GROUPS[1]] * 2, ["u1", "u2", "u3", "u4"]))
+    monkeypatch.setattr(w6_report, "held_strata", lambda conf: {})
     seen = []
 
     def boot(diff_sum, cells, group, unit, replicates=2000, seed=20261123, level=0.95, blocks=True):

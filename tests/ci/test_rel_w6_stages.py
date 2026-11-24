@@ -389,6 +389,12 @@ def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
     assert sorted({k[0] for k in at}) == [1000, 2000] and abs(at[(2000, SC.ALL)]["leak"] - 0.1) < 1e-9
     q = rep["pairs"][0]
     assert [r[0] for r in q["rows"]] == [1000, 2000, "end"] and abs(q["rows"][-1][3] - 0.1) < 1e-9 and abs(q["rows"][-1][11] - 0.3) < 1e-9
+    # without relatives beside (row 0 alone) and the difference less it; by bin, each with its tables
+    wo = {(r[0], r[1]): r for r in q["without_relatives"]}
+    r_end = wo[("end", cond.SCATTERED)]
+    assert abs(r_end[4] - 0.1) < 1e-9 and r_end[7] is not None and abs(r_end[8] - (r_end[4] - r_end[7])) < 1e-12
+    bins = [r for r in q["by_bin"] if r[0] == 2000 and r[1] == cond.SCATTERED]
+    assert bins and all(isinstance(r[4], int) and isinstance(r[6], int) for r in bins)              # the tables of each bin, both arms
     got = {(r["condition"], r["tables"]): r for r in rep["leak"]}
     assert abs(got[(cond.SUFFIX, SC.ALL)]["leak"] - 0.3) < 1e-9 and abs(got[(cond.SCATTERED, SC.ALL)]["leak"] - 0.1) < 1e-9
     assert got[(cond.SUFFIX, SC.RELATIVES[0])]["bits_stored"] == 4.25 and cond.SUFFIX in rep["conditions"]

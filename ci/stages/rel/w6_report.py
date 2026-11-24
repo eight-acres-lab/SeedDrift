@@ -398,6 +398,18 @@ def index_rows(rows, arms, base):
     return out
 
 
+def index_items(rows, arms):
+    """{(arm, point, tables, condition label, group, stratum): the tables read (n_items)}, the keys of index_rows."""
+    out = {}
+    label = condition_labels(rows)
+    for r in rows:
+        p = point_of(r) if r["variant"] in arms else None
+        if p is not None and str(r.get("n_items") or "").isdigit():
+            c = label.get((r["variant"], r["condition"], r.get("layout") or "stored"), r["condition"])
+            out[(r["variant"], p[0], p[1], c, r["group"], r["stratum"])] = int(r["n_items"])
+    return out
+
+
 def same_items(arms, digests):
     """{condition: whether every trained arm scored, in its final evaluation, the cells the baselines scored}; only
     conditions for which both digests are known."""
@@ -478,6 +490,7 @@ def build(st, cfg, run_dir):
     conds = [c for c in list(cond.CONDITIONS) + list(getattr(cond, "EXTRA_CONDITIONS", ())) + extra if any(F(v, c) is not None for v in cols)]
     reading = {a: (s["main"] if arms[a]["variant"]["relatives"] else s["main"] + NO_REL) for a in names}
     nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
+    items_n = index_items(rows, arms)                                  # the tables behind every reading (by bin, say)
     # the cells the baselines scored are checked against the arms read on the baselines' own held-out set; an arm read on
     # another set (round 1b's long arm on version 0, beside the long arm of version 1 for the reading of data) is listed
     # apart, never in the check (its cells cannot be the baselines')
@@ -808,15 +821,36 @@ def build(st, cfg, run_dir):
             raise SystemExit("rel_w6_report.pairs %s: %s are no arms of the report" % (q["name"], [x for x in (q["first"], q["second"]) if x not in arms]))
         a1, a2 = q["first"], q["second"]
         common = sorted(set(nodes.get(a1, [])) & set(nodes.get(a2, [])) - {0})
-        prow = []
+        prow, norel_rows, bin_rows = [], [], []
+        sfx = getattr(cond, "SUFFIX", "suffix")
         for t in common + ["end"]:
             row = [t]
-            for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix")):
+            for c in (cond.SCATTERED, cond.WHOLE_GENE, sfx):
                 u, v = (F(a1, c), F(a2, c)) if t == "end" else (N(a1, t, c), N(a2, t, c))
                 n = noise(None if t == "end" else t, c) if spread else None
                 row += [u, v, diff(v, u), beyond(diff(v, u), n) if n else None]
             prow.append(row)
-        pairs_out.append(dict(name=q["name"], first=a1, second=a2, rows=prow,
+            # the same conditions without relatives (row 0 alone): what the held-out tables and the model differ by beside
+            # the relatives; the difference with relatives less this one comes nearer to what the data gave the relatives
+            for c in (cond.SCATTERED, sfx):
+                u, v = (F(a1, c), F(a2, c)) if t == "end" else (N(a1, t, c), N(a2, t, c))
+                u0, v0 = (F(a1, c + NO_REL), F(a2, c + NO_REL)) if t == "end" else (N(a1, t, c + NO_REL), N(a2, t, c + NO_REL))
+                if u0 is None and v0 is None:
+                    continue
+                d, d0 = diff(v, u), diff(v0, u0)
+                norel_rows.append([t, c, u, v, d, u0, v0, d0, diff(d, d0) if d is not None and d0 is not None else None])
+            # by the identity of the nearest other-genome row, each version in its own bins, bin against bin, with its tables
+            for c in (cond.SCATTERED, sfx):
+                for x in SC.FINE:
+                    if x == NONE_BIN:
+                        continue
+                    get = (lambda a: (F(a, c, SC.ALL, x), items_n.get((a, "final", None, c, SC.ALL, x)))) if t == "end" else \
+                        (lambda a: (N(a, t, c, SC.ALL, x), items_n.get((a, "node", t, c, SC.ALL, x))))
+                    (u, nu), (v, nv) = get(a1), get(a2)
+                    if u is None and v is None:
+                        continue
+                    bin_rows.append([t, c, x.replace(SC.FINE_PREFIX, ""), u, nu, v, nv, diff(v, u)])
+        pairs_out.append(dict(name=q["name"], first=a1, second=a2, rows=prow, without_relatives=norel_rows, by_bin=bin_rows,
                               tables_seen={a: arms[a]["info"].get("tables_seen") for a in (a1, a2)}))
     # learning-rate sweeps: arms of one size at several peak rates (a seed group as one entry: its mean where all of it
     # reached a node, the one that reached it otherwise) at every node all entries reached, the best against the next
@@ -1239,6 +1273,19 @@ def build(st, cfg, run_dir):
                "tables seen %s), against the seeds' difference." % ", ".join("%s %s" % (a, t) for a, t in q["tables_seen"].items()), ""]
         md += md_table(["tables seen"] + ["%s, %s" % (c, w) for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix"))
                                           for w in ("first", "second", "difference", "reading")], q["rows"])
+        if q.get("without_relatives"):
+            md += ["", "The same without relatives (row 0 alone: what the two arms' held-out tables and models differ by beside the relatives) "
+                       "and the difference with relatives less the one without (nearer to what the relatives gave). Different held-out "
+                       "tables: curves, not cells.", ""]
+            md += md_table(["tables seen", "condition", "with relatives, first", "with relatives, second", "difference with relatives",
+                            "without relatives, first", "without relatives, second", "difference without relatives", "with less without"],
+                           q["without_relatives"])
+        if q.get("by_bin"):
+            md += ["", "By the identity of the nearest other-genome row, each arm in the bins of its own held-out tables, bin against bin "
+                       "(the tables in a bin differ between the two sets; their numbers beside). Different held-out tables: curves, not "
+                       "cells.", ""]
+            md += md_table(["tables seen", "condition", "nearest identity", "bits, first", "tables, first", "bits, second", "tables, second",
+                            "difference"], q["by_bin"])
     for w in sweeps:
         md += ["", "## Learning rates of %s: %s" % (w["name"], ", ".join("%s at %s" % (e, w["lr"][e]) for e in w["entries"])), "",
                "Bits at every node all of them reached (600 tables; a group of seeds: its mean), then at the end (all tables; each at its own "

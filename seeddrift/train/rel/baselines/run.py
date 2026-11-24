@@ -124,6 +124,16 @@ def other_rows(tables):
     return cond.present_rows(tables["kind"])[:, 1:].sum(axis=1)
 
 
+def cell_rows(bits, amino_acid_bits, table, group, strata, n_groups, group_names):
+    """Aggregate one baseline's codon scores and its two optional components."""
+    rows = score.aggregate(bits, table, group, strata, n_groups, group_names)
+    if amino_acid_bits is not None:
+        for part, values in zip(score.PARTS, (amino_acid_bits, bits - amino_acid_bits)):
+            for row in score.aggregate(values, table, group, [], n_groups, group_names):
+                rows.append(dict(row, stratum=part))
+    return rows
+
+
 def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL, kind=None, layouts=None,
                 coverage=None):
     """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind,
@@ -137,11 +147,8 @@ def result_rows(results, group, identity, params, head, n_groups=12, group_names
     rows = []
     for condition, res in results.items():
         mask = cond.parse(condition)[0]
-        agg = {n: score.aggregate(b, res["cell_table"], group, strata, n_groups, group_names) for n, b in res["bits"].items()}
-        for n, a in (res.get("amino_acid_bits") or {}).items():                 # the two parts, per group and over the groups
-            for part, b in ((score.PARTS[0], a), (score.PARTS[1], res["bits"][n] - a)):
-                agg[n] += [dict(r, stratum=part) for r in score.aggregate(b, res["cell_table"], group, [], n_groups, group_names) if r["stratum"] == score.ALL]
-        for n, rws in agg.items():
+        for n, bits in res["bits"].items():
+            rws = cell_rows(bits, res.get("amino_acid_bits", {}).get(n), res["cell_table"], group, strata, n_groups, group_names)
             cells = int(res["cell_table"].shape[0])
             for r in rws:
                 rows.append(score.result_row(

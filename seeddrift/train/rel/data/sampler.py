@@ -9,8 +9,11 @@ Mask scheme: one per table, drawn among `masks` (modules of seeddrift.train.rel.
 (tables.render) or another layout of package W3's renderer (tables/render.py, e.g. leakfree), which also marks the
 cells it laid by extension (ext); or frame (whole gene only): the table, after its rows are drawn, laid on its frame
 relative by package W3's strict aligner (tables/align.py frame_layout, the function the evaluation uses), then
-rendered leak-free (the example's frame_from: the stored row its frame relative is, -1 for none). The sampler counts
-the seconds it spends in frame_layout and the tables it laid (frame_s, frame_tables), in the process that draws.
+rendered leak-free (the example's frame_from: the stored row its frame relative is, -1 for none); or strict (scattered
+and span): W3's strict aligner on the rows drawn and the cells hidden (tables/strict.py render), then leak-free. One
+sample in CHECK_EVERY of these two layouts (by its number over the training) is checked by W3's fourth test (the
+example's traincheck: 0 passed, 1 failed; only for an arm with a strict layout). The sampler counts the seconds it spends in frame_layout and in the strict
+rendering and the tables it laid (frame_s, frame_tables, strict_s, strict_tables), in the process that draws.
 
 An example is a dict: grid uint8 [R, ROW_LEN] (what the model reads), truth uint8 [R, ROW_LEN] (0 = no target),
 scheme (index into masks), table, group, layout; and ext bool [R, ROW_LEN] when the layout is not stored.
@@ -27,8 +30,10 @@ from seeddrift.train.rel.data import tables as T
 from seeddrift.train.rel.tables import align as AL
 from seeddrift.train.rel.tables import render as RD
 
-SAMPLER_VERSION = "4"
+SAMPLER_VERSION = "5"
 FRAME = "frame"                 # the whole gene laid on its frame relative by W3's strict aligner, then rendered leak-free
+STRICT = "strict"               # scattered and span laid by W3's strict aligner (tables/strict.py, aligner version 2), then leak-free
+CHECK_EVERY, CHECK_SEED = 1000, 20261124        # the fourth test on one sample in 1,000 of the strict and frame layouts
 
 
 def mask_scheme(name):
@@ -45,10 +50,13 @@ class Sampler:
         self.frame_index = frame_index
         self.masks = [str(m) for m in masks]
         self.layouts = [str((layouts or {}).get(m, A.LAYOUT_STORED)) for m in self.masks]
-        if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS) - {FRAME} or \
-                any(x == FRAME and m != "whole_gene" for m, x in zip(self.masks, self.layouts)):
-            raise ValueError("layouts %r: a layout of %s for mask schemes among %r (frame: whole_gene only)" % (layouts, RD.LAYOUTS, self.masks))
-        self.frame_s, self.frame_tables = 0.0, 0
+        if set(layouts or {}) - set(self.masks) or set(self.layouts) - set(RD.LAYOUTS) - {FRAME, STRICT} or \
+                any(x == FRAME and m != "whole_gene" for m, x in zip(self.masks, self.layouts)) or \
+                any(x == STRICT and m == "whole_gene" for m, x in zip(self.masks, self.layouts)):
+            raise ValueError("layouts %r: a layout of %s for mask schemes among %r (frame: whole_gene only; strict: not whole_gene)"
+                             % (layouts, RD.LAYOUTS, self.masks))
+        self.frame_s, self.frame_tables, self.strict_s, self.strict_tables = 0.0, 0, 0.0, 0
+        self.checks = STRICT in self.layouts                            # an arm trained strictly checks its strict and frame samples
         modules = [mask_scheme(m) for m in self.masks]
         self.plans = [m.plan for m in modules]
         weighted = {bool(getattr(m, "WEIGHTED", False)) for m in modules}
@@ -78,7 +86,9 @@ class Sampler:
                 p = min(len(lone) / len(ids), float(alone_share)) if len(other) else 1.0
                 self.alone.append((lone, other, p))
 
-    def example(self, rng):
+    def example(self, rng, index=None):
+        """One example; index (the sample's number over the training: step x per_step + its place in the step) marks
+        the one sample in CHECK_EVERY of the strict and frame layouts that the fourth test checks (traincheck)."""
         for _ in range(16):
             g = int(rng.integers(len(self.by_group)))
             if self.alone is None:
@@ -117,6 +127,12 @@ class Sampler:
                 grid, truth, ext = RD.render(dict(tab, col=col, frame_row=frame_row, frame_len=frame_len), visible, target, layout=A.LAYOUT_LEAKFREE)
                 fr = AL.frame_relative(tab)                             # the frame relative of the target block, as a row of the stored table
                 frame_from = int(chosen[fr]) if fr is not None else -1
+            elif lay == STRICT:                                         # scattered and span: W3's strict aligner, then leak-free
+                from seeddrift.train.rel.tables import strict as ST
+                t0 = time.perf_counter()
+                grid, truth, ext, _ = ST.render(tab, visible, target, whole_gene=False)
+                self.strict_s += time.perf_counter() - t0
+                self.strict_tables += 1
             else:
                 if self.masks[s] == "whole_gene" and self.frame_index is not None:   # the whole gene on its frame relative
                     col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(self.tables.meta(i), chosen), self.frame_index)
@@ -125,6 +141,12 @@ class Sampler:
             if truth.any():
                 out = dict(grid=grid, truth=truth, scheme=s, table=i, group=int(self.tables.group[i]), alone=not len(others),
                            cells=int(T.inside(tab).sum()), layout=lay, rows=chosen)
+                if self.checks and index is not None and lay in (FRAME, STRICT) and int(index) % CHECK_EVERY == 0:
+                    from seeddrift.train.rel.tables import strict as ST     # the fourth test on this rendering (W3)
+                    got = ST.fourth_test(tab, visible, target, whole_gene=lay == FRAME, key=int(index), seed=CHECK_SEED)
+                    out["traincheck"] = 0 if got["passed"] else 1
+                    if not got["passed"]:                               # enough to reproduce it with W3's fourth test (the same key)
+                        out["traincheck_failed"] = dict(sample=int(index), table=i, scheme=self.masks[s], rows=[int(r) for r in chosen])
                 if ext is not None:
                     out["ext"] = ext
                 if lay == FRAME:
@@ -136,7 +158,7 @@ class Sampler:
 
     def draw(self, step):
         rng = np.random.default_rng([self.seed, int(step)])
-        out = [self.example(rng) for _ in range(self.per_step)]
+        out = [self.example(rng, int(step) * self.per_step + j) for j in range(self.per_step)]
         if self.weighted:
             # weight of a table's cells: its cells over its target cells (the inverse of the ratio it realised), scaled so
             # that the weights of the step's target cells sum to their number (the trainer divides by that number)

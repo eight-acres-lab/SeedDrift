@@ -1,0 +1,37 @@
+# Machine i-1: whether the ASEM gene identifiers the event registry drafts cite (Dunning 2019 cites ASEM_AUS1_ IDs in
+# its main text, ASEM_C4_ IDs in Dataset S1) are locus tags of the Alloteropsis semialata assembly QPGU01 (stage
+# w15_registry, ci/stages/rel/w15_registry.py, item 5; package W15). E-utilities link the WGS master record
+# QPGU00000000 to its assembly; NCBI Datasets gives the annotation report page by page (gene records only, never
+# sequence), every page stored with its sha256 in the run's data folder. No paper is fetched in this run, no model
+# output and no score is read; the drafts' own checks, NCBI taxonomy and the corpus counts run as in the registry run.
+# Standard library only: the select lock, no GPU, network to NCBI. Development diagnosis only.
+pipeline: rel_events
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 1
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w15_registry]
+rel_w15_registry:
+  registry:
+    - bench/rel/registry/events_v0.2-sample.tsv
+    - bench/rel/registry/events_v0.2-batch2.tsv
+    - bench/rel/registry/events_v0.2-batch3.tsv
+    - bench/rel/registry/events_v0.2-batch4.tsv
+    - bench/rel/registry/events_v0.2-batch5.tsv
+  source: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  fetch: false
+  annotation:
+    wgs_master: QPGU00000000
+    max_mb: 150
+  pause_s: 0.5
+train:
+  gpu_lease: false
+  device: cpu

@@ -325,7 +325,7 @@ def test_online_frame_layout_reads_the_other_direction_when_the_target_is_not_in
 V1_MANIFEST = os.path.join("data", "rel_w12", "v1", "tableset.json")
 
 
-def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False):
+def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False, part="heldout"):
     """A tables run of the shape of version 1 made from the fixture's held-out tables: 32 rows (the fixture's rows and
     copies of them), rows 1 and 2 self-copies, ABSENT and TRUNCATED blocks, the fields the contract adds, and for a
     ruler set a meta file of its own and an index, as W18's implant set has (this stage refuses such a set)."""
@@ -360,8 +360,10 @@ def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False):
         out["n"][live, r, b], out["kind"][live, r, b] = 0, k
         out["tok"][live, r, s0:e0], out["col"][live, r, s0:e0] = A.PAD, -1
         out["row_gene"][live, r, b], out["row_first"][live, r, b] = -1, -1
+    if part == "train":
+        out["split"][:] = shards.SPLIT_TRAIN                                     # the same tables as a training part
     run_dir = str(tmp / "ci-root" / "runs" / ("20261123T000000-exp-rel-00000000-" + name))
-    folder = os.path.join(run_dir, "data", "rel_w12", "v1", "heldout")
+    folder = os.path.join(run_dir, "data", "rel_w12", "v1", part)
     written = IO.write(folder, out, 10, version=1)
     files = [dict(path=os.path.relpath(IO.shard_path(folder, sh, f), run_dir), sha256=sha256_file(IO.shard_path(folder, sh, f), use_sidecar=False),
                   bytes=os.path.getsize(IO.shard_path(folder, sh, f)), role="shard" if f in shards.SHARD_KNOWN else "meta")
@@ -374,8 +376,8 @@ def _v1_like(built, tmp, name, kind=A.TABLE_REAL, purpose=None, extra=False):
             files.append(dict(path=os.path.relpath(p, run_dir), sha256=sha256_file(p, use_sidecar=False), bytes=os.path.getsize(p), role=role))
     body = {k: v for k, v in doc.items() if k not in ("sha256", "parts", "files", "tables", "name", "kind", "purpose")}
     new = handoff.finish(dict(body, name=name, kind=kind, rows=R, tables=N, files=files, table_version="w12-v1-1",
-                              parts=dict(heldout=dict(split=shards.SPLIT_HELDOUT, tables=N, folder=os.path.relpath(folder, run_dir),
-                                                      shards=[dict(name=sh, tables=m) for sh, m in written])),
+                              parts={part: dict(split=shards.SPLIT_HELDOUT if part == "heldout" else shards.SPLIT_TRAIN, tables=N, folder=os.path.relpath(folder, run_dir),
+                                                      shards=[dict(name=sh, tables=m) for sh, m in written])},
                               **({"purpose": purpose} if purpose else {})))
     mp = os.path.join(run_dir, V1_MANIFEST)
     with open(mp, "w") as f:
@@ -445,3 +447,60 @@ def test_stage_renders_tables_of_version_1_and_refuses_ruler_sets(tmp_path_facto
             w3_offline.settings(dict(rel_w3_offline=dict(block, allow_kinds=kinds)))
         assert "rel_w18_offline" in str(err.value)
     assert w3_offline.settings(dict(rel_w3_offline=dict(block, allow_kinds=[A.TABLE_SYNTHETIC])))["allow_kinds"] == [A.TABLE_SYNTHETIC]
+
+
+def test_the_training_check_stage(tmp_path_factory, monkeypatch):
+    """Stage rel_w3_traincheck on a training part of the shape of version 1: every mask scheme checked on every table
+    drawn, no failure, the gate passes; a failure fails it."""
+    from ci.stages.rel import w3_traincheck as TC
+    built = _tables_run(tmp_path_factory)
+    tmp = built["tmp"]
+    W2S.patch(monkeypatch, tmp)
+    monkeypatch.setattr(common, "sealed_set", RT._sealed)
+    src, doc, arrays = _v1_like(built, tmp, "w12-v1like-train", part="train")
+    block = dict(tables_from=src, tablesets=[dict(path=V1_MANIFEST, sha256=doc["sha256"])], tables=12, processes=2, rows=[4, 32])
+    run_dir, cfg = RF.rel_run(tmp / "tc", stages=["w3_traincheck"], rel_w3_traincheck=block)
+    with Stage(run_dir, TC.STAGE) as st:
+        TC.build(st, cfg, run_dir)
+    rep = json.load(open(os.path.join(run_dir, TC.OUT, "report.json")))
+    assert rep["tables"] == 12 and set(rep["masks"]) == {"scattered", "span", "whole_gene"}
+    assert all(r["samples"] == 12 and r["failures"] == 0 and r["cells"] > 0 and r["ms_per_rendering"] > 0 for r in rep["masks"].values())
+    with Stage(run_dir, "gates_rel_w3_traincheck", requires=("pre",)) as st:
+        TC.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w3_traincheck.json")))["status"] == "pass"
+    keep = TC.rows_of({k: arrays[k][0] for k in ("tok", "n", "col", "kind", "frame_len", "frame_row")}, 0, [4, 32], 1)
+    assert keep[0] == 0 and 1 <= len(keep) <= 32 and len(set(keep.tolist())) == len(keep)
+    assert np.array_equal(TC.drawn(100, 12, 5), TC.drawn(100, 12, 5)) and len(TC.drawn(100, 12, 5)) == 12
+    rep["masks"]["span"]["failures"] = 1
+    json.dump(rep, open(os.path.join(run_dir, TC.OUT, "report.json"), "w"))
+    with pytest.raises(GateFailure):
+        with Stage(run_dir, "gates_rel_w3_traincheck", requires=("pre",)) as st:
+            TC.gate(st, cfg, run_dir)
+
+
+def test_the_strict_rendering_online_is_the_offline_part_cell_for_cell(tmp_path_factory, monkeypatch):
+    """Under the evaluator's plans (only row 0 hidden) the strict rendering of the stored tables (tables/strict.py, as
+    the training and its nodes render) is the leak-free rendering of the offline part (W3's strict offline rendering,
+    as the final evaluation reads it), grid, truth and cells laid by extension, table for table and condition for
+    condition: aligner version 2 is version 1 there, so the two readings are one layout."""
+    from seeddrift.train.rel.tables import strict as ST
+    built = _tables_run(tmp_path_factory)
+    src, doc, tmp = built["run_dir"], built["doc"], built["tmp"]
+    block = dict(tables_from=src, tablesets=[dict(path=RT.MANIFEST, sha256=doc["sha256"])], shard_tables=10)
+    run_dir, cfg = RF.rel_run(tmp / "same", stages=["w3_offline"], rel_w3_offline=block)
+    W2S.patch(monkeypatch, tmp)
+    monkeypatch.setattr(common, "sealed_set", RT._sealed)
+    with Stage(run_dir, w3_offline.STAGE) as st:
+        out = w3_offline.build(st, cfg, run_dir)
+    sets = shards.parts(run_dir, out)
+    held = shards.by_split(src, [doc])[shards.SPLIT_HELDOUT]
+    fields = ("tok", "n", "col", "kind", "frame_len", "frame_row")
+    stored = held.load(0, held.tables, fields)
+    for c in (cond.SCATTERED, cond.SUFFIX, cond.WHOLE_GENE):
+        part = sets[c].load(0, held.tables, fields)
+        plan = cond.materialise({f: stored[f] for f in ("tok", "n", "col", "kind")}, np.arange(held.tables), c)
+        for t in range(held.tables):
+            vis, tgt = plan["visible"][t], plan["target"][t]
+            online = ST.render({f: stored[f][t] for f in fields}, vis, tgt, whole_gene=c == cond.WHOLE_GENE)[:3]
+            offline = RD.render({f: part[f][t] for f in fields}, vis, tgt, RD.LEAKFREE)
+            assert all(np.array_equal(a, b) for a, b in zip(online, offline)), (c, t)

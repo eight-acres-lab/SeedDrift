@@ -355,7 +355,7 @@ def finish(st, cfg, run_dir, s, sets, arms, schedule, free0, env_info):
                     preflight=dict(peak_mb=pre.get("peak_mb"), reserved_mb=pre.get("reserved_mb"), cells_per_s=pre.get("cells_per_s"), memory=pre.get("memory"),
                                    guard=pre.get("guard"), steps_per_s=pre.get("steps_per_s"), tables_per_s=pre.get("tables_per_s"),
                                    data_wait_s_per_step=pre.get("data_wait_s_per_step"), sampler=pre.get("sampler"), gpu=pre.get("gpu")),
-                    schemes=summ.get("schemes"), data_wait_s=summ.get("data_wait_s"), micro_fallback=x.get("fallback"),
+                    schemes=summ.get("schemes"), data_wait_s=summ.get("data_wait_s"), micro_fallback=x.get("fallback"), traincheck=summ.get("traincheck"),
                     steps=summ.get("steps"), tables_seen=summ.get("tables_seen"), cells_seen=summ.get("cells_seen"), target_cells=summ.get("target_cells"),
                     cells_per_s=summ.get("cells_per_s"), tables_per_s=summ.get("tables_per_s"), train_s=summ.get("train_s"), eval_s=summ.get("eval_s"),
                     eval_overhead=summ.get("eval_overhead"), peak_mb=summ.get("peak_mb"), reserved_mb=summ.get("reserved_mb"), ended_by=summ.get("ended_by"),
@@ -422,6 +422,9 @@ def arm_problems(doc, cfg) -> list:
             want = (["budget"] if info.get("budget_cells") else []) + (["max_steps"] if max_steps else []) or ["wall"]
             if info.get("ended_by") not in want:
                 out.append(dict(arm=v.get("name"), error="the arm ended by %s, not at its budget (%s)" % (info.get("ended_by"), " or ".join(want))))
+            tc = info.get("traincheck") or {}
+            if tc.get("failures"):                                      # W3's fourth test on its strict renderings: none may fail
+                out.append(dict(arm=v.get("name"), error="the fourth test failed on %d of the %d strict renderings it checked" % (tc["failures"], tc.get("checked", 0))))
     return out
 
 

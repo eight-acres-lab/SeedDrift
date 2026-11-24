@@ -14,10 +14,13 @@ Four things, all from the registry draft the profile names (bench/rel/registry/e
    for the DOIs the profile lists, its supplementary files (figures left out) from there; otherwise the open full
    text and supplements from Europe PMC. Each file with its URL, size and sha256. Papers are stored under the run's
    data folder, never in the repository. Articles outside the open subset are not retrieved automatically.
+5. with `annotation` (a WGS master accession), which identifiers the drafts cite as ASEM gene IDs are locus tags of
+   that assembly: E-utilities link the WGS record to its assembly, NCBI Datasets gives the annotation report page by
+   page (gene records only, never sequence), every page stored with its sha256.
 
 Profile block rel_w15_registry: registry (repository path of the draft, or a list of drafts read as one registry), source (the run directory of a passed selfsup
 run, for its training-data index; optional), fetch (bool), supplements (DOIs whose supplements are fetched),
-max_supplement_mb (default 50), pause_s (default 0.5).
+max_supplement_mb (default 50), pause_s (default 0.5), annotation (wgs_master, max_mb; optional).
 Output data/rel_w15/registry/report.json and report.md; papers in data/rel_w15/registry/papers/.
 Gate G4_rel_w15_registry: the draft breaks no rule, every role is unassigned, nothing sits at bench/catalogue/events.tsv,
 the report's sha256 of the drafts matches the drafts, and with fetch on at least half the paper lookups returned a
@@ -36,6 +39,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections import Counter
 
 from bench.rel.registry import registry as reg
 from ci.gates import GateResult, require
@@ -45,7 +49,10 @@ from ci.stages.rel import common
 
 STAGE = "rel_w15_registry"
 OUT = os.path.join("data", "rel_w15", "registry")
-KEYS = {"registry", "source", "fetch", "supplements", "max_supplement_mb", "pause_s"}
+KEYS = {"registry", "source", "fetch", "supplements", "max_supplement_mb", "pause_s", "annotation"}
+EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+DATASETS = "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/"
+ASEM_RE = re.compile(r"\bASEM_(?:C4|AUS1)_[0-9A-Za-z]+")
 EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/"
 USER_AGENT = "literature-registry-fetch/0.2 (python urllib)"
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s;\[\]]+")
@@ -66,7 +73,10 @@ def settings(cfg) -> dict:
     paths = [str(x) for x in (c["registry"] if isinstance(c["registry"], list) else [c["registry"]])]
     if any(os.path.normpath(x) == CATALOGUE for x in paths):
         raise SystemExit("%s: the draft never lives at %s (gate G2 reads that file)" % (STAGE, CATALOGUE))
-    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)),
+    ann = c.get("annotation")
+    if ann is not None and (not isinstance(ann, dict) or not ann.get("wgs_master")):
+        raise SystemExit("%s: annotation needs wgs_master (and optionally max_mb)" % STAGE)
+    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)), annotation=ann,
                 supplements=[d.lower() for d in c.get("supplements") or []],
                 max_supplement_mb=float(c.get("max_supplement_mb", 50)), pause_s=float(c.get("pause_s", 0.5)))
 
@@ -329,15 +339,17 @@ def fetch(doi, dest, opener=urllib.request.urlopen, supplements=False, max_suppl
                 rec["fulltext"] = dict(got, source="pmc-oa-opendata")
             else:
                 rec.setdefault("article_files", []).append(got)
-        if supplements:
+        if supplements and plan["supplements"]:
             files = [_s3_file(k, oa, opener, waits, sleep, cap) for k, n in plan["supplements"]]
             stored = [f for f in files if f.get("sha256")]
             rec["supplements"] = dict(source="pmc-oa-opendata", files=files, bytes=sum(f["bytes"] for f in stored))
             if stored:
                 rec["supplements"]["sha256"] = hashlib.sha256("".join(sorted(f["sha256"] for f in stored)).encode()).hexdigest()
-            elif files:
+            else:
                 rec["supplements"].update(error_type="NoneStored", status=None, error="no supplementary file stored")
-        if (rec.get("fulltext") or {}).get("sha256") and (not supplements or rec.get("supplements")):
+        elif supplements:                      # the dataset holds no supplementary file (figures aside): try Europe PMC
+            rec["pmc_oa"]["supplements"] = "none in the open-access dataset"
+        if (rec.get("fulltext") or {}).get("sha256") and (not supplements or (rec.get("supplements") or {}).get("sha256")):
             return rec
     for what, path, cap_mb in (("fulltext", "fullTextXML", None), ("supplements", "supplementaryFiles", max_supplement_mb)):
         if (what == "supplements" and not supplements) or (rec.get(what) or {}).get("sha256"):
@@ -381,6 +393,85 @@ def fetch_all(doi_list, base, s, fetch_one=None, sleep=time.sleep) -> list:
     return out
 
 
+def registry_ids(rows) -> list:
+    """The ASEM gene identifiers the drafts cite (region, claim, notes), as written."""
+    out = set()
+    for r in rows:
+        for col in ("region", "claim", "notes"):
+            out.update(ASEM_RE.findall(r.get(col) or ""))
+    return sorted(out)
+
+
+def _json_get(url, opener, waits, sleep):
+    status, data = _tries(lambda: _get(url, opener), waits, sleep)
+    return json.loads(data, strict=False), data
+
+
+def _walk(obj, key):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key and isinstance(v, str):
+                yield v
+            else:
+                yield from _walk(v, key)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _walk(v, key)
+
+
+def annotation_lookup(spec, rows, dest, opener=urllib.request.urlopen, waits=RETRIES, sleep=time.sleep, pause_s=0.5) -> dict:
+    """Which ASEM identifiers of the drafts are locus tags of the assembly behind a WGS master record: E-utilities find
+    the assembly (nuccore -> assembly link -> summary), NCBI Datasets gives its annotation report page by page (gene
+    records only, no sequence). Every page is stored with its sha256."""
+    master = spec["wgs_master"]
+    cap = int(float(spec.get("max_mb", 150)) * 1e6)
+    rec = dict(wgs_master=master)
+    q = lambda base, **kw: base + "?" + urllib.parse.urlencode(dict(kw, retmode="json", tool="literature-registry-fetch"))
+    try:
+        es, _ = _json_get(q(EUTILS + "esearch.fcgi", db="nuccore", term=master), opener, waits, sleep)
+        nuc = (es.get("esearchresult") or {}).get("idlist") or []
+        sleep(pause_s)
+        el, _ = _json_get(q(EUTILS + "elink.fcgi", dbfrom="nuccore", db="assembly", id=",".join(nuc[:1])), opener, waits, sleep) if nuc else ({}, b"")
+        links = [l for ls in el.get("linksets") or [] for db in ls.get("linksetdbs") or [] if db.get("dbto") == "assembly" for l in db.get("links") or []]
+        sleep(pause_s)
+        su, _ = _json_get(q(EUTILS + "esummary.fcgi", db="assembly", id=",".join(map(str, links[:1]))), opener, waits, sleep) if links else ({}, b"")
+        res = su.get("result") or {}
+        doc = res.get(str(links[0])) if links else None
+        rec["assembly"] = dict(nuccore_uid=nuc[:1], assembly_uid=links[:1], accession=(doc or {}).get("assemblyaccession"),
+                               name=(doc or {}).get("assemblyname"), properties=(doc or {}).get("propertylist"))
+    except TRANSIENT as err:
+        rec.update(status="error", error=_failure(err))
+        return rec
+    acc = rec["assembly"]["accession"]
+    if not acc:
+        rec["status"] = "no assembly found for the WGS master record"
+        return rec
+    tags, genes, pages, total, token = set(), 0, [], 0, None
+    while True:
+        url = DATASETS + "%s/annotation_report?%s" % (acc, urllib.parse.urlencode(dict(page_size=1000, **({"page_token": token} if token else {}))))
+        try:
+            sleep(pause_s)
+            page, data = _json_get(url, opener, waits, sleep)
+        except TRANSIENT as err:
+            rec.update(status="error", error=_failure(err, url), pages=pages)
+            return rec
+        pages.append(dict(_store(dest, "annotation_%03d.json" % len(pages), data), url=url))
+        total += len(data)
+        reports = page.get("reports") or []
+        genes += len(reports)
+        tags.update(_walk(reports, "locus_tag"))
+        token = page.get("next_page_token")
+        if not token or not reports or total > cap:
+            break
+    ids = registry_ids(rows)
+    prefixes = Counter(t.rsplit("_", 1)[0] for t in tags)
+    rec.update(status="annotated" if tags else ("no locus tags in the annotation report" if genes else "no annotation report"),
+               genes=genes, locus_tags=len(tags), locus_tag_prefixes=prefixes.most_common(10), pages=pages,
+               truncated=bool(token) and total > cap, ids=len(ids), matched=sorted(i for i in ids if i in tags),
+               unmatched=sorted(i for i in ids if i not in tags))
+    return rec
+
+
 def _folder(doi):
     return re.sub(r"[^a-z0-9._-]+", "_", doi.lower())
 
@@ -406,7 +497,10 @@ def build(st, cfg, run_dir):
     if s["fetch"]:
         base = os.path.dirname(st.path("rel_w15", "registry", "papers", "x"))
         papers = fetch_all(dois(rows), base, s)
-    doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"],
+    annotation = None
+    if s["annotation"]:
+        annotation = annotation_lookup(s["annotation"], rows, st.path("rel_w15", "registry", "annotation", "x").rsplit("/", 1)[0])
+    doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"], annotation=annotation,
                registry_sha256={x: sha256_file(st.repo(x), use_sidecar=False) for x in s["registry"]}, records=len(rows), errors=errors, warnings=warnings,
                summary=summary_, taxa=found, pretraining=pre, sealed_overlap=overlap, papers=papers,
                fetch_failures=failures(papers),
@@ -434,6 +528,11 @@ def markdown_server(doc) -> str:
         out.append("| %s | %s | %s | %s | %s | %s | %s |" % (
             eid, rec["status"], rec.get("taxid", ""), "; ".join(rec.get("names_not_in_ncbi", [])),
             pre.get("train", ""), pre.get("heldout", ""), ov.get("sealed_overlap", "")))
+    a = doc.get("annotation")
+    if a:
+        out += ["", "Annotation of %s (%s): %s; %s genes, %s locus tags, prefixes %s; %s of the drafts' %s ASEM identifiers are locus tags." % (
+            a.get("wgs_master"), (a.get("assembly") or {}).get("accession"), a.get("status"), a.get("genes", 0), a.get("locus_tags", 0),
+            a.get("locus_tag_prefixes", []), len(a.get("matched") or []), a.get("ids", 0))]
     if doc["papers"]:
         ok = sum(1 for p in doc["papers"] if (p.get("fulltext") or {}).get("sha256"))
         out += ["", "%d DOIs looked up (%d with a parsed record); %d with an open full text stored; %d with supplements stored." % (
@@ -455,6 +554,8 @@ def gate(st, cfg, run_dir):
             bad.append(dict(error="%s is not the file the report was made from" % rel))
     if os.path.exists(os.path.join(common.ROOT, CATALOGUE)):
         bad.append(dict(error="%s exists: the draft must not live there" % CATALOGUE))
+    if (doc.get("annotation") or {}).get("status") == "error":
+        bad.append(dict(error="the annotation lookup failed: %s" % ((doc["annotation"].get("error") or {}).get("error"),)))
     papers = doc.get("papers") or []
     looked_up = sum(1 for x in papers if "found" in x)
     if papers and looked_up < FETCH_MIN_SHARE * len(papers):

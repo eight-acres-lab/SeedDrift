@@ -198,3 +198,34 @@ def test_read_skips_comment_lines(tmp_path):
 def test_origin_n_or_unknown_may_carry_semicolons_in_its_words():
     r = _row("E1", "Aphis (genus)", INSECT + ";Aphis", ev_origin="?: resembles the donor; identity not read")
     assert reg.origin_kinds(r) == set() and reg.check([r]) == ([], [])
+
+
+def test_concentration_flags_a_cell_one_source_fills():
+    rows = [_row("E%d" % i, "Alloteropsis (genus)", "Poaceae;Alloteropsis", papers="10.1000/d", direction="euk>euk",
+                 recipient_group="plants_algae") for i in range(4)]
+    rows.append(_row("E9", "Ipomoea (genus)", "Solanales;Ipomoea", papers="10.1000/k", direction="euk>euk", recipient_group="plants_algae"))
+    rows.append(_row("E8", "Ipomoea (genus)", "Solanales;Ipomoea", papers="10.1000/k", record_kind="claim_set",
+                     direction="euk>euk", recipient_group="plants_algae"))
+    c = reg.concentration(rows)
+    cell = c["cells"]["euk>euk|plants_algae"]
+    assert cell["events"] == 5 and cell["sources"] == 2 and cell["source_share"] == 0.8 and cell["over_cap"]
+    assert c["once_per_source"]["euk>euk|plants_algae"] == {"A": 2} and c["claim_sets"] == {"euk>euk|plants_algae": 1}
+    s = reg.summarise(rows)
+    assert s["largest_group"]["A"][1] == 4
+    md = reg.markdown(rows, s)
+    assert "Concentration of sources" in md and "**yes**" in md and "largest group" in md
+
+
+def test_xlsx_sheet_transcribes_values_and_styles_as_they_stand(tmp_path, capsys):
+    import zipfile
+    from bench.rel.registry import xlsx_sheet
+    book = tmp_path / "b.xlsx"
+    with zipfile.ZipFile(book, "w") as z:
+        z.writestr("xl/sharedStrings.xml", "<sst><si><t>Gene</t></si><si><t>a&amp;b</t></si></sst>")
+        z.writestr("xl/worksheets/sheet2.xml",
+                   '<worksheet><sheetData><row r="1"><c r="A1" t="s" s="3"><v>0</v></c><c r="B1" s="5"><v>9*</v></c></row>'
+                   '<row r="2"><c r="A2" t="s"><v>1</v></c><c r="C2" s="7"/></row></sheetData></worksheet>')
+    assert list(xlsx_sheet.rows(str(book), 2)) == [("1", ["A=Gene[3]", "B=9*[5]"]), ("2", ["A=a&b[]", "C=[7]"])]
+    xlsx_sheet.main(["x", str(book), "2"])
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("# b.xlsx sheet 2 sha256 ") and out[1] == "1\tA=Gene[3]\tB=9*[5]"

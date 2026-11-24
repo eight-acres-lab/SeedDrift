@@ -1,0 +1,14 @@
+package: W3
+kind: to_package
+to: C0
+what: >-
+  register stage w3_traincheck under kind rel_tables in configs/rel/kinds.yaml (package W3, rule rel_w3_traincheck,
+  output data/rel_w3/traincheck/report.json, module ci.stages.rel.w3_traincheck, gates [G4_rel_w3_traincheck], side
+  data; the entry is in the package's commit, for the coordinator to keep or redo), then start profile
+  rel-dev-w3-traincheck-v1-i1 on i-1 under the select lock before round 1's third batch
+why: >-
+  the programme lead (2026-11-24): the training renders the scattered and span samples strictly (align.strict of
+  version 2: every hidden residue of any row unknown) from round 1's third batch on, if W3's fourth test passes on the
+  training's own renderings before the batch starts; otherwise all five arms of the batch keep the online layout
+size: {hours: 0.1, threads: 6, disk_gb: 0, gpu_mem_gb: 0}
+by: 2026-11-25

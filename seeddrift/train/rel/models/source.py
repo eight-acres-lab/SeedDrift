@@ -23,6 +23,12 @@ Shared output pieces, at a target cell (float32):
 S2 (learned copy model): p(x) = w_none p_self(x) + sum over available (r, l) of w_rl sub_l(x | c_r), the weights a
   softmax over the available (r, l) and none. In the programme's notation lambda = 1 - w_none, w_r = sum_l w_rl / lambda.
 
+  Switch aa_level (S2 only; variant copy-aa30m, the programme lead's ruling of 2026-11-24): one more level whose tilt
+  reads amino acids only, sub_aa(x | c) = softmax(a(h_self) + g_aa(h_self) * B_aa[aa(c), aa(x)]), B_aa a learned 22 x 22
+  table over the groups of models/axial.py (20 amino acids, stop, OTHER). Its tilt is the same for every codon of an
+  amino acid, copied or predicted, so between synonymous codons the own-row distribution alone chooses. The codon levels
+  are kept; the weights of all levels come from the scores as before (one more query per level).
+
 S1 (source path): the source of a row's cells is a chain along the columns of each block, restarted at every block
   (another locus). Its log potentials, from the grid only:
     unary(r) = logsumexp_l score(r, l) [+ evidence], unary(none) = score(none) [+ evidence], -1e4 where unavailable;
@@ -42,8 +48,9 @@ and the evaluator read them unchanged (forward returns normalised log-probabilit
 The joint bits of a row's hidden cells (the forward algorithm with the true codons as emissions) and the source
 posterior given those codons are read-outs only: readout().
 
-Sizes: a dict {layers, width, arm: s1 | s2, self_layers, levels (default 3), evidence (S1 only, default true)} or a name
-of SIZES; ext is added by the trainer for a layout other than stored, as for axial.
+Sizes: a dict {layers, width, arm: s1 | s2, self_layers, levels (default 3, the codon levels), evidence (S1 only, default
+true), aa_level (S2 only, default false)} or a name of SIZES; ext is added by the trainer for a layout other than stored,
+as for axial. With aa_level false the arm is S2 of SOURCE_VERSION 2 unchanged.
 
 `python -m seeddrift.train.rel.trainer.run selftest` calls every test_ function of this module on the CPU.
 """
@@ -71,8 +78,10 @@ KAPPA_MAX = 20.0                             # the stay bonus at most (a stay pr
 STRENGTH0 = (0.5, 5.0)                       # the copy strengths of the weakest and strongest level at the start
 EVIDENCE0 = 2.0                              # the identity log-odds of the evidence table at the start
 SIZES = {"s1-30m": dict(layers=12, width=384, arm="s1", self_layers=4), "s2-30m": dict(layers=12, width=384, arm="s2", self_layers=4),
-         "s1-10m": dict(layers=8, width=256, arm="s1", self_layers=3), "s2-10m": dict(layers=8, width=256, arm="s2", self_layers=3)}
-KNOWN = {"layers", "width", "arm", "self_layers", "levels", "evidence", "ext"}
+         "s1-10m": dict(layers=8, width=256, arm="s1", self_layers=3), "s2-10m": dict(layers=8, width=256, arm="s2", self_layers=3),
+         "copy-aa30m": dict(layers=12, width=384, arm="s2", self_layers=4, aa_level=True)}
+KNOWN = {"layers", "width", "arm", "self_layers", "levels", "evidence", "aa_level", "ext"}
+N_GROUPS = AX.N_GROUPS                       # 20 amino acids, stop, OTHER: the groups of the amino-acid level
 
 
 def spec_of(size):
@@ -89,17 +98,22 @@ def spec_of(size):
     evidence = bool(spec.get("evidence", arm == "s1"))
     if evidence and arm != "s1":
         raise ValueError("evidence is a switch of arm s1")
+    aa_level = bool(spec.get("aa_level", False))
+    if aa_level and arm != "s2":
+        raise ValueError("aa_level is a switch of arm s2")
     return dict(layers=layers, width=int(spec["width"]), arm=arm, self_layers=self_layers, levels=int(spec.get("levels", LEVELS)),
-                evidence=evidence, ext=bool(spec.get("ext", False)))
+                evidence=evidence, aa_level=aa_level, ext=bool(spec.get("ext", False)))
 
 
-def count_parameters(layers, width, arm, levels=LEVELS, evidence=None, ext=False, vocab=A.VOCAB, roles=4):
+def count_parameters(layers, width, arm, levels=LEVELS, evidence=None, ext=False, vocab=A.VOCAB, roles=4, aa_level=False):
     """The number of parameters, from the architecture (the blocks are the reference trunk's)."""
     evidence = arm == "s1" if evidence is None else evidence
     block = AX.count_parameters(1, width) - AX.count_parameters(0, width)
     n = layers * block + vocab * width + roles * width + 2 * 2 * width                     # embeddings, the two norms
-    n += (N_OUT * width + N_OUT) + (levels * width + levels) + levels * N_OUT * N_OUT       # own-row logits, strengths, B
-    n += (width * levels * KEY + levels * KEY) + (width * KEY + KEY) + (width + 1)        # queries, keys, no source
+    weighted = levels + int(bool(aa_level))                                               # the levels with a strength and a query
+    n += (N_OUT * width + N_OUT) + (weighted * width + weighted) + levels * N_OUT * N_OUT   # own-row logits, strengths, B
+    n += N_GROUPS * N_GROUPS if aa_level else 0                                           # B_aa
+    n += (width * weighted * KEY + weighted * KEY) + (width * KEY + KEY) + (width + 1)    # queries, keys, no source
     if arm == "s1":
         n += width + 1                                                                   # stay bonus
         if evidence:
@@ -199,12 +213,14 @@ def block_plan(slices=None):
 
 
 class Source(nn.Module):
-    def __init__(self, layers, width, arm, self_layers, levels=LEVELS, evidence=None, ext=False, slices=None):
+    def __init__(self, layers, width, arm, self_layers, levels=LEVELS, evidence=None, ext=False, slices=None, aa_level=False):
         super().__init__()
         spec = spec_of(dict(layers=layers, width=width, arm=arm, self_layers=self_layers, levels=levels,
-                            evidence=arm == "s1" if evidence is None else evidence, ext=ext))
+                            evidence=arm == "s1" if evidence is None else evidence, aa_level=aa_level, ext=ext))
         self.layers, self.width, self.arm = spec["layers"], spec["width"], spec["arm"]
         self.self_layers, self.levels, self.evidence = spec["self_layers"], spec["levels"], spec["evidence"]
+        self.aa_level = spec["aa_level"]
+        self.weighted = self.levels + int(self.aa_level)        # the levels with a strength and a query; the amino-acid one last
         role, pos = AX.column_plan(slices)
         cos, sin = C.rotary_tables(pos, AX.ROW_HEAD // 4)
         column, real = block_plan(slices)
@@ -217,11 +233,14 @@ class Source(nn.Module):
         self.role = nn.Embedding(4, width)
         self.blocks = nn.ModuleList([C.AxialBlock(width, AX.ROW_HEAD, AX.COLUMN_HEAD, AX.RATIO) for _ in range(layers)])
         self.norm_self, self.norm_full = nn.LayerNorm(width), nn.LayerNorm(width)
-        L = self.levels
+        L, W = self.levels, self.weighted
         self.own = nn.Linear(width, N_OUT)                       # a(h_self): the own-row logits
-        self.strength = nn.Linear(width, L)                      # g_l(h_self) before softplus
+        self.strength = nn.Linear(width, W)                      # g_l(h_self) before softplus
         self.sub = nn.Parameter(torch.zeros(L, N_OUT, N_OUT))    # B_l[c, x]
-        self.query = nn.Linear(width, L * KEY)
+        if self.aa_level:
+            self.sub_aa = nn.Parameter(torch.zeros(N_GROUPS, N_GROUPS))      # B_aa[aa(c), aa(x)]
+            self.register_buffer("groups", AX.token_groups(), persistent=False)
+        self.query = nn.Linear(width, W * KEY)
         self.key = nn.Linear(width, KEY)
         self.none = nn.Linear(width, 1)
         if self.arm == "s1":
@@ -235,7 +254,10 @@ class Source(nn.Module):
         with torch.no_grad():
             eye = torch.eye(N_OUT)
             self.sub.copy_(eye.expand(L, N_OUT, N_OUT))
-            self.strength.bias.copy_(torch.tensor([math.log(math.expm1(g)) for g in strengths(L)]))
+            start = strengths(L) + ([STRENGTH0[1]] if self.aa_level else [])          # the amino-acid level starts as strong as the strongest
+            self.strength.bias.copy_(torch.tensor([math.log(math.expm1(g)) for g in start]))
+            if self.aa_level:
+                self.sub_aa.copy_(torch.eye(N_GROUPS))
             if self.arm == "s1":
                 self.stay.bias.fill_(math.log(math.expm1(STAY0)))
                 if self.evidence:
@@ -297,10 +319,16 @@ class Source(nn.Module):
         with torch.autocast(device_type=grid.device.type, enabled=False):
             return self._pieces(grid, sizes, row, col, h_self, h_full)
 
+    def aa_tilt(self):
+        """[65, 65] float32: the amino-acid level's tilt B_aa[aa(c), aa(x)] for every copied codon c and residue x, the
+        same entry for every codon of an amino acid on either side (an index of B_aa, nothing learned per codon)."""
+        g = self.groups
+        return self.sub_aa.float()[g[:, None], g[None, :]]
+
     def _pieces(self, grid, sizes, row, col, h_self, h_full):
         index, valid, tab, local = self._tables(grid, sizes)
         T, R = index.shape
-        L = self.levels
+        L = self.weighted
         tok = grid[index]                                                          # [T, R, C]
         residue = (tok >= A.TARGET_MIN) & (tok <= A.TARGET_MAX) & valid[:, :, None]
         hf = self.norm_full(h_full.float())
@@ -317,7 +345,9 @@ class Source(nn.Module):
         g = F.softplus(self.strength(hs))                                          # [M, L]
         c = tok[t, :, col]                                                         # [M, R]: the codon of every other row
         cc = c.clamp(A.TARGET_MIN, A.TARGET_MAX) - A.TARGET_MIN
-        tilt = self.sub[:, cc].permute(1, 2, 0, 3)                                 # [M, R, L, 65]
+        tilt = self.sub[:, cc].permute(1, 2, 0, 3)                                 # [M, R, levels, 65]
+        if self.aa_level:
+            tilt = torch.cat([tilt, self.aa_tilt()[cc][:, :, None, :]], dim=2)      # [M, R, levels + 1, 65]
         sub = torch.log_softmax(own[:, None, None, :] + g[:, None, :, None] * tilt, dim=-1)
         out = dict(index=index, valid=valid, tab=tab, local=local, t=t, i=i, col=col, tok=tok, avail=avail, score=score, none=none,
                    own=torch.log_softmax(own, dim=-1), sub=sub, strength=g, cell_avail=avail[t, i, col], cell_score=score[t, i, col],
@@ -453,7 +483,8 @@ def readout(model, grid, sizes, row, col, ext=None, token=None):
 
 def build(size):
     s = spec_of(size)
-    return Source(s["layers"], s["width"], s["arm"], s["self_layers"], levels=s["levels"], evidence=s["evidence"], ext=s["ext"])
+    return Source(s["layers"], s["width"], s["arm"], s["self_layers"], levels=s["levels"], evidence=s["evidence"], ext=s["ext"],
+                  aa_level=s["aa_level"])
 
 
 def unused_parameters(width, self_layers):
@@ -493,9 +524,10 @@ def measured_flops(model, rows=32, share=0.15, seed=0):
 
 def info(size, rows=16):
     s = spec_of(size)
-    params = count_parameters(s["layers"], s["width"], s["arm"], s["levels"], s["evidence"], s["ext"])
+    params = count_parameters(s["layers"], s["width"], s["arm"], s["levels"], s["evidence"], s["ext"], aa_level=s["aa_level"])
     return dict(module=MODULE, params=params, params_used=params - unused_parameters(s["width"], s["self_layers"]), layers=s["layers"],
                 width=s["width"], arm=s["arm"], self_layers=s["self_layers"], levels=s["levels"], evidence=s["evidence"], ext=s["ext"],
+                aa_level=s["aa_level"],
                 head="source-" + s["arm"], flops_per_cell=flops_per_cell(params, s["layers"], s["width"], s["self_layers"], rows),
                 factorisation="independent", layout="any", common_version=C.COMMON_VERSION, source_version=SOURCE_VERSION)
 
@@ -503,6 +535,9 @@ def info(size, rows=16):
 # ---- self-tests (CPU, small widths; called by the trainer's selftest mode in the model interpreter) ----
 
 SPECIALS = (A.GAP, A.PAD, A.MASK, A.ABSENT, A.NOT_SEARCHED, A.TRUNCATED, A.EXT_EMPTY)
+
+
+TESTED = (("s1", {}), ("s2", {}), ("s2", dict(aa_level=True)))   # the arms the tests run on: S1, S2, S2 with the amino-acid level
 
 
 def _small(arm, seed=0, **kw):
@@ -525,31 +560,34 @@ def _cells(n, rows, seed):
 
 
 def test_parameter_count():
-    for arm in ARMS:
+    for arm, kw in TESTED:
         for ext in (False, True):
             for evidence in ((True, False) if arm == "s1" else (False,)):
-                m = Source(2, 256, arm, 1, evidence=evidence, ext=ext)
+                m = Source(2, 256, arm, 1, evidence=evidence, ext=ext, **kw)
                 n = sum(p.numel() for p in m.parameters())
-                assert n == count_parameters(2, 256, arm, evidence=evidence, ext=ext), (arm, ext, evidence, n)
+                assert n == count_parameters(2, 256, arm, evidence=evidence, ext=ext, **kw), (arm, kw, ext, evidence, n)
     for name, spec in SIZES.items():
         i = info(name)
-        assert i["params"] == count_parameters(spec["layers"], spec["width"], spec["arm"]) and i["factorisation"] == "independent"
+        assert i["params"] == count_parameters(spec["layers"], spec["width"], spec["arm"], aa_level=spec.get("aa_level", False))
+        assert i["factorisation"] == "independent" and i["aa_level"] == spec.get("aa_level", False)
         ref = AX.count_parameters(spec["layers"], spec["width"])
         assert abs(i["params"] - ref) < 0.03 * ref, (name, i["params"], ref)                  # the reference trunk's size
     assert info(dict(SIZES["s1-30m"], ext=True))["params"] == count_parameters(12, 384, "s1") + 384
-    for arm in ARMS:                                                              # the parameters used: those a backward reaches
+    extra = info("copy-aa30m")["params"] - info("s2-30m")["params"]
+    assert extra == (384 + 1) + (384 * KEY + KEY) + N_GROUPS * N_GROUPS              # a strength, a query and B_aa
+    for arm, kw in TESTED:                                                              # the parameters used: those a backward reaches
         torch.manual_seed(43)
-        model = Source(3, 256, arm, 2)
+        model = Source(3, 256, arm, 2, **kw)
         grid = _grid(5, 44)
         model(grid, [3, 2], *_cells(50, 5, 45)).logsumexp(-1).sum().backward()
         reached = sum(p.numel() for p in model.parameters() if p.grad is not None)
-        i = info(dict(layers=3, width=256, arm=arm, self_layers=2))
-        assert reached == i["params_used"] == i["params"] - unused_parameters(256, 2), (arm, reached, i["params_used"])
+        i = info(dict(layers=3, width=256, arm=arm, self_layers=2, **kw))
+        assert reached == i["params_used"] == i["params"] - unused_parameters(256, 2), (arm, kw, reached, i["params_used"])
     for P_, L_, W_, R_ in ((28463681, 12, 384, 32), (1000, 2, 256, 1)):           # the contract's formula, the reference arm's:
         assert flops_per_cell(P_, L_, W_, 0, R_) == A.flops_per_cell(P_, L_, W_, A.ROW_LEN + R_)   # with no own-row block, equal
     ref = AX.info("30m", rows=32)["flops_per_cell"]
     assert ref == A.flops_per_cell(AX.info("30m")["params"], 12, 384, A.ROW_LEN + 32)
-    for name in ("s1-30m", "s2-30m"):
+    for name in ("s1-30m", "s2-30m", "copy-aa30m"):
         f = info(name, rows=32)["flops_per_cell"]
         assert 0.9 * ref < f < ref, (name, f, ref)                               # a little less than the reference trunk's
 
@@ -599,10 +637,10 @@ def test_version_2_is_version_1():
     """Version 2 (the own-row blocks without their column attention, S1's chain in probability space) gives what version
     1 gives, in fp32: the distributions, the loss and the gradient of every parameter (zero in version 1 where version 2
     leaves a parameter unused: the own-row blocks' column projections and norms)."""
-    for arm in ARMS:
+    for arm, kw in TESTED:
         for ext in (False, True):
             torch.manual_seed(37)
-            model = Source(3, 256, arm, 2, ext=ext)
+            model = Source(3, 256, arm, 2, ext=ext, **kw)
             grid = _grid(9, 38, specials=0.3)
             sizes = [5, 1, 3]
             row, col = _cells(400, 9, 39)
@@ -671,8 +709,8 @@ def test_alone_block_is_the_block_on_lone_rows():
 def test_normalised_and_finite():
     """Every target cell gets a normalised distribution over the residues 1..65, finite, with finite gradients, for
     grids full of cells that are no residue (and a row of PAD only)."""
-    for arm in ARMS:
-        model = _small(arm)
+    for arm, kw in TESTED:
+        model = _small(arm, **kw)
         model.train()
         grid = _grid(9, 1, specials=0.4)
         grid[4] = A.PAD
@@ -690,8 +728,8 @@ def test_normalised_and_finite():
 def test_self_branch_sees_no_other_row():
     """The own-row branch (p_self, the strength of every level of the substitution, h_self) is the same whatever the
     other rows of the table hold: its attention never reaches them. The prediction itself does change."""
-    for arm in ARMS:
-        model = _small(arm, seed=4)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=4, **kw)
         grid = _grid(7, 5)
         sizes = [4, 3]
         row, col = torch.zeros(300, dtype=torch.long), torch.randint(0, A.ROW_LEN, (300,), generator=torch.Generator().manual_seed(6))
@@ -711,8 +749,8 @@ def test_self_branch_sees_no_other_row():
 def test_other_rows_only_through_copying():
     """Where no other row of the table holds a residue in the target's column, the prediction is p_self exactly, and
     stays so whatever else the other rows hold: other rows reach a prediction only through the codons copied."""
-    for arm in ARMS:
-        model = _small(arm, seed=8)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=8, **kw)
         grid = _grid(5, 9)
         sizes = [5]
         col = torch.tensor([3, 40, 300, 700, 900, 1000])
@@ -732,8 +770,8 @@ def test_other_rows_only_through_copying():
 def test_sources_are_residues_only():
     """A source has a residue 1..65 in the target's column and is another row of the same table; GAP, PAD, MASK,
     ABSENT, NOT_SEARCHED, TRUNCATED and EXT_EMPTY cells never carry weight; no source always does."""
-    for arm in ARMS:
-        model = _small(arm, seed=11)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=11, **kw)
         grid = _grid(9, 12, specials=0.5)
         sizes = [6, 3]
         row, col = _cells(500, 9, 13)
@@ -749,8 +787,8 @@ def test_sources_are_residues_only():
 
 def test_rows_permute():
     """Permuting the rows of a table permutes the output: no row index anywhere."""
-    for arm in ARMS:
-        model = _small(arm, seed=14)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=14, **kw)
         grid = _grid(8, 15)
         sizes = [5, 3]
         perm = torch.tensor([3, 0, 4, 1, 2, 7, 5, 6])
@@ -763,8 +801,8 @@ def test_rows_permute():
 
 
 def test_tables_do_not_mix():
-    for arm in ARMS:
-        model = _small(arm, seed=17)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=17, **kw)
         parts = [_grid(4, 18), _grid(1, 19), _grid(6, 20)]
         row, col = _cells(200, 11, 21)
         with torch.no_grad():
@@ -780,8 +818,8 @@ def test_tables_do_not_mix():
 
 def test_lone_row():
     """A table of one row: the prediction is p_self and lambda is 0."""
-    for arm in ARMS:
-        model = _small(arm, seed=22)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=22, **kw)
         grid = _grid(1, 23)
         row, col = torch.zeros(100, dtype=torch.long), torch.arange(0, 1000, 10)
         r = readout(model, grid, [1], row, col)
@@ -815,8 +853,8 @@ def test_hidden_content_does_not_leak():
     grid3 = T.render(seen, cells & ~hide, hide)[0]
     assert (grid == grid2).all() and (grid[hide] == A.MASK).all()
     r, c = (torch.from_numpy(x) for x in np.nonzero(truth))
-    for arm in ARMS:
-        model = _small(arm, seed=25)
+    for arm, kw in TESTED:
+        model = _small(arm, seed=25, **kw)
         with torch.no_grad():
             a, b, d = (model(torch.from_numpy(g.astype(np.int64)), [rows], r, c) for g in (grid, grid2, grid3))
         assert torch.equal(a, b) and not torch.allclose(a, d, atol=1e-5), arm
@@ -836,6 +874,85 @@ def test_s1_without_stay_and_evidence_is_s2():
     with torch.no_grad():
         a, b = s1(grid, [6], row, col), s2(grid, [6], row, col)
     assert torch.allclose(a, b, atol=1e-4), float((a - b).abs().max())
+
+
+def _synonymous(groups):
+    """The groups (amino acids, stop) of more than one residue, as lists of indices 0..64."""
+    return [m for m in (torch.nonzero(groups == k)[:, 0].tolist() for k in range(N_GROUPS)) if len(m) > 1]
+
+
+def test_aa_level_is_blind_between_synonymous_codons():
+    """The amino-acid level's tilt B_aa[aa(c), aa(x)] is exactly the same for every codon of an amino acid, copied (c)
+    or predicted (x), with B_aa random and again after a step of training; at a cell its substitution is the own-row
+    distribution times a factor that is the same inside every amino acid, and two other rows holding synonymous codons
+    give it exactly the same component. The codon levels are not blind (they tell synonymous codons apart)."""
+    model = _small("s2", seed=47, aa_level=True)
+    with torch.no_grad():
+        model.sub_aa.copy_(torch.randn(N_GROUPS, N_GROUPS, generator=torch.Generator().manual_seed(48)) * 2)
+        model.sub.add_(torch.randn(model.sub.shape, generator=torch.Generator().manual_seed(49)))
+    syn = _synonymous(model.groups)
+    assert len(syn) == 19 and sum(len(m) for m in syn) == 62                       # 18 amino acids of 2+ codons (59) and stop (3); M, W, OTHER alone
+
+    def blind(tilt):
+        for m in syn:
+            if not ((tilt[m] == tilt[m[:1]]).all() and (tilt[:, m] == tilt[:, m[:1]]).all()):
+                return False
+        return True
+
+    assert blind(model.aa_tilt()) and not blind(model.sub[0])
+    grid = _grid(4, 50, specials=0.0)
+    m = syn[0]
+    col = torch.arange(10, 1000, 7)
+    grid[1, col], grid[2, col] = m[0] + A.TARGET_MIN, m[1] + A.TARGET_MIN          # two rows with synonymous codons in every column
+    grid[3, col] = A.GAP
+    row = torch.zeros(len(col), dtype=torch.long)
+    grid[row, col] = A.MASK
+    with torch.no_grad():
+        p = model.pieces(grid, [4], row, col)
+    comp = p["sub"][:, :, -1]                                                      # [M, R, 65]: the amino-acid level
+    assert torch.equal(comp[:, 1], comp[:, 2]) and not torch.equal(p["sub"][:, 1, 0], p["sub"][:, 2, 0])
+    factor = comp[:, 1] - p["own"]                                                 # log sub_aa(x | c) - log p_self(x)
+    for k in syn:
+        inside = factor[:, k]
+        assert float((inside.max(1).values - inside.min(1).values).max()) < 1e-5
+    model.train()
+    opt = torch.optim.SGD(model.parameters(), lr=0.5)
+    F.cross_entropy(model(grid, [4], row, col), torch.randint(0, N_OUT, (len(col),), generator=torch.Generator().manual_seed(51))).backward()
+    assert model.sub_aa.grad is not None and float(model.sub_aa.grad.abs().sum()) > 0
+    before = model.sub_aa.detach().clone()
+    opt.step()
+    assert not torch.equal(before, model.sub_aa.detach()) and blind(model.aa_tilt())
+
+
+def test_aa_level_keeps_the_codon_levels():
+    """S2 with the amino-acid level holds S2's codon levels: with S2's weights loaded (the amino-acid level's strength,
+    query and B_aa beside them), the scores and substitutions of the codon levels, p_self and the score of no source are
+    S2's; the amino-acid level is one more component of the same mixture."""
+    s2 = _small("s2", seed=52)
+    aa = _small("s2", seed=53, aa_level=True)
+    L = s2.levels
+    with torch.no_grad():
+        mine = aa.state_dict()
+        for k, v in s2.state_dict().items():
+            if k in ("strength.weight", "strength.bias"):
+                mine[k][:L] = v
+            elif k in ("query.weight", "query.bias"):
+                mine[k][:L * KEY] = v
+            else:
+                mine[k].copy_(v)
+        aa.load_state_dict(mine)
+    grid = _grid(7, 54)
+    row, col = _cells(300, 7, 55)
+    grid[row, col] = A.MASK
+    with torch.no_grad():
+        a, b = aa.pieces(grid, [4, 3], row, col), s2.pieces(grid, [4, 3], row, col)
+        la = aa(grid, [4, 3], row, col)
+    for k in ("own", "cell_none", "strength"):
+        assert torch.allclose(a[k][..., :L] if k == "strength" else a[k], b[k], atol=1e-6), k
+    assert a["cell_score"].shape[-1] == L + 1 and torch.allclose(a["cell_score"][..., :L], b["cell_score"], atol=1e-5)
+    assert torch.allclose(a["sub"][:, :, :L], b["sub"], atol=1e-6) and torch.isfinite(la).all()
+    lw, ln = aa.weights(a)
+    assert lw.shape[-1] == L + 1 and torch.allclose(torch.cat([lw.reshape(len(row), -1), ln[:, None]], 1).exp().sum(1), torch.ones(len(row)), atol=1e-5)
 
 
 def test_s1_readouts_agree_with_the_prediction():
@@ -865,9 +982,9 @@ def test_s1_readouts_agree_with_the_prediction():
 
 
 def test_backward_and_start():
-    for arm in ARMS:
+    for arm, kw in TESTED:
         torch.manual_seed(31)
-        model = Source(2, 256, arm, 1)
+        model = Source(2, 256, arm, 1, **kw)
         grid = _grid(5, 32)
         row, col = torch.tensor([0, 2, 4]), torch.tensor([5, 800, 1023])
         loss = F.cross_entropy(model(grid, [3, 2], row, col), torch.tensor([0, 10, 64]))
@@ -882,9 +999,9 @@ def test_backward_and_start():
 
 def test_masked_blocks_stay_finite():
     """A one-row table whose first 600 cells are PAD: outputs and gradients stay finite."""
-    for arm in ARMS:
+    for arm, kw in TESTED:
         torch.manual_seed(33)
-        model = Source(1 + 1, 256, arm, 1)
+        model = Source(1 + 1, 256, arm, 1, **kw)
         grid = _grid(1, 34, specials=0.0)
         grid[0, :600] = A.PAD
         row, col = torch.zeros(200, dtype=torch.long), torch.arange(800, 1000)
@@ -909,7 +1026,8 @@ def test_measured_flops_calibrate_the_analytic_count():
 
 def test_sizes_are_checked():
     for bad in (dict(layers=2, width=256, arm="s3", self_layers=1), dict(layers=2, width=256, arm="s1", self_layers=2),
-                dict(layers=2, width=256, arm="s2", self_layers=1, evidence=True), dict(layers=2, width=256, arm="s1", self_layers=1, gate=True)):
+                dict(layers=2, width=256, arm="s2", self_layers=1, evidence=True), dict(layers=2, width=256, arm="s1", self_layers=1, gate=True),
+                dict(layers=2, width=256, arm="s1", self_layers=1, aa_level=True)):
         try:
             spec_of(bad)
         except ValueError:

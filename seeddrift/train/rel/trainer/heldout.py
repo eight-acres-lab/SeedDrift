@@ -22,7 +22,7 @@ from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
 from seeddrift.train.rel.tables import align as AL
 
-EVAL_VERSION = "5"
+EVAL_VERSION = "6"
 PLAN_FIELDS = ("tok", "n", "col", "kind", "frame_len", "frame_row", "genome_of_row")
 
 
@@ -116,7 +116,7 @@ def other_rows(kind):
 
 
 @torch.no_grad()
-def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.LAYOUT_STORED, frame=None, control=None):
+def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.LAYOUT_STORED, frame=None, control=None, strict=False):
     """The tables ids (positions in the held-out set; data: their arrays PLAN_FIELDS, in the same order) under one
     condition, rendered in `layout` (stored: tables.render; another: package W3's renderer, with the cells it laid by
     extension where the model reads them). Returns bits (float64 [C], one per scored cell), cell_table (int64 [C], the
@@ -128,7 +128,9 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.L
     and the tables' meta fields genome, row_gene, row_first, in the order of data): placed online by the stored pairs
     (package W3's align.frame_layout_online).
     control: None, or a control of W3's renderer (shuffle: the rows' correspondence permuted by column; presence:
-    only which cells exist), keyed by the table's id."""
+    only which cells exist), keyed by the table's id. strict: a condition of another mask than the whole gene, in a
+    layout other than stored, laid by W3's strict aligner on the cells it hides (tables/strict.py render), as an arm
+    trained strictly is trained."""
     if layout != A.LAYOUT_STORED:
         from seeddrift.train.rel.tables import render as RD
         with_ext = getattr(model, "ext", None) is not None
@@ -188,8 +190,13 @@ def score(model, data, ids, condition, device, max_rows=64, chunk=32, layout=A.L
                     meta_k = {f: np.asarray(frame["meta"][f][at + k]) for f in T.FRAME_META}
                     col, frame_row, frame_len, _ = AL.frame_layout_online(tab, T.take_meta(meta_k, keep), frame["index"])
                     tab = dict(tab, col=col, frame_row=frame_row, frame_len=frame_len)
-                grid, truth, ext = RD.render(tab, plan["visible"][k][keep], plan["target"][k][keep], layout=layout, control=control,
-                                             key=int(ids[at + k]))
+                if strict and mask != cond.WHOLE_GENE:
+                    from seeddrift.train.rel.tables import strict as ST
+                    grid, truth, ext, _ = ST.render(tab, plan["visible"][k][keep], plan["target"][k][keep], whole_gene=False, control=control,
+                                                    key=int(ids[at + k]))
+                else:
+                    grid, truth, ext = RD.render(tab, plan["visible"][k][keep], plan["target"][k][keep], layout=layout, control=control,
+                                                 key=int(ids[at + k]))
                 ext = ext if with_ext else None
             if int((truth > 0).sum()) != int(plan["target"][k].sum()):
                 raise ValueError("table %d under %s: the grid scores %d cells, the evaluator planned %d"

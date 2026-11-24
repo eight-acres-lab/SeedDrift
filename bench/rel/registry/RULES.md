@@ -42,6 +42,13 @@ Changes from version 0.1 (2026-11-22, after review of the 20-record sample):
   - A paper whose events are listed only in a supplement stays one `claim_set` record until the list is copied, row by
     row, from the supplement. Supplements are downloaded on the servers only. Claim sets are counted, but they do not
     take part in grouping (section 7) and are never labels.
+  - **Splitting a claim set (2026-11-23):** when a claim set is split into events, its `event_id` passes to the first
+    event and the others get new IDs; the notes of each say what it was split from. A double-registration table refers
+    to the units as they were before the split (its rules version says which).
+  - Every fact copied from a supplement or a full text cites the file a CI run stored with its sha256, and the table
+    row or text section. A transcription made with a script uses a script committed here (`xlsx_sheet.py`).
+  - A main-text statement that cites a unit (a fragment, a gene) by a label that the supplement's identifiers do not
+    reconcile is held as `?`, its words kept in the notes, until the identifiers are reconciled.
 
 ## 2. Fields
 
@@ -98,7 +105,7 @@ Scenario tags: `near` (within a phylum, genus or species), `replacement` (alleli
 fusion, part of a gene), `serial` (repeated transfers, loss or relocation after transfer), `high_foreign` (a genome with
 a high foreign fraction), `chimeric_virus`, `contamination_vs_integration` (the claim had to tell integrated DNA from
 contamination, symbionts or food), `multicopy`, `intron_gain`, `large_insert` (a segment of many genes, an endosymbiont
-genome).
+genome; three or more genes on one fragment).
 
 Position evidence is defined by scenario (charter, section 3):
 
@@ -216,6 +223,14 @@ Exposure levels follow bench/hard/V2_REGISTER.md (L0 named only, up to L5 scores
 for the recipient genomes inside the exclusion radius, across both the old line and the relational-model line.
 `in_pretraining` records separately whether such genomes are in the medium corpus, which is unlabelled pretraining
 data. Events whose genomes were in pretraining stay in the registry; results are stratified by both columns.
+
+## 8a. Concentration of sources
+
+Charter section 3 caps a single source and a single lineage at 30% of a scenario's events. The registry still records
+everything; the report shows, per cell (direction x recipient group) and over events only, the number of events, of
+source clusters (records joined by a shared DOI in `papers`) and of exclusion lineages, the largest source cluster
+and its share, and flags cells above 30%. A second table counts each source cluster once. Claim sets are counted
+apart and are never labels. When the sealed fraction is set, it is drawn by group or by source cluster, not by record.
 
 ## 9. Double registration
 

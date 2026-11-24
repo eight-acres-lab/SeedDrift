@@ -1,0 +1,39 @@
+# Machine i-1, round 1, batch 1 (protocol round1, evaluation.final): the arms of run 20261123T144801 (ref30m-s2,
+# ref30m-s3, norel30m) evaluated again on all 3,000 held-out tables of version 1 with stage w6_eval, on the machine that
+# trained them, at their final and best weights (best: all): conditions scattered, whole_gene, scattered+no_relatives,
+# whole_gene+no_relatives, whole_gene+repaired and suffix (extra_conditions), and W3's two render-mode controls under
+# scattered and whole_gene (end_controls: shuffle, presence); the leak-free arms read the strict offline rendering of
+# run 20261123T124714. Nothing is trained. Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 20000
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_eval]
+  parallel: 1
+rel_w6_eval:
+  from: /hy-tmp/seeddrift-ci/runs/20261123T144801-exp-rel-6bb5f500-rel-r1short-i1
+  tables:
+    heldout: {run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/runs/20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json, sha256: 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496}
+  best: all
+  extra_conditions: [suffix]
+  end_controls: [shuffle, presence]
+  online_too: [scattered, suffix]   # the final weights again under the online rendering (protocol round1 version 8: the gap between the two renderings)
+  final_per_group: 0
+  eval_max_rows: 32
+  threads: 4
+  wall_s: 7200                   # one arm's evaluation
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

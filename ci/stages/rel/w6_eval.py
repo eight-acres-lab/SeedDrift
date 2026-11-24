@@ -33,6 +33,11 @@ Profile block rel_w6_eval:
              all: every arm (round 1: the final and best weights of every arm on all held-out tables)
   end_controls  [shuffle, presence]: the controls of package W3's renderer under scattered and whole_gene of the arms
              trained leak-free (keys <condition>@<control>), in place of the training's own
+  online_too [conditions, e.g. scattered, suffix]: every arm read at its final weights, trained leak-free with
+             relatives, is read again under these conditions on the same tables rendered online (the trainer's leak-free
+             renderer, the anchors of scattered and span the stored pairs; rows leakfree-online), as <arm>.online (its
+             rows' variant too; info.render online): what the online rendering of the nodes gives against the strict
+             offline one (the programme lead's ruling of 2026-11-24)
   optional   final_per_group (0: every held-out table), eval_max_rows, threads, wall_s (of one arm's evaluation,
              default 7200), verify_files (true); extra_conditions (evaluator conditions besides today's five, e.g.
              [suffix]) or only_conditions (these alone: an arm evaluated again on one more condition, its earlier rows
@@ -66,7 +71,8 @@ from seeddrift.train.rel.evalh import shards
 OUT = os.path.join("data", "rel_w6", "eval")
 FIT = w6_fit.OUT
 KEYS = {"from", "arms", "tables", "best", "final_per_group", "eval_max_rows", "threads", "wall_s", "verify_files", "readout", "extra_conditions",
-        "only_conditions", "end_controls"}
+        "only_conditions", "end_controls", "online_too"}
+ONLINE = "online"
 CONTROLS = ("shuffle", "presence")
 NODE_WEIGHTS = w6_fit.NODE_WEIGHTS
 READOUT_KEYS = {"module", "presence_arms", "max_rows", "layout", "in_place_only", "adapt_v0_arms", "offline"}
@@ -105,6 +111,9 @@ def settings(cfg) -> dict:
     best = sc.get("best", True)
     if best not in (True, False, "all"):
         raise SystemExit("rel_w6_eval.best: true, false or all, not %r" % (best,))
+    online = sc.get("online_too")
+    if online is not None and (not isinstance(online, list) or not online or set(online) - set(cond.CONDITIONS) - set(getattr(cond, "EXTRA_CONDITIONS", ()))):
+        raise SystemExit("rel_w6_eval.online_too: a list of the evaluator's conditions, not %r" % (online,))
     ctl = sc.get("end_controls")
     if ctl is not None and (not isinstance(ctl, list) or set(ctl) - set(CONTROLS)):
         raise SystemExit("rel_w6_eval.end_controls: a list among %s, not %r" % (CONTROLS, ctl))
@@ -119,7 +128,7 @@ def settings(cfg) -> dict:
     return dict(sources=[str(x) for x in sources], source=str(sources[0]), arms=arms,
                 heldout=dict(run=str(h["run"]), path=str(h["path"]), sha256=h.get("sha256"), split=int(h.get("split", 1))),
                 heldout_offline=None if off is None else dict(run=str(off["run"]), path=str(off["path"]), sha256=off.get("sha256")),
-                best=best, end_controls=None if ctl is None else [str(c) for c in ctl], final_per_group=int(sc.get("final_per_group", 0)), eval_max_rows=int(sc.get("eval_max_rows", 32)),
+                best=best, end_controls=None if ctl is None else [str(c) for c in ctl], online_too=[str(c) for c in online] if online else None, final_per_group=int(sc.get("final_per_group", 0)), eval_max_rows=int(sc.get("eval_max_rows", 32)),
                 threads=int(sc.get("threads", 4)), wall_s=int(sc.get("wall_s", 7200)), verify_files=bool(sc.get("verify_files", True)),
                 extra_conditions=[str(c) for c in sc.get("extra_conditions") or []], only_conditions=[str(c) for c in sc.get("only_conditions") or []] or None,
                 readout=None if ro is None else dict(module=str(ro["module"]), presence_arms=[str(x) for x in ro.get("presence_arms") or []],
@@ -186,8 +195,8 @@ def build(st, cfg, run_dir):
         if off.get("layout") != "leakfree" or not set(off.get("parts") or {}) >= {"scattered", "whole_gene"}:
             raise SystemExit("rel_w6_eval.tables.heldout_offline: the strict offline rendering (layout leakfree, parts scattered and whole_gene), "
                              "not %s with parts %s" % (off.get("layout"), sorted(off.get("parts") or {})))
-        if int(off.get("tables") or 0) and held["doc"].get("tables") and int(off["tables"]) != int(held["doc"]["tables"]):
-            raise SystemExit("rel_w6_eval: the offline rendering holds %s tables, the held-out set %s" % (off.get("tables"), held["doc"].get("tables")))
+        # (the parts' tables are checked against the held-out split itself by the trainer, Run: a manifest's "tables" counts
+        # every split of a set that holds the training tables too)
         st.extra.update(heldout_offline=dict(name=off.get("name"), sha256=off.get("sha256"), run=os.path.basename(s["heldout_offline"]["run"])))
     if ro is not None and ro["offline"] is not None:                  # package W18's strict offline rendering of the ruler set: a passed run
         rec = w6_fit.read_json(os.path.join(ro["offline"], "record.json")) or {}
@@ -207,6 +216,9 @@ def build(st, cfg, run_dir):
             variants[v["name"]] = (source, rec, v)
     trained = lambda n: os.path.exists(os.path.join(variants[n][0], variants[n][2]["info"]["folder"], "final.pt"))    # noqa: E731
     wanted = s["arms"] or [dict(name=n, untrained=False, weights="final") for n in sorted(variants) if trained(n)]
+    if s["online_too"] and ro is None:                                # the same final weights read online too
+        wanted = list(wanted) + [dict(name=a["name"], untrained=False, weights="final", render=ONLINE) for a in wanted
+                                 if not a["untrained"] and a.get("weights", "final") == "final"]
     missing = [a["name"] for a in wanted if a["name"] not in variants]
     if missing or not wanted:
         raise SystemExit("rel_w6_eval: arms %s are not arms of %s (their arms: %s)" % (missing or wanted, s["sources"], sorted(variants)))
@@ -217,12 +229,15 @@ def build(st, cfg, run_dir):
     for want in wanted:
         a, untrained, weights = want["name"], want["untrained"], want.get("weights", "final")
         source, rec, v = variants[a]
-        key = a + ("." + UNTRAINED if untrained else ("" if weights == "final" else "." + weights))
+        render = want.get("render")
+        key = a + ("." + UNTRAINED if untrained else ("" if weights == "final" else "." + weights)) + ("." + render if render else "")
         src = os.path.join(source, v["info"]["folder"])
         folder = os.path.join(root, key)
-        os.makedirs(folder, exist_ok=True)
         summ = w6_fit.read_json(os.path.join(src, "summary.json")) or {}
         conf = w6_fit.read_json(os.path.join(src, "conf.json")) or {}
+        if render == ONLINE and (not conf.get("relatives", True) or conf.get("layout", "stored") == "stored"):
+            continue                                                   # nothing rendered leak-free to read online
+        os.makedirs(folder, exist_ok=True)
         cks, error, point = [], None, {}
         try:
             if not conf:
@@ -249,7 +264,7 @@ def build(st, cfg, run_dir):
                 cks.append(dict(which=read[1], budget=read[2], **link(os.path.join(src, read[0]), os.path.join(folder, read[0]))))
                 point = dict(tables=read[3], cells=read[4], wall_s=read[5])
             best_path = os.path.join(src, "best.pt")
-            with_best = weights == "final" and not untrained and ro is None and (s["best"] == "all" or (s["best"] and not conf.get("relatives", True))) and \
+            with_best = weights == "final" and not untrained and not render and ro is None and (s["best"] == "all" or (s["best"] and not conf.get("relatives", True))) and \
                 best.get("tables_seen") and best["tables_seen"] < summ["tables_seen"] and os.path.exists(best_path)
             if with_best:
                 cks.append(dict(which="best", budget=None, **link(best_path, os.path.join(folder, "best.pt"))))
@@ -270,6 +285,10 @@ def build(st, cfg, run_dir):
                 for k in ("heldout_offline_tables", "heldout_offline_root"):
                     ec.pop(k, None)
                 ec["end_controls"] = []
+            if render == ONLINE:                                       # the same weights, the tables rendered online
+                for k in ("heldout_offline_tables", "heldout_offline_root"):
+                    ec.pop(k, None)
+                ec.update(name=key, eval_online=True, end_controls=[], only_conditions=s["online_too"], extra_conditions=[], best=None)
             if ro is not None:                                         # the passes of the readout: no rows, a per-cell file
                 ec["readout"] = dict(module=ro["module"], max_rows=ro["max_rows"], layout=ro["layout"], in_place_only=ro["in_place_only"], untrained=untrained,
                                      adapt_v0=ro["adapt_v0_arms"], offline=ro["offline"],
@@ -296,7 +315,7 @@ def build(st, cfg, run_dir):
             error = str(err)[-1500:]
             got = {}
         info = dict(v["info"], final=got.get("final"), final_items=got.get("final_items"), eval_final=got.get("eval_final"),
-                    weights=UNTRAINED if untrained else weights,
+                    weights=UNTRAINED if untrained else weights, render=render or "offline" if not untrained and ro is None else None,
                     tables_seen=point.get("tables", summ.get("tables_seen", v["info"].get("tables_seen"))) if not untrained else 0,
                     steps=summ.get("steps", v["info"].get("steps")) if not untrained and weights == "final" else (0 if untrained else None),
                     cells_seen=point.get("cells", summ.get("cells_seen", v["info"].get("cells_seen"))) if not untrained else 0, final_best=got.get("final_best"),

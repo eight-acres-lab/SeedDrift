@@ -98,6 +98,13 @@ kinds:
         gates: [G4_rel_w3_offline]
         side: data
         produces: tableset
+      w3_traincheck:
+        package: W3
+        rule: rel_w3_traincheck
+        output: data/rel_w3/traincheck/report.json
+        module: ci.stages.rel.w3_traincheck
+        gates: [G4_rel_w3_traincheck]
+        side: data
       w2_census:
         package: W2
         rule: rel_w2_census
@@ -295,6 +302,13 @@ kinds:
         output: data/rel_w13/supply/report.json
         module: ci.stages.rel.w13_supply
         gates: [G4_rel_w13_supply]
+        side: data
+      w13_xpick:
+        package: W13
+        rule: rel_w13_xpick
+        output: data/rel_w13/xpick/report.json
+        module: ci.stages.rel.w13_xpick
+        gates: [G4_rel_w13_xpick]
         side: data
       w13_pick:
         package: W13

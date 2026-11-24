@@ -257,6 +257,61 @@ def groups(rows, edges=None):
     return sorted((sorted(m) for m in comp.values()), key=lambda m: m[0])
 
 
+def source_clusters(rows):
+    """Clusters of records joined by a shared DOI in `papers` (RULES.md section 8a), as lists of row indices."""
+    parent = list(range(len(rows)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    first = {}
+    for i, r in enumerate(rows):
+        for d in _items(r["papers"]):
+            if d in first:
+                parent[find(i)] = find(first[d])
+            else:
+                first[d] = i
+    comp = defaultdict(list)
+    for i in range(len(rows)):
+        comp[find(i)].append(i)
+    return sorted((sorted(m) for m in comp.values()), key=lambda m: m[0])
+
+
+CAP = 0.30          # charter section 3: a single source or lineage at most 30% of a scenario's events
+
+
+def concentration(rows):
+    """Per cell (direction x recipient group), over events only: events, source clusters, exclusion lineages, the largest
+    source cluster and lineage with their shares, a flag above the cap; and the cells counted once per source."""
+    clusters = source_clusters(rows)
+    cid = {}
+    for k, m in enumerate(clusters, 1):
+        for i in m:
+            cid[i] = "S%02d (%s)" % (k, sorted(_items(rows[m[0]]["papers"]))[0] if _items(rows[m[0]]["papers"]) else rows[m[0]]["event_id"])
+    cells = defaultdict(list)
+    for i, r in enumerate(rows):
+        if r["record_kind"] == "event":
+            cells["%s|%s" % (r["direction"], r["recipient_group"])].append(i)
+    out, once = {}, {}
+    for cell, idx in sorted(cells.items()):
+        src = Counter(cid[i] for i in idx)
+        lin = Counter(_taxon(rows[i]) for i in idx)
+        top_s, n_s = src.most_common(1)[0]
+        top_l, n_l = lin.most_common(1)[0]
+        out[cell] = dict(events=len(idx), sources=len(src), lineages=len(lin), largest_source=top_s,
+                         source_share=round(n_s / len(idx), 3), largest_lineage=top_l, lineage_share=round(n_l / len(idx), 3),
+                         over_cap=(n_s / len(idx) > CAP or n_l / len(idx) > CAP))
+        per_src = defaultdict(set)
+        for i in idx:
+            per_src[cid[i]].add(label(rows[i]))
+        once[cell] = dict(Counter(lab for labs in per_src.values() for lab in labs))
+    claim_sets = Counter("%s|%s" % (r["direction"], r["recipient_group"]) for r in rows if r["record_kind"] == "claim_set")
+    return dict(cells=out, once_per_source=once, claim_sets=dict(claim_sets), source_clusters=len(clusters))
+
+
 def label(r):
     """The label kind a record contributes: its grade, or its status when disputed or overturned."""
     if r["status"] in NEGATIVE_STATUS:
@@ -309,6 +364,11 @@ def summarise(rows):
                          groups=len({gid[i] for i in recheck if i in gid}),
                          by_label={lab: Counter(label(rows[i]) for i in recheck).get(lab, 0) for lab in LABELS}),
         if_donor_structure_accepted=if_structure,
+        concentration=concentration(rows),
+        largest_group={lab: max(((g, c.get(lab, 0)) for g, c in
+                                 ((g, Counter(label(rows[i]) for i in m)) for g, m in
+                                  (("G%02d" % k, m) for k, m in enumerate(comps, 1)))), key=lambda x: x[1], default=("-", 0))
+                       for lab in LABELS},
         provisional_cover=dict(Counter(r["provisional_cover"] for r in rows)),
         in_pretraining=dict(Counter(r["in_pretraining"] for r in rows)),
         sealed_overlap=dict(Counter(r["sealed_overlap"] for r in rows)),
@@ -338,11 +398,17 @@ def markdown(rows, s, errors=(), warnings=()):
         desc = "; ".join("%s (%s)" % (m, _taxon(by_id[m])) for m in members)
         out.append("| %s | %s | %s | %s |" % (g, desc, _kv(s["group_labels"][g]),
                                              "; ".join("%s-%s: %s" % (e["a"], e["b"], e["why"]) for e in inner) or "-"))
+    out += ["", "Group numbers follow row order and change when records are added or split: compare groups by their members, "
+            "not by number."]
     out += ["", "Ungrouped: " + ("; ".join("%s (%s; %s; %s)" % (e, _taxon(by_id[e]), label(by_id[e]), by_id[e]["record_kind"])
                                           for e in s["ungrouped"]) or "none") + "."]
     out += ["", "## 2. Counts", "", "| label | records | groups |", "|---|---|---|"]
     for lab in LABELS:
         out.append("| %s | %d | %d |" % (lab, s["per_label"][lab], s["groups_with_label"][lab]))
+    big = ["largest group %s holds %d of the %d %s" % (s["largest_group"][lab][0], s["largest_group"][lab][1], s["per_label"][lab], lab)
+           for lab in LABELS if s["per_label"][lab] and s["largest_group"][lab][1]]
+    if big:
+        out += ["", "Concentration in groups: " + "; ".join(big) + "."]
     out += ["", "Label: the transfer grade, except that disputed and overturned records count under their status. "
             "Statuses: %s. Discovery route: %s. Truth class: %s. Category: %s." % (
                 _kv(s["per_status"]), _kv(s["discovery"]), _kv(s["truth_class"]), _kv(s["category"]))]
@@ -368,6 +434,25 @@ def markdown(rows, s, errors=(), warnings=()):
         out += ["", "Grades that would change if `donor_structure` were accepted as evidence of foreign origin "
                 "(RULES.md section 11): " + "; ".join("%s %s -> %s" % (x["event_id"], x["grade"], x["if_accepted"])
                                                       for x in s["if_donor_structure_accepted"]) + "."]
+    cc = s["concentration"]
+    out += ["", "### Concentration of sources (RULES.md section 8a; events only, claim sets apart)", "",
+            "%d source clusters (records joined by a shared DOI in papers). A cell is flagged when its largest source cluster "
+            "or its largest exclusion lineage holds more than %d%% of its events." % (cc["source_clusters"], round(CAP * 100)), "",
+            "Charter section 3 also reports any cell with fewer than 30 events or 5 lineages case by case only, so a small cell "
+            "is flagged by its size alone; the flag matters where a source fills a cell that is otherwise large.", "",
+            "| cell | events | sources | lineages | largest source (share) | largest lineage (share) | over 30% | claim sets |",
+            "|---|---|---|---|---|---|---|---|"]
+    for cell, v in cc["cells"].items():
+        out.append("| %s | %d | %d | %d | %s (%.0f%%) | %s (%.0f%%) | %s | %d |" % (
+            cell, v["events"], v["sources"], v["lineages"], v["largest_source"], 100 * v["source_share"],
+            v["largest_lineage"], 100 * v["lineage_share"], "**yes**" if v["over_cap"] else "", cc["claim_sets"].get(cell, 0)))
+    only_sets = sorted(set(cc["claim_sets"]) - set(cc["cells"]))
+    if only_sets:
+        out += ["", "Cells with claim sets only: " + ", ".join("%s (%d)" % (c, cc["claim_sets"][c]) for c in only_sets) + "."]
+    out += ["", "The same cells counted once per source cluster (a cluster counts once for each label it holds in the cell):", "",
+            "| cell | " + " | ".join(LABELS) + " |", "|---" * (len(LABELS) + 1) + "|"]
+    for cell, c in cc["once_per_source"].items():
+        out.append(_label_row(cell, c))
     rc = s["recheckable"]
     out += ["", "## 3. Recheckable evidence", "",
             "%d of %d records (%.0f%%) name evidence a fixed check can re-examine (read archives, a second assembly, "

@@ -7,9 +7,13 @@
 # Version 5 (2026-11-23, before batch 3) writes down, before it is read, where D7's arms are expected to differ from the
 # reference (readings.d7_by_distance); prompted by an early development comparison on tables of version 0. Version 6
 # (2026-11-23, before batch 1 starts) lets the micro-batch be lowered when the shared GPU lacks memory (model_common).
-# Version 7 (2026-11-23) names the HGT protocol as w18-v3 in its latest version, not its revision 3.
+# Version 7 (2026-11-23) names the HGT protocol as w18-v3 in its latest version, not its revision 3. Version 8 (2026-11-24,
+# after batch 1 ended and before any of its readings): the online renderer places scattered and span cells from stored
+# anchors computed with the hidden residues visible, so in-loop node values are easier than the strict offline values;
+# readings of value are taken end against end on the strict offline rendering, and the gap is measured. Version 9
+# (2026-11-24, before batch 3 starts) fixes batch 3's rendering in advance: strict when its gate passes, else online.
 name: round1
-version: 7
+version: 9
 what: >
   The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
   training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
@@ -40,7 +44,7 @@ tables:
   fill: tables without other rows at most 5% of a group's training draws (alone_share 0.05) for arms with relatives
 
 layout:
-  training: "leak-free for every scheme: scattered and span through the online renderer; the whole gene placed on the frame relative with W3's strict aligner (tables/align.py frame_layout), the same function the evaluation uses. No stored layout in training"
+  training: "leak-free for every scheme: scattered and span through the online renderer; the whole gene placed on the frame relative with W3's strict aligner (tables/align.py frame_layout), the same function the evaluation uses. No stored layout in training. Batch 3: every arm the same rendering, decided before it starts: scattered and span through W3's extended strict aligner (every row with hidden cells in a block realigned to row 0, every row realigned where row 0 has hidden cells) when the extension, its pre-launch CI gate (1,000 version-1 training tables, three schemes, zero failures of the training-time fourth test) and the sampler's in-run check (one sample in 1,000, zero failures) are merged and pass before batch 3 starts; otherwise the online renderer as batches 1 and 2. The report names which; its arms are compared only with ref30m-s4"
   evaluation: "the strict offline rendering for scored conditions; in-loop nodes may use the online renderer (results labelled leakfree-online); the two no-relatives conditions read the tables as they are"
   self_copies: "rows of the examined genome's own copies (KIND_SELF_COPY) are rows like any other in training; every reading of 'relatives' is reported in three strata: other-genome rows present, self copies only, none"
 
@@ -83,7 +87,8 @@ arms:
 readings:
   threshold: "per condition and block, max(|ref30m-s2 - ref30m-s3| at their last common node, 0.008); |ref30m-long - ref30m-s2| at common nodes is reported as a seed-plus-machine check, never as the threshold"
   data: "ref30m-long against round 1b's leak-free 30 M long arm (version 0) at equal tables seen, per condition: version 1 better by more than the threshold at the last common node, or not read. The held-out sets differ between versions, so this compares curves, not cells; stated as such"
-  relatives: "norel30m against ref30m-s2 and ref30m-s3 (same machine and window), at common nodes and end against end, on the tables with other-genome rows on the target block; beside it the same model with rows removed; the loss shares of the schemes of both arms reported, because they optimise different mixtures"
+  renderings: "the in-loop nodes (leakfree-online) are compared only between arms read the same way, never with end values; every reading of a value (bits, the worth of relatives, the controls) is taken at the end on the strict offline rendering of all 3,000 tables; the best node is chosen on the online curve and its weights scored strictly offline, stated as such. The gap between the two renderings is measured on the same final weights and tables (scattered and span, by relatives stratum, paired intervals) and reported; training saw the online rendering, which the report states among what it does not show"
+  relatives: "norel30m against ref30m-s2 and ref30m-s3 (same machine and window), end against end on the strict offline rendering for the verdict, with the common-node values listed and labelled online, on the tables with other-genome rows on the target block; beside it the same model with rows removed; the loss shares of the schemes of both arms reported, because they optimise different mixtures"
   scale: "batch 2: ref100m-long against ref30m-long at common nodes, per condition: 'bigger is better' only when it is lower by more than the threshold under scattered and whole_gene; otherwise 'cannot be read'; always with 'at the lowest rates tried; not bracketed' and the machines named. The user's rule (2026-11-22): a direction that shows scaling is scaled up"
   controls: "the shuffle and presence readings of every arm with relatives against its plain reading: a model that uses the correspondence loses bits under the shuffle"
   over_fitting: "expected passes from the probe's throughput; below 2.5 passes the reading is 'not reached', never 'no over-fitting'; above, the node with the lowest held-out bits is the reading and the best weights are scored on all 3,000 tables (a slight selection, stated)"

@@ -1,0 +1,14 @@
+package: W5
+kind: cpu_run
+to: C0
+what: >-
+  Stage w5_baselines again on the held-out tables of version 1 with the evaluator's strata of version 5 (score.VERSION
+  5), profile rel-dev-w5-baselines-v1-i1 unchanged, on code that has them and writes the bits of every scored cell
+  (data/rel_w5/baselines/cells.npz), so that later changes of the strata need no new scoring.
+why: >-
+  The programme lead's ruling of 2026-11-24: round 1's third batch, the two fillers of i-2, D5's first period and round
+  2 read their bins of the nearest identity by version 5, and the third batch lists switch_copy beside the arms by
+  distance (readings.d7_by_distance). The run of 2026-11-23 has bins of version 4 and no bits per cell.
+size: {hours: 0.25, threads: 2, disk_gb: 1}
+how: on i-1 under the select lock, nice 10 (the programme lead)
+by: 2026-11-25

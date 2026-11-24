@@ -88,7 +88,13 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     groups = {line.split("\t")[api.RESULT_ROW.index("group")] for line in open(os.path.join(out, "rows.tsv")).read().splitlines()[1:]}
     assert groups == {"all", "arch", "bact", "phage"}
     rep = json.load(open(os.path.join(run_dir, "stages", "rel_w5_baselines.json")))
-    assert rep["status"] == "passed" and {o["name"] for o in rep["outputs"]} == {"rows", "rows_subset", "params", "report", "results"}
+    assert rep["status"] == "passed" and {o["name"] for o in rep["outputs"]} == {"rows", "rows_subset", "params", "cells", "report", "results"}
+    cells = res["cells"]                                                            # the bits of every scored cell, to form the strata again
+    assert cells["file"] == "cells.npz" and cells["score_version"] == 5 and sorted(cells["conditions"]) == sorted(cond.CONDITIONS)
+    with np.load(os.path.join(out, "cells.npz")) as z:
+        e = cells["conditions"][cond.SCATTERED]
+        assert z[e["table"]].shape[0] == e["cells"] == res["items"][cond.SCATTERED]["cells"] and z["group"].shape[0] == 12
+        assert z[e["baselines"]["copy_nearest"]["bits"]].dtype == np.float32 and "amino_acid_bits" in e["baselines"]["copy_nearest"]
     sub = json.load(open(os.path.join(out, "results.json")))["subset"]                # the first 2 tables of each of the 3 groups
     assert sub["tables"] == 6 and sub["per_group"] == 2 and sorted(sub["items"]) == sorted(cond.CONDITIONS)
     assert all(sub["items"][c]["sha256"] != res["items"][c]["sha256"] and sub["items"][c]["tables"] == 6 for c in cond.CONDITIONS)
@@ -107,7 +113,20 @@ def test_stage_gate_and_summary_on_a_tiny_tables_run(tmp_path, monkeypatch):
     text = open(os.path.join(out, "report.md")).read()
     assert "too low (optimistic)" in text and "lower bound on what the relatives are worth" in text and "upper bound" not in text
     assert "Headline" in text and "/" + "Users" + "/" not in text
-    # a broken result fails the gate: a row without cells, then a missing condition
+    # a broken result fails the gate: cells that do not give the rows, a row without cells
+    with np.load(os.path.join(out, "cells.npz")) as z:
+        arrays = {k: z[k] for k in z.files}
+    k = cells["conditions"][cond.SCATTERED]["baselines"]["copy_nearest"]["bits"]
+    arrays[k] = arrays[k] + np.float32(0.5)
+    np.savez(os.path.join(out, "cells.npz"), **arrays)
+    doc = json.load(open(os.path.join(out, "results.json")))
+    doc["cells"]["sha256"] = sha256_file(os.path.join(out, "cells.npz"), use_sidecar=False)
+    json.dump(doc, open(os.path.join(out, "results.json"), "w"))
+    with pytest.raises(GateFailure):
+        with Stage(run_dir, "gates_rel_w5_baselines", requires=("pre",)) as st:
+            w5_baselines.gate(st, cfg, run_dir)
+    problems = json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_baselines.json")))["evidence"]["problems"]
+    assert any("the cells give" in p.get("error", "") for p in problems)
     rows = open(os.path.join(out, "rows.tsv")).read()
     with open(os.path.join(out, "rows.tsv"), "w") as f:
         f.write(rows.replace("\tok\t", "\tfailed\t", 1))

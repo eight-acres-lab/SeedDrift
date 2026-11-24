@@ -1,0 +1,34 @@
+# Machine i-1: the supplement of eukaryotic viruses and plants and algae by name, and the corpus spec medium-k3x that adds
+# them (stage w13_xpick; package W13; the user's decision of 2026-11-24, "都下", through the programme lead): the
+# candidates of the supply count of run 20261123T151745 that stage train_data's split puts in a training or a held-out
+# unit, against the corpus medium-k3 of run B (20261123T023429); none of a test unit is listed or downloaded. Metadata
+# only and the ENA assembly records of about 6,200 viruses (XML, generic user agent; no sequence). CPU only (the select
+# lock), about 40 minutes, 2 cores, CPU priority below the training beside it; under 1 GB of disk. The downloads follow
+# in a run of stage w13_build (upto fetch) with the corpus spec this run writes. Development data only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w13_xpick]
+rel_w13_xpick:
+  supply_from: /hy-tmp/seeddrift-ci/runs/20261123T151745-exp-rel-36fa1982-rel-dev-w13-supply-i1
+  select_from: /hy-tmp/seeddrift-ci/runs/20261118T095604-exp-0.2-pilot-0c93f2c9-select-medium
+  source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  expect: {train: 1093, heldout: 422, test: 257}
+  name: medium-k3x
+  max_genes_euk: 1500
+  threads: 8
+  max_unavailable: 0.05
+  require_start_stop: true
+train:
+  gpu_lease: false
+  device: cpu

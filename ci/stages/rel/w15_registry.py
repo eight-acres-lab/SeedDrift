@@ -1,7 +1,7 @@
 """Stage rel_w15_registry (package W15; pipeline rel_events): the event registry checked on the server, without any
 score. `python -m ci.stages.rel.w15_registry RUN_DIR`.
 
-Up to six things, all from the registry draft the profile names (bench/rel/registry/events_*.tsv) and none from any model:
+Up to seven things, all from the registry draft the profile names (bench/rel/registry/events_*.tsv) and none from any model:
 1. the draft's own checks (bench/rel/registry/registry.py, the rules of RULES.md);
 2. every exclusion taxon looked up in NCBI taxonomy (the run's taxdump): its taxid, rank and lineage, and the names of
    the draft's lineage that NCBI does not have;
@@ -23,21 +23,29 @@ Up to six things, all from the registry draft the profile names (bench/rel/regis
    or lower) and recipient binomials. A hit is L3, L4 under a score folder, L5 under eval/ (register.path_level). Paths
    naming a genome outside the train and held-out splits (by assembly number, id or species words) are skipped and
    counted in total only; walk errors and examples are checked the same way; this run's own folder is not scanned.
+7. with `pdf_text` (from_run, files), the text of PDFs an earlier registry run stored: that run must have passed with
+   its registry gate passed, its report must be the output its stage recorded, and each file's bytes must match the
+   sha256 that report records (a stored supplement archive is checked against its own sha256 before its members are
+   listed); bench/rel/registry/pdf_text.py gives the readable pages' text and every other page's reason only. Texts go
+   to data/rel_w15/registry/pdf_text/, never to the repository.
 
 Profile block rel_w15_registry: registry (repository path of the draft, or a list of drafts read as one registry), source (the run directory of a passed selfsup
 run, for its training-data index; optional), fetch (bool), supplements (DOIs whose supplements are fetched),
 max_supplement_mb (default 50), pause_s (default 0.5), annotation (wgs_master, max_mb; optional), exposure_roots
-(absolute folders, or {path, prune: [folders relative to it]}; needs source) and exposure_max_paths (default 20 million).
+(absolute folders, or {path, prune: [folders relative to it]}; needs source), exposure_max_paths (default 20 million) and
+pdf_text (from_run, files: names or fnmatch patterns of stored PDFs).
 Output data/rel_w15/registry/report.json and report.md; papers in data/rel_w15/registry/papers/.
 Gate G4_rel_w15_registry: the draft breaks no rule, every role is unassigned, nothing sits at bench/catalogue/events.tsv,
 the report's sha256 of the drafts matches the drafts, and with fetch on at least half the paper lookups returned a
 parsed record (a wholesale failure fails the run instead of passing it with nothing fetched), and the exposure scan
-found every root, walked each to the end with no error and found at least one path under each.
+found every root, walked each to the end with no error and found at least one path under each, and every PDF named and
+every stored archive was there, unchanged and readable as a file (an unreadable PDF is a result, not a failure).
 """
 from __future__ import annotations
 
 import csv
 import errno
+import fnmatch
 import hashlib
 import http.client
 import json
@@ -48,6 +56,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import zipfile
+import zlib
 from collections import Counter, defaultdict
 
 from bench.rel.registry import registry as reg
@@ -59,7 +69,7 @@ from ci.stages.rel import common
 STAGE = "rel_w15_registry"
 OUT = os.path.join("data", "rel_w15", "registry")
 KEYS = {"registry", "source", "fetch", "supplements", "max_supplement_mb", "pause_s", "annotation", "exposure_roots",
-        "exposure_max_paths"}
+        "exposure_max_paths", "pdf_text"}
 ACC_RE = re.compile(r"(?<![a-z0-9])gc[af]_?(\d{9})(?!\d)", re.I)
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 DATASETS = "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/"
@@ -87,6 +97,11 @@ def settings(cfg) -> dict:
     ann = c.get("annotation")
     if ann is not None and (not isinstance(ann, dict) or not ann.get("wgs_master")):
         raise SystemExit("%s: annotation needs wgs_master (and optionally max_mb)" % STAGE)
+    pdf = c.get("pdf_text")
+    if pdf is not None and (not isinstance(pdf, dict) or set(pdf) - {"from_run", "files"} or not isinstance(pdf.get("from_run"), str)
+                            or not os.path.isabs(pdf["from_run"]) or not isinstance(pdf.get("files"), list) or not pdf["files"]
+                            or not all(isinstance(x, str) and x for x in pdf["files"])):
+        raise SystemExit("%s: pdf_text needs from_run (an absolute run directory) and files (names or patterns)" % STAGE)
     roots = c.get("exposure_roots") or []
     ok = isinstance(roots, list)
     for x in roots if ok else []:
@@ -96,7 +111,7 @@ def settings(cfg) -> dict:
             and isinstance(prune, list) and all(isinstance(q, str) and q and not os.path.isabs(q) and ".." not in q.split("/") for q in prune)
     if not ok:
         raise SystemExit("%s: exposure_roots is a list of absolute paths, or of {path, prune: [paths relative to it]}" % STAGE)
-    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)), annotation=ann, exposure_roots=roots,
+    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)), annotation=ann, exposure_roots=roots, pdf_text=pdf,
                 exposure_max_paths=int(c.get("exposure_max_paths", 20_000_000)),
                 supplements=[d.lower() for d in c.get("supplements") or []],
                 max_supplement_mb=float(c.get("max_supplement_mb", 50)), pause_s=float(c.get("pause_s", 0.5)))
@@ -752,6 +767,101 @@ def _folder(doi):
     return re.sub(r"[^a-z0-9._-]+", "_", doi.lower())
 
 
+SOURCE_GATE = "G4_rel_w15_registry"
+ZIP_ERRORS = (OSError, KeyError, ValueError, EOFError, RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error)
+
+
+def stored_files(run):
+    """(name -> where a passed registry run stored it, problems). The run must have passed with its registry gate
+    passed (record.json), and its report must be the output its stage recorded. Files are the supplement and article
+    files of the report with the sha256 it records; a stored supplement archive is first checked against its own
+    sha256 and then gives its members. An archive missing, changed or not opened is a problem, never skipped."""
+    from ci.stages.rel import w2_v0
+    rec_path = os.path.join(run, "record.json")
+    if not os.path.exists(rec_path):
+        raise SystemExit("%s: %s holds no run record" % (STAGE, run))
+    with open(rec_path) as f:
+        rec = json.load(f)
+    gate_ = (rec.get("gates") or {}).get(SOURCE_GATE)
+    if rec.get("status") != "passed" or gate_ != "pass":
+        raise SystemExit("%s: the source run %s is %s with %s %s; only a passed run whose registry gate passed is read" % (
+            STAGE, os.path.basename(run), rec.get("status"), SOURCE_GATE, gate_))
+    rp = os.path.join(run, OUT, "report.json")
+    w2_v0._output(run, STAGE, "report", rp)
+    with open(rp) as f:
+        doc = json.load(f)
+    out, problems = {}, []
+    for p in doc.get("papers") or []:
+        folder = os.path.join(run, OUT, "papers", _folder(p["doi"]))
+        supp = p.get("supplements") or {}
+        if supp.get("source") == "pmc-oa-opendata":
+            files = [f for f in supp.get("files") or [] if f.get("sha256")]
+            for f in files + [f for f in p.get("article_files") or [] if f.get("sha256")]:
+                out.setdefault(f["file"], []).append(dict(doi=p["doi"], path=os.path.join(folder, "pmc_oa", f["file"]), sha256=f["sha256"]))
+        elif supp.get("sha256") and supp.get("file"):
+            path = os.path.join(folder, supp["file"])
+            row = dict(file=supp["file"], doi=p["doi"], archive=True)
+            try:
+                if sha256_file(path, use_sidecar=False) != supp["sha256"]:
+                    problems.append(dict(row, status="checksum_differs"))
+                    continue
+                with zipfile.ZipFile(path) as z:
+                    members = [m for m in z.namelist() if not m.endswith("/")]
+            except ZIP_ERRORS as err:
+                problems.append(dict(row, status="not_read", error="%s: %s" % (type(err).__name__, str(err)[:200])))
+                continue
+            for m in members:
+                out.setdefault(os.path.basename(m), []).append(dict(doi=p["doi"], path=path, sha256=supp["sha256"], member=m))
+    return out, problems
+
+
+def pdf_texts(spec, dest) -> list:
+    """The text of the PDFs a passed registry run stored (spec: from_run, files as names or fnmatch patterns), page by
+    page through bench/rel/registry/pdf_text.py: readable pages give text, the others their reason only. A file whose
+    bytes do not match the recorded sha256 is not read; a name the run did not store and a stored archive that is
+    missing, changed or not opened are reported as rows of their own."""
+    from bench.rel.registry import pdf_text as PT
+    have, problems = stored_files(spec["from_run"])
+    out = list(problems)
+    names = []
+    for pat in spec["files"]:
+        hit = sorted(n for n in have if fnmatch.fnmatchcase(n, pat) and n.lower().endswith(".pdf"))
+        names += [n for n in hit if n not in names] or ([pat] if pat not in names else [])
+    os.makedirs(dest, exist_ok=True)
+    for name in names:
+        recs = have.get(name)
+        if not recs:
+            out.append(dict(file=name, status="not_stored"))
+            continue
+        if len(recs) > 1:
+            out.append(dict(file=name, status="ambiguous", dois=sorted({r["doi"] for r in recs})))
+            continue
+        rec = recs[0]
+        try:
+            if sha256_file(rec["path"], use_sidecar=False) != rec["sha256"]:
+                out.append(dict(file=name, doi=rec["doi"], status="checksum_differs"))
+                continue
+            if rec.get("member"):
+                with zipfile.ZipFile(rec["path"]) as z:
+                    data = z.read(rec["member"])
+            else:
+                with open(rec["path"], "rb") as f:
+                    data = f.read()
+        except ZIP_ERRORS as err:
+            out.append(dict(file=name, doi=rec["doi"], status="not_read", error="%s: %s" % (type(err).__name__, str(err)[:200])))
+            continue
+        doc = PT.extract(data)
+        text = os.path.join(dest, name + ".txt")
+        with open(text, "w", encoding="utf-8") as f:
+            f.write(PT.render(name, doc))
+        pages = doc["pages"]
+        out.append(dict(file=name, doi=rec["doi"], member=rec.get("member"), source_sha256=rec["sha256"], pdf_sha256=doc["sha256"],
+                        status=doc["status"], reason=doc.get("reason"), pages=len(pages),
+                        per_status=dict(Counter(p_["status"] for p_ in pages)), fonts=doc.get("fonts", {}),
+                        text=dict(file=os.path.basename(text), sha256=sha256_file(text, use_sidecar=False))))
+    return out
+
+
 def build(st, cfg, run_dir):
     s = settings(cfg)
     t0 = time.time()
@@ -784,7 +894,11 @@ def build(st, cfg, run_dir):
     annotation = None
     if s["annotation"]:
         annotation = annotation_lookup(s["annotation"], rows, st.path("rel_w15", "registry", "annotation", "x").rsplit("/", 1)[0])
+    pdfs = None
+    if s["pdf_text"]:
+        pdfs = dict(from_run=s["pdf_text"]["from_run"], files=pdf_texts(s["pdf_text"], os.path.dirname(st.path("rel_w15", "registry", "pdf_text", "x"))))
     doc = dict(format="rel-w15-registry", rules_version=reg.RULES_VERSION, registry=s["registry"], annotation=annotation, exposure=exposure,
+               pdf_text=pdfs,
                registry_sha256={x: sha256_file(st.repo(x), use_sidecar=False) for x in s["registry"]}, records=len(rows), errors=errors, warnings=warnings,
                summary=summary_, taxa=found, pretraining=pre, sealed_overlap=overlap, papers=papers,
                fetch_failures=failures(papers),
@@ -836,6 +950,14 @@ def markdown_server(doc) -> str:
                 lv["declared"], " (not a level)" if lv.get("declared_unknown") else "", lv["scan"], lv["level"],
                 " (above the declared level)" if lv.get("above_declared") else "",
                 ", ".join("%s %d" % kv for kv in (v.get("paths") or {}).items()), ", ".join(v.get("matched") or []), top))
+    pt = doc.get("pdf_text")
+    if pt:
+        out += ["", "### PDF text", "", "Files stored by run %s, read by bench/rel/registry/pdf_text.py; readable pages only give text." % (
+            os.path.basename(pt["from_run"])), "", "| file | status | pages | per page | reason |", "|---|---|---|---|---|"]
+        for f in pt["files"]:
+            out.append("| %s | %s | %s | %s | %s |" % (f["file"], f["status"], f.get("pages", ""),
+                                                      ", ".join("%s %d" % kv for kv in sorted((f.get("per_status") or {}).items())),
+                                                      f.get("reason") or f.get("error") or ""))
     a = doc.get("annotation")
     if a:
         out += ["", "Annotation of %s (%s): %s; %s genes, %s locus tags, prefixes %s; %s of the drafts' %s ASEM identifiers are locus tags." % (
@@ -862,6 +984,9 @@ def gate(st, cfg, run_dir):
             bad.append(dict(error="%s is not the file the report was made from" % rel))
     if os.path.exists(os.path.join(common.ROOT, CATALOGUE)):
         bad.append(dict(error="%s exists: the draft must not live there" % CATALOGUE))
+    for f in (doc.get("pdf_text") or {}).get("files") or []:
+        if f["status"] in ("not_stored", "ambiguous", "checksum_differs", "not_read"):
+            bad.append(dict(error="PDF %s: %s" % (f["file"], f["status"])))
     ex = doc.get("exposure") or {}
     if ex.get("missing_roots"):
         bad.append(dict(error="exposure scan roots missing: %s" % ex["missing_roots"]))

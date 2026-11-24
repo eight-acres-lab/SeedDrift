@@ -581,3 +581,121 @@ def test_markdown_shows_the_exposure_scan(tmp_path):
     md = W.markdown_server(dict(taxa={}, pretraining={}, sealed_overlap={}, exposure=ex, papers=[]))
     assert "| E2 | 1 | 0 assemblies, drosophila_ananassae | ? | L5 | L5 | L5 1 | drosophila_ananassae | runs/r3/eval/" in md
     assert "| E4 | 0 | 0 assemblies, no names | ? | no_tokens | ? |" in md and "| %s | 5 | - | 0 | 0 |" % runs in md
+
+
+def _stored_run(tmp_path, status="passed", gate="pass", archive=None):
+    """A registry run that stored a PDF from the open-access dataset, a supplement archive holding a PDF, and a PDF
+    whose bytes changed after it was stored; archive replaces the archive's bytes after its sha256 was recorded
+    (None keeps it, b"" removes it)."""
+    import hashlib
+    import zipfile
+    from tests.ci.test_rel_w15_pdf_text import HELV, LINE1, _pages
+    run = tmp_path / "20261123T000000-src"
+    papers = run / W.OUT / "papers"
+    good = _pages((HELV, LINE1, None))
+    oa = papers / W._folder("10.1/a") / "pmc_oa"
+    oa.mkdir(parents=True)
+    (oa / "a.sd02.pdf").write_bytes(good)
+    (oa / "a.sd03.pdf").write_bytes(good + b"changed")
+    zdir = papers / W._folder("10.1/b")
+    zdir.mkdir(parents=True)
+    with zipfile.ZipFile(zdir / "supplements.zip", "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("supp/b.s1.pdf", good)
+        z.writestr("supp/b.s2.xlsx", b"PK")
+    sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    zsha = sha(zdir / "supplements.zip")
+    if archive == b"":
+        (zdir / "supplements.zip").unlink()
+    elif archive is not None:
+        (zdir / "supplements.zip").write_bytes(archive)
+    report = dict(papers=[
+        dict(doi="10.1/a", supplements=dict(source="pmc-oa-opendata", files=[
+            dict(file="a.sd02.pdf", sha256=sha(oa / "a.sd02.pdf")), dict(file="a.sd03.pdf", sha256=hashlib.sha256(good).hexdigest()),
+            dict(file="a.sd04.pdf", error_type="TooLarge")])),
+        dict(doi="10.1/b", supplements=dict(source="europepmc", file="supplements.zip", sha256=zsha))])
+    rp = run / W.OUT / "report.json"
+    rp.write_text(json.dumps(report))
+    (run / "stages").mkdir()
+    (run / "stages" / (W.STAGE + ".json")).write_text(json.dumps(dict(status="passed", outputs=[dict(name="report", sha256=sha(rp))])))
+    (run / "record.json").write_text(json.dumps(dict(status=status, gates={W.SOURCE_GATE: gate})))
+    return run
+
+
+def test_pdf_texts_read_only_files_the_run_stored_with_their_checksum(tmp_path):
+    run = _stored_run(tmp_path)
+    got = {f["file"]: f for f in W.pdf_texts(dict(from_run=str(run), files=["*.pdf", "missing.pdf"]), str(tmp_path / "out"))}
+    assert sorted(got) == ["a.sd02.pdf", "a.sd03.pdf", "b.s1.pdf", "missing.pdf"]
+    assert got["a.sd02.pdf"]["status"] == "ok" and got["a.sd02.pdf"]["per_status"] == {"ok": 1}
+    assert got["b.s1.pdf"]["status"] == "ok" and got["b.s1.pdf"]["member"] == "supp/b.s1.pdf"
+    assert got["a.sd03.pdf"]["status"] == "checksum_differs" and got["missing.pdf"]["status"] == "not_stored"
+    text = (tmp_path / "out" / "a.sd02.pdf.txt").read_text()
+    assert "gene ASEM_AUS1_12345" in text and not (tmp_path / "out" / "a.sd03.pdf.txt").exists()
+
+
+def test_pdf_texts_refuse_a_source_run_that_did_not_pass(tmp_path):
+    for status, gate in (("failed", "pass"), ("passed", "fail"), ("passed", None)):
+        run = _stored_run(tmp_path / ("%s-%s" % (status, gate)), status=status, gate=gate)
+        with pytest.raises(SystemExit) as err:
+            W.pdf_texts(dict(from_run=str(run), files=["*.pdf"]), str(tmp_path / "out"))
+        assert "only a passed run whose registry gate passed is read" in str(err.value)
+
+
+def test_pdf_texts_refuse_a_report_the_run_did_not_record(tmp_path):
+    run = _stored_run(tmp_path)
+    (run / W.OUT / "report.json").write_text("{}")
+    with pytest.raises(SystemExit):
+        W.pdf_texts(dict(from_run=str(run), files=["*.pdf"]), str(tmp_path / "out"))
+
+
+def test_a_stored_archive_missing_changed_or_broken_is_a_row_of_its_own(tmp_path):
+    for archive, status in ((b"", "not_read"), (b"PK\x03\x04 cut", "checksum_differs")):
+        run = _stored_run(tmp_path / status, archive=archive)
+        rows = W.pdf_texts(dict(from_run=str(run), files=["*.pdf"]), str(tmp_path / "out"))
+        bad = [r for r in rows if r.get("archive")]
+        assert [(r["file"], r["status"]) for r in bad] == [("supplements.zip", status)]
+        assert "b.s1.pdf" not in {r["file"] for r in rows if r["status"] == "ok"}
+    import zipfile
+    run = _stored_run(tmp_path / "member")                 # the archive matches its sha256, but a member is damaged
+    path = run / W.OUT / "papers" / W._folder("10.1/b") / "supplements.zip"
+    data = bytearray(path.read_bytes())
+    with zipfile.ZipFile(path) as z:
+        info = z.getinfo("supp/b.s1.pdf")
+    start = info.header_offset + 30 + len(info.filename) + len(info.extra)
+    data[start + 5:start + 25] = b"\xff" * 20
+    path.write_bytes(bytes(data))
+    rp = run / W.OUT / "report.json"
+    report = json.loads(rp.read_text())
+    import hashlib
+    report["papers"][1]["supplements"]["sha256"] = hashlib.sha256(bytes(data)).hexdigest()
+    rp.write_text(json.dumps(report))
+    (run / "stages" / (W.STAGE + ".json")).write_text(json.dumps(dict(status="passed", outputs=[dict(
+        name="report", sha256=hashlib.sha256(rp.read_bytes()).hexdigest())])))
+    rows = {r["file"]: r for r in W.pdf_texts(dict(from_run=str(run), files=["b.s1.pdf"]), str(tmp_path / "out"))}
+    assert rows["b.s1.pdf"]["status"] == "not_read" and rows["b.s1.pdf"]["error"].split(":")[0] in ("BadZipFile", "error")
+
+
+def test_gate_fails_on_a_pdf_or_archive_not_stored_or_changed(tmp_path, monkeypatch):
+    import ci.stages.rel.w15_registry as mod
+    run = tmp_path / "run"
+    out = run / mod.OUT
+    out.mkdir(parents=True)
+    seen = []
+    monkeypatch.setattr(mod, "require", lambda result, run_dir: seen.append(result))
+    files = [dict(file="a.pdf", status="unreadable"), dict(file="b.pdf", status="ok"), dict(file="c.pdf", status="partial")]
+    (out / "report.json").write_text(json.dumps(dict(errors=[], registry_sha256={}, papers=[], records=0, taxa={}, pdf_text=dict(files=files))))
+    mod.gate(None, {}, str(run))
+    assert seen[-1].status == "pass"                                   # an unreadable PDF is a result, not a failure
+    for status in ("checksum_differs", "not_read", "not_stored", "ambiguous"):
+        rows = files + [dict(file="x.zip", status=status)]
+        (out / "report.json").write_text(json.dumps(dict(errors=[], registry_sha256={}, papers=[], records=0, taxa={}, pdf_text=dict(files=rows))))
+        mod.gate(None, {}, str(run))
+        assert seen[-1].status == "fail" and "x.zip: %s" % status in json.dumps(seen[-1].evidence)
+
+
+def test_settings_check_the_pdf_text_block():
+    reg_ = dict(registry="bench/rel/registry/events_v0.2-sample.tsv")
+    for bad in (dict(from_run="runs/x", files=["a.pdf"]), dict(from_run="/runs/x", files=[]), dict(from_run="/runs/x", files=["a"], other=1),
+                dict(from_run="/runs/x", files=[""]), dict(from_run=None, files=["a"]), ["/runs/x"]):
+        with pytest.raises(SystemExit):
+            W.settings(dict(rel_w15_registry=dict(reg_, pdf_text=bad)))
+    assert W.settings(dict(rel_w15_registry=dict(reg_, pdf_text=dict(from_run="/runs/x", files=["*.pdf"]))))["pdf_text"]["files"] == ["*.pdf"]

@@ -26,6 +26,10 @@ Profile block rel_w6_report (all optional):
              (the paired intervals); heldout_tables {run, path}: this machine's copy of the baselines' held-out table
              set, read for the units and the strata in place of the one an arm's configuration names (an arm trained or
              read again on another machine names that machine's path)
+  paired_ends  [{name, first, second, threshold}]: two arms' ends on the same cells, the second minus the first, paired by
+             table (the evaluator's bootstrap over the split units), under scattered, whole_gene and suffix, over all
+             tables and by the relatives strata, the blocks apart, against the threshold given (round 1's reading
+             i2_pair: strict against online training)
   pairs      [{name, first, second}]: two arms side by side (the second minus the first) at every node both reached and
              at the end, under scattered, whole_gene and suffix, against the seeds' difference
   notes      [text, ...]: what these runs do not show, added to the report's caveats (the machines they ran on, say)
@@ -152,7 +156,7 @@ CAVEATS = [
 def settings(cfg) -> dict:
     sc = cfg.get("rel_w6_report") or {}
     unknown = set(sc) - {"fits", "baselines", "main", "readings_exclude", "seeds", "lr_check", "leak_pairs", "lr_sweeps", "passes", "notes", "pairs",
-                         "scale_exclude", "units_source", "threshold_floor", "worth_without", "heldout_tables"}
+                         "scale_exclude", "units_source", "threshold_floor", "worth_without", "heldout_tables", "paired_ends"}
     if unknown:
         raise SystemExit("rel_w6_report: unknown keys %s" % sorted(unknown))
     if str(sc.get("worth_without") or "lower") not in ("lower", "end"):
@@ -181,7 +185,9 @@ def settings(cfg) -> dict:
                 scale_exclude=[str(a) for a in sc.get("scale_exclude") or []],
                 units_source=str(sc["units_source"]) if sc.get("units_source") else None,
                 threshold_floor=float(sc.get("threshold_floor") or 0.0), worth_without=str(sc.get("worth_without") or "lower"),
-                heldout_tables=dict(run=str(sc["heldout_tables"]["run"]), path=str(sc["heldout_tables"]["path"])) if sc.get("heldout_tables") else None)
+                heldout_tables=dict(run=str(sc["heldout_tables"]["run"]), path=str(sc["heldout_tables"]["path"])) if sc.get("heldout_tables") else None,
+                paired_ends=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"]), threshold=float(q["threshold"]))
+                             for q in sc.get("paired_ends") or []])
 
 
 LR_CONCLUSIONS = {
@@ -1188,6 +1194,35 @@ def build(st, cfg, run_dir):
                "arm's own reading at its last node on the nodes' tables (online for scattered and span).", ""]
         md += md_table(["arm", "node read again", "condition", "group", "bits at that node (all tables)", "bits at its last node (nodes' tables)",
                         "last node", "bits at the end", "end minus the node", "95% interval", "threshold", "reading"], again_rows)
+    # two arms' ends paired by table on the same cells (paired_ends), by the relatives strata
+    ends_out = []
+    for q in s["paired_ends"]:
+        if q["first"] not in arms or q["second"] not in arms:
+            raise SystemExit("rel_w6_report.paired_ends %s: %s are no arms of the report" % (q["name"], [x for x in (q["first"], q["second"]) if x not in arms]))
+        prow = []
+        for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix")):
+            for x in [SC.ALL] + list(getattr(SC, "RELATIVE_KINDS", ())):
+                u, v = F(q["first"], c, SC.ALL, x), F(q["second"], c, SC.ALL, x)
+                if u is None and v is None:
+                    continue
+                iv, why = paired(q["first"], "final", c, q["second"], "final", c, x)
+                est = iv["all"]["estimate"] if iv else diff(v, u)
+                excl = bool(iv and iv["all"]["excludes_zero"])
+                above = est is not None and abs(est) > q["threshold"]
+                said = ("counts: beyond the threshold, its interval excludes 0" if above and excl else "beyond the threshold only" if above else
+                        "its interval only" if excl else "cannot be read") if est is not None else ""
+                prow.append([c, x, u, v, est, fmt_iv((iv or {}).get("all")) or why or "",
+                             "; ".join("%s %s (%s)" % (k, fmt_iv(w), "%.3f" % w["estimate"]) for k, w in (iv or {}).items() if k != "all"),
+                             q["threshold"], said])
+        ends_out.append(dict(q, rows=prow))
+    for q in ends_out:
+        md += ["", "## %s: %s against %s, at their ends, paired" % (q["name"], q["second"], q["first"]), "",
+               "The second minus the first (negative: the second is lower) on the cells both scored at their ends (all held-out tables, "
+               "strictly offline), paired by table: the evaluator's bootstrap over the split units inside each group (2,000 replicates, "
+               "seed 20261123, 95%), over all tables and by the relatives strata, the blocks apart; a difference counts only beyond the "
+               "threshold with its interval excluding 0.", ""]
+        md += md_table(["condition", "tables", "bits, first", "bits, second", "second minus first", "95% interval", "by block (estimate)",
+                        "threshold", "reading"], q["rows"])
     # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
     shares_rows, tiers = [], {}
     for a in names:
@@ -1366,7 +1401,7 @@ def build(st, cfg, run_dir):
                   relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
-                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, seeds=seeds_out, lr_check=lr_check, leak=leak, leak_nodes=leak_nodes, pairs=pairs_out, lr_sweeps=sweeps,
+                  lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, paired_ends=ends_out, seeds=seeds_out, lr_check=lr_check, leak=leak, leak_nodes=leak_nodes, pairs=pairs_out, lr_sweeps=sweeps,
                   passes=over,
                   noise=[dict(node=t, condition=c, stratum=x, bits=v) for (t, c, x), v in sorted(spread.items())], readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):

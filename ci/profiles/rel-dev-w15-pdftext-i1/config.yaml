@@ -2,7 +2,7 @@
 # w15_registry.py, item 7; package W15): Dunning 2019's SI appendix and Datasets S2 to S5, and the PDF supplements of
 # the other papers that run fetched. The source run must have passed with its registry gate passed, its report must be
 # the output its stage recorded and every file's bytes must match the sha256 that report records;
-# bench/rel/registry/pdf_text.py 0.2 (standard library) gives the text of readable pages only and the reason for every
+# bench/rel/registry/pdf_text.py 0.3 (standard library) gives the text of readable pages only and the reason for every
 # other page (a font without a character map, garbage under the thresholds, a broken stream, a limit reached, a page
 # without text). Texts go to the run's data folder. No paper is fetched, no model output and no score is read. The
 # select lock, no GPU, no network. Development diagnosis only.

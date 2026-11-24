@@ -153,6 +153,10 @@ def test_garbage_never_passes_the_thresholds():
 def test_threshold_boundaries():
     def page(text):
         return P.extract(_pages((HELV, b"BT /F1 12 Tf (" + text + b") Tj ET", None)))["pages"][0]
+    assert page(b"abcdefghijklmnopqrs" + b"\\201")["status"] == "ok"                     # 19 readable and 1 U+FFFD: 0.95
+    assert page(b"abcdefghijklmnopqr" + b"\\201" * 2)["status"] == "unreadable"         # 18 and 2: 0.90
+    assert page(b" ".join([b"gene"] * 18 + [b"bcdf"] * 2))["status"] == "ok"              # word-like 18 of 20: 0.90
+    assert page(b" ".join([b"gene"] * 17 + [b"bcdf"] * 3))["reason"].startswith("word-like words 0.850 < 0.90")
     assert page(b"abcde" * 19 + b"\\201" * 5)["status"] == "ok"                       # 95 of 100 readable: 0.95
     assert page(b"abcde" * 19 + b"\\201" * 6)["status"] == "unreadable"               # 95 of 101
     assert page(b" ".join([b"bcdf"] * 19))["status"] == "ok"                           # 19 words: the word measures wait
@@ -433,3 +437,55 @@ def test_the_command_refuses_a_file_that_is_not_the_stored_one(tmp_path, capsys)
     assert P.main([str(p), "--sha256", "0" * 64]) == 2
     assert P.main([str(p), "--sha256", hashlib.sha256(data).hexdigest().upper()]) == 0
     assert capsys.readouterr().out.startswith("# s2.pdf sha256 " + hashlib.sha256(data).hexdigest())
+
+
+def test_the_reviewers_q_and_q_example():
+    """q/Q keep the font: F1 again after Q, so the third piece is 'def', not 'xyz' through F2."""
+    f2 = b"<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+Body /Encoding << /Differences [100 /x /y /z] >> >>"
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>", HELV, f2,
+            _stream(b"BT /F1 Tf (abc) Tj ET q BT /F2 Tf (d) Tj ET Q BT (def) Tj ET")]
+    page = P.extract(_pdf(objs))["pages"][0]
+    assert page["status"] == "ok" and page["text"] == "abc" + "x" + "def"
+    objs[5] = _stream(b"Q Q BT /F1 Tf (abc) Tj ET Q")                                     # Q on an empty stack: ignored
+    assert P.extract(_pdf(objs))["pages"][0]["text"] == "abc"
+
+
+def test_this_modules_own_english_reads():
+    m = P.readability(P.__doc__)
+    assert P.verdict(m) == ("ok", None) and m["latin_words"] > 100
+
+
+def test_cid_codes_read_as_unicode_and_shifted_are_refused():
+    """A composite font whose ToUnicode passes the codes through, the codes being the characters plus one: every code
+    is 'mapped', the text is shifted (spaces become '!')."""
+    identity = (b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <0000> <FFFF> "
+                b"endcodespacerange 1 beginbfrange <0000> <FFFF> <0000> endbfrange endcmap end end")
+    shown = b"<" + "".join("%04x" % (ord(c) + 1) for c in PROSE).encode() + b">"
+    page = P.extract(_pages((TYPE0, b"BT /F1 10 Tf " + shown + b" Tj ET", identity)))["pages"][0]
+    assert page["status"] == "unreadable" and "text" not in page
+    plain = b"<" + "".join("%04x" % ord(c) for c in PROSE).encode() + b">"
+    assert P.extract(_pages((TYPE0, b"BT /F1 10 Tf " + plain + b" Tj ET", identity)))["pages"][0]["status"] == "ok"
+
+
+def test_random_letter_substitutions_are_refused():
+    rnd = random.Random(7)
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    passed = 0
+    for _ in range(2000):
+        perm = list(letters)
+        rnd.shuffle(perm)
+        table = str.maketrans(letters + letters.upper(), "".join(perm) + "".join(perm).upper())
+        passed += P.verdict(P.readability(PROSE.translate(table)))[0] == "ok"
+    assert passed == 0
+
+
+def test_a_page_of_another_script_is_unverified_and_accents_count_only_on_vowels():
+    greek = CMAP.replace(b"<0024> <003D> <0041>", b"<0024> <003D> <0391>")             # capitals through to Greek capitals
+    words = " ".join(["ABCDE", "FGHIK", "LMNOP", "ABCDQ"] * 6)        # A to Q: Greek capitals with no gap (U+03A2 is none)
+    page = P.extract(_pages((TYPE0, b"BT /F1 10 Tf " + _codes(words) + b" Tj ET", greek)))["pages"][0]
+    assert page["status"] == "unverified" and "text" not in page and page["reason"].startswith("mostly non-Latin letters")
+    m = P.readability(" ".join(["\u0141\u0143\u0158\u0160"] * 20))                    # Latin letters, accented consonants only
+    assert m["wordlike"] == 0.0 and P.verdict(m)[0] == "unreadable"
+    m = P.readability(" ".join(["\u00e9t\u00e9s", "caf\u00e9s", "na\u00efve", "\u00e9cole", "th\u00e9\u00e2tre"] * 4))
+    assert m["wordlike"] == 1.0 and m["latin"] == 1.0

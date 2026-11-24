@@ -23,9 +23,11 @@ decoded streams are cached by object number. A page over a limit is unreadable, 
 A page is readable when it has text and
 - at least MIN_RATIO of its characters (whitespace aside) are readable (no U+FFFD, control, private-use, unassigned or
   surrogate code point);
-- with MIN_WORDS or more letter-only words of four letters or more: at least MIN_WORDLIKE of them contain a vowel or a
-  non-ASCII letter, and, when most of their letters are ASCII, the vowels (a e i o u) make VOWELS of those letters;
-- with MIN_WORDS_PAIRS or more such words of mostly ASCII letters: at least MIN_PAIRS of their letter pairs are among
+- with MIN_WORDS or more letter-only words of four letters or more, most of their letters Latin (otherwise the page is
+  unverified: the word measures cannot check another script, and it gives no text either): at least MIN_WORDLIKE of
+  them contain a vowel (a e i o u y, accented ones counted, other non-ASCII letters not), and the vowels (a e i o u,
+  accents removed) make VOWELS of their Latin letters;
+- with MIN_WORDS_PAIRS or more such words: at least MIN_PAIRS of their letter pairs (accents removed) are among
   the 100 commonest pairs of English (the supplements read here are in English).
 Sequence-like tokens (nucleotide letters only, or 15 or more capitals) are not words for these measures.
 The last two guard against a valid-looking but shifted character map. Only readable pages give text; every other page
@@ -50,7 +52,7 @@ import unicodedata
 import zlib
 from collections import deque
 
-VERSION = "0.2"
+VERSION = "0.3"
 MIN_RATIO = 0.95
 MIN_WORDS = 20
 MIN_WORDLIKE = 0.90
@@ -1043,37 +1045,50 @@ class Page:
 
 # ---------------------------------------------------------------- readability
 
+def _base(c):
+    """A Latin letter without its accent, lower case ('É' -> 'e'); '' for a letter of another script."""
+    if not unicodedata.name(c, "").startswith("LATIN"):
+        return ""
+    return unicodedata.normalize("NFD", c)[0].lower()
+
+
 def readability(text):
     """The measures of a page's text: characters (whitespace aside), readable share, letter words of four letters or
-    more, their word-like share, the vowel share of their ASCII letters and the common-pair share of their ASCII pairs
-    (None when the words are not mostly ASCII)."""
+    more (sequences aside) with the Latin share of their letters, and over their Latin letters (accents removed): the
+    share of words with a vowel (a e i o u y, accented ones included), the vowel share (a e i o u) and the common-pair
+    share. The Latin measures are None when the words are not mostly Latin."""
     chars = [c for c in text if not c.isspace()]
     bad = sum(1 for c in chars if c == REPLACEMENT or unicodedata.category(c) in ("Cc", "Co", "Cn", "Cs"))
     words = [w for w in re.findall(r"[^\W\d_]{4,}", text) if not SEQUENCE.fullmatch(w)]
-    like = sum(1 for w in words if re.search(r"[aeiouyAEIOUY]|[^\x00-\x7f]", w))
-    letters = "".join(words)
-    ascii_words = [w.lower() for w in words if w.isascii()]
-    ascii_letters = "".join(ascii_words)
-    mostly_ascii = bool(letters) and len(ascii_letters) >= 0.5 * len(letters)
-    vowels = sum(1 for c in ascii_letters if c in "aeiou") / len(ascii_letters) if mostly_ascii else None
-    pairs = [w[k:k + 2] for w in ascii_words for k in range(len(w) - 1)]
-    common = sum(1 for x in pairs if x in COMMON_PAIRS) / len(pairs) if mostly_ascii and pairs else None
+    folded = ["".join(_base(c) for c in w) for w in words]
+    letters = sum(len(w) for w in words)
+    latin = sum(len(w) for w in folded)
+    mostly_latin = bool(letters) and latin >= 0.5 * letters
+    lw = [w for w in folded if len(w) >= 4]
+    like = sum(1 for w in lw if re.search(r"[aeiouy]", w)) / len(lw) if mostly_latin and lw else None
+    joined = "".join(lw)
+    vowels = sum(1 for c in joined if c in "aeiou") / len(joined) if mostly_latin and joined else None
+    pairs = [w[k:k + 2] for w in lw for k in range(len(w) - 1)]
+    common = sum(1 for x in pairs if x in COMMON_PAIRS) / len(pairs) if mostly_latin and pairs else None
     return dict(characters=len(chars), readable=(len(chars) - bad) / len(chars) if chars else 0.0, words=len(words),
-                wordlike=like / len(words) if words else 1.0, ascii_words=len(ascii_words), vowels=vowels, pairs=common)
+                latin=latin / letters if letters else None, latin_words=len(lw), wordlike=like, vowels=vowels, pairs=common)
 
 
 def verdict(m, min_ratio=MIN_RATIO):
-    """(status, reason) of a page from its measures."""
+    """(status, reason) of a page from its measures: ok, unreadable, unverified (mostly non-Latin words, which the
+    word measures cannot check) or no_text."""
     if m["characters"] == 0:
         return "no_text", "no text on the page (an image or a scan)"
     if m["readable"] < min_ratio:
         return "unreadable", "readable characters %.3f < %.2f" % (m["readable"], min_ratio)
-    if m["words"] >= MIN_WORDS:
+    if m["words"] >= MIN_WORDS and m["latin"] is not None and m["latin"] < 0.5:
+        return "unverified", "mostly non-Latin letters (%.3f Latin): the word measures cannot check the character map" % m["latin"]
+    if m["latin_words"] >= MIN_WORDS:
         if m["wordlike"] < MIN_WORDLIKE:
             return "unreadable", "word-like words %.3f < %.2f (a character map that does not give words)" % (m["wordlike"], MIN_WORDLIKE)
-        if m["vowels"] is not None and not VOWELS[0] <= m["vowels"] <= VOWELS[1]:
+        if not VOWELS[0] <= m["vowels"] <= VOWELS[1]:
             return "unreadable", "vowels %.3f of the letters, outside %.2f-%.2f (a shifted character map)" % (m["vowels"], *VOWELS)
-    if m["ascii_words"] >= MIN_WORDS_PAIRS and m["pairs"] is not None and m["pairs"] < MIN_PAIRS:
+    if m["latin_words"] >= MIN_WORDS_PAIRS and m["pairs"] < MIN_PAIRS:
         return "unreadable", "common letter pairs %.3f < %.2f (a shifted character map)" % (m["pairs"], MIN_PAIRS)
     return "ok", None
 

@@ -686,11 +686,11 @@ def test_pdf_texts_refuse_a_report_the_run_did_not_record(tmp_path):
 
 
 def test_a_stored_archive_missing_changed_or_broken_is_a_row_of_its_own(tmp_path):
-    for archive, status in ((b"", "not_read"), (b"PK\x03\x04 cut", "checksum_differs")):
-        run = _stored_run(tmp_path / status, archive=archive)
+    for archive, statuses in ((b"", ["not_read"]), (b"PK\x03\x04 cut", ["checksum_differs", "not_read"])):
+        run = _stored_run(tmp_path / statuses[0], archive=archive)
         rows = W.pdf_texts(dict(from_run=str(run), files=["*.pdf"]), str(tmp_path / "out"))
         bad = [r for r in rows if r.get("archive")]
-        assert [(r["file"], r["status"]) for r in bad] == [("supplements.zip", status)]
+        assert [(r["file"], r["status"]) for r in bad] == [("supplements.zip", x) for x in statuses]
         assert "b.s1.pdf" not in {r["file"] for r in rows if r["status"] == "ok"}
     import zipfile
     run = _stored_run(tmp_path / "member")                 # the archive matches its sha256, but a member is damaged
@@ -745,3 +745,54 @@ def test_settings_check_the_island_store():
         with pytest.raises(SystemExit):
             W.settings(dict(rel_w15_registry=dict(base, exposure_islands=bad)))
     assert W.settings(dict(rel_w15_registry=dict(base, exposure_islands="/srv/islandpick")))["exposure_islands"] == "/srv/islandpick"
+
+
+def _rerecord(run):
+    """Record the edited report as the source stage's output again."""
+    import hashlib
+    rp = run / W.OUT / "report.json"
+    (run / "stages" / (W.STAGE + ".json")).write_text(json.dumps(dict(status="passed", outputs=[dict(
+        name="report", sha256=hashlib.sha256(rp.read_bytes()).hexdigest())])))
+
+
+def test_a_changed_archive_refuses_each_member():
+    """Mutation (a) of the review: a member read without its archive's check would come out ok here."""
+    import io
+    import zipfile
+    from tests.ci.test_rel_w15_pdf_text import HELV, LINE1, _pages
+    other = io.BytesIO()
+    with zipfile.ZipFile(other, "w") as z:                  # a valid archive, but not the one whose sha256 was recorded
+        z.writestr("supp/b.s1.pdf", _pages((HELV, LINE1.replace(b"Dataset", b"Changed"), None)))
+    import pathlib
+    import tempfile
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    run = _stored_run(tmp, archive=other.getvalue())
+    rows = W.pdf_texts(dict(from_run=str(run), files=["b.s1.pdf"]), str(tmp / "out"))
+    assert sorted((r["file"], r["status"]) for r in rows) == [("b.s1.pdf", "checksum_differs"), ("supplements.zip", "checksum_differs")]
+    assert not (tmp / "out" / "b.s1.pdf.txt").exists()
+
+
+def test_the_same_name_in_two_papers_is_ambiguous_and_a_deleted_file_not_read(tmp_path):
+    run = _stored_run(tmp_path)
+    rp = run / W.OUT / "report.json"
+    report = json.loads(rp.read_text())
+    dup = dict(file="a.sd02.pdf", sha256=report["papers"][0]["supplements"]["files"][0]["sha256"])
+    report["papers"].append(dict(doi="10.1/c", supplements=dict(source="pmc-oa-opendata", files=[dup])))
+    rp.write_text(json.dumps(report))
+    _rerecord(run)
+    rows = {r["file"]: r for r in W.pdf_texts(dict(from_run=str(run), files=["a.sd02.pdf"]), str(tmp_path / "out"))}
+    assert rows["a.sd02.pdf"]["status"] == "ambiguous" and rows["a.sd02.pdf"]["dois"] == ["10.1/a", "10.1/c"]
+    run2 = _stored_run(tmp_path / "second")
+    (run2 / W.OUT / "papers" / W._folder("10.1/a") / "pmc_oa" / "a.sd02.pdf").unlink()
+    rows = {r["file"]: r for r in W.pdf_texts(dict(from_run=str(run2), files=["a.sd02.pdf"]), str(tmp_path / "out"))}
+    assert rows["a.sd02.pdf"]["status"] == "not_read" and rows["a.sd02.pdf"]["error"].startswith("FileNotFoundError")
+
+
+def test_pdf_texts_refuse_a_source_stage_that_did_not_pass(tmp_path):
+    """Mutation (d) of the review: the stage record's own status is checked, not only the run's."""
+    run = _stored_run(tmp_path)
+    p = run / "stages" / (W.STAGE + ".json")
+    p.write_text(json.dumps(dict(json.loads(p.read_text()), status="failed")))
+    with pytest.raises(SystemExit) as err:
+        W.pdf_texts(dict(from_run=str(run), files=["*.pdf"]), str(tmp_path / "out"))
+    assert "did not pass" in str(err.value)

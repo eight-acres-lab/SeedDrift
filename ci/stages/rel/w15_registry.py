@@ -838,7 +838,8 @@ def stored_files(run):
     """(name -> where a passed registry run stored it, problems). The run must have passed with its registry gate
     passed (record.json), and its report must be the output its stage recorded. Files are the supplement and article
     files of the report with the sha256 it records; a stored supplement archive is first checked against its own
-    sha256 and then gives its members. An archive missing, changed or not opened is a problem, never skipped."""
+    sha256 and then gives its members (a changed archive's members too, so that each one asked for is refused by its
+    own check). An archive missing, changed or not opened is a problem, never skipped."""
     from ci.stages.rel import w2_v0
     rec_path = os.path.join(run, "record.json")
     if not os.path.exists(rec_path):
@@ -866,8 +867,7 @@ def stored_files(run):
             row = dict(file=supp["file"], doi=p["doi"], archive=True)
             try:
                 if sha256_file(path, use_sidecar=False) != supp["sha256"]:
-                    problems.append(dict(row, status="checksum_differs"))
-                    continue
+                    problems.append(dict(row, status="checksum_differs"))    # its members are listed and refused one by one
                 with zipfile.ZipFile(path) as z:
                     members = [m for m in z.namelist() if not m.endswith("/")]
             except ZIP_ERRORS as err:

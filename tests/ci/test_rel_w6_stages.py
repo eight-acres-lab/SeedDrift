@@ -615,6 +615,58 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     assert abs(r["bits_with_end"] - plain) < 1e-9                       # not the control's 0.5 bits more
 
 
+def test_report_derives_the_identity_strata_again_from_the_cells_per_table(tmp_path, monkeypatch):
+    """Protocol round1 version 11: every reading by the nearest identity is in the strata of the evaluator the report
+    runs on, derived again from an arm's cells per held-out table (its rows carry the strata of the code that evaluated
+    it). An arm whose cells give its rows' bits over all tables is read in the held-out set's strata as they are now;
+    one without cells keeps its rows' bins only when their version is this one's (else they are left out and listed);
+    cells that do not give the rows' bits are not used; baselines of an older version are labelled so; with the
+    evaluator's version 5 the median coverage of the nearest row stands beside every stratum."""
+    np = pytest.importorskip("numpy")
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
+    fit = os.path.join(run_dir, w6_fit.OUT)
+    arm, old, other = "w6-ref30m-s1", "w6-ref10m-s1", "w6-ref30m-norel-s1"
+    k = list(cond.CONDITIONS).index(cond.SCATTERED)
+    # four held-out tables, bacteria 0 and 2, fungi 1 and 3, two cells each: the groups' means are the rows' (5.0 + k and
+    # 5.5 + k, all 5.25 + k), the tables' bits differ
+    tab = np.repeat(np.arange(4), 2)
+    per_table = np.array([4.5, 5.0, 5.5, 6.0]) + k
+    np.savez(os.path.join(fit, arm, "heldout_final.npz"), bits_scattered=np.repeat(per_table, 2), table_scattered=tab)
+    np.savez(os.path.join(fit, other, "heldout_final.npz"), bits_scattered__no_relatives=np.full(8, 1.0), table_scattered__no_relatives=tab)
+    for a in (arm, old, other):
+        with open(os.path.join(fit, a, "conf.json"), "w") as f:
+            json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
+    p = os.path.join(fit, "results.tsv")                              # the old arm's rows: of the strata version before this one
+    SC.write_rows(p, [dict(r, versions="evalh=3/%d" % (SC.VERSION - 1)) if r["variant"] == old else r for r in SC.read_rows(p)])
+    short = getattr(SC, "FINE_SHORT", 0)
+    now = {SC.FINE[9]: np.array([True, True, False, False]), SC.FINE[2]: np.array([False, False, True, False]),
+           SC.FINE[short]: np.array([False, False, False, True])}
+    monkeypatch.setattr(w6_report, "held_units", lambda conf, source: ([GROUPS[0], GROUPS[1], GROUPS[0], GROUPS[1]], ["u1", "u2", "u3", "u4"]))
+    monkeypatch.setattr(w6_report, "held_strata", lambda conf: dict(now))
+    v5 = hasattr(SC, "coverage_by_stratum")
+    if v5:
+        monkeypatch.setattr(w6_report, "held_coverage", lambda conf: (np.array([9, 9, 2, short]), np.array([1.0, 0.8, 0.9, 0.3])))
+    base = _baselines(run_dir)
+    bp = os.path.join(base["run"], base["path"])
+    SC.write_rows(bp, [dict(r, versions="evalh.score=%d" % (SC.VERSION - 1)) for r in SC.read_rows(bp)])
+    cfg = dict(cfg, rel_w6_report=dict(baselines=[base], units_source="/x/runs/source"))
+    rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
+    cols = rep["headline"]["columns"]
+    lab = lambda x: x.replace(SC.FINE_PREFIX, "")                     # noqa: E731
+    got = {(r[0], r[1]): dict(zip(cols, r)) for r in rep["headline"]["rows"]}
+    top, mid, frag = got[(cond.SCATTERED, lab(SC.FINE[9]))], got[(cond.SCATTERED, lab(SC.FINE[2]))], got[(cond.SCATTERED, lab(SC.FINE[short]))]
+    assert abs(top[arm] - (4.75 + k)) < 1e-9 and abs(mid[arm] - (5.5 + k)) < 1e-9 and abs(frag[arm] - (6.0 + k)) < 1e-9   # from the cells
+    assert "%s final %s" % (arm, cond.SCATTERED) in rep["strata"]["derived_from_cells"] and rep["strata"]["version"] == SC.VERSION
+    assert top[old] is None and any(x.startswith(old + " final") for x in rep["strata"]["left_out"])    # rows of another version
+    assert rep["strata"]["baselines"]["copy_nearest"] == [SC.VERSION - 1]
+    norel_rows = {r[1]: dict(zip(cols, r)) for r in rep["headline"]["rows"] if r[0] == cond.SCATTERED + "+" + cond.NO_RELATIVES}
+    assert abs(norel_rows[lab(SC.FINE[9])][other] - 4.5) < 1e-9     # cells that do not give its rows' bits: its rows (5.5 + 0 - 1)
+    text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
+    assert "copy_nearest (strata v%d)" % (SC.VERSION - 1) in text
+    if v5:
+        assert abs(top["coverage of the nearest row (median, %s)" % arm] - 0.9) < 1e-9 and w6_report.STRATA_V5[:40] in text
+
+
 def test_the_rows_of_a_control_never_stand_for_the_condition():
     """The rows of the renderer's controls (layout leakfree+shuffle, leakfree+presence) are "<condition>@<control>": they
     never replace the condition's own rows (round 1's first report read the presence control as scattered)."""

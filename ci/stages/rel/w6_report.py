@@ -39,8 +39,10 @@ Profile block rel_w6_report (all optional):
              the same condition without relatives)
 Readings (each also in report.json):
   arms          parameters, learning rate, steps, tables seen, passes over the training tables, throughput, memory
-  headline      the final evaluation by the identity of the nearest row (ten bins, the bin without other rows left
-                out), every condition, arms and baselines; then the eukaryotic groups apart from the others
+  headline      the final evaluation by the identity of the nearest row (the evaluator's strata as this report's
+                code has them, derived again from the arms' cells per table, with the median coverage of the nearest
+                row; the bin without other rows left out), every condition, arms and baselines; then the eukaryotic
+                groups apart from the others
   relatives     what relatives are worth, twice: an arm without relatives at the lower of its best node and its end
                 against the arm of the same size with relatives at its end, on all held-out tables; and the two at the
                 same nodes, on the tables of the nodes; each against the seeds' difference where seeds are named
@@ -128,7 +130,51 @@ def held_strata(conf):
         for k, lab in enumerate(labels):
             out[lab] = np.asarray(index) == k
     return out
-BLOCK_OF = getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
+
+
+def held_coverage(conf):
+    """(stratum of the nearest identity (index into score.FINE), coverage of the nearest row) of every table of an arm's
+    held-out set, in the evaluator's strata (score.row_coverage and nearest_coverage, from version 5); None with an
+    evaluator without them."""
+    if not all(hasattr(SC, f) for f in ("nearest_coverage", "coverage_by_stratum", "row_coverage")):
+        return None
+    from seeddrift.train.rel.data import tables as T
+    held = T.open_split(conf["heldout_root"], conf["heldout_tables"], 1)
+    got = held.load(("kind", "identity", "n", "col"))
+    kind, identity = np.asarray(got["kind"]), np.asarray(got["identity"])
+    cov = SC.row_coverage(got["n"], got["col"])
+    return np.asarray(SC.fine_stratum(identity, kind, coverage=cov)), np.asarray(SC.nearest_coverage(identity, cov, kind), dtype=np.float64)
+
+
+def strata_version(r):
+    """The version of the evaluator's strata (score.VERSION) a result row was written in, from its versions column (the
+    trainer's evalh=<conditions>/<score>, the baselines' evalh.score=<score>); None where it is not stated."""
+    v = str(r.get("versions") or "")
+    m = re.search(r"(?:^|;)evalh=\d+/(\d+)", v) or re.search(r"(?:^|;)evalh\.score=(\d+)", v)
+    return int(m.group(1)) if m else None
+
+
+def strata_means(bits_t, cells_t, group, mask):
+    """One stratum's bits from the bits and cells summed per held-out table, as score.aggregate forms them: per group the
+    mean over its cells, then the plain mean of the groups that have cells. Returns ({group: bits}, {group: tables with
+    cells}, the mean of the groups or None, the tables with cells)."""
+    n = min(len(bits_t), len(cells_t), len(group), len(mask))
+    has = (np.asarray(cells_t[:n]) > 0) & np.asarray(mask[:n], dtype=bool)
+    tot, cnt, tab = {}, {}, {}
+    for k in np.flatnonzero(has):
+        g = group[k]
+        tot[g], cnt[g], tab[g] = tot.get(g, 0.0) + float(bits_t[k]), cnt.get(g, 0.0) + float(cells_t[k]), tab.get(g, 0) + 1
+    per = {g: tot[g] / cnt[g] for g in cnt if cnt[g] > 0}
+    return per, tab, (sum(per.values()) / len(per) if per else None), int(has.sum())
+
+
+STRATA_V4 = ("The strata are the identity of the nearest row over the aligned part of the target block (the evaluator's version 4): "
+             "short, very similar fragments enter the top bins, so a flat top bin does not show that close relatives are of no use.")
+STRATA_V5 = ("The strata of the nearest identity are the evaluator's version %d, derived again by this report from every arm's cells per "
+             "held-out table: a row counts as the nearest only if it covers at least half of the stored part of row 0's target block; "
+             "tables whose other rows all cover less are 'short_fragments_only'; the median coverage of the nearest row is listed beside "
+             "every stratum. %s")
+BLOCK_OF =getattr(SC, "block_of", lambda g: "eukaryotes" if str(g).startswith("eukaryota.") else "prokaryotes, plasmids, viruses")
 BLOCKS = getattr(SC, "BLOCKS", ("eukaryotes", "prokaryotes, plasmids, viruses"))
 CAVEATS = [
     "Lower bits are better. Under the stored placement the relatives of a hidden whole gene are placed by its hidden residues, so "
@@ -138,8 +184,7 @@ CAVEATS = [
     "The direction of the remaining bias is unknown: rows were drawn by similarity, which raises what relatives are worth; whole "
     "held-out clusters have no close relatives and the 15 other rows are drawn at random, which lowers it; close relatives are not "
     "covered at all.",
-    "The strata are the identity of the nearest row over the aligned part of the target block: short, very similar fragments enter "
-    "the top bins, so a flat top bin does not show that close relatives are of no use.",
+    STRATA_V4,
     "The classical baselines are weak (no codon substitution model, no amino-acid model): they are a lower bound on what relatives "
     "are worth, not an estimate of it.",
     "Training masks: the three schemes (scattered 15% on every row, one span of one row, the whole target gene of row 0) are drawn "
@@ -599,15 +644,20 @@ def build(st, cfg, run_dir):
                 return sm
         return {}
 
-    def held_of(a):
-        """(group, unit, strata {label: bool per table}) of the held-out set arm a was read on; None without units_source."""
+    def conf_of(a):
+        """The training configuration of arm a with the held-out set it was read on, as this machine holds it; None."""
         f = folder_with(a, "conf.json")
         conf = read_json(os.path.join(f, "conf.json")) if f else None
-        if not conf or not s["units_source"]:
-            return None
-        if s["heldout_tables"] and a not in other_set:                # this machine's copy of the baselines' held-out set (an arm
+        if conf and s["heldout_tables"] and a not in other_set:       # this machine's copy of the baselines' held-out set (an arm
             conf = dict(conf, heldout_tables=os.path.join(s["heldout_tables"]["run"], s["heldout_tables"]["path"]),     # trained or read
                         heldout_root=s["heldout_tables"]["run"])     # on another machine names that machine's path)
+        return conf
+
+    def held_of(a):
+        """(group, unit, strata {label: bool per table}) of the held-out set arm a was read on; None without units_source."""
+        conf = conf_of(a)
+        if not conf or not s["units_source"]:
+            return None
         key = conf.get("heldout_tables")
         if key not in cache:
             try:
@@ -668,6 +718,76 @@ def build(st, cfg, run_dir):
         idx = np.flatnonzero(keep)
         return IV.paired_bootstrap((B[0][:n] - A[0][:n])[idx], A[1][:n][idx], [group[k] for k in idx], [unit[k] for k in idx]), None
     fmt_iv = lambda r: "%.3f to %.3f" % (r["low"], r["high"]) if r else ""                                                                     # noqa: E731
+    cov_cache = {}
+
+    def coverage_of(a, x, which="final", c=cond.SCATTERED):
+        """The median coverage of the nearest row over the tables of stratum x that arm a was read on (its cells under
+        condition c at which: "final", "best" or a node), by the evaluator's coverage_by_stratum; None without (an
+        evaluator before version 5, the set is not on this machine, or no table). x None: True when it is known."""
+        conf = conf_of(a)
+        if not conf:
+            return None
+        key = conf.get("heldout_tables")
+        if key not in cov_cache:
+            try:
+                cov_cache[key] = held_coverage(conf)
+            except (OSError, ValueError, KeyError):
+                cov_cache[key] = None
+        if cov_cache[key] is None:
+            return None
+        if x is None:                                                  # only whether the coverage is known for a's set
+            return True
+        if x not in fine:
+            return None
+        idx, near = cov_cache[key]
+        got = table_cells(a, which, c)
+        keep = np.zeros(len(idx), bool)
+        if got is not None:
+            n = min(len(got[1]), len(idx))
+            keep[:n] = got[1][:n] > 0
+        else:
+            keep[:] = True
+        by = SC.coverage_by_stratum(idx[keep], near[keep])
+        v = by.get(x)
+        return None if v is None or (isinstance(v, float) and np.isnan(v)) else float(v)
+
+    # the strata of the nearest identity derived again from every arm's cells per held-out table in the strata of the
+    # evaluator this report runs on (protocol round1, version 11: every reading by identity in version 5's strata): the
+    # rows carry the strata of the code that evaluated them. A reading whose cells are not at hand (or do not give its
+    # rows' bits over all tables) keeps its rows' bins only when they are of this version; it is left out otherwise.
+    fine = list(SC.FINE)
+    row_versions = {}
+    for r in rows:
+        p = point_of(r) if r["variant"] in arms else None
+        if p is not None:
+            row_versions.setdefault((r["variant"],) + p, set()).add(strata_version(r))
+    base_versions = {b: sorted({strata_version(r) for r in base if r["variant"] == b}, key=str) for b in bnames}
+    rederived, dropped = [], []
+    for v, p, t, c in sorted({k[:4] for k in bits if k[0] in arms and k[4] == SC.ALL and k[5] == SC.ALL}, key=str):
+        h = held_of(v)
+        got = table_cells(v, t if p == "node" else p, c) if h is not None else None
+        whole = strata_means(got[0], got[1], h[0], np.ones(len(h[0]), bool))[2] if got is not None else None
+        old = [k for k in bits if k[:4] == (v, p, t, c) and k[5] in fine]
+        if whole is not None and abs(whole - bits[(v, p, t, c, SC.ALL, SC.ALL)]) <= 1e-4:    # the cells are those of the rows
+            for k in old:
+                bits.pop(k)
+                items_n.pop(k, None)
+            for x in fine:
+                per, tab, mean, n_t = strata_means(got[0], got[1], h[0], h[2].get(x, np.zeros(len(h[0]), bool)))
+                if mean is None:
+                    continue
+                bits[(v, p, t, c, SC.ALL, x)], items_n[(v, p, t, c, SC.ALL, x)] = mean, n_t
+                for g, b in per.items():
+                    bits[(v, p, t, c, g, x)], items_n[(v, p, t, c, g, x)] = b, tab[g]
+            rederived.append("%s %s %s" % (v, "node@%d" % t if p == "node" else p, c))
+        elif old and any(x is not None and x != SC.VERSION for x in row_versions.get((v, p, t), ())):     # rows of another version
+            for k in old:
+                bits.pop(k)
+                items_n.pop(k, None)
+            dropped.append("%s %s %s" % (v, "node@%d" % t if p == "node" else p, c))
+    cov_arm = next((a for a in names if a not in other_set and coverage_of(a, None)), None)     # the coverage of the main set
+    older_base = {b: vs for b, vs in base_versions.items() if any(x is not None and x != SC.VERSION for x in vs)}
+    col_label = {b: "%s (strata v%s)" % (b, "/".join(str(x) for x in vs)) for b, vs in older_base.items()}
 
     # arms
     arm_rows = []
@@ -683,7 +803,16 @@ def build(st, cfg, run_dir):
     held_alone = n_of[WITHOUT_RELATIVES] / n_of[SC.ALL] if WITHOUT_RELATIVES in n_of and n_of.get(SC.ALL) else None
     trained_alone = {a: number(arms[a]["info"].get("alone_share_seen")) for a in rel}
     caveats = list(CAVEATS) + list(s["notes"])                         # the profile's own notes on these runs
-    if extra:                                                          # arms trained leak-free on scattered and span, stored on the whole gene
+    if hasattr(SC, "row_coverage"):                                    # the evaluator's strata of version 5 or later
+        more = []
+        if older_base:
+            more.append("The baselines %s are read in their rows' strata of version %s (no cells per table to derive them again): their 0.9-1.0 "
+                        "bin mixes short end fragments with near relatives." % (", ".join(sorted(older_base)),
+                                                                              "/".join(sorted({str(x) for vs in older_base.values() for x in vs}))))
+        if dropped:
+            more.append("Left out of the strata (no cells per table at hand, rows of another version): %s." % "; ".join(dropped))
+        caveats[caveats.index(STRATA_V4)] = STRATA_V5 % (SC.VERSION, " ".join(more))
+    if extra:                                                         # arms trained leak-free on scattered and span, stored on the whole gene
         caveats.append("Arms trained leak-free saw the whole gene in the stored layout: their %s rows are read leak-free on the frame relative, "
                        "a layout they were not trained on (trained stored, evaluated leak-free; a reference only), and the rows %s in the "
                        "stored layout they were trained in." % (" and ".join(x.split("@")[0] for x in extra), ", ".join(extra)))
@@ -696,8 +825,10 @@ def build(st, cfg, run_dir):
                              ", ".join("%s %s" % (a, "%.3f" % x if x is not None else "?") for a, x in trained_alone.items()) or "no arm",
                              "%.1f%%" % (100 * held_alone) if held_alone is not None else "an unknown share")]
     # headline: by stratum (ten bins, without the bin of tables without other rows), then the eukaryotic groups apart
-    headline = [[c, x.replace(SC.FINE_PREFIX, "")] + [F(v, c, SC.ALL, x) for v in cols] for c in conds for x in SC.FINE
-                if x != NONE_BIN and any(F(v, c, SC.ALL, x) is not None for v in cols)]
+    headline = [[c, x.replace(SC.FINE_PREFIX, "")] + ([coverage_of(cov_arm, x, "final", c)] if cov_arm else []) + [F(v, c, SC.ALL, x) for v in cols]
+                for c in conds for x in SC.FINE if x != NONE_BIN and any(F(v, c, SC.ALL, x) is not None for v in cols)]
+    head_cols = ["condition", "nearest identity"] + (["coverage of the nearest row (median, %s)" % cov_arm] if cov_arm else []) + \
+        [col_label.get(v, v) for v in cols]
     group_set = sorted({k[4] for k in bits if k[4] != SC.ALL})
     in_block = {b: [g for g in group_set if BLOCK_OF(g) == b] for b in BLOCKS}
 
@@ -754,6 +885,7 @@ def build(st, cfg, run_dir):
                                       per_node=[[t, N(b, t, c + NO_REL, SC.ALL, x0), N(a, t, c, SC.ALL, x0), diff(N(b, t, c + NO_REL, SC.ALL, x0), N(a, t, c, SC.ALL, x0))]
                                                 for t in common_nodes],
                                       by_bin=[[x.replace(SC.FINE_PREFIX, ""), without(x), F(a, c, SC.ALL, x), diff(without(x), F(a, c, SC.ALL, x))]
+                                              + ([coverage_of(a, x, "final", c)] if coverage_of(a, None) else [])
                                               for x in SC.FINE if x != NONE_BIN and (without(x) is not None or F(a, c, SC.ALL, x) is not None)]))
     # scale: the arms with relatives at the last node all of them reached; every two of them at the last node both reached.
     # The seeds of one variant are one level: their mean at a node all of them reached, the one that reached it otherwise.
@@ -857,7 +989,9 @@ def build(st, cfg, run_dir):
                     (u, nu), (v, nv) = get(a1), get(a2)
                     if u is None and v is None:
                         continue
-                    bin_rows.append([t, c, x.replace(SC.FINE_PREFIX, ""), u, nu, v, nv, diff(v, u)])
+                    at = "final" if t == "end" else t
+                    bin_rows.append([t, c, x.replace(SC.FINE_PREFIX, ""), u, nu, v, nv, diff(v, u)] +
+                                    ([coverage_of(a1, x, at, c), coverage_of(a2, x, at, c)] if coverage_of(a1, None) or coverage_of(a2, None) else []))
         pairs_out.append(dict(name=q["name"], first=a1, second=a2, rows=prow, without_relatives=norel_rows, by_bin=bin_rows,
                               tables_seen={a: arms[a]["info"].get("tables_seen") for a in (a1, a2)}))
     # learning-rate sweeps: arms of one size at several peak rates (a seed group as one entry: its mean where all of it
@@ -1035,7 +1169,7 @@ def build(st, cfg, run_dir):
     md += ["", "## Headline: final evaluation, the held-out tables with a relative on the target block, the two blocks apart (mean of the groups)", ""]
     md += md_table(["condition", "block"] + cols, lead) if lead else ["(the rows carry no stratum of tables with relatives)"]
     md += ["", "## By the identity of the nearest row (mean of the groups; the bin without other rows left out)", ""]
-    md += md_table(["condition", "nearest identity"] + cols, headline)
+    md += md_table(head_cols, headline)
     if bnames:
         md += ["", "Arms and baselines scored the same cells (digests of the scored cells): %s." % (
             ", ".join("%s %s" % (c, "yes" if v else "NO") for c, v in same.items()) or "not known (no digests beside the baseline rows)")]
@@ -1077,7 +1211,8 @@ def build(st, cfg, run_dir):
                         "95% interval there", "reading there"], rows_iv)
     for r in relatives:
         md += ["", "%s against %s, %s, by bin (end):" % (r["without"], r["with_relatives"], r["condition"]), ""]
-        md += md_table(["nearest identity", "bits without", "bits with", "worth"], r["by_bin"])
+        md += md_table(["nearest identity", "bits without", "bits with", "worth"] + (["coverage of the nearest row (median)"] if any(len(x) > 4 for x in r["by_bin"]) else []),
+                       r["by_bin"])
     # the online rendering of the nodes against the strict offline one: the same final weights, the same tables (w6_eval
     # online_too), the difference and its paired interval, by the three relatives strata (the programme lead's ruling)
     online_rows = []
@@ -1322,7 +1457,8 @@ def build(st, cfg, run_dir):
                        "(the tables in a bin differ between the two sets; their numbers beside). Different held-out tables: curves, not "
                        "cells.", ""]
             md += md_table(["tables seen", "condition", "nearest identity", "bits, first", "tables, first", "bits, second", "tables, second",
-                            "difference"], q["by_bin"])
+                            "difference"] + (["coverage of the nearest row (median), first", "second"] if any(len(x) > 8 for x in q["by_bin"]) else []),
+                           q["by_bin"])
     for w in sweeps:
         md += ["", "## Learning rates of %s: %s" % (w["name"], ", ".join("%s at %s" % (e, w["lr"][e]) for e in w["entries"])), "",
                "Bits at every node all of them reached (600 tables; a group of seeds: its mean), then at the end (all tables; each at its own "
@@ -1396,13 +1532,14 @@ def build(st, cfg, run_dir):
                                 evaluations=len(nodes.get(a, [])) + (1 if any(F(a, c) is not None for c in conds) else 0),
                                 final={c: F(a, c) for c in conds}) for a in names},
                   baselines={b: {c: F(b, c) for c in conds} for b in bnames},
-                  lead=dict(columns=["condition", "block"] + cols, rows=lead), headline=dict(columns=["condition", "stratum"] + cols, rows=headline),
+                  lead=dict(columns=["condition", "block"] + cols, rows=lead), headline=dict(columns=["condition", "stratum"] + head_cols[2:len(head_cols) - len(cols)] + cols, rows=headline),
                   blocks=dict(columns=["condition", "block"] + cols, rows=blocks),
                   relatives=relatives, scale=scale, scale_pairs=scale_pairs, repair=dict(columns=["variant", "whole_gene", "whole_gene+repaired", "cost"], rows=repair),
                   check=dict(columns=["arm", "condition", "with", "without", "difference"], rows=check),
                   aligned=dict(columns=head, rows=grid), by_group=dict(columns=["group", "block"] + cols, rows=by_group),
                   lines=dict(columns=["condition"] + lbase, rows=line_rows), same_subset=same_subset, paired_ends=ends_out, seeds=seeds_out, lr_check=lr_check, leak=leak, leak_nodes=leak_nodes, pairs=pairs_out, lr_sweeps=sweeps,
-                  passes=over,
+                  passes=over, strata=dict(version=SC.VERSION, derived_from_cells=rederived, left_out=dropped, baselines=base_versions,
+                                           coverage_of=cov_arm),
                   noise=[dict(node=t, condition=c, stratum=x, bits=v) for (t, c, x), v in sorted(spread.items())], readings_exclude=s["exclude"])
     for name in ("curves.tsv", "aligned.tsv", "final.tsv", "curves.svg", "report.md"):
         st.output(name.replace(".", "_"), os.path.join(folder, name))

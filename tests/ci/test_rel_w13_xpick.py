@@ -280,3 +280,18 @@ def test_the_corpus_built_in_processes_is_the_corpus_built_in_one(tmp_path):
     assert strip(one) == strip(two) and [x[0] for x in one] == [2, 1, 4]
     with pytest.raises(SystemExit, match="source d"):
         C.build_all(srcs + [dict(id="d", source_kind="nothing", taxid=1, files=[])], [str(tmp_path / "three" / k) for k in "abcd"], str(tmp_path / "three"), 2)
+
+
+def test_a_sequence_served_in_another_version_is_unavailable_when_asked(tmp_path, monkeypatch):
+    from ci.stages import fetch
+    calls = []
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: calls.append(url) or b">ENA|KM198927|KM198927.3 x\nACGT\n>ENA|KM198928|KM198928.2 y\nACGT\n")
+    src = dict(id="virus_eukaryotic_GCA_001271075.2", ena_sequences=["KM198927.2", "KM198928.2"])
+    with pytest.raises(SystemExit, match=r"missing \['KM198927.2'\].*gave \['KM198927.3'\]"):      # by default: the stage fails at once
+        fetch.fetch_source(src, str(tmp_path / "cas"), {})
+    assert len(calls) == 1
+    monkeypatch.setattr(fetch, "INCOMPLETE_UNAVAILABLE", True)
+    calls.clear()
+    with pytest.raises(fetch.NoRecord, match="KM198927.3"):                # asked three times, then a record the archive cannot give
+        fetch.fetch_source(src, str(tmp_path / "cas"), {})
+    assert len(calls) == 3 and not os.path.exists(tmp_path / "cas")

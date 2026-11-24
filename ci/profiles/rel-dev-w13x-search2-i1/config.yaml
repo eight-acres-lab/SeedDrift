@@ -33,6 +33,7 @@ fetch:
   threads: 8
   retry_s: [10, 30, 90]
   server_errors_unavailable: true
+  incomplete_unavailable: true
 search:
   sensitivity: sensitive
   max_target_seqs: 1000

@@ -945,6 +945,18 @@ def test_evaluation_again_reads_the_weights_each_entry_names(tmp_path, monkeypat
     assert all(x["heldout_offline_tables"] == os.path.join("/x/runs/w3", "offline.json") and x["end_controls"] == ["shuffle", "presence"] for x in seen)
     w6_eval.gate(ev, cfg, run_dir)
     assert _gate(run_dir, "G4_rel_w6_eval")["status"] == "pass"
+    # the report: the node's moving average read again is an entry of its own (<arm>.node@<n>), never the training curve's node
+    stage_report(run_dir, "rel_w6_eval", "", 0.0, [dict(o) for o in ev.outputs])
+    rec = Record.open(run_dir)
+    rec.merge_stages()
+    rec.update(status="passed")
+    w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(fits=[dict(run=run_dir, folder=w6_eval.OUT)])), run_dir)
+    import csv
+    with open(os.path.join(run_dir, w6_report.OUT, "curves.tsv")) as f:
+        curve = list(csv.DictReader(f, delimiter="\t"))
+    at = {(r["arm"], r["point"], r["tables_seen"]): r for r in curve}
+    assert abs(float(at[("w6-ref30m-s1", "node", "1000")]["scattered"]) - 5.75) < 1e-9          # the training's own node
+    assert ("w6-ref30m-s1.node@1000", "node", "1000") in at
 
 
 def test_evaluation_again_reads_the_final_weights_online_too(tmp_path, monkeypatch):

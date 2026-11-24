@@ -307,8 +307,13 @@ def collect(st, run_dir, s):
                 entry["run"] = "%s + %s" % (old["run"], entry["run"]) if old["run"] != entry["run"] else entry["run"]
             arms[entry["name"]] = entry
         names = {v["name"] for v in doc["variants"]}
-        rows += [dict(dict(r, variant=key(r["variant"])) if r["variant"] in names else r, _source=len(sources))
-                 for r in SC.read_rows(os.path.join(f, folder, "results.tsv"))]
+        for r in SC.read_rows(os.path.join(f, folder, "results.tsv")):
+            m = NODE_RX.match(r["weights"]) if folder == EVAL else None
+            if m and r["variant"] + ".node@" + m.group(2) in names:
+                # an evaluation again of a node's moving average (w6_eval weights node@<n>, its rows under the arm's own name):
+                # the entry <arm>.node@<n> of its own, never a node of the training's curve
+                r = dict(r, variant=r["variant"] + ".node@" + m.group(2))
+            rows.append(dict(dict(r, variant=key(r["variant"])) if r["variant"] in names else r, _source=len(sources)))
         groups = groups or list(doc.get("groups") or [])
         sources.append(dict(run=os.path.basename(f), folder=folder, label=label, models_sha256=doc["sha256"], tablesets=doc["tablesets"]))
     base, digests, sub = [], {}, dict(rows=[], digests={})

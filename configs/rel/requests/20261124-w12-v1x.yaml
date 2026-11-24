@@ -1,0 +1,7 @@
+package: W12
+kind: cpu_run
+to: C0
+what: register stage w12_v1x in kind rel_tables of configs/rel/kinds.yaml (rule rel_w12_v1x in ci/rules/rel_w12.smk, output data/rel_w12/v1x/tableset.json, module ci.stages.rel.w12_v1x, gates [G4_rel_w12_v1x], side data, produces tableset); its run follows round 2's full search, beside the round-2 training set of stage w12_v1 (heldout_from run 20261123T122205)
+why: the programme lead (2026-11-24) - round 2's 3,000 held-out tables are round 1's (copied from 122205, heldout_equals); the new held-out genomes of medium-k3x (982 eukaryotic viruses, 137 plants and algae) form an evaluation set of their own, name with x, read and reported apart, never for training
+size: {hours: 0.5, threads: 8, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-25

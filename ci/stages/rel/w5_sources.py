@@ -108,10 +108,11 @@ def cell_gain(cells, with_rel, without):
     return bo - bw, tw
 
 
-def gains_by_cell(arm_cells, ref_cells, identity, pairs=(("scattered", "scattered+no_relatives"), ("whole_gene@stored", "whole_gene+no_relatives"))):
-    """Per pair of conditions and bin of the nearest identity: the cells, the mean gain of the arm and of the reference
-    arm on the same cells, their ratio, the share of cells where the arm gains at least as much, the correlation."""
-    fine = SC.fine_stratum(identity)
+def gains_by_cell(arm_cells, ref_cells, near, pairs=(("scattered", "scattered+no_relatives"), ("whole_gene@stored", "whole_gene+no_relatives"))):
+    """Per pair of conditions and bin of the nearest identity (near: heldout_meta's identity, kind and coverage; the
+    evaluator's strata of score version 5): the cells, the mean gain of the arm and of the reference arm on the same
+    cells, their ratio, the share of cells where the arm gains at least as much, the correlation."""
+    fine = SC.fine_stratum(near["identity"], near.get("kind"), near["coverage"])
     out = {}
     for w, o in pairs:
         if w not in arm_cells or o not in arm_cells or w not in ref_cells or o not in ref_cells:
@@ -148,28 +149,34 @@ def by_reference_gain(read, ref_gain, arm_gain):
 
 
 def heldout_meta(fit):
-    """identity (N, R) and group names (N,) of the held-out set the arm was scored on."""
+    """(near, group names (N,)) of the held-out set the arm was scored on; near: identity (N, R), kind (N, R, B) and
+    the coverage of every row (score.row_coverage) for the evaluator's strata (score version 5)."""
     with open(os.path.join(fit, "conf.json")) as f:
         cfg = json.load(f)
     with open(cfg["heldout_tables"]) as f:
         doc = json.load(f)
     held = shards.by_split(cfg["heldout_root"], [doc])[shards.SPLIT_HELDOUT]
-    got = held.load(0, held.tables, ("identity", "group"))
+    got = held.load(0, held.tables, ("identity", "group", "kind", "n", "col"))
     names = {int(k): str(v) for k, v in (cfg.get("group_names") or {}).items()}
-    return got["identity"], np.array([names.get(int(g), str(int(g))) for g in got["group"]])
+    near = dict(identity=got["identity"], kind=got["kind"], coverage=SC.row_coverage(got["n"], got["col"]))
+    return near, np.array([names.get(int(g), str(int(g))) for g in got["group"]])
 
 
-def strata(identity, group):
-    """[(name, labels, index of every table)]."""
+def strata(near, group):
+    """[(name, labels, index of every table)]: the evaluator's strata of the nearest identity (score version 5, self
+    copies left out where the kinds are given), the blocks, and whether some other row has a cell at the target locus."""
     blocks = np.array([0 if SC.block_of(g) == SC.BLOCKS[0] else 1 for g in group], dtype=np.int64)
-    has = ~np.isnan(SC.nearest_identity(identity))
-    return [("nearest_identity", SC.FINE, SC.fine_stratum(identity)), ("block", SC.BLOCKS, blocks),
+    has = ~np.isnan(SC.nearest_identity(near["identity"], near.get("kind")))
+    return [("nearest_identity", SC.FINE, SC.fine_stratum(near["identity"], near.get("kind"), near["coverage"])), ("block", SC.BLOCKS, blocks),
             ("relatives_on_target", SC.RELATIVES, (~has).astype(np.int64))]
 
 
-def summarise(cells, identity, group):
-    """{stratum label: means of the cells of its tables} over every cell and every stratum."""
+def summarise(cells, near, group):
+    """{stratum label: means of the cells of its tables} over every cell and every stratum; coverage: the median over
+    the stratum's tables of the coverage of their nearest row (score.nearest_coverage)."""
     keys = [k for k in ("none", "entropy", "top", "bits", "none_given_truth") if k in cells]
+    near_cov = SC.nearest_coverage(near["identity"], near["coverage"], near.get("kind"))
+
     def means(m):
         if not m.any():
             return None
@@ -179,11 +186,13 @@ def summarise(cells, identity, group):
         tid = cells["top_identity"][m]
         out["top_identity"] = float(np.nanmean(tid)) if np.isfinite(tid).any() else None
         out["top_is_nearest"] = float(np.mean(cells["top_is_nearest"][m]))
-        out.update(cells=int(m.sum()), tables=int(len(np.unique(cells["table"][m]))))
+        tabs = np.unique(cells["table"][m])
+        cov = near_cov[tabs][np.isfinite(near_cov[tabs])]
+        out.update(cells=int(m.sum()), tables=int(len(tabs)), coverage=float(np.median(cov)) if cov.size else None)
         return out
     t = cells["table"]
     res = {"all": means(np.ones(len(t), dtype=bool))}
-    for _, labels, index in strata(identity, group):
+    for _, labels, index in strata(near, group):
         for k, lab in enumerate(labels):
             got = means(index[t] == k)
             if got is not None:
@@ -227,7 +236,7 @@ def build(st, cfg, run_dir):
         head = done["arms"][a["name"]]
         with open(os.path.join(a["fit"], "summary.json")) as f:
             final_items = json.load(f).get("final_items") or {}
-        identity, group = heldout_meta(a["fit"])
+        near, group = heldout_meta(a["fit"])
         with open(os.path.join(a["fit"], "conf.json")) as f:
             trained_layout = json.load(f).get("layout")
         rows = final_rows(a["fit"])
@@ -235,7 +244,7 @@ def build(st, cfg, run_dir):
         arm_cells = final_cells(a["fit"])
         entry = dict(run=os.path.basename(a["run"]), folder=a["folder"], arm=head["arm"], variant=head["variant"], tables_seen=head["tables_seen"],
                      gain=g, share_of_reference_gain={k: (v / ref_gain[k]) if ref_gain.get(k) else None for k, v in g.items()},
-                     gain_by_cell=gains_by_cell(arm_cells, ref_cells, identity), conditions={})
+                     gain_by_cell=gains_by_cell(arm_cells, ref_cells, near), conditions={})
         for c, layout in s["conditions"].items():
             h = head["conditions"][c]
             key = "%s@stored" % c if layout == "stored" and trained_layout != "stored" else c      # the final evaluation's own key
@@ -243,7 +252,7 @@ def build(st, cfg, run_dir):
                 cells = {k: z[k] for k in z.files}
             entry["conditions"][c] = dict(layout=layout, tables=h["tables"], cells=h["cells"], items_sha256=h["items_sha256"],
                                           same_cells_as_final=h["items_sha256"] == final_items.get(key), seconds=h["seconds"],
-                                          strata=summarise(cells, identity, group))
+                                          strata=summarise(cells, near, group))
             pair = {"scattered": ("scattered", "scattered+no_relatives"), "whole_gene": ("whole_gene@stored", "whole_gene+no_relatives")}.get(c)
             if pair and all(x in arm_cells and x in ref_cells for x in pair):      # the readout's cells beside the final evaluation's
                 ga, ta = cell_gain(arm_cells, *pair)
@@ -274,11 +283,12 @@ def markdown(report):
         out += ["## %s (arm %s, %s tables seen)" % (name, a["arm"], a["tables_seen"]), ""]
         for c, x in a["conditions"].items():
             out += ["### %s, layout %s: %d tables, %d cells; the cells of the final evaluation: %s" % (c, x["layout"], x["tables"], x["cells"], x["same_cells_as_final"]), "",
-                    "| stratum | tables | cells | bits | lambda | none | none given truth | entropy | top weight | top identity | top is nearest | levels |",
-                    "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+                    "| stratum | tables | median coverage of the nearest row | cells | bits | lambda | none | none given truth | entropy | top weight | top identity | top is nearest | levels |",
+                    "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
             for lab, v in x["strata"].items():
-                out.append("| %s | %d | %d | %.3f | %.3f | %.3f | %s | %.3f | %.3f | %s | %.3f | %s |" % (
-                    lab, v["tables"], v["cells"], v["bits"], v["lam"], v["none"], "%.3f" % v["none_given_truth"] if "none_given_truth" in v else "-",
+                out.append("| %s | %d | %s | %d | %.3f | %.3f | %.3f | %s | %.3f | %.3f | %s | %.3f | %s |" % (
+                    lab, v["tables"], "%.2f" % v["coverage"] if v.get("coverage") is not None else "-", v["cells"], v["bits"], v["lam"], v["none"],
+                    "%.3f" % v["none_given_truth"] if "none_given_truth" in v else "-",
                     v["entropy"], v["top"], "%.3f" % v["top_identity"] if v["top_identity"] is not None else "-", v["top_is_nearest"],
                     "/".join("%.2f" % q for q in v["level"])))
             out.append("")

@@ -4,11 +4,20 @@
 - bits per codon of a set of cells = the sum of -log2 p(residue) over the cells / the number of cells;
 - per group first, then the plain mean of the groups that have cells (12 groups in a real table set, equal weight);
 - strata of a table (column `stratum`): the identity of the nearest row at the target locus, the largest stored
-  identity of rows 1.., in ten equal bins (nearest_identity=0.0-0.1 ... 0.9-1.0) and nearest_identity=none when no
-  other row has a cell there; the same stratum under every condition. RELATIVES: whether some other row has a cell
-  there (the headline is read on the tables that have one). OTHER_ROWS: how many other rows the table has (0, 1, two
-  or more); the tables with two or more are the ones the re-paired condition scores, so the whole gene can be read on
-  the same tables. Reporting keys only, never given to a model.
+  identity of the rows 1.. that cover at least MIN_COVERAGE of row 0's stored target block, in ten equal bins
+  (nearest_identity=0.0-0.1 ... 0.9-1.0); nearest_identity=short_fragments_only when other rows have cells there but
+  none covers that much; nearest_identity=none when no other row has a cell there; the same stratum under every
+  condition. A row's identity is the share of identical codons over the codons it has aligned to row 0 (the stored
+  placement), its coverage those codons over row 0's stored codons of the target block (row_coverage). RELATIVES:
+  whether some other row has a cell there, of any coverage (the headline is read on the tables that have one).
+  OTHER_ROWS: how many other rows the table has (0, 1, two or more); the tables with two or more are the ones the
+  re-paired condition scores, so the whole gene can be read on the same tables. Reporting keys only, never given to a
+  model.
+- version 5 (the programme lead's ruling of 2026-11-24): the coverage rule and the stratum of short fragments. Under
+  version 4 a fragment of a remote homologue of one to three codons at the end of the target block (a local alignment
+  starts on a match, so its identity is often 1/1) won the largest identity over every long row and filled the top
+  bin with tables that have no close relative. RELATIVES, OTHER_ROWS, RELATIVE_KINDS and the self-copy rule are
+  version 4's; so are the headline and what relatives are worth over all tables.
 - blocks of groups: the eukaryote groups (their genomes hold the first 1,500 genes only) and the prokaryotes,
   plasmids and viruses, read apart (block_of).
 - rows (contract api.RESULT_ROW): n_items = the tables, target_cells = the scored cells; today tier is -1 and
@@ -25,12 +34,15 @@ import numpy as np
 
 from seeddrift.train.rel import api
 
-VERSION = 4
+VERSION = 5
 ALL = "all"
 TIER = -1                               # distance tiers come after the census
 N_FINE = 10
+MIN_COVERAGE = 0.5                      # a row counts for the nearest identity from half of row 0's stored target block
 FINE_PREFIX = "nearest_identity="
-FINE = tuple("%s%.1f-%.1f" % (FINE_PREFIX, k / 10.0, (k + 1) / 10.0) for k in range(N_FINE)) + (FINE_PREFIX + "none",)
+FINE = tuple("%s%.1f-%.1f" % (FINE_PREFIX, k / 10.0, (k + 1) / 10.0) for k in range(N_FINE)) + \
+    (FINE_PREFIX + "short_fragments_only", FINE_PREFIX + "none")
+FINE_SHORT, FINE_NONE = N_FINE, N_FINE + 1    # the indices of those two strata in FINE
 OTHER_ROWS = ("other_rows=0", "other_rows=1", "other_rows>=2")
 RELATIVES = ("relatives_on_target=yes", "relatives_on_target=no")
 RELATIVE_KINDS = ("relatives=other_genomes", "relatives=self_copies_only", "relatives=none")    # round 1's three strata
@@ -75,25 +87,80 @@ def self_copy_rows(kind):
     return out
 
 
-def nearest_identity(identity, kind=None):
-    """(N,) the largest identity of rows 1.. at the target locus; nan when no row has a cell there. With kind (N, R, B)
-    the self-copy rows are left out: the nearest other-genome row (round 1's strata)."""
+def row_coverage(n, col):
+    """(N, R) float: the coverage of every row at the target locus, the codons of its target-block segment that have
+    a column in row 0 (col >= 0: the codons its stored identity is taken over) divided by row 0's stored codons of the
+    target block (n of row 0); 1 for row 0, nan where row 0 has no codon there. n (N, R, B) and col (N, R, ROW_LEN) of
+    the stored tables (the frame row of the target block is row 0)."""
+    n, col = np.asarray(n), np.asarray(col)
+    _, s, e = api.block_slices()[-1]
+    ct = col[:, :, s:e]
+    aligned = ((ct >= 0) & (np.arange(e - s)[None, None, :] < n[:, :, -1, None])).sum(axis=2).astype(np.float64)
+    own = n[:, 0, -1].astype(np.float64)[:, None]
+    return np.where(own > 0, aligned / np.where(own > 0, own, 1.0), np.nan)
+
+
+def _rows(identity, kind=None, coverage=None):
+    """(identity of rows 1.., the rows with a cell at the target locus, the rows that count for the nearest identity);
+    with kind the self-copy rows are left out of both, with coverage the rows below MIN_COVERAGE out of the latter."""
     ident = np.asarray(identity, dtype=np.float64)[:, 1:]
-    if ident.shape[1] == 0:
-        return np.full(ident.shape[0], np.nan)
     has = np.isfinite(ident)
     if kind is not None:
         has &= ~self_copy_rows(kind)[:, 1:]
-    best = np.where(has, ident, -1.0).max(axis=1)
-    return np.where(has.any(axis=1), best, np.nan)
+    counts = has.copy()
+    if coverage is not None:
+        counts &= np.nan_to_num(np.asarray(coverage, dtype=np.float64)[:, 1:], nan=0.0) >= MIN_COVERAGE - 1e-9
+    return ident, has, counts
 
 
-def fine_stratum(identity, kind=None):
+def nearest_identity(identity, kind=None, coverage=None):
+    """(N,) the largest identity of rows 1.. at the target locus; nan when no row counts. With kind (N, R, B) the
+    self-copy rows are left out: the nearest other-genome row (round 1's strata). With coverage (N, R; row_coverage)
+    only the rows covering at least MIN_COVERAGE of row 0's stored target block count (version 5); without it every row
+    with a cell does (version 4's reading, for the census of the tables and W18's implants until their protocol says
+    otherwise)."""
+    ident, _, counts = _rows(identity, kind, coverage)
+    if ident.shape[1] == 0:
+        return np.full(ident.shape[0], np.nan)
+    best = np.where(counts, ident, -1.0).max(axis=1)
+    return np.where(counts.any(axis=1), best, np.nan)
+
+
+def nearest_coverage(identity, coverage, kind=None):
+    """(N,) the coverage of the nearest row of every table (of the counting rows with the largest identity, the one
+    covering most); for a table of short fragments only, the largest coverage of its rows with a cell; nan without
+    other rows. The column beside the strata of the nearest identity in the reports."""
+    ident, has, counts = _rows(identity, kind, coverage)
+    cov = np.nan_to_num(np.asarray(coverage, dtype=np.float64)[:, 1:], nan=0.0)
+    if ident.shape[1] == 0:
+        return np.full(ident.shape[0], np.nan)
+    near = np.where(counts, ident, -1.0).max(axis=1)
+    top = counts & (np.abs(ident - near[:, None]) <= 1e-9)
+    out = np.where(top, cov, -1.0).max(axis=1)
+    short = np.where(has, cov, -1.0).max(axis=1)
+    return np.where(counts.any(axis=1), out, np.where(has.any(axis=1), short, np.nan))
+
+
+def fine_stratum(identity, kind=None, coverage=None):
     """(N,) index into FINE for every table, from the stored (N, R) identity of every row with row 0 (with kind: of the
-    other-genome rows only)."""
-    near = nearest_identity(identity, kind)
+    other-genome rows only; with coverage: of the rows covering at least MIN_COVERAGE, FINE_SHORT where rows have cells
+    but none covers that much). FINE_NONE where no other row has a cell."""
+    _, has, _ = _rows(identity, kind)
+    near = nearest_identity(identity, kind, coverage)
     k = np.minimum(np.floor(np.nan_to_num(near, nan=0.0) * N_FINE + 1e-9).astype(np.int64), N_FINE - 1)
-    return np.where(np.isnan(near), N_FINE, np.maximum(k, 0))
+    return np.where(np.isnan(near), np.where(has.any(axis=1), FINE_SHORT, FINE_NONE), np.maximum(k, 0))
+
+
+def coverage_by_stratum(fine, near_cov):
+    """{FINE label: median coverage of the nearest row} over the tables of every stratum of the nearest identity that
+    has tables (fine: fine_stratum; near_cov: nearest_coverage); None for the stratum without other rows."""
+    fine, near_cov = np.asarray(fine), np.asarray(near_cov, dtype=np.float64)
+    out = {}
+    for k, lab in enumerate(FINE):
+        m = (fine == k) & np.isfinite(near_cov)
+        if (fine == k).any():
+            out[lab] = float(np.median(near_cov[m])) if m.any() else None
+    return out
 
 
 def relative_kinds(kind):
@@ -106,12 +173,16 @@ def relative_kinds(kind):
     return np.where((exists & ~copy).any(axis=1), 0, np.where(copy.any(axis=1), 1, 2)).astype(np.int64)
 
 
-def strata_of(identity, other_rows=None, kind=None):
-    """[(labels, index of every table)]: the bins of the nearest identity (FINE) and whether there is one (RELATIVES);
-    given the number of other rows of every table (conditions.present_rows(kind)[:, 1:].sum(axis=1)), OTHER_ROWS; given
-    the kinds (N, R, B) of the tables, the nearest identity is that of the nearest other-genome row (self copies left
-    out) and RELATIVE_KINDS is added: other-genome rows, self copies only, none (round 1's protocol)."""
-    out = [(FINE, fine_stratum(identity, kind)), (RELATIVES, np.isnan(nearest_identity(identity, kind)).astype(np.int64))]
+def strata_of(identity, other_rows=None, kind=None, coverage=None):
+    """[(labels, index of every table)]: the bins of the nearest identity (FINE, version 5: coverage (N, R) of every
+    row, row_coverage of the stored tables, is required) and whether some other row has a cell at the target locus
+    (RELATIVES, of any coverage); given the number of other rows of every table (conditions.present_rows(kind)[:,
+    1:].sum(axis=1)), OTHER_ROWS; given the kinds (N, R, B) of the tables, the nearest identity is that of the nearest
+    other-genome row (self copies left out) and RELATIVE_KINDS is added: other-genome rows, self copies only, none
+    (round 1's protocol)."""
+    if coverage is None:
+        raise ValueError("the strata of version 5 need the coverage of every row (score.row_coverage(n, col) of the stored tables)")
+    out = [(FINE, fine_stratum(identity, kind, coverage)), (RELATIVES, np.isnan(nearest_identity(identity, kind)).astype(np.int64))]
     if other_rows is not None:
         out.append((OTHER_ROWS, np.minimum(np.asarray(other_rows).astype(np.int64), 2)))
     if kind is not None:

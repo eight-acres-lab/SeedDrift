@@ -124,14 +124,16 @@ def other_rows(tables):
     return cond.present_rows(tables["kind"])[:, 1:].sum(axis=1)
 
 
-def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL, kind=None, layouts=None):
+def result_rows(results, group, identity, params, head, n_groups=12, group_names=None, n_other=None, item_half=score.ALL, kind=None, layouts=None,
+                coverage=None):
     """Rows of the result table (the columns of the contract). head: run, commit, seed, table_set, table_kind,
     items_sha256 (of the table set scored) and versions. One row per baseline x condition x group x stratum that has
     cells; the group column carries group_names[index] where given, else the index. n_other: other_rows(tables).
     item_half: "all", or "subset" for the rows of restrict() on the subset of the evaluation during training. kind
     (N, R, B) of the stored tables: the strata of the nearest other-genome row and the three relatives strata. layouts:
-    {condition: layout} of the tables each condition was read from (default the stored layout)."""
-    strata = score.strata_of(identity, n_other, kind)
+    {condition: layout} of the tables each condition was read from (default the stored layout). coverage (N, R): the
+    coverage of every row (score.row_coverage of the stored tables), required by the strata of score version 5."""
+    strata = score.strata_of(identity, n_other, kind, coverage)
     rows = []
     for condition, res in results.items():
         mask = cond.parse(condition)[0]
@@ -183,7 +185,7 @@ def subset_markdown(rows, tables):
     return "\n".join(out) + "\n"
 
 
-def markdown(rows, title="Classical baselines: bits per codon", groups=None):
+def markdown(rows, title="Classical baselines: bits per codon", groups=None, coverage=None):
     """The tables a reader wants first: baselines x conditions, baselines x identity of the nearest row, and
     baselines x group (groups: the names the group indices of the rows stand for)."""
     main, strata = summary(rows)
@@ -239,13 +241,15 @@ def markdown(rows, title="Classical baselines: bits per codon", groups=None):
         if c not in strata or cond.parse(c)[1] == cond.NO_RELATIVES:      # without relatives: the own_freq column of the base condition
             continue
         mine = [n for n in order if n in main[c]]
+        cov = coverage or {}
         out += ["## %s, by the identity of the nearest row at the target locus" % c, "",
-                "| nearest identity | cells | tables | " + " | ".join(mine) + " |", "|---|---|---|" + "---|" * len(mine)]
+                "| nearest identity | cells | tables | median coverage of the nearest row | " + " | ".join(mine) + " |", "|---|---|---|---|" + "---|" * len(mine)]
         for s in score.FINE:
             if s not in strata[c]:
                 continue
             nc, nt = cells.get((c, s), (0, 0))
-            out.append("| %s | %d | %d | " % (s.split("=")[-1], nc, nt) + " | ".join("%.3f" % strata[c][s][n] if n in strata[c][s] else "" for n in mine) + " |")
+            mc = "%.2f" % cov[s] if cov.get(s) is not None else ""
+            out.append("| %s | %d | %d | %s | " % (s.split("=")[-1], nc, nt, mc) + " | ".join("%.3f" % strata[c][s][n] if n in strata[c][s] else "" for n in mine) + " |")
         out.append("")
     same = score.OTHER_ROWS[2]
     whole, repaired = cond.WHOLE_GENE, cond.WHOLE_GENE + "+" + cond.REPAIRED

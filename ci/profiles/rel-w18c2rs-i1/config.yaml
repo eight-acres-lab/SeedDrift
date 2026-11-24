@@ -23,8 +23,8 @@ rel_w18_readout:
   eval_run:
     - /hy-tmp/seeddrift-ci/runs/20261123T212850-exp-rel-7f7bc6d5-rel-w18c1s-i1
     - /hy-tmp/seeddrift-ci/imports/runs/20261124T023603-exp-rel-7f7bc6d5-rel-w18c1s-i2
-    - /hy-tmp/seeddrift-ci/runs/W18C2S-I1-RUN-NOT-SET
-  compare: [/hy-tmp/seeddrift-ci/runs/W18C2R-I1-RUN-NOT-SET]
+    - /hy-tmp/seeddrift-ci/runs/20261124T114047-exp-rel-w18read2-16b50870-rel-w18c2s-i1
+  compare: [/hy-tmp/seeddrift-ci/runs/20261124T114440-exp-rel-w18read2-ff95117a-rel-w18c2r-i1]
   reps: 2000
 train:
   gpu_lease: false

@@ -518,7 +518,8 @@ def test_fit_recovers_the_rates_and_beats_the_floor():
     assert np.array_equal(rp["bits"]["row_average"], wg["bits"]["row_average"][wg["cell_table"] != 2])
     assert not np.array_equal(rp["bits"]["copy_nearest"], wg["bits"]["copy_nearest"][wg["cell_table"] != 2])
     head = dict(run="r", commit="c", seed=9, table_set="toy", table_kind=api.TABLE_SYNTHETIC, items_sha256="5" * 64, versions="v")
-    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, head, n_groups=3, group_names={0: "zero", 1: "one"}, n_other=n_other)
+    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, head, n_groups=3, group_names={0: "zero", 1: "one"}, n_other=n_other,
+                            coverage=score.row_coverage(held["n"], held["col"]))
     same = {(r["condition"], r["variant"]): r for r in rows if r["group"] == "all" and r["stratum"] in ("all", score.OTHER_ROWS[2])
             and (r["condition"], r["stratum"]) in ((cond.WHOLE_GENE, score.OTHER_ROWS[2]), (cond.WHOLE_GENE + "+" + cond.REPAIRED, "all"))}
     a, b = same[(cond.WHOLE_GENE, "row_average")], same[(cond.WHOLE_GENE + "+" + cond.REPAIRED, "row_average")]
@@ -558,7 +559,7 @@ def test_baselines_under_the_conditions_only_an_evaluation_uses():
     assert np.array_equal(res[syn]["bits"]["own_freq"], res[wg]["bits"]["own_freq"]) and np.array_equal(res[syn]["bits"][switch.JOINT], res[wg]["bits"][switch.JOINT])
     assert mean(cond.SUFFIX, "copy_nearest") < mean(cond.SUFFIX, "own_freq") - 1 and switch.PAST not in res[cond.SUFFIX]["bits"]
     assert set(res[cond.SUFFIX + "+" + cond.NO_RELATIVES]["bits"]) == {"uniform", "global_freq", "own_freq"}
-    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, dict(run="r", seed=9), n_groups=3)
+    rows = brun.result_rows(res, hmeta["group"], hmeta["identity"], params, dict(run="r", seed=9), n_groups=3, coverage=score.row_coverage(held["n"], held["col"]))
     assert {r["condition"] for r in rows} == set(conditions) and "suffix" in brun.markdown(rows)
 
 
@@ -578,7 +579,8 @@ def test_the_subset_is_the_same_cells_as_its_tables_scored_alone():
         assert whole[c]["items_subset_sha256"] == alone[c]["items_sha256"] != whole[c]["items_sha256"] and part[c]["items_sha256"] == alone[c]["items_sha256"]
         for n, b in alone[c]["bits"].items():
             assert np.array_equal(part[c]["bits"][n], b), (c, n)
-    rows = brun.result_rows(part, hmeta["group"], hmeta["identity"], params, dict(run="r"), n_groups=3, item_half="subset")
+    rows = brun.result_rows(part, hmeta["group"], hmeta["identity"], params, dict(run="r"), n_groups=3, item_half="subset",
+                            coverage=score.row_coverage(held["n"], held["col"]))
     top = [r for r in rows if r["group"] == "all" and r["stratum"] == "all" and r["variant"] == "own_freq" and r["condition"] == cond.SCATTERED]
     assert {r["item_half"] for r in rows} == {"subset"} and top[0]["n_items"] == 6
     assert "On the subset" in brun.subset_markdown(rows, 6)
@@ -600,12 +602,13 @@ def test_strata_of_tables_with_self_copies():
     assert np.isclose(score.nearest_identity(identity)[0], 0.97) and np.isclose(score.nearest_identity(identity, kind)[0], 0.4)
     assert np.isnan(score.nearest_identity(identity, kind)[1]) and np.isclose(score.nearest_identity(identity)[1], 0.99)
     assert score.relative_kinds(kind).tolist() == [0, 1, 2, 0]
-    strata = score.strata_of(identity, [2, 1, 0, 1], kind)
+    full = np.ones(identity.shape)                                               # every row covers the whole target block
+    strata = score.strata_of(identity, [2, 1, 0, 1], kind, coverage=full)
     labels = {lab[0]: [lab[k] for k in idx] for lab, idx in strata}
-    assert labels[score.FINE[0]] == ["nearest_identity=0.4-0.5", "nearest_identity=none", "nearest_identity=none", "nearest_identity=none"]
+    assert labels[score.FINE[0]] == ["nearest_identity=0.4-0.5", "nearest_identity=none", "nearest_identity=none", "nearest_identity=none"]   # a self copy only: none
     assert labels[score.RELATIVE_KINDS[0]] == ["relatives=other_genomes", "relatives=self_copies_only", "relatives=none", "relatives=other_genomes"]
     assert labels[score.RELATIVES[0]] == ["relatives_on_target=yes", "relatives_on_target=no", "relatives_on_target=no", "relatives_on_target=no"]
-    assert len(score.strata_of(identity)) == 2 and score.fine_stratum(identity).tolist()[:2] == [9, 9]     # without kinds: as before
+    assert len(score.strata_of(identity, coverage=full)) == 2 and score.fine_stratum(identity).tolist()[:2] == [9, 9]     # without kinds: as before
 
 
 def test_aggregate_is_the_mean_of_the_group_means():
@@ -613,11 +616,12 @@ def test_aggregate_is_the_mean_of_the_group_means():
     cell_table = np.array([0, 0, 1, 1, 1, 2])
     group = np.array([0, 1, 1, 2])                                               # table 3 has no cell
     identity = np.array([[1.0, 0.25, np.nan], [1.0, np.nan, np.nan], [1.0, 0.31, 0.95], [1.0, 0.5, 0.5]])
-    strata = score.strata_of(identity)
-    assert len(strata) == 2 and len(score.strata_of(identity, [1, 0, 2, 2])) == 3
+    full = np.ones(identity.shape)
+    strata = score.strata_of(identity, coverage=full)
+    assert len(strata) == 2 and len(score.strata_of(identity, [1, 0, 2, 2], coverage=full)) == 3
     assert strata[1][1].tolist() == [0, 1, 0, 0] and score.block_of("eukaryota.fungi") == score.BLOCKS[0] and score.block_of("viruses.phage") == score.BLOCKS[1]
     assert [score.FINE[k] for k in strata[0][1]] == ["nearest_identity=0.2-0.3", "nearest_identity=none", "nearest_identity=0.9-1.0", "nearest_identity=0.5-0.6"]
-    assert score.fine_stratum(np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.3], [1.0, np.nan]])).tolist() == [9, 0, 3, 10]
+    assert score.fine_stratum(np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 0.3], [1.0, np.nan]])).tolist() == [9, 0, 3, score.FINE_NONE]
     rows = {(r["group"], r["stratum"]): r for r in score.aggregate(bits, cell_table, group, strata, n_groups=3, group_names={1: "one"})}
     top = rows[("all", "all")]
     assert abs(top["bits"] - (2.0 + (10 + 20 + 30 + 7) / 4.0) / 2) < 1e-12 and top["target_cells"] == 6 and top["n_items"] == 3 and top["n_groups"] == 2

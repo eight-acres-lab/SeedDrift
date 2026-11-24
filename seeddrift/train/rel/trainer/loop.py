@@ -411,9 +411,14 @@ class Run:
     def strata(self, ids):
         """The evaluator's strata of the held-out tables ids; with the kinds of their rows where the evaluator reads them
         (the three relatives strata of round 1: other-genome rows, self copies only, none)."""
-        _, identity, n_other = self.held_data()
-        if "kind" in inspect.signature(SC.strata_of).parameters:
-            return SC.strata_of(identity[ids], n_other[ids], np.asarray(self.held_data()[0]["kind"])[ids])
+        data, identity, n_other = self.held_data()
+        params = inspect.signature(SC.strata_of).parameters
+        if "coverage" in params:                                    # score version 5: the rows that count for the nearest identity
+            ids = np.asarray(ids)
+            return SC.strata_of(identity[ids], n_other[ids], np.asarray(data["kind"])[ids],
+                                coverage=SC.row_coverage(np.asarray(data["n"])[ids], np.asarray(data["col"])[ids]))
+        if "kind" in params:
+            return SC.strata_of(identity[ids], n_other[ids], np.asarray(data["kind"])[ids])
         return SC.strata_of(identity[ids], n_other[ids])
 
     def evaluate(self, ids, fixed, path, at_node=False):

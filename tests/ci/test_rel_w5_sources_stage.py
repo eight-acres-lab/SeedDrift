@@ -58,12 +58,12 @@ def test_summaries_by_stratum():
                  entropy=np.array([1.0, 1.5, 0.0, 0.5, 0.7]), top=np.array([0.5, 0.3, 0.0, 0.9, 0.8]),
                  level=np.array([[0.2, 0.3, 0.5]] * 4 + [[0.0, 0.0, 1.0]]), top_identity=np.array([0.25, 0.25, np.nan, 0.95, 0.95]),
                  top_is_nearest=np.array([True, True, False, True, True]))
-    s = W.summarise(cells, identity, group)
+    s = W.summarise(cells, dict(identity=identity, coverage=np.ones(identity.shape)), group)
     assert s["all"]["cells"] == 5 and s["all"]["tables"] == 3 and s["all"]["none"] == pytest.approx(0.34) and s["all"]["lam"] == pytest.approx(0.66)
     assert s["nearest_identity=0.2-0.3"]["cells"] == 2 and s["nearest_identity=0.9-1.0"]["top_identity"] == pytest.approx(0.95)
     assert s["nearest_identity=none"]["top_identity"] is None and s["relatives_on_target=no"]["none"] == 1.0
     assert s[SC.BLOCKS[0]]["tables"] == 1 and s[SC.BLOCKS[1]]["tables"] == 2
-    assert s["all"]["level"] == pytest.approx([0.16, 0.24, 0.6])
+    assert s["all"]["level"] == pytest.approx([0.16, 0.24, 0.6]) and s["all"]["coverage"] == 1.0 and s["nearest_identity=none"]["coverage"] is None
 
 
 def test_report_and_gate(tmp_path):
@@ -72,7 +72,7 @@ def test_report_and_gate(tmp_path):
         arms=[dict(name="S1", run="/r/a", folder="x")], reference=dict(name="ref", run="/r/b", folder="y"), conditions={"scattered": "leakfree"}))
     folder = os.path.join(run_dir, W.OUT)
     os.makedirs(folder)
-    stats = dict(bits=4.6, lam=0.7, none=0.3, entropy=1.2, top=0.5, top_identity=0.4, top_is_nearest=0.6, level=[0.2, 0.3, 0.5], cells=10, tables=2)
+    stats = dict(bits=4.6, lam=0.7, none=0.3, entropy=1.2, top=0.5, top_identity=0.4, top_is_nearest=0.6, level=[0.2, 0.3, 0.5], cells=10, tables=2, coverage=0.8)
     report = dict(gpu_hidden=True, per_group=50, conditions={"scattered": "leakfree"}, reference=dict(name="ref", gain={"all": 1.1}),
                   arms=dict(S1=dict(arm="s1", tables_seen=14000, gain={"all": 0.9}, share_of_reference_gain={"all": 0.9 / 1.1},
                                     conditions=dict(scattered=dict(layout="leakfree", tables=2, cells=10, same_cells_as_final=True, strata={"all": stats})))))
@@ -83,7 +83,7 @@ def test_report_and_gate(tmp_path):
     with Stage(run_dir, "gates_rel_w5_sources", requires=("pre",)) as st:
         W.gate(st, cfg, run_dir)
     assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w5_sources.json")))["status"] == "pass"
-    assert "| all | 2 | 10 | 4.600 |" in "\n".join(W.markdown(report)) and W.summary(run_dir)["json"]["S1"]["scattered"]["lam"] == 0.7
+    assert "| all | 2 | 0.80 | 10 | 4.600 |" in "\n".join(W.markdown(report)) and W.summary(run_dir)["json"]["S1"]["scattered"]["lam"] == 0.7
     report["arms"]["S1"]["conditions"]["scattered"]["aligned_with_final"] = False                  # the readout's cells in another order
     with open(os.path.join(folder, "report.json"), "w") as f:
         json.dump(report, f)
@@ -113,7 +113,7 @@ def test_gains_cell_by_cell(tmp_path):
     write(tmp_path / "ref", [3.0, 4.0, 0.5, 6.0], [5.0, 5.5, 4.0, 6.1])               # gains 2.0, 1.5, 3.5, 0.1
     arm, ref = W.final_cells(str(tmp_path / "arm")), W.final_cells(str(tmp_path / "ref"))
     assert set(arm) == {"scattered", "scattered+no_relatives"} and np.array_equal(arm["scattered"][1], table)
-    got = W.gains_by_cell(arm, ref, identity)["scattered"]
+    got = W.gains_by_cell(arm, ref, dict(identity=identity, coverage=np.ones(identity.shape)))["scattered"]
     assert got["all"]["cells"] == 4 and got["all"]["arm"] == pytest.approx(1.125) and got["all"]["reference"] == pytest.approx(1.775)
     assert got["nearest_identity=0.2-0.3"]["ratio"] == pytest.approx(0.75 / 1.75) and got["nearest_identity=0.9-1.0"]["arm_at_least"] == 0.0
     assert got["nearest_identity=none"]["cells"] == 1

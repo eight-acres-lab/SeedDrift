@@ -5,6 +5,9 @@ Source fields understood (configs/corpus/<name>.yaml, `sources:`):
   ena_sequences: [acc.v]  INSDC sequences from ENA (viruses, single plasmids)
   ensembl: {site: ensembl | ensemblgenomes, division, species, release[, collection]}
                           the release-pinned coding sequences (cds.all) of an Ensembl species
+  ncbi_datasets: {accession: GCA_/GCF_..., include: [CDS_FASTA, SEQUENCE_REPORT]}
+                          the files of an assembly's annotation from NCBI Datasets (v2 genome download, a zip file kept
+                          as it comes; no genome sequence): its coding sequences and its sequence report
 Every downloaded file is stored once in the CI's content-addressed store (<cas>/<sha256[:2]>/<sha256>) and listed in
 data/fetch/manifest.json with its URL, size and sha256. A rerun takes the stored file when the source description is
 the same and never downloads again; a stored file whose content no longer matches its name is refused. A download
@@ -36,6 +39,8 @@ from ci.stages.common import Stage, main_args, write_json
 sys.path.insert(0, os.path.join(ROOT, "bench", "hard"))
 
 ENA_FASTA = "https://www.ebi.ac.uk/ena/browser/api/fasta/%s?gzip=true"
+NCBI_DATASETS = "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/%s/download?%s"
+NCBI_PARTS = {"CDS_FASTA": "cds_from_genomic.fna", "SEQUENCE_REPORT": "sequence_report.jsonl"}
 ENSEMBL = {"ensembl": "https://ftp.ensembl.org/pub/release-%(release)s/fasta/%(species)s/cds/",
            "ensemblgenomes": "https://ftp.ensemblgenomes.ebi.ac.uk/pub/%(division)s/release-%(release)s/fasta/%(species)s/cds/"}
 
@@ -158,8 +163,35 @@ def check_fasta(data: bytes, want, what):
         raise SystemExit("%s: incomplete download (missing %s, empty %s, %d records)" % (what, missing[:5], empty[:5], len(names)))
 
 
+def check_ncbi_zip(data: bytes, accession, include):
+    """The parts of an NCBI Datasets zip file [dict(name, part, bytes)]: a whole zip file (every member's CRC checked)
+    with every requested part of the assembly, non-empty (coding sequences as FASTA). An answer without the coding
+    sequences is an assembly NCBI holds no annotation files of (NoRecord)."""
+    import io
+    import zipfile
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        bad = z.testzip()
+    except zipfile.BadZipFile as err:
+        raise RuntimeError("%s: not a complete zip file (%s)" % (accession, err))
+    if bad:
+        raise RuntimeError("%s: a damaged member %s" % (accession, bad))
+    out = []
+    for part in include:
+        names = [n for n in z.namelist() if n.endswith("/" + NCBI_PARTS[part]) and "/%s/" % accession in "/" + n]
+        if len(names) != 1:
+            raise NoRecord("%s: NCBI Datasets gives no %s (members %s)" % (accession, NCBI_PARTS[part], z.namelist()[:8]))
+        info = z.getinfo(names[0])
+        with z.open(names[0]) as f:
+            head = f.read(1)
+        if not info.file_size or (part == "CDS_FASTA" and head != b">"):
+            raise NoRecord("%s: the %s of NCBI Datasets is empty or not FASTA" % (accession, NCBI_PARTS[part]))
+        out.append(dict(name=names[0], part=part, bytes=info.file_size))
+    return out
+
+
 def describe(src):
-    return {k: src[k] for k in ("ena_assembly", "ena_sequences", "ensembl", "replicon_types") if k in src}
+    return {k: src[k] for k in ("ena_assembly", "ena_sequences", "ensembl", "replicon_types", "ncbi_datasets") if k in src}
 
 
 def fetch_source(src, cas, index):
@@ -216,6 +248,24 @@ def fetch_source(src, cas, index):
         path, sha = store(cas, data, ".cds.fa.gz")
         files.append(dict(path=path, sha256=sha, bytes=len(data), kind="cds.fa.gz"))
         prov.append(dict(url=base + names[0]))
+    if "ncbi_datasets" in src:
+        d = dict(src["ncbi_datasets"])
+        include = [str(x) for x in d.get("include") or ["CDS_FASTA"]]
+        unknown = [x for x in include if x not in NCBI_PARTS]
+        if unknown:
+            raise SystemExit("%s: ncbi_datasets.include names unknown parts %s" % (src["id"], unknown))
+        url = NCBI_DATASETS % (d["accession"], "&".join("include_annotation_type=%s" % x for x in include))
+        for k in range(3):                                         # a damaged zip file is asked for again, twice
+            data = get(url)
+            try:
+                members = check_ncbi_zip(data, d["accession"], include)
+                break
+            except RuntimeError as err:
+                if k == 2:
+                    raise (NoRecord if SERVER_ERRORS_UNAVAILABLE else RuntimeError)(str(err))
+        path, sha = store(cas, data, ".ncbi.zip")
+        files.append(dict(path=path, sha256=sha, bytes=len(data), kind="ncbi.zip"))
+        prov.append(dict(url=url, members=members))
     return files, prov, False
 
 

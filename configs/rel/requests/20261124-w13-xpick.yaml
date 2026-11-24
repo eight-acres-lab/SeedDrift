@@ -1,0 +1,7 @@
+package: W13
+kind: cpu_run
+to: C0
+what: register stage w13_xpick in kind rel_corpus of configs/rel/kinds.yaml (rule rel_w13_xpick in ci/rules/rel_w13.smk, output data/rel_w13/xpick/report.json, module ci.stages.rel.w13_xpick, gates [G4_rel_w13_xpick], side data); W13 then pushes profile rel-dev-w13-xpick-i1 for machine i1 under the select lock (CPU priority below the training) - metadata only and the ENA assembly records of about 6,200 viruses, about 40 minutes, 2 cores, under 1 GB of disk; after it, the downloads through stage w13_build (upto fetch) with the corpus spec it writes
+why: the user's decision of 2026-11-24 ("都下", through the programme lead) - the supplement of eukaryotic viruses and plants and algae of the training and held-out units, none of a test unit; the source of round 2's data
+size: {hours: 0.7, threads: 2, disk_gb: 1, gpu_mem_gb: 0}
+by: 2026-11-24

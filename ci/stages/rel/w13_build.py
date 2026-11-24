@@ -2,7 +2,7 @@
 the corpus stages of the CI as they are (fetch, corpus, reference, eval_inputs, search, train_data; its rule asks for
 their outputs), and checked (task breakdown W13 step 2). `python -m ci.stages.rel.w13_build RUN_DIR`.
 
-The run's corpus spec must be the corpus.yaml of the passed pick run (rel_w13_build.pick_from, stage rel_w13_pick),
+The run's corpus spec must be the corpus.yaml of the passed pick run (rel_w13_build.pick_from, stage rel_w13_pick or rel_w13_xpick),
 byte for byte. Checks on this run's training-data index:
   pinned     every genome of the pinned index (rel_w13_build.pinned_from: the run whose splits the line works on; its
              index sha256 rel_w13_build.pinned_index_sha256) is here with the same split; nothing else of the old corpus
@@ -96,13 +96,19 @@ def _json(p):
 
 
 def pick_run(run):
-    """(relatives, corpus spec sha256) of a passed run of stage rel_w13_pick."""
+    """(relatives, corpus spec sha256) of a passed run of stage rel_w13_pick, or of stage rel_w13_xpick (the supplement
+    of eukaryotic viruses and plants and algae: its new genomes are the relatives here, without anchors)."""
     rec = _json(os.path.join(run, "record.json"))
     if rec.get("status") != "passed":
         raise SystemExit("rel_w13_build: the pick run %s is %s, not passed" % (rec.get("run_id"), rec.get("status")))
     from ci.stages.rel import w2_v0 as W
+    from ci.stages.rel import w13_xpick
     rp = os.path.join(run, w13_pick.OUT, "report.json")
-    W._output(run, "rel_w13_pick", "pick_report", rp)
+    if os.path.exists(rp):
+        W._output(run, "rel_w13_pick", "pick_report", rp)
+    else:
+        rp = os.path.join(run, w13_xpick.OUT, "report.json")
+        W._output(run, "rel_w13_xpick", "xpick_report", rp)
     rep = _json(rp)
     for name, e in rep["files"].items():
         if sha256_file(os.path.join(run, e["path"]), use_sidecar=False) != e["sha256"]:

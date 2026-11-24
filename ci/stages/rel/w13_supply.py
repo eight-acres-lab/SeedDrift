@@ -103,14 +103,14 @@ def place(group, genus, species, gid, units):
     return units.get(group, {}).get(u) or unit_split(u)
 
 
-def build(st, cfg, run_dir):
+def inputs(st, cfg, s, name="rel_w13_supply"):
+    """What the counts need: the taxonomy, the source run and its open genomes (the sealed check run on them), the
+    corpus genomes and their units, assemblies and species, the kingdom map, the exclusions, the hosts of a virus
+    species (the selection's host snapshots) and the assumed viral coding density. Also used by stage rel_w13_xpick."""
     from ci.gates.g2_exclusion import Excluder
     from ci.kingdom import KingdomMap
-    from ci.stages import catalog as CAT
-    from ci.stages import fetch
     from ci.taxonomy import Taxonomy
     from seeddrift.train.rel import sealed as SL
-    s = settings(cfg)
     tax = Taxonomy(st.repo(cfg["taxdump"]))
     src = W.source(s["source"], pairs=False)
     sealed = common.sealed_set(cfg)
@@ -126,7 +126,7 @@ def build(st, cfg, run_dir):
     corpus_species = {(m["group"], int(m["ranks"][5])) for m in corpus if m["ranks"][5]}
     km, ex = KingdomMap(), Excluder(tax, extra_paths=[st.repo(x) for x in cfg.get("extra_exclusions") or []])
     if ex.problems:
-        raise SystemExit("rel_w13_supply: the exclusion rules do not resolve: %s" % ex.problems[:5])
+        raise SystemExit("%s: the exclusion rules do not resolve: %s" % (name, ex.problems[:5]))
     host_recs, host_snap = WC.host_records(s["select_from"])
     hosts = {}
     for h in host_recs:
@@ -138,6 +138,17 @@ def build(st, cfg, run_dir):
             hosts.setdefault(sp, set()).add(h["host_taxid"])
     with open(st.repo("configs/select/assumptions.yaml")) as f:
         per_kb = float(yaml.safe_load(f)["virus_proteins_per_kb"][1])
+    return dict(tax=tax, src=src, sealed=sealed, corpus=corpus, now=now, units=units, corpus_asm=corpus_asm, corpus_species=corpus_species,
+                km=km, ex=ex, hosts=hosts, host_snap=host_snap, per_kb=per_kb)
+
+
+def build(st, cfg, run_dir):
+    from ci.stages import catalog as CAT
+    from ci.stages import fetch
+    s = settings(cfg)
+    x = inputs(st, cfg, s)
+    tax, src, sealed, now, units, corpus_asm, corpus_species = x["tax"], x["src"], x["sealed"], x["now"], x["units"], x["corpus_asm"], x["corpus_species"]
+    km, ex, hosts, host_snap, per_kb = x["km"], x["ex"], x["hosts"], x["host_snap"], x["per_kb"]
     folder = os.path.join(run_dir, OUT)
     os.makedirs(folder, exist_ok=True)
     cas = os.path.join(cfg["data_root"], "cas")
@@ -179,8 +190,27 @@ def _bump(d, key, genes):
 
 def viruses(recs, tax, km, ex, hosts, corpus_asm, units, sealed, per_kb):
     """The complete viral assemblies the selection's rules would place in viruses.eukaryotic, not in the corpus."""
+    rows, reasons = virus_rows(recs, tax, km, ex, hosts, corpus_asm, sealed, per_kb)
+    by_family, by_genus, by_split, totals = {}, {}, {}, dict(genomes=0, genes=0, genes_estimated_genomes=0)
+    for x in rows:
+        genes, t, sp, ge = x["genes"], x["taxid"], x["species"], x["genus"]
+        totals["genes_estimated_genomes"] += 0 if x["annotated"] else 1
+        fam = tax.at_rank(t, "family")
+        _bump(by_family, tax.name(fam) if fam else "(no family)", genes)
+        _bump(by_genus, tax.name(ge) if ge else "(no genus)", genes)
+        _bump(by_split, place("viruses.eukaryotic", ge, sp, x["record"]["accession"], units), genes)
+        totals["genomes"] += 1
+        totals["genes"] += genes
+    top = lambda d: dict(sorted(d.items(), key=lambda kv: (-kv[1]["genomes"], kv[0]))[:40])   # noqa: E731
+    return dict(totals=totals, by_split=by_split, by_family=top(by_family), by_genus=top(by_genus), families=len(by_family), genera=len(by_genus),
+                left_out=dict(sorted(reasons.items())))
+
+
+def virus_rows(recs, tax, km, ex, hosts, corpus_asm, sealed, per_kb):
+    """(rows, reasons left out) of viruses(): per accepted assembly dict(record, taxid, species, genus, host, genes,
+    annotated); genes are the annotation's protein-coding genes, else the length times the assumed coding density."""
     from seeddrift.train.rel import sealed as SL
-    seen, reasons, by_family, by_genus, by_split, totals = set(), {}, {}, {}, {}, dict(genomes=0, genes=0, genes_estimated_genomes=0)
+    seen, reasons, rows = set(), {}, []
     cache = {}
     for r in sorted(recs, key=lambda r: r["accession"]):
         asm = SL.assemblies(r["accession"]) | SL.assemblies(r.get("paired_accession") or "")
@@ -194,7 +224,7 @@ def viruses(recs, tax, km, ex, hosts, corpus_asm, units, sealed, per_kb):
             except Exception:  # noqa: BLE001
                 sp = 0
             cache[t] = WC.wide_reason(tax, km, ex, t, sorted(hosts.get(sp, ())), False) if sp else ("taxid unknown", "", 0, 0, 0)
-        why, grp, sp, ge, _ = cache[t]
+        why, grp, sp, ge, host = cache[t]
         if why is None and grp != "viruses.eukaryotic":
             continue                                                 # a phage or a giant virus: another group
         if why and why.startswith(("host unknown", "excluded by a host rule (hosts in more")):
@@ -215,22 +245,36 @@ def viruses(recs, tax, km, ex, hosts, corpus_asm, units, sealed, per_kb):
             reasons[why] = reasons.get(why, 0) + 1
             continue
         genes = int(r.get("protein_coding") or 0)
-        if not genes:
-            genes = max(1, int(round(int(r.get("length") or 0) / 1000.0 * per_kb)))
-            totals["genes_estimated_genomes"] += 1
-        fam = tax.at_rank(t, "family")
-        _bump(by_family, tax.name(fam) if fam else "(no family)", genes)
-        _bump(by_genus, tax.name(ge) if ge else "(no genus)", genes)
-        _bump(by_split, place("viruses.eukaryotic", ge, sp, r["accession"], units), genes)
-        totals["genomes"] += 1
-        totals["genes"] += genes
-    top = lambda d: dict(sorted(d.items(), key=lambda kv: (-kv[1]["genomes"], kv[0]))[:40])   # noqa: E731
-    return dict(totals=totals, by_split=by_split, by_family=top(by_family), by_genus=top(by_genus), families=len(by_family), genera=len(by_genus),
-                left_out=dict(sorted(reasons.items())))
+        rows.append(dict(record=r, taxid=t, species=sp, genus=ge, host=host, annotated=bool(genes),
+                         genes=genes or max(1, int(round(int(r.get("length") or 0) / 1000.0 * per_kb)))))
+    return rows, reasons
 
 
 def plants(recs, tax, km, ex, corpus_asm, corpus_species, units, sealed, cds_bp):
     """Annotated assemblies of plants and algae of species not in the corpus: one per species."""
+    best, reasons = plant_rows(recs, tax, km, ex, corpus_asm, corpus_species, sealed)
+    by_level, by_order, by_family, by_split, totals = {}, {}, {}, {}, dict(species=0, genes=0, cds_bytes=0)
+    for sp, (_, r, ge) in sorted(best.items()):
+        genes = int(r["protein_coding"])
+        t = int(r["taxid"])
+        _bump(by_level, r.get("assembly_level") or "(none)", genes)
+        o, f = tax.at_rank(t, "order"), tax.at_rank(t, "family")
+        _bump(by_order, tax.name(o) if o else "(no order)", genes)
+        _bump(by_family, tax.name(f) if f else "(no family)", genes)
+        _bump(by_split, place("eukaryota.plants_algae", ge, sp, r["accession"], units), genes)
+        totals["species"] += 1
+        totals["genes"] += genes
+        totals["cds_bytes"] += genes * cds_bp
+    totals["cds_gb"] = round(totals["cds_bytes"] / 1e9, 2)
+    totals["cds_gb_gzip_about"] = round(totals["cds_bytes"] * 0.3 / 1e9, 2)
+    top = lambda d: dict(sorted(d.items(), key=lambda kv: (-kv[1]["genomes"], kv[0]))[:40])   # noqa: E731
+    return dict(totals=totals, by_split=by_split, by_level=by_level, by_order=top(by_order), by_family=top(by_family), orders=len(by_order),
+                families=len(by_family), left_out=dict(sorted(reasons.items())))
+
+
+def plant_rows(recs, tax, km, ex, corpus_asm, corpus_species, sealed):
+    """({species: (key, record, genus)}, reasons left out) of plants(): one annotated assembly per species not in the
+    corpus, the most complete level first, then the most protein-coding genes, then the accession."""
     from seeddrift.train.rel import sealed as SL
     rank = {"Complete Genome": 0, "Chromosome": 1, "Scaffold": 2, "Contig": 3}
     reasons, best = {}, {}
@@ -263,23 +307,7 @@ def plants(recs, tax, km, ex, corpus_asm, corpus_species, units, sealed, cds_bp)
         key = (rank.get(r.get("assembly_level"), 9), -int(r["protein_coding"]), r["accession"])
         if sp not in best or key < best[sp][0]:
             best[sp] = (key, r, ge)
-    by_level, by_order, by_family, by_split, totals = {}, {}, {}, {}, dict(species=0, genes=0, cds_bytes=0)
-    for sp, (_, r, ge) in sorted(best.items()):
-        genes = int(r["protein_coding"])
-        t = int(r["taxid"])
-        _bump(by_level, r.get("assembly_level") or "(none)", genes)
-        o, f = tax.at_rank(t, "order"), tax.at_rank(t, "family")
-        _bump(by_order, tax.name(o) if o else "(no order)", genes)
-        _bump(by_family, tax.name(f) if f else "(no family)", genes)
-        _bump(by_split, place("eukaryota.plants_algae", ge, sp, r["accession"], units), genes)
-        totals["species"] += 1
-        totals["genes"] += genes
-        totals["cds_bytes"] += genes * cds_bp
-    totals["cds_gb"] = round(totals["cds_bytes"] / 1e9, 2)
-    totals["cds_gb_gzip_about"] = round(totals["cds_bytes"] * 0.3 / 1e9, 2)
-    top = lambda d: dict(sorted(d.items(), key=lambda kv: (-kv[1]["genomes"], kv[0]))[:40])   # noqa: E731
-    return dict(totals=totals, by_split=by_split, by_level=by_level, by_order=top(by_order), by_family=top(by_family), orders=len(by_order),
-                families=len(by_family), left_out=dict(sorted(reasons.items())))
+    return best, reasons
 
 
 def page_of(rep):

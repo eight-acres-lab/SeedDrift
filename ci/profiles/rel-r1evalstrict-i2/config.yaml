@@ -1,0 +1,42 @@
+# Machine i-2, round 1 (the programme lead's ruling of 2026-11-24, the filler on i-2): the arm of run
+# 20261124T050050 (rel-r1strict-i2: ref30m trained on W3's strict rendering, seed 2, 94,000 tables) evaluated again on
+# all 3,000 held-out tables of version 1 (as copied to i-2 over R2) with stage w6_eval, as round 1's end evaluations
+# (rel-r1eval-i1, rel-r1eval-i2): final and best weights (best: all), conditions scattered, whole_gene,
+# scattered+no_relatives, whole_gene+no_relatives, whole_gene+repaired and suffix, W3's two render-mode controls
+# (shuffle, presence), the strict offline rendering of run 20261123T124714 as copied to i-2, and the final weights again
+# under the online rendering (online_too). Not on 7c02795, the commit of round 1's end evaluations: it does not know the
+# strict variant; this runs on the exp/rel commit it is launched from, which the reading names. Against batch 1's
+# ref30m-s2 (run 20261123T144801, read by run 20261123T220309). Nothing is trained. Development diagnosis only.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+gpu_mem_min_mb: 16000
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_eval]
+  parallel: 1
+rel_w6_eval:
+  from: /hy-tmp/seeddrift-ci/runs/20261124T050050-exp-rel-ab09078f-rel-r1strict-i2
+  tables:
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json, sha256: 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496}
+  best: all
+  extra_conditions: [suffix]
+  end_controls: [shuffle, presence]
+  online_too: [scattered, suffix]   # the final weights again under the online rendering (protocol round1 version 8: the gap between the two renderings)
+  final_per_group: 0
+  eval_max_rows: 32
+  threads: 4
+  wall_s: 7200                   # one arm's evaluation
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

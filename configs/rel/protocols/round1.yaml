@@ -16,8 +16,9 @@
 # (readings.i2_pair); batch 3 keeps five arms (six did not fit the memory margin on i-1). Version 11 (2026-11-24,
 # before batch 3 and the i-2 pair are read) fixes the identity strata: a row counts as nearest only if it covers at least
 # half of row 0's target block (readings.identity_strata), after short end fragments were found posing as near relatives.
+# Version 12 registers D5 phase 1 before the close-context set is scored.
 name: round1
-version: 11
+version: 12
 what: >
   The first round on tables of version 1 (the uncapped search, 32 rows, the first batch of close relatives, 201,600
   training tables) and the leak-free layout. Batch 1 answers three things: (1) do better and more data help at
@@ -31,7 +32,7 @@ coverage:
   groups: the 12 groups of the kingdom map, equal shares of training tables per group
   scenarios: pretraining on genomes with their relatives as context; no transfer scenario is trained or scored here
   not_covered:
-    - "evaluation with close relatives of a held-out genome as rows (the context rule D5 keeps held-out tables to training rows)"
+    - "close-context held-out rows in the original comparisons. Only the separate D5 phase-1 reading below admits such rows."
     - "close relatives of eukaryotes beyond the medium corpus (planned 2026-12-20)"
     - "prokaryote assemblies below chromosome level (the scaffold count is pending the user)"
     - "the sealed test split (never opened)"
@@ -101,6 +102,54 @@ readings:
   identity_strata: "every reading by the nearest other-genome row's identity (d7_by_distance, i2_pair and the batch-3 and later reports) uses the evaluator's version-5 strata: a row's identity (identical codons over the codons it aligns) counts towards the nearest row only if the row covers at least half of the stored part of row 0's target block; tables where no row reaches that coverage form their own stratum, 'short fragments only', apart from 'none'; each stratum lists the median coverage of its nearest row. Readings made before version 5 keep their version-4 strata, labelled so (its top stratum mixes short end fragments with real near relatives)"
   i2_pair: "written before either result is read. Two development arms on i-2, one after the other, seed 2, tables of version 1, micro 1, 94,000 tables each, each scored at its end on all 3,000 held-out tables strictly offline with online_too: filler 1 w6-ref30m-strict-v1 (training through W3's extended strict aligner) and filler 2 w5-copy-aa30m-strict-v1 (S2 with the amino-acid tier, strict). (a) Strict against online training: filler 1 minus batch 1's ref30m-s2 (online training, same seed and tables, i-1), paired by table, per block and relatives stratum, threshold 0.009 (batch 1's), machines named; filler 1's online-minus-offline must read 0.000, otherwise the rendering is wrong and nothing of (a) is read. (b) Amino-acid copying against the reference: filler 2 minus filler 1, paired by table, under scattered and whole_gene, per block and per stratum as d7_by_distance states (met / not met / not readable), switch_copy beside, threshold 0.009. Both are development readings: they choose nothing; a change of batch composition or a promotion needs the user"
   d7_by_distance: "written before batch 3 is read. For source-path30m and copy30m, S minus ref30m-s4 under scattered and whole_gene, per stratum of the nearest other-genome row's identity (the ten bins and none) and per relatives stratum (other-genome rows present, self copies only, none), with the paired interval of the evaluation section. D7 expects the arms to be at least as good as the reference where the nearest other-genome row has identity 0.8 or more, or where only self copies are present, and behind at middle identities (0.2 to 0.6), where pooling across rows rather than copying one row is what the reference can use. The expectation is reported as met, not met, or not readable (fewer than 30 tables in a stratum); it chooses nothing. The classic switching-copy baseline (W5's switch_copy) on the same tables is listed beside them"
+
+d5_phase1:
+  purpose: A paired development evaluation of the change in predictive loss when close relatives are available as context.
+  original: 3,000 held-out tables of the version-1 run 20261123T122205 with the original evaluation plan and split.
+  close_context: >
+    Admit additional rows only from other held-out genomes in the target genome's own split unit.
+    Only row 0 supplies scored targets. Pin the manifests, genomic distances and the group-scoped unit map
+    for the open corpus before scoring. Use that same unit map for both eligibility and resampling.
+    Store the close-context set separately as heldout and not_for_training. Use only for post-training evaluation.
+  pairing: >
+    Pair the full set by original table id. Verify identical target genome, locus, self copies, conditions and scored
+    cell ids. Retained training rows have identical content and relative order. Record displaced rows.
+    With no eligible additions the table must be identical. Verify byte-identical training inputs and identical
+    per-table no-relatives scores. A missing table, cell or failed comparison is reported and blocks the affected
+    reading. Report zero-target tables explicitly.
+  estimand: >
+    For each round-1 reference or variant with final weights available, apply the same final EMA checkpoint to both sets.
+    Score strict offline scattered, suffix and whole_gene separately. For each paired target cell subtract original
+    loss from close-context loss in bits per codon. Use the group and block aggregation in evaluation.metric.
+    Compare the same paired differences for W5's nearest-row copy baseline fitted only on training tables.
+    Report the model difference minus the baseline difference on the same cells. A negative contrast means the model gains more from the added context than the baseline does.
+  strata: >
+    Report strata separately, with training and held-out frame-tier and identity distributions alongside.
+    Within each of the two blocks, report nearest-relative tier, v5 nearest-row identity and unit type
+    (close-relative cluster or ordinary) as separate breakdowns. Assign each table pair once per breakdown,
+    using the close-context metadata for both sides. Follow readings.identity_strata for target coverage,
+    short fragments and rows with no hits. Report eligible groups, distinct units, tables receiving a near
+    row (tier 0 or 1), total paired tables and scored cells in each stratum. The primary result is stratified.
+  minimum: {distinct_units_with_near_rows: 8, tables_with_near_rows: 30}
+  inference: >
+    Within each block and stratum, count only tables with an added near row and a paired scored cell towards
+    the minima, and only units represented by those tables. Skip GPU scoring if no stratum qualifies in
+    the build-time coverage check. Below either minimum report counts and insufficient coverage.
+    Use the paired split-unit bootstrap in evaluation.intervals and the condition- and block-specific threshold
+    in readings.threshold. Improvement requires a close-minus-original difference below the negative threshold
+    and an interval wholly below zero. Deterioration requires a difference above the positive threshold and an
+    interval wholly above zero. Report the estimates and intervals descriptively if calibration is missing.
+  controls: >
+    Repeat the paired evaluation retaining and removing all other-genome rows whose distance to row 0 is
+    < 0.001 on both sides. Keep the target and its self copies and leave removed rows unfilled.
+    Report unknown distances and withhold the clone-exclusion reading for affected pairs. Use the same target
+    cells and verify the no-relatives control. For whole_gene, compare the usual frame-relative crop with the
+    full-gene frame extent on both sides under the strict renderer. Report the extent sensitivity separately.
+    Coverage itself can carry information about the hidden target through retrieval.
+  interpretation: >
+    Measures predictive performance given the available reference context. Report absent coverage and the
+    uncertainty of each readable stratum. Model promotion, training-input changes and natural HGT event scores
+    require their own decisions or evaluations.
 
 not_concluded: >
   no promotion, elimination or change of the reference before the user confirms it; batch 3 enters the comparison only

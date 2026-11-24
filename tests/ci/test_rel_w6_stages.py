@@ -389,6 +389,12 @@ def test_report_reads_the_leak_of_the_stored_layout(tmp_path):
     assert sorted({k[0] for k in at}) == [1000, 2000] and abs(at[(2000, SC.ALL)]["leak"] - 0.1) < 1e-9
     q = rep["pairs"][0]
     assert [r[0] for r in q["rows"]] == [1000, 2000, "end"] and abs(q["rows"][-1][3] - 0.1) < 1e-9 and abs(q["rows"][-1][11] - 0.3) < 1e-9
+    # without relatives beside (row 0 alone) and the difference less it; by bin, each with its tables
+    wo = {(r[0], r[1]): r for r in q["without_relatives"]}
+    r_end = wo[("end", cond.SCATTERED)]
+    assert abs(r_end[4] - 0.1) < 1e-9 and r_end[7] is not None and abs(r_end[8] - (r_end[4] - r_end[7])) < 1e-12
+    bins = [r for r in q["by_bin"] if r[0] == 2000 and r[1] == cond.SCATTERED]
+    assert bins and all(isinstance(r[4], int) and isinstance(r[6], int) for r in bins)              # the tables of each bin, both arms
     got = {(r["condition"], r["tables"]): r for r in rep["leak"]}
     assert abs(got[(cond.SUFFIX, SC.ALL)]["leak"] - 0.3) < 1e-9 and abs(got[(cond.SCATTERED, SC.ALL)]["leak"] - 0.1) < 1e-9
     assert got[(cond.SUFFIX, SC.RELATIVES[0])]["bits_stored"] == 4.25 and cond.SUFFIX in rep["conditions"]
@@ -473,6 +479,7 @@ def test_report_over_fitting_by_group_needs_its_threshold_and_its_interval(tmp_p
     with open(os.path.join(folder, "conf.json"), "w") as f:
         json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
     monkeypatch.setattr(w6_report, "held_units", lambda conf, source: ([GROUPS[0], GROUPS[1]] * 2, ["u1", "u2", "u3", "u4"]))
+    monkeypatch.setattr(w6_report, "held_strata", lambda conf: {})
     seen = []
 
     def boot(diff_sum, cells, group, unit, replicates=2000, seed=20261123, level=0.95, blocks=True):
@@ -583,6 +590,14 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     assert r["without_at"] == "end (end against end)" and abs(r["bits_without"] - r["bits_without_end"]) < 1e-12 and seen      # final cells only
     with pytest.raises(SystemExit):
         w6_report.settings(dict(rel_w6_report=dict(worth_without="best")))
+    got = w6_report.settings(dict(rel_w6_report=dict(heldout_tables=dict(run="/x/runs/t", path="data/rel_w12/v1/tableset.json"))))
+    assert got["heldout_tables"] == dict(run="/x/runs/t", path="data/rel_w12/v1/tableset.json")
+    # an arm read on another machine: its configuration names that machine's path, the profile's copy is read instead
+    monkeypatch.setattr(w6_report, "held_strata", lambda conf: (seen_conf.append(conf), {x0: np.array([True, True, True, False])})[1])
+    seen_conf = []
+    cfg2 = dict(cfg, rel_w6_report=dict(cfg["rel_w6_report"], heldout_tables=dict(run="/here/runs/t", path="h1.json")))
+    w6_report.build(Stage(run_dir, "rel_w6_report"), cfg2, run_dir)
+    assert seen_conf and all(c["heldout_tables"] == os.path.join("/here/runs/t", "h1.json") and c["heldout_root"] == "/here/runs/t" for c in seen_conf)
     assert "## The mask schemes each arm trained on" in text and "## The whole gene's frame relative, by distance" in text
     assert "## The controls of the renderer" in text                    # the control apart, the plain reading not replaced by it
     plain = next(float(x["bits"]) for x in SC.read_rows(q) if x["variant"] == "w6-ref30m-s1" and x["weights"] == "ema@final" and

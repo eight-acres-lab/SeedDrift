@@ -404,35 +404,50 @@ def test_latin_names_by_the_reviewers_rule():
         "thalassiosira_pseudonana", "phaeodactylum_tricornutum"]                                           # EV019
     assert W._latin("Candidatus Pelagibacter ubique") == ["pelagibacter_ubique"]                            # never 'candidatus'
     assert W._latin("Ca. Hodgkinia", single=True) == ["hodgkinia"] and W._latin("Candidatus Hodgkinia") == []
+    assert W._latin("Candidatus", single=True) == [] and W._latin("Uncultured bacterium") == []
     for unnamed in ("Pseudomonas sp.", "Chaetothyriales sp. CBS 135597", "Pseudogymnoascus sp. VKM F-3808", "Vibrio spp."):
         assert W._latin(unnamed, single=True) == [], unnamed                    # the assembly numbers cover them
     assert W._latin("Pseudomonas sp. and Vibrio cholerae") == ["vibrio_cholerae"]
     assert W._latin("Wolbachia", single=True) == ["wolbachia"] and W._latin("Wolbachia") == []
     assert W._latin("Klosneuvirus and relatives") == [] and W._latin("Homo sapiens (and 25 other genomes)") == ["homo_sapiens"]
+    smelt = "Osmerus mordax (rainbow smelt); also in Japanese smelt (Hypomesus nipponensis)"                 # EV024
+    assert W._latin(smelt) == ["osmerus_mordax", "japanese_smelt", "hypomesus_nipponensis"]
+    assert W._latin(smelt, genus=lambda g: g in ("Osmerus", "Hypomesus")) == ["osmerus_mordax", "hypomesus_nipponensis"]
 
 
 def test_nucleotide_accessions_as_the_drafts_cite_them():
     text = "contig JN900499; scaffolds EQ111801, EQ113280; NC_009504.1 and NZ_CP012345.1; WGS ANGL00000000; M35027"
     assert W._nucleotide(text) == {"JN900499", "EQ111801", "EQ113280", "NC_009504", "NZ_CP012345", "ANGL00000000", "M35027"}
-    assert W._nucleotide("Pfam PF00729, run EV012, PMC6410850, ST828, ASEM_AUS1_12345, GCA_004135705.1") == set()
+    assert W._nucleotide("Pfam PF00729, run EV012, PMC6410850, ST828, ASEM_AUS1_12345, GCA_004135705.1, SOAP18064315") == set()
+    assert W._nucleotide("QPGU01000000 and QPGU01000001.1") == {"QPGU01000000", "QPGU01000001"}
 
 
-def test_unseen_genomes_by_assembly_id_and_species_words():
-    u = W.unseen_genomes(_index())
-    assert u["accs"] == {"000000555", "000000999"}
+def test_unseen_genomes_by_assembly_id_species_words_and_islands():
+    u = W.unseen_genomes(_index(), {"NC_000002"})
+    assert u["accs"] == {"000000555", "000000999"} and u["nucleotide"] == {"NC_000002"}
     assert ("nicotiana", "attenuata") in u["seqs"] and ("hidden", "species") in u["seqs"]
     assert ("plants", "algae", "nicotiana", "attenuata") in u["seqs"]
     assert not any("drosophila" in x for x in u["seqs"])                 # held-out genomes are not unseen
     names = W.Unseen(u)
     assert names("store/ensembl/Nicotiana_attenuata.IGv2.pep.fa") and names("old/nicotiana_attenuata/genes.gff")
-    assert names("x/GCA_000000555.2_genomic.fna") and not names("x/nicotiana_tabacum.faa")
+    assert names("old/NicotianaAttenuata.fa") and names("old/x_nicotianaattenuata_v2")                      # joined
+    assert names("x/GCA_000000555.2_genomic.fna") and names("islands/NC_000002.1.gbk") and names("islands/nc_000002.gbk")
+    assert not names("x/nicotiana_tabacum.faa") and not names("islands/NC_0000021.gbk") and not names("x/NicotianaTabacum")
+    assert W._species_words("bacteria_candidatus_pelagibacter_ubique", "x.bacteria") == ("pelagibacter", "ubique")
 
 
-def test_exposure_tokens_use_only_train_and_heldout_genomes():
+def _tok(radius=None, draft=None, genomes=0):
+    z = lambda d: dict(accessions=set((d or {}).get("accessions", ())), names=set((d or {}).get("names", ())),
+                       nucleotide=set((d or {}).get("nucleotide", ())))
+    return dict(genomes=genomes, radius=z(radius), draft=z(draft))
+
+
+def test_exposure_tokens_keep_the_radius_apart_from_the_draft():
     rows = [_row("E1", "Pseudomonas (genus)", "Bacteria;Pseudomonadaceae;Pseudomonas", recipient="Pseudomonas sp. (many strains)"),
             _row("E2", "Drosophila (genus)", "Eukaryota;Metazoa;Insecta;Drosophila", recipient="Drosophila ananassae (lines Hawaii, India)"),
-            _row("E3", "Insecta (class)", "Eukaryota;Metazoa;Insecta", recipient="insects (several)"),
-            _row("E4", "Nothing (genus)", "Eukaryota;Nothing", recipient="unknown hosts", region="contig JN900499"),
+            _row("E3", "Insecta (class)", "Eukaryota;Metazoa;Insecta", recipient="insects (several); also Japanese flies"),
+            _row("E4", "Nothing (genus)", "Eukaryota;Nothing", recipient="unknown hosts", region="contig JN900499",
+                 assembly="GCA_004135705.1"),
             _row("E5", "Sophophora (subgenus)", "Eukaryota;Metazoa;Insecta;Drosophila;Sophophora", recipient="flies"),
             _row("E6", "Drosophila melanogaster group (species group)", "Eukaryota;Insecta;Drosophila;Sophophora", recipient="flies"),
             _row("E7", "Drosophila ananassae var. pallida (varietas)", "Eukaryota;Insecta;Drosophila", recipient="flies"),
@@ -441,19 +456,22 @@ def test_exposure_tokens_use_only_train_and_heldout_genomes():
     found = W.taxa(rows, tax)
     inside = W.radius_genomes(found, _index(), tax)
     assert inside["E1"] == [("bacteria_GCF_000000123.1", 12)]          # the test genome of the same genus is not read
-    islands = {"NC_000001.1": 12, "NC_000002.1": 6}
-    tok = W.exposure_tokens(rows, found, inside, tax, islands)
-    assert tok["E1"] == dict(genomes=1, accessions=["000000123"], nucleotide=["NC_000001"], names=["pseudomonas"])
-    assert tok["E2"] == dict(genomes=1, accessions=[], nucleotide=["NC_000002"], names=["drosophila", "drosophila_ananassae"])
-    assert tok["E3"]["names"] == ["drosophila_ananassae"] and tok["E3"]["nucleotide"] == ["NC_000002"]   # a class: no name
-    assert tok["E4"] == dict(genomes=0, accessions=[], nucleotide=["JN900499"], names=[])       # cited by the draft
-    assert tok["E5"]["names"] == []                                     # below the genus, one word: not a token
-    assert tok["E6"]["names"] == ["drosophila_melanogaster"]
-    assert tok["E7"]["names"] == ["drosophila_ananassae"] and tok["E7"]["nucleotide"] == []   # the species' island: outside a varietas
-    assert tok["E8"]["names"] == []                                     # no epithet: no genus either
+    tok = W.exposure_tokens(rows, found, inside, tax, {"NC_000001.1": 12, "NC_000002.1": 6})
+    assert tok["E1"] == _tok(dict(accessions={"000000123"}, nucleotide={"NC_000001"}), dict(names={"pseudomonas"}), 1)
+    assert tok["E2"] == _tok(dict(names={"drosophila_ananassae"}, nucleotide={"NC_000002"}),
+                             dict(names={"drosophila", "drosophila_ananassae"}), 1)
+    assert tok["E3"]["draft"]["names"] == set() and tok["E3"]["radius"]["names"] == {"drosophila_ananassae"}   # no 'japanese_flies'
+    assert tok["E4"]["draft"] == dict(accessions={"004135705"}, names=set(), nucleotide={"JN900499"})       # cited by the draft
+    assert tok["E5"]["draft"]["names"] == set()                        # below the genus, one word: not a token
+    assert tok["E6"]["draft"]["names"] == {"drosophila_melanogaster"}
+    assert tok["E7"]["draft"]["names"] == {"drosophila_ananassae"} and tok["E7"]["radius"]["nucleotide"] == set()
+    assert tok["E8"]["draft"]["names"] == set()                        # no epithet: no genus either
+    rep = W.token_report(tok)
+    assert rep["E1"] == dict(genomes=1, n_assemblies=1, n_species=0, n_nucleotide=1, draft_assemblies=[], draft_names=["pseudomonas"],
+                             draft_nucleotide=[])
 
 
-def test_island_taxa_leave_the_sealed_and_the_candidates_out(tmp_path):
+def test_island_taxa_skip_the_sealed_and_the_candidates(tmp_path):
     ref = tmp_path / "v2_reference_set.tsv"
     ref.write_text("accession\torganism\tgenus\tfamily\torder\tpart\tlevel\tstatus\tlevel_from\n"
                    "NC_000001.1\tA b\tA\tF\tO\tdevelopment\tL3\tdevelopment\tx\n"
@@ -465,7 +483,8 @@ def test_island_taxa_leave_the_sealed_and_the_candidates_out(tmp_path):
     (tmp_path / "panel" / "island_set_taxa.json").write_text(json.dumps({"NC_000001.1": 12, "NC_000002.1": 12, "NC_000003.1": 12,
                                                                         "NC_000004.1": 6}))
     got = W.island_taxa(str(ref), str(tmp_path))
-    assert got["taxids"] == {"NC_000001.1": 12, "NC_000004.1": 6} and got["left_out"] == 2 and got["without_taxid"] == ["NC_000005.1"]
+    assert got["taxids"] == {"NC_000001.1": 12, "NC_000004.1": 6} and got["skip"] == {"NC_000002", "NC_000003"}
+    assert got["skipped_rows"] == 2 and got["without_taxid"] == 1
 
 
 def _touch(base, *rel):
@@ -475,11 +494,11 @@ def _touch(base, *rel):
         p.write_text("")
 
 
-TOKENS = {"E1": dict(genomes=1, accessions=["000000123"], names=["pseudomonas"]),
-          "E2": dict(genomes=1, accessions=[], names=["drosophila_ananassae"]),
-          "E3": dict(genomes=0, accessions=[], names=["homo"]), "E4": dict(genomes=0, accessions=[], names=[]),
-          "E5": dict(genomes=0, accessions=[], names=["nicotiana"]),
-          "E6": dict(genomes=0, accessions=[], nucleotide=["JN900499"], names=[])}
+TOKENS = {"E1": _tok(dict(accessions={"000000123"}), dict(names={"pseudomonas"}), 1),
+          "E2": _tok(dict(names={"drosophila_ananassae"}), dict(names={"drosophila_ananassae"}), 1),
+          "E3": _tok(None, dict(names={"homo"})), "E4": _tok(), "E5": _tok(None, dict(names={"nicotiana"})),
+          "E6": _tok(None, dict(nucleotide={"JN900499"})),
+          "E7": _tok(dict(names={"echinops_telfairi"}, accessions={"000000777"}, nucleotide={"NC_000009"}), None, 2)}
 
 
 def test_exposure_scan_levels_by_own_name_prunes_and_skips(tmp_path):
@@ -491,39 +510,126 @@ def test_exposure_scan_levels_by_own_name_prunes_and_skips(tmp_path):
            "r5/scores_x/bacteria_GCF_000000555.1.npz",                         # names a test genome: skipped
            "r7/eval/bits_fungi_hidden_species_gca_000000999_pseudomonas.json",  # names it inside a file name: skipped
            "r8/ensembl/Nicotiana_attenuata.IGv2.pep.fa",                        # an unprefixed test genome: skipped
+           "r8/ensembl/NicotianaAttenuata_nicotiana.gff",                       # joined: skipped
            "r8/old/nicotiana_attenuata/eval/nicotiana_genes.tsv",              # inside its folder: not entered
+           "islands/NC_000002.1/nicotiana.gbk",                                # a sealed island chromosome: not entered
            "cas/ab/GCF_000000123.1",                                           # pruned by relative path
            "own/data/pseudomonas_everything.tsv",                              # this run's own folder: not entered
            "r6/notes/unrelated_file.txt",
            "r9/views/JN900499.1.gb", "r9/raw/AJN900499.gb", "r9/raw/JN9004990.gb")   # scan_names bounds: only the first
     roots = [dict(path=str(runs), prune=["cas", "nothing_here"]), str(tmp_path / "nowhere")]
-    got = W.exposure_scan(TOKENS, roots, W.unseen_genomes(_index()), skip={str(runs / "own")})
+    unseen = W.unseen_genomes(_index(), {"NC_000002"})
+    got = W.exposure_scan(TOKENS, roots, unseen, skip={str(runs / "own")})
     assert got["missing_roots"] == [str(tmp_path / "nowhere")]
     root = got["roots"][0]
     assert root["pruned"] == ["cas"] and root["prune_missing"] == ["nothing_here"] and root["walked"] == got["paths_walked"]
     assert got["events"]["E1"]["level"] == "L4" and got["events"]["E1"]["paths"] == {"L3": 1, "L4": 1}
+    assert got["events"]["E1"]["matched"] == [] and got["events"]["E1"]["radius_tokens_matched"] == 1    # counted, not named
+    assert got["events"]["E1"]["examples"]["L4"] == ["runs/r2/scores/<assembly>.2.tsv"]
     assert got["events"]["E2"]["level"] == "L5" and got["events"]["E2"]["examples"]["L5"] == ["runs/r3/eval/drosophila_ananassae_bits.json"]
     assert got["events"]["E3"] == dict(level="no_hit") and got["events"]["E4"] == dict(level="no_tokens")
-    assert got["events"]["E6"]["level"] == "L4" and got["events"]["E6"]["examples"] == {"L4": ["runs/r9/views/JN900499.1.gb"]}
     assert got["events"]["E5"] == dict(level="no_hit")                  # nicotiana appears only in the test genome's paths
-    assert got["skipped_unseen"] == 5 and got["walk_error_count"] == 0
+    assert got["events"]["E6"]["level"] == "L4" and got["events"]["E6"]["examples"] == {"L4": ["runs/r9/views/JN900499.1.gb"]}
+    assert got["skipped_unseen"] == 7 and got["walk_error_count"] == 0
     dump = json.dumps(got)
-    assert "attenuata" not in dump and "hidden" not in dump and "000000555" not in dump and "000000999" not in dump
-    again = W.exposure_scan(TOKENS, roots[:1], W.unseen_genomes(_index()), skip={str(runs / "own")})
-    assert again["roots"][0]["digest"] == root["digest"]                   # a sorted walk: the same list, the same digest
+    assert "attenuata" not in dump.lower() and "hidden" not in dump and "000000555" not in dump and "000000999" not in dump
+    assert "NC_000002" not in dump
+    again = W.exposure_scan(TOKENS, roots[:1], unseen, skip={str(runs / "own")})
+    assert again["roots"][0]["digest"] == root["digest"]
     capped = W.exposure_scan(TOKENS, [str(runs)], max_paths=3)
     assert capped["stopped_at_cap"] and capped["paths_walked"] == 4
+
+
+def test_no_radius_token_reaches_the_report(tmp_path):
+    """With the corpus manifest public, a radius's genomes listed would give the test genomes away by the gaps: the
+    report counts them and redacts them in paths; only the draft's own tokens are named."""
+    runs = tmp_path / "runs"
+    _touch(runs, "r1/data/corpus/mammals_echinops_telfairi/proteins.faa", "r1/data/corpus/bacteria_GCF_000000777.1/x.faa",
+           "r2/scores/EchinopsTelfairi.tsv", "r2/raw/NC_000009.1.gbk", "r3/eval/pairs_echinops_telfairi__homo_x.npz")
+    got = W.exposure_scan(TOKENS, [str(runs)], W.unseen_genomes(_index()))
+    assert got["events"]["E7"]["level"] == "L5" and got["events"]["E7"]["radius_tokens_matched"] == 3
+    assert got["events"]["E7"]["matched"] == [] and got["tokens"]["E7"]["n_species"] == 1
+    dump = json.dumps(got).lower()
+    for word in ("echinops", "telfairi", "000000777", "nc_000009", "echinopstelfairi"):
+        assert word not in dump, word
+    assert "runs/r3/eval/pairs_<species>__homo_x.npz" in json.dumps(got)
+
+
+def test_the_last_check_and_the_sorted_walk_are_pinned(tmp_path, monkeypatch):
+    """Removing the final filter or the sorting fails here: the walk's own check is blinded until the walk ends, and
+    the directory listing comes reversed."""
+    import os
+    runs = tmp_path / "runs"
+    _touch(runs, "r1/mammals_echinops_x_pseudomonas.faa", "r1/a.txt", "r1/b.txt", "r2/c.txt", "r3/mammals_echinops_x_dir/y")
+    real_walk, real_scandir, state = os.walk, os.scandir, dict(on=False)
+    names = W.Unseen(dict(seqs={("echinops", "x")}))
+
+    def walk(*a, **k):
+        yield from real_walk(*a, **k)
+        state["on"] = True
+
+    def locked(path):
+        if "echinops_x_dir" in str(path):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+    monkeypatch.setattr(os, "walk", walk)
+    monkeypatch.setattr(os, "scandir", locked)
+    monkeypatch.setattr(W, "Unseen", lambda u: (lambda text: state["on"] and names(text)))
+    got = W.exposure_scan(TOKENS, [str(runs)], None)
+    assert got["dropped_outputs"] == 2 and "echinops" not in json.dumps(got)      # one example and one walk error
+    assert got["events"]["E1"]["paths"] == {"L3": 1} and got["events"]["E1"]["examples"] == {"L3": []}
+    assert got["walk_errors"] == [] and got["walk_error_count"] == 1
+    monkeypatch.setattr(os, "walk", real_walk)
+    monkeypatch.setattr(os, "scandir", real_scandir)
+    (runs / "r3" / "mammals_echinops_x_dir" / "y").unlink()
+    (runs / "r3" / "mammals_echinops_x_dir").rmdir()
+    monkeypatch.setattr(W, "Unseen", lambda u: (lambda text: False))
+    forward = W.exposure_scan(TOKENS, [str(runs)], None)["roots"][0]["digest"]
+    real_scandir = os.scandir
+
+    class Reversed:
+        def __init__(self, path):
+            with real_scandir(path) as it:
+                self.items = sorted(it, key=lambda e: e.name, reverse=True)
+
+        def __iter__(self):
+            return iter(self.items)
+
+        def __next__(self):
+            if not self.items:
+                raise StopIteration
+            return self.items.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def close(self):
+            pass
+    monkeypatch.setattr(os, "scandir", Reversed)
+    assert W.exposure_scan(TOKENS, [str(runs)], None)["roots"][0]["digest"] == forward
+
+
+def test_the_digest_covers_only_the_paths_kept(tmp_path):
+    runs = tmp_path / "runs"
+    _touch(runs, "r1/a.txt")
+    before = W.exposure_scan(TOKENS, [str(runs)], W.unseen_genomes(_index()))["roots"][0]["digest"]
+    _touch(runs, "r1/plants_algae_nicotiana_attenuata.faa")
+    after = W.exposure_scan(TOKENS, [str(runs)], W.unseen_genomes(_index()))
+    assert after["roots"][0]["digest"] == before and after["skipped_unseen"] == 1
 
 
 def test_walk_errors_never_name_a_test_genome(tmp_path, monkeypatch):
     import os
     runs = tmp_path / "runs"
     _touch(runs, "r1/plants_algae_nicotiana_attenuata/proteins.faa", "r1/fungi_hidden_species_gca_000000999/x.faa",
-           "r2/locked/drosophila_ananassae.faa", "r3/pseudomonas.tsv")
+           "r2/locked/drosophila_ananassae.faa", "r3/pseudomonas.tsv", "r4/mammals_echinops_telfairi/x")
     real = os.scandir
 
     def scandir(path):                                   # as a folder without read permission (the scan runs as root too)
-        if any(x in str(path) for x in ("locked", "attenuata", "hidden")):
+        if any(x in str(path) for x in ("locked", "attenuata", "hidden", "echinops")):
             raise PermissionError(13, "Permission denied", str(path))
         return real(path)
     monkeypatch.setattr(os, "scandir", scandir)
@@ -531,9 +637,10 @@ def test_walk_errors_never_name_a_test_genome(tmp_path, monkeypatch):
     unseen["seqs"].discard(("nicotiana", "attenuata"))   # as if the species words were missed: the error check must hold
     got = W.exposure_scan(TOKENS, [str(runs)], unseen)
     dump = json.dumps(got)
-    assert "attenuata" not in dump and "hidden" not in dump and "000000999" not in dump
-    assert got["walk_errors"] == [dict(root=str(runs), path="r2/locked", errno="EACCES")]
-    assert got["walk_error_count"] == 1                   # the test genomes' folders are skipped before they are listed
+    assert "attenuata" not in dump and "hidden" not in dump and "000000999" not in dump and "echinops" not in dump
+    assert got["walk_errors"] == [dict(root=str(runs), path="r2/locked", errno="EACCES"),
+                                  dict(root=str(runs), path="r4/mammals_<species>", errno="EACCES")]
+    assert got["walk_error_count"] == 2
     assert got["events"]["E1"]["level"] == "L3"
 
 
@@ -571,7 +678,8 @@ def test_exposure_levels_declared_scan_and_unknown_values():
                         "E5": dict(level="L3")})
     got = W.exposure_levels(rows, scan)
     assert got["E1"] == dict(declared="L4", scan="L3", level="L4")
-    assert got["E2"] == dict(declared="?", scan="L5", level="L5") and got["E3"] == dict(declared="?", scan="no_hit", level="?")
+    assert got["E2"] == dict(declared="?", scan="L5", level="L5", above_declared=True)
+    assert got["E3"] == dict(declared="?", scan="no_hit", level="?")
     assert got["E4"] == dict(declared="L1", scan="L4", level="L4", above_declared=True)
     assert got["E5"] == dict(declared="L9", scan="L3", level="L3", declared_unknown=True)
 
@@ -617,8 +725,10 @@ def test_markdown_shows_the_exposure_scan(tmp_path):
     ex["levels"] = W.exposure_levels(rows, ex)
     ex["above_declared"] = []
     md = W.markdown_server(dict(taxa={}, pretraining={}, sealed_overlap={}, exposure=ex, papers=[]))
-    assert "| E2 | 1 | 0 assemblies, 0 nucleotide, drosophila_ananassae | ? | L5 | L5 | L5 1 | drosophila_ananassae | runs/r3/eval/" in md
-    assert "| E4 | 0 | 0 assemblies, 0 nucleotide, no names | ? | no_tokens | ? |" in md and "| %s | 5 | - | 0 | 0 |" % runs in md
+    assert ("| E2 | 1 | 0 assemblies, 1 species, 0 island | drosophila_ananassae | ? | L5 | L5 (above the declared level) | "
+            "L5 1 | drosophila_ananassae | 0 | runs/r3/eval/") in md
+    assert "| E4 | 0 | 0 assemblies, 0 species, 0 island | none | ? | no_tokens | ? |" in md and "| %s | 5 | - | 0 | 0 |" % runs in md
+    assert "echinops" not in md
 
 
 def _stored_run(tmp_path, status="passed", gate="pass", archive=None):

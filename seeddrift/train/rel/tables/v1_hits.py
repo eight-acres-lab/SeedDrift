@@ -19,6 +19,11 @@ a pair of its own genome. No bit score, e-value or rank is kept: the order of pa
   stream(lines, genome_of, gene_index, keep, write)
                                    DIAMOND rows of contiguous query genomes, each written once complete
   merge(a, b)                      the pairs of two arrays of the same query genome (the main and the self search)
+  flat(a, tmap, drop), combine(parts, n_genes, searched)
+                                   the alignments of arrays one by one (target genomes renumbered, one target genome
+                                   left out) and arrays made again from such parts, as a Collector makes them
+                                   (vectorized; stage w12_search's extension of an earlier search)
+  gene_rows(a, i, drop)            the alignments of one query gene, in order (for comparisons)
   save(path, arrays), load(path)
   columns(cigar, qs, ss)           (query position, target position) of every aligned column (0-based)
   check(arrays, n_targets)         problems of the arrays of one query genome (empty when they are sound)
@@ -141,6 +146,66 @@ def merge(a, b):
                 seen.add(key)
                 col.add(key[0], key[1], key[2], key[3], int(x["qe"][h]), key[4], int(x["se"][h]), cig)
     return col.arrays()
+
+
+def flat(a, tmap=None, drop=None):
+    """The alignments of arrays `a` one by one: dict(qgene, tgenome, tgene, qs, qe, ss, se, cig_start, cig_len, cigar),
+    with the target genomes renumbered by `tmap` (old index -> new index) and the pairs to target genome `drop` (after
+    renumbering) left out. Vectorized; for combine()."""
+    n = len(a["off"]) - 1
+    pair_gene = np.repeat(np.arange(n, dtype=np.int64), np.diff(a["off"]))
+    hsp_pair = np.repeat(np.arange(len(a["tgenome"]), dtype=np.int64), np.diff(a["hsp_off"]))
+    tg = np.asarray(a["tgenome"], dtype=np.int64)
+    if tmap is not None:
+        tg = np.asarray(tmap, dtype=np.int64)[tg]
+    keep = slice(None) if drop is None else tg[hsp_pair] != int(drop)
+    co = np.asarray(a["cigar_off"], dtype=np.int64)
+    return dict(qgene=pair_gene[hsp_pair][keep], tgenome=tg[hsp_pair][keep], tgene=np.asarray(a["tgene"], dtype=np.int64)[hsp_pair][keep],
+                qs=np.asarray(a["qs"], dtype=np.int64)[keep], qe=np.asarray(a["qe"], dtype=np.int64)[keep], ss=np.asarray(a["ss"], dtype=np.int64)[keep],
+                se=np.asarray(a["se"], dtype=np.int64)[keep], cig_start=co[:-1][keep], cig_len=np.diff(co)[keep], cigar=np.asarray(a["cigar"], dtype=np.uint8))
+
+
+def combine(parts, n_genes, searched):
+    """The arrays of one query genome made of the alignments of `parts` (flat() of each), in the order and layout of
+    Collector.arrays() (pairs by query gene, target genome, target gene; alignments by query start, a tie in the order
+    of the parts): the same arrays a Collector given the same alignments in that order returns. No alignment is
+    dropped as a duplicate (merge() does that)."""
+    cols = {k: np.concatenate([p[k] for p in parts]) if parts else np.zeros(0, dtype=np.int64) for k in ("qgene", "tgenome", "tgene", "qs", "qe", "ss", "se")}
+    base, starts, lens, bufs = 0, [], [], []
+    for p in parts:
+        starts.append(p["cig_start"] + base)
+        lens.append(p["cig_len"])
+        bufs.append(p["cigar"])
+        base += len(p["cigar"])
+    starts = np.concatenate(starts) if starts else np.zeros(0, dtype=np.int64)
+    lens = np.concatenate(lens) if lens else np.zeros(0, dtype=np.int64)
+    buf = np.concatenate(bufs) if bufs else np.zeros(0, dtype=np.uint8)
+    h = len(cols["qs"])
+    order = np.lexsort((cols["qs"], cols["tgene"], cols["tgenome"], cols["qgene"])) if h else np.zeros(0, dtype=np.int64)
+    c = {k: v[order] for k, v in cols.items()}
+    starts, lens = starts[order], lens[order]
+    new = np.ones(h, dtype=bool)
+    if h > 1:
+        new[1:] = (c["qgene"][1:] != c["qgene"][:-1]) | (c["tgenome"][1:] != c["tgenome"][:-1]) | (c["tgene"][1:] != c["tgene"][:-1])
+    start = np.flatnonzero(new)
+    off = np.searchsorted(c["qgene"][start], np.arange(int(n_genes) + 1), side="left").astype(np.int64)
+    return dict(off=off, tgenome=c["tgenome"][start].astype(np.int32), tgene=c["tgene"][start].astype(np.int32),
+                hsp_off=np.append(start, h).astype(np.int64), qs=c["qs"].astype(np.uint32), qe=c["qe"].astype(np.uint32),
+                ss=c["ss"].astype(np.uint32), se=c["se"].astype(np.uint32), cigar=buf[_ranges(starts, starts + lens)].astype(np.uint8),
+                cigar_off=np.concatenate([[0], np.cumsum(lens)]).astype(np.int64), searched=np.asarray(searched, dtype=np.uint8).copy())
+
+
+def gene_rows(a, i, drop=None):
+    """[(target genome, target gene, qs, qe, ss, se, cigar)] of query gene i of arrays a, in their order; the pairs to
+    target genome `drop` left out."""
+    out = []
+    for p in range(int(a["off"][i]), int(a["off"][i + 1])):
+        if drop is not None and int(a["tgenome"][p]) == int(drop):
+            continue
+        for h in range(int(a["hsp_off"][p]), int(a["hsp_off"][p + 1])):
+            out.append((int(a["tgenome"][p]), int(a["tgene"][p]), int(a["qs"][h]), int(a["qe"][h]), int(a["ss"][h]), int(a["se"][h]),
+                        bytes(a["cigar"][a["cigar_off"][h]:a["cigar_off"][h + 1]])))
+    return out
 
 
 def save(path, arrays):

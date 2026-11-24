@@ -22,7 +22,21 @@ chromosomes as a group of their own; 1.0 = all), seed, threads, block_size, sens
 per DIAMOND call), self_batch_proteins (proteins of the held-out genomes whose own databases one call searches),
 probe_proteins (a first, discarded call of that many query proteins that measures DIAMOND's fixed cost; default 200 in
 a sample run, 0 otherwise), wall_s (stop before a call that would end after it; the run is resumed later, finished
-calls are kept), reserve_gb.
+calls are kept), reserve_gb, dbsize (the database size in letters every e-value is computed against, DIAMOND
+--dbsize, the held-out genomes' own-protein searches included; default: DIAMOND's, the letters of the database
+searched), algo (DIAMOND --algo, 0 double-indexed or 1 query-indexed; default DIAMOND's choice), extend_from,
+verify_proteins.
+
+Extension (rel_w12_search.extend_from, a passed full search of an earlier corpus whose genomes are all here, with
+the same splits and corpus files; extension()): the result is the search done again in full with the settings the
+extension fixes (dbsize the extended search's, algo 0, one held-out genome per own-protein search), without searching
+again what it searched. Its rows are kept (target genomes renumbered to this run's list), the genomes it searched are
+searched against the new training genomes only (a database of their own), the new genomes against the whole database,
+and every held-out genome's own proteins again (the extended search's were against batches of genomes, whose size
+changed the e-values). Before the long calls about verify_proteins genes (default 2,000) of the earlier genomes are
+searched again against the whole database (verify_sample()): their rows must be the kept rows and the rows against the
+new training genomes, alignment by alignment and in order, and again after the calls; any difference stops the stage
+(the search is then made in full).
 Outputs under data/rel_w12/search/: <genome>.npz per query genome (v1_hits.py), genomes.json (the genome list the
 arrays index), index/ (the lookup index of all of them, memory-mappable: v1_hits.Index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
 run, the linear extrapolation to the full search with the disk it needs).
@@ -50,7 +64,7 @@ from seeddrift.train.rel.tables import v1_hits as H
 
 OUT = os.path.join("data", "rel_w12", "search")
 KEYS = {"source", "expect", "islands", "islands_from", "sample", "seed", "threads", "block_size", "sensitivity", "evalue", "chunk_proteins", "self_batch_proteins",
-        "probe_proteins", "wall_s", "reserve_gb"}
+        "probe_proteins", "wall_s", "reserve_gb", "extend_from", "dbsize", "algo", "verify_proteins"}
 
 
 def settings(cfg) -> dict:
@@ -64,7 +78,13 @@ def settings(cfg) -> dict:
                threads=int(c.get("threads", 12)), block_size=float(c.get("block_size", 4)), sensitivity=str(c.get("sensitivity", "sensitive")),
                evalue=float(c.get("evalue", 1e-5)), chunk_proteins=int(c.get("chunk_proteins", 60000)), self_batch_proteins=int(c.get("self_batch_proteins", 30000)),
                probe_proteins=int(c.get("probe_proteins", 200 if sample < 1 else 0)), wall_s=float(c["wall_s"]) if c.get("wall_s") else None,
-               reserve_gb=float(c.get("reserve_gb", 30)), max_left_out=20)
+               reserve_gb=float(c.get("reserve_gb", 30)), max_left_out=20, extend_from=str(c["extend_from"]) if c.get("extend_from") else None,
+               dbsize=int(c["dbsize"]) if c.get("dbsize") else None, algo=int(c["algo"]) if c.get("algo") is not None else None,
+               verify_proteins=int(c.get("verify_proteins", 2000 if c.get("extend_from") else 0)))
+    if out["extend_from"] and (sample < 1 or out["probe_proteins"]):
+        raise SystemExit("rel_w12_search: extend_from extends a full search (sample 1, no probe)")
+    if out["algo"] not in (None, 0, 1) or out["verify_proteins"] < 0:
+        raise SystemExit("rel_w12_search: algo is 0 or 1, verify_proteins at least 0")
     if not (0 < sample <= 1 and 1 <= out["threads"] <= 64 and out["chunk_proteins"] >= 1 and out["self_batch_proteins"] >= 1 and out["probe_proteins"] >= 0
             and out["sensitivity"] in ("fast", "mid-sensitive", "sensitive", "more-sensitive", "very-sensitive", "ultra-sensitive")):
         raise SystemExit("rel_w12_search: settings out of range: %r" % out)
@@ -74,7 +94,12 @@ def settings(cfg) -> dict:
 def diamond_search(diamond, queries, db, s, out_lines):
     """Run DIAMOND blastp of `queries` against `db` and hand its output lines to out_lines(iterable); wall seconds."""
     cmd = [diamond, "blastp", "-q", queries, "-d", db, "-o", "/dev/stdout", "--" + s["sensitivity"], "-k", "0", "--max-hsps", "0", "-e", str(s["evalue"]),
-           "--threads", str(s["threads"]), "-b", str(s["block_size"]), "-c", "1", "--tmpdir", os.environ.get("TMPDIR", "/tmp"), "--quiet", "--outfmt", "6"] + H.FIELDS
+           "--threads", str(s["threads"]), "-b", str(s["block_size"]), "-c", "1", "--tmpdir", os.environ.get("TMPDIR", "/tmp"), "--quiet"]
+    if s.get("dbsize"):                                              # e-values against a fixed database size, whatever the database searched
+        cmd += ["--dbsize", str(int(s["dbsize"]))]
+    if s.get("algo") is not None:
+        cmd += ["--algo", str(int(s["algo"]))]
+    cmd += ["--outfmt", "6"] + H.FIELDS
     t0 = time.time()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1 << 20)
     try:
@@ -164,6 +189,109 @@ def island_genomes(run, sealed):
     return out, dict(run_id=os.path.basename(os.path.normpath(run)), index_sha256=sha, manifest=msha, chromosomes=len(out))
 
 
+def extension(s, src, genomes, island_prov):
+    """The passed search this run extends (rel_w12_search.extend_from), checked: the same settings (sensitivity,
+    e-value, block size, islands; a full search); every genome it searched is here with the same split, group, genes and
+    letters, its corpus files (genes.tsv, proteins.faa) the same files as in this run's source, the same island set;
+    its database letters those of its training genomes. Returns dict(run, run_id, manifest_sha256, old (ids), tmap (its
+    genome index -> this run's), dbsize (its e-value database size: its setting, else its database letters, which DIAMOND
+    takes by default), fresh (the training genomes it did not have))."""
+    run = s["extend_from"]
+    with open(os.path.join(run, "record.json")) as f:
+        rec = json.load(f)
+    if rec.get("status") != "passed":
+        raise SystemExit("rel_w12_search: the search to extend, %s, is %s, not passed" % (rec.get("run_id"), rec.get("status")))
+    mp = os.path.join(run, OUT, "manifest.json")
+    sha = W._output(run, "rel_w12_search", "search_manifest", mp)
+    with open(mp) as f:
+        man = json.load(f)
+    es = man["settings"]
+    diff = [k for k in ("sensitivity", "evalue", "block_size", "islands") if es.get(k) != s[k]]
+    if diff or float(es.get("sample", 1)) < 1:
+        raise SystemExit("rel_w12_search: the search to extend has other settings (%s) or is a sample" % diff)
+    if es.get("algo") not in (None, 0 if s["algo"] is None else s["algo"]):
+        raise SystemExit("rel_w12_search: the search to extend used another seed search algorithm")
+    dbsize = int(es.get("dbsize") or man["database"]["letters"])
+    if s["dbsize"] and s["dbsize"] != dbsize:
+        raise SystemExit("rel_w12_search: dbsize %d is not the extended search's %d" % (s["dbsize"], dbsize))
+    with open(os.path.join(run, OUT, "genomes.json")) as f:
+        old = json.load(f)["genomes"]
+    new = {g["id"]: g for g in genomes}
+    bad = [g["id"] for g in old if g["id"] not in new or any(new[g["id"]][k] != g[k] for k in ("split", "group", "genes", "letters"))]
+    if bad:
+        raise SystemExit("rel_w12_search: genomes of the extended search are not here as they were there: %s" % bad[:5])
+    osrc = W.source(es["source"], pairs=False)
+
+    def files_of(sr, gid):
+        return {os.path.basename(f["path"]): f["sha256"] for f in (sr["corpus"].get(gid) or {}).get("files") or []
+                if os.path.basename(f["path"]) in ("genes.tsv", "proteins.faa")}
+    changed = [g["id"] for g in old if g["split"] != "island" and files_of(osrc, g["id"]) != files_of(src, g["id"])]
+    if changed:
+        raise SystemExit("rel_w12_search: corpus files changed since the extended search: %s" % changed[:5])
+    if s["islands"] and (man.get("islands") or {}).get("index_sha256") != (island_prov or {}).get("index_sha256"):
+        raise SystemExit("rel_w12_search: another island set than the extended search's")
+    if sum(g["letters"] for g in old if g["split"] == "train") != man["database"]["letters"]:
+        raise SystemExit("rel_w12_search: the extended search's database is not its training genomes")
+    want = {e["path"]: e["sha256"] for e in man.get("files") or []}
+    rows = [os.path.join(OUT, g["id"] + ".npz") for g in old]
+    got = V.hash_files([os.path.join(run, p) for p in rows], min(s["threads"], 8))
+    bad = [p for p, h in zip(rows, got) if want.get(p) != h]
+    if bad:
+        raise SystemExit("rel_w12_search: rows files of the extended search differ from its manifest: %s" % bad[:5])
+    gix = {g["id"]: i for i, g in enumerate(genomes)}
+    olds = {g["id"] for g in old}
+    return dict(run=run, run_id=rec.get("run_id") or os.path.basename(os.path.normpath(run)), manifest_sha256=sha, old=olds,
+                tmap=np.array([gix[g["id"]] for g in old], dtype=np.int64), dbsize=dbsize,
+                fresh=[g["id"] for g in genomes if g["split"] == "train" and g["id"] not in olds])
+
+
+def verify_sample(ext, genomes, gix, gene_index, names, prots, searched, n_genes, s, diamond, db, db_new, parts, say):
+    """Before the long calls of an extension: about verify_proteins genes of the genomes searched before (20 genes of
+    each of verify_proteins / 20 genomes, at random) searched again against the whole database; their rows must be the
+    extended search's (renumbered; a held-out genome's own rows aside, they are searched again) together with their
+    rows against the new training genomes (a second call), alignment by alignment and in order, else the stage stops.
+    Returns dict(genomes, proteins, seconds, early_mismatches, rows (the whole database's rows of the sample, by
+    genome), genes)."""
+    t0 = time.time()
+    rng = np.random.default_rng([s["seed"], 14])
+    olds = [g for g in genomes if g["id"] in ext["old"] and g["searched"]]
+    k = min(len(olds), max(1, s["verify_proteins"] // 20))
+    genes = {}
+    for x in sorted(int(v) for v in rng.choice(len(olds), size=k, replace=False)):
+        g = olds[x]
+        pool = np.flatnonzero(searched[g["id"]])
+        genes[g["id"]] = sorted(int(pool[i]) for i in rng.choice(len(pool), size=min(max(1, s["verify_proteins"] // k), len(pool)), replace=False))
+    mask = {}
+    for gid, idx in genes.items():
+        mask[gid] = np.zeros(n_genes[gid], dtype=np.uint8)
+        mask[gid][idx] = 1
+    q = os.path.join(parts, "verify.faa")
+    with open(q, "w") as f:
+        for gid in genes:
+            for i in genes[gid]:
+                f.write(">%s__%s\n%s\n" % (gid, names[gid][i], prots[gid][i]))
+    keep = lambda qg, qi, tg, tj: not (tg == qg and tj == qi)          # noqa: E731 - the query gene itself
+    rows, extra = {}, {}
+    diamond_search(diamond, q, db, s, lambda lines: H.stream(lines, gix, gene_index, keep, rows.__setitem__, n_genes, mask))
+    if db_new:
+        diamond_search(diamond, q, db_new, s, lambda lines: H.stream(lines, gix, gene_index, keep, extra.__setitem__, n_genes, mask))
+    os.remove(q)
+    bad = []
+    for gid, idx in genes.items():
+        rows.setdefault(gid, H.empty(n_genes[gid], mask[gid]))
+        held = genomes[gix[gid]]["split"] in ("heldout", "island")
+        pieces = [H.flat(H.load(os.path.join(ext["run"], OUT, gid + ".npz")), ext["tmap"], drop=gix[gid] if held else None)]
+        if db_new:
+            pieces.append(H.flat(extra.get(gid) or H.empty(n_genes[gid], mask[gid])))
+        a = H.combine(pieces, n_genes[gid], searched[gid])
+        bad += [(gid, i) for i in idx if H.gene_rows(a, i) != H.gene_rows(rows[gid], i)]
+    n = sum(len(v) for v in genes.values())
+    if bad:
+        raise SystemExit("rel_w12_search: the extension differs from the search done again for %d of %d sampled genes, e.g. %s" % (len(bad), n, bad[:5]))
+    say("verified: %d genes of %d genomes searched again give the extended rows exactly" % (n, len(genes)))
+    return dict(genomes=len(genes), proteins=n, seconds=round(time.time() - t0, 1), early_mismatches=0, rows=rows, genes=genes)
+
+
 def build(st, cfg, run_dir):
     s, t0 = settings(cfg), time.time()
     say = lambda text: print("rel_w12_search: %s (%.0f s)" % (text, time.time() - t0), flush=True)
@@ -206,6 +334,11 @@ def build(st, cfg, run_dir):
     for g in genomes:
         g["searched"] = int(searched[g["id"]].sum())
         g["searched_letters"] = int(sum(len(prots[g["id"]][i]) for i in np.flatnonzero(searched[g["id"]])))
+    ext = extension(s, src, genomes, island_prov) if s["extend_from"] else None
+    if ext:                                                           # the settings that make the extension the search done again in full
+        s.update(dbsize=ext["dbsize"], algo=0 if s["algo"] is None else s["algo"], self_batch_proteins=1)
+        say("extends %s: %d genomes searched before, %d new (%d of them training genomes); e-values against %d letters" % (
+            ext["run_id"], len(ext["old"]), len(genomes) - len(ext["old"]), len(ext["fresh"]), ext["dbsize"]))
     out = os.path.join(run_dir, OUT)
     parts = os.path.join(out, "parts")
     os.makedirs(parts, exist_ok=True)
@@ -217,6 +350,13 @@ def build(st, cfg, run_dir):
         timing["db_s"] = makedb(diamond, [("%s__%s" % (g, n), p) for g in train for n, p in zip(names[g], prots[g])], os.path.join(parts, "db.faa"), db)
         say("database of %d training genomes" % len(train))
     n_genes = {g["id"]: g["genes"] for g in genomes}
+    db_new = os.path.join(parts, "db_new.dmnd")
+    if ext:
+        timing.update(xold_s=[], verify_s=[])
+        if ext["fresh"] and not os.path.exists(db_new):
+            timing["db_new_s"] = makedb(diamond, [("%s__%s" % (g, n), p) for g in ext["fresh"] for n, p in zip(names[g], prots[g])],
+                                        os.path.join(parts, "db_new.faa"), db_new)
+            say("database of the %d new training genomes" % len(ext["fresh"]))
 
     def query_file(path, gids):
         with open(path + ".part", "w") as f:
@@ -300,14 +440,48 @@ def build(st, cfg, run_dir):
         return [g + ".self.npz" for g in gids], sec + dbs
 
     order = [g["id"] for g in genomes]
-    run_calls("main", chunks(order, {g: int(searched[g].sum()) for g in order}, s["chunk_proteins"]), main_call)
+    verify = None
+    if ext and s["verify_proteins"]:                                  # before the long calls: the extension against the search done again
+        verify = verify_sample(ext, genomes, gix, gene_index, names, prots, searched, n_genes, s, diamond, db, db_new if ext["fresh"] else None, parts, say)
+        timing["verify_s"].append(verify["seconds"])
+    first = [g for g in order if not ext or g not in ext["old"]]
+    run_calls("main", chunks(first, {g: int(searched[g].sum()) for g in first}, s["chunk_proteins"]), main_call)
+    if ext and ext["fresh"]:
+        def xold_call(k, gids):
+            q = os.path.join(parts, "xold_%04d.faa" % k)
+            query_file(q, gids)
+            written = []
+
+            def write(gid, arrays):
+                H.save(os.path.join(parts, gid + ".xold.npz"), arrays)
+                written.append(gid)
+            sec, _ = diamond_search(diamond, q, db_new, s, lambda lines: H.stream(lines, gix, gene_index, lambda *x: True, write, n_genes, searched))
+            for g in gids:
+                if g not in written:
+                    H.save(os.path.join(parts, g + ".xold.npz"), H.empty(n_genes[g], searched[g]))
+            os.remove(q)
+            return [g + ".xold.npz" for g in gids], sec
+        olds = [g for g in order if g in ext["old"]]
+        run_calls("xold", chunks(olds, {g: int(searched[g].sum()) for g in olds}, s["chunk_proteins"]), xold_call)
     held = [g["id"] for g in genomes if g["split"] in ("heldout", "island")]           # not in the database: their own proteins apart
     run_calls("self", chunks(held, {g: len(names[g]) if searched[g].any() else 0 for g in held}, s["self_batch_proteins"]), self_call)
     # every query genome: its rows of the main search, and of its own proteins for a held-out genome
     files, stats = [], dict(pairs=0, hsps=0, self_pairs=0, genes_searched=0, genes_with_pairs=0)
+    late = []
     for g in genomes:
         mp_ = os.path.join(parts, g["id"] + ".main.npz")
-        a = H.load(mp_) if os.path.exists(mp_) else H.empty(g["genes"], searched[g["id"]])     # a genome with no gene searched
+        if ext and g["id"] in ext["old"]:
+            held_ = g["split"] in ("heldout", "island")
+            pieces = [H.flat(H.load(os.path.join(ext["run"], OUT, g["id"] + ".npz")), ext["tmap"], drop=gix[g["id"]] if held_ else None)]
+            xp = os.path.join(parts, g["id"] + ".xold.npz")
+            if ext["fresh"]:
+                pieces.append(H.flat(H.load(xp)))
+            a = H.combine(pieces, g["genes"], searched[g["id"]])
+            if verify and g["id"] in verify["rows"]:                  # the sample again, now against the calls of the extension
+                late += [(g["id"], i) for i in verify["genes"][g["id"]]
+                         if H.gene_rows(a, i) != H.gene_rows(verify["rows"][g["id"]], i)]
+        else:
+            a = H.load(mp_) if os.path.exists(mp_) else H.empty(g["genes"], searched[g["id"]])     # a genome with no gene searched
         if g["split"] in ("heldout", "island") and os.path.exists(os.path.join(parts, g["id"] + ".self.npz")):
             a = H.merge(a, H.load(os.path.join(parts, g["id"] + ".self.npz")))
         bad = H.check(a, len(genomes))
@@ -324,6 +498,10 @@ def build(st, cfg, run_dir):
         stats["genes_searched"] += g["searched"]
         stats["genes_with_pairs"] += int((np.diff(a["off"]) > 0).sum())
         files.append(p)
+    if late:
+        raise SystemExit("rel_w12_search: the extension differs from the search done again for %d sampled genes (after the long calls), e.g. %s" % (len(late), late[:5]))
+    if verify:
+        verify.update(late_mismatches=0)
     gp = os.path.join(out, "genomes.json")
     write_json(gp, dict(genomes=genomes, note="the genome list the arrays index (tgenome)"))
     files.append(gp)
@@ -350,6 +528,9 @@ def build(st, cfg, run_dir):
                rows=dict(stats, bytes=nbytes, index_bytes=index_bytes, bytes_per_hsp=(nbytes / stats["hsps"]) if stats["hsps"] else None,
                          hsps_per_searched_gene=(stats["hsps"] / stats["genes_searched"]) if stats["genes_searched"] else None),
                timing=timing, left_out=[dict(group=x["group"], split=x["split"], reasons=x["reasons"]) for x in left],
+               extension=None if not ext else dict(run_id=ext["run_id"], manifest_sha256=ext["manifest_sha256"], genomes_before=len(ext["old"]),
+                                                    new_genomes=len(genomes) - len(ext["old"]), new_training_genomes=len(ext["fresh"]), dbsize=ext["dbsize"],
+                                                    verify={k: v for k, v in (verify or {}).items() if k not in ("rows", "genes")}),
                sealed_check=dict(passed=True, **st.extra["sealed_check"]))
     free = shutil.disk_usage(run_dir).free
     rep["disk"] = dict(free_gb=round(free / 1e9, 1), reserve_gb=s["reserve_gb"])
@@ -405,6 +586,15 @@ def page_of(rep):
          "| searched genes with at least one pair | %s of %s |" % ("{:,}".format(r["genes_with_pairs"]), "{:,}".format(r["genes_searched"])),
          "| bytes on disk | %.2f GB, %.1f per alignment (the lookup index %.2f GB of it) |" % (r["bytes"] / 1e9, r["bytes_per_hsp"] or 0.0, r.get("index_bytes", 0) / 1e9),
          "| free disk | %.0f GB (reserve %.0f GB) |" % (rep["disk"]["free_gb"], rep["disk"]["reserve_gb"])]
+    x = rep.get("extension")
+    if x:
+        v = x.get("verify") or {}
+        L += ["", "Extends search `%s` (manifest sha256 %s): %d genomes searched there, %d new here (%d of them training genomes), e-values against %s "
+              "database letters; the earlier rows kept, the new rows added, every held-out genome's own proteins searched again, one genome a call. "
+              "Verified: %s genes of %s genomes searched again against the whole database gave the same rows, alignment by alignment (%s mismatches "
+              "before the long calls, %s after)." % (x["run_id"], x["manifest_sha256"][:12], x["genomes_before"], x["new_genomes"], x["new_training_genomes"],
+                                                    "{:,}".format(x["dbsize"]), v.get("proteins", 0), v.get("genomes", 0), v.get("early_mismatches", "n/a"),
+                                                    v.get("late_mismatches", "n/a"))]
     e = rep.get("extrapolation")
     if e:
         L += ["", "## The full search, extrapolated linearly", "", e["note"] + ".", "",

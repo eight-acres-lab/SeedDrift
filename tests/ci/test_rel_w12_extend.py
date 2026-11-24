@@ -168,42 +168,29 @@ def test_an_extended_search_is_the_full_search(run_source, tmp_path):
 
 @pytest.mark.skipif(shutil.which("diamond") is None, reason="DIAMOND is not installed here (it is in the CI environment)")
 def test_an_extended_search_is_the_full_search_with_diamond(run_source, tmp_path):
-    """With DIAMOND: the extension of an earlier search made with algo 0 (and without, as the k3 search was: DIAMOND
-    chooses the seed search algorithm; recorded, not required) equals the full search; the full search does not
-    depend on how the queries are cut into calls. The message names every outcome."""
+    """With DIAMOND (2.2.8 in the CI environment): the extension of an earlier search, made with DIAMOND's own choice of
+    algorithm (as the k3 search was), with algo 0, and with algo 0 and dbsize, equals the full search cut into calls of
+    the same size, alignment by alignment. What DIAMOND does not give (found by this test on 2026-11-24, recorded here,
+    not required): the same rows when the queries of a search are cut into calls of another size. On this fixture one
+    short gapped alignment of 1,234 (viruses_eukaryotic_he0 gene 3 to eukaryota_invertebrates_tr1 gene 2, 6M8D12M) is
+    found in calls of 150 proteins and not in calls of 37, with or without --ext-chunk-size 100000, --ext full,
+    --gapped-filter-evalue 0 or --algo 1: a weak alignment depends on the other queries of its call."""
     source, d, out = run_source, shutil.which("diamond"), {}
     old, sizes, _ = earlier(source["src"], source["metas"])
-    letters = None
-    for k, (label, block) in enumerate((("earlier search with DIAMOND's choice of algorithm", {}), ("earlier search with algo 0", dict(algo=0)),
-                                        ("earlier search with algo 0 and dbsize", "dbsize"))):
+    letters, f_dir = None, None
+    for k, (label, block) in enumerate((("DIAMOND's choice of algorithm", {}), ("algo 0", dict(algo=0)), ("algo 0 and dbsize", "dbsize"))):
         if block == "dbsize":
             block = dict(algo=0, dbsize=letters)
         e_dir, e_rep = search(source, tmp_path, "20261124T00001%d-old" % k, old, sizes, d, **block)
         letters = e_rep["database"]["letters"]
-        try:
-            x_dir, _ = search(source, tmp_path, "20261124T00002%d-ext" % k, source["src"], TS.SIZES, d, extend_from=e_dir, verify_proteins=100000)
-        except SystemExit as err:
-            out[label] = "the extension stopped: %s" % str(err)[:1500]
-            continue
-        if "full" not in out:
-            f_dir, f_rep = search(source, tmp_path, "20261124T000030-full", source["src"], TS.SIZES, d, dbsize=letters, algo=0, self_batch_proteins=1)
-            g_dir, _ = search(source, tmp_path, "20261124T000031-full", source["src"], TS.SIZES, d, dbsize=letters, algo=0, self_batch_proteins=1,
-                              chunk_proteins=37)
-            out["full"] = "made"
-            out["full search cut into other calls"] = same_search(f_dir, g_dir) or "the same"
-            out["genes that differ when cut into other calls"] = gene_differences(f_dir, g_dir)
+        x_dir, x_rep = search(source, tmp_path, "20261124T00002%d-ext" % k, source["src"], TS.SIZES, d, extend_from=e_dir, verify_proteins=100000)
+        if f_dir is None:
+            f_dir, _ = search(source, tmp_path, "20261124T000030-full", source["src"], TS.SIZES, d, dbsize=letters, algo=0, self_batch_proteins=1)
         out[label] = same_search(x_dir, f_dir) or "the same"
-    for k, flags in enumerate((["--ext-chunk-size", "100000"], ["--ext", "full"], ["--gapped-filter-evalue", "0"], ["--algo", "1"],
-                               ["--ext-chunk-size", "100000", "--ext", "full", "--gapped-filter-evalue", "0"])):
-        w = tmp_path / ("diamond-%d" % k)                                # DIAMOND with more options on every search
-        w.write_text("#!/bin/sh\nif [ \"$1\" = blastp ]; then exec %s \"$@\" %s; fi\nexec %s \"$@\"\n" % (d, " ".join(flags), d))
-        w.chmod(0o755)
-        a_dir, _ = search(source, tmp_path, "20261124T00005%d-full" % k, source["src"], TS.SIZES, str(w), dbsize=letters, algo=0, self_batch_proteins=1)
-        b_dir, _ = search(source, tmp_path, "20261124T00006%d-full" % k, source["src"], TS.SIZES, str(w), dbsize=letters, algo=0, self_batch_proteins=1, chunk_proteins=37)
-        out["cut into other calls with " + " ".join(flags)] = gene_differences(a_dir, b_dir) or "the same"
-    msg = json.dumps(out, indent=1)
-    assert out["earlier search with algo 0"] == "the same" and out["earlier search with algo 0 and dbsize"] == "the same", msg
-    assert out["full search cut into other calls"] == "the same", msg
+        assert x_rep["extension"]["verify"]["early_mismatches"] == 0 and x_rep["extension"]["verify"]["late_mismatches"] == 0
+    g_dir, _ = search(source, tmp_path, "20261124T000031-full", source["src"], TS.SIZES, d, dbsize=letters, algo=0, self_batch_proteins=1, chunk_proteins=37)
+    out["recorded, not required: the full search cut into calls of 37 proteins"] = gene_differences(f_dir, g_dir) or "the same"
+    assert all(out[k] == "the same" for k in ("DIAMOND's choice of algorithm", "algo 0", "algo 0 and dbsize")), json.dumps(out, indent=1)
 
 
 def test_an_extension_that_differs_stops_before_the_long_calls(run_source, tmp_path, monkeypatch):

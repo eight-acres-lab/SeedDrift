@@ -121,10 +121,14 @@ def held_strata(conf):
     import inspect
     from seeddrift.train.rel.data import tables as T
     held = T.open_split(conf["heldout_root"], conf["heldout_tables"], 1)
-    got = held.load(("kind", "identity"))
+    params = inspect.signature(SC.strata_of).parameters
+    got = held.load(("kind", "identity") + (("n", "col") if "coverage" in params else ()))
     kind, identity = np.asarray(got["kind"]), np.asarray(got["identity"])
     other = cond.present_rows(kind)[:, 1:].sum(axis=1)
-    strata = SC.strata_of(identity, other, kind) if "kind" in inspect.signature(SC.strata_of).parameters else SC.strata_of(identity, other)
+    if "coverage" in params:                                        # score version 5: the rows that count for the nearest identity
+        strata = SC.strata_of(identity, other, kind, coverage=SC.row_coverage(got["n"], got["col"]))
+    else:
+        strata = SC.strata_of(identity, other, kind) if "kind" in params else SC.strata_of(identity, other)
     out = {}
     for labels, index in strata:
         for k, lab in enumerate(labels):

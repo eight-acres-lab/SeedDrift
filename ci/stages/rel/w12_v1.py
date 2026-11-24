@@ -41,10 +41,11 @@ from seeddrift.train.rel.tables import v1_build as V1
 from seeddrift.train.rel.tables import v1_hits as H
 
 WHICH = dict(v1=dict(block="rel_w12_v1", stage="w12_v1", out=os.path.join("data", "rel_w12", "v1"), parts=("train", "heldout")),
-             islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)))
+             islands=dict(block="rel_w12_islands", stage="w12_islands", out=os.path.join("data", "rel_w12", "islands"), parts=("island",)),
+             x=dict(block="rel_w12_v1x", stage="w12_v1x", out=os.path.join("data", "rel_w12", "v1x"), parts=("heldout",)))
 SEARCH = os.path.join("data", "rel_w12", "search")
 KEYS = {"search_from", "expect", "rows", "train_per_group", "heldout_per_group", "per_chromosome", "shard_tables", "processes", "dist_k", "dist_size", "seed",
-        "frame_index", "name", "train_sampling", "heldout_equals", "max_uses_per_target"}
+        "frame_index", "name", "train_sampling", "heldout_equals", "max_uses_per_target", "heldout_from", "new_since"}
 
 
 def settings(cfg, which="v1") -> dict:
@@ -60,7 +61,15 @@ def settings(cfg, which="v1") -> dict:
                frame_index=str(c.get("frame_index", "none")), name=str(c["name"]) if c.get("name") else None,
                train_sampling=str(c.get("train_sampling", "genome")), heldout_equals=dict(c["heldout_equals"]) if c.get("heldout_equals") else None,
                max_uses_per_target=int(c["max_uses_per_target"]) if c.get("max_uses_per_target") else None,
+               heldout_from=dict(c["heldout_from"]) if c.get("heldout_from") else None, new_since=dict(c["new_since"]) if c.get("new_since") else None,
                max_left_out=20)
+    for k in ("heldout_from", "new_since"):
+        if out[k] is not None and set(out[k]) != {"run", "sha256"}:
+            raise SystemExit("%s: %s takes {run, sha256} (a passed table set of version 1)" % (w["block"], k))
+    if out["heldout_from"] and which != "v1":
+        raise SystemExit("%s: heldout_from belongs to the tables of version 1" % w["block"])
+    if (which == "x") != bool(out["new_since"]):
+        raise SystemExit("%s: new_since (the table set whose genomes are not examined) goes with the set of new held-out genomes, and only with it" % w["block"])
     if out["max_uses_per_target"] is not None and (out["train_sampling"] != "gene" or out["max_uses_per_target"] < 1):
         raise SystemExit("%s: max_uses_per_target (a positive count) goes with train_sampling gene" % w["block"])
     he = out["heldout_equals"]
@@ -97,6 +106,58 @@ def search_run(path):
         genomes = json.load(f)["genomes"]
     return man, genomes, files, dict(run_id=rec.get("run_id") or os.path.basename(path), commit=(rec.get("git") or {}).get("sha"), manifest_sha256=sha256_file(mp, use_sidecar=False),
                                      genomes_sha256=files[gp]["sha256"])
+
+
+def reference_set(ref, w_out=None):
+    """(manifest, index, counts) of the table set of version 1 of run ref["run"] whose manifest sha256 is ref["sha256"],
+    checked (its manifest made again gives that sha256)."""
+    out = w_out or WHICH["v1"]["out"]
+    rp = os.path.join(ref["run"], out, "tableset.json")
+    if not os.path.exists(rp):
+        raise SystemExit("w12 tables: the reference table set %s is missing" % rp)
+    with open(rp) as f:
+        rdoc = json.load(f)
+    if rdoc.get("sha256") != ref["sha256"] or handoff.finish(rdoc)["sha256"] != ref["sha256"]:
+        raise SystemExit("w12 tables: the reference table set's manifest is not sha256 %s" % ref["sha256"][:12])
+    files = {e["path"]: e for e in rdoc.get("files") or []}
+    loaded = []
+    for name in ("index.json", "counts.json"):
+        p = os.path.join(out, name)
+        if p not in files or sha256_file(os.path.join(ref["run"], p), use_sidecar=False) != files[p]["sha256"]:
+            raise SystemExit("w12 tables: the reference's %s is not the file its manifest names" % name)
+        with open(os.path.join(ref["run"], p)) as f:
+            loaded.append(json.load(f))
+    return rdoc, loaded[0], loaded[1]
+
+
+def copy_heldout(ref, genomes, groups, rows, base, w_out):
+    """The held-out part of the reference table set, copied file by file (the programme lead, 2026-11-24: round 2's
+    3,000 held-out tables are round 1's, byte for byte), when it reads the same here: the same groups and rows, and
+    every genome its tables name at the same place of this search's genome list. Returns (part entry, counts, files,
+    the genome indices used)."""
+    import shutil
+    rdoc, ridx, rcounts = reference_set(ref)
+    if ridx["groups"] != groups or int(ridx["rows"]) != int(rows):
+        raise SystemExit("w12 tables: the reference's held-out tables have other groups or rows")
+    mark = "/heldout/"
+    mine = [e for e in rdoc["files"] if mark in "/" + e["path"]]
+    folder = os.path.join(base, "heldout")
+    os.makedirs(folder, exist_ok=True)
+    files = []
+    for e in mine:
+        dst = os.path.join(folder, os.path.basename(e["path"]))
+        shutil.copyfile(os.path.join(ref["run"], e["path"]), dst)
+        if sha256_file(dst, use_sidecar=False) != e["sha256"]:
+            raise SystemExit("w12 tables: the copy of %s is not the reference's file" % e["path"])
+        files.append(dict(e, path=os.path.join(w_out, "heldout", os.path.basename(e["path"]))))
+    part = ridx["parts"]["heldout"]
+    used = set()
+    for sh in part["shards"]:
+        used |= {int(x) for x in np.unique(np.load(os.path.join(folder, "%s.genome.npy" % sh["name"]))) if x >= 0}
+    moved = [i for i in sorted(used) if i >= len(genomes) or genomes[i]["id"] != ridx["genomes"][i]["id"] or genomes[i]["split"] != ridx["genomes"][i]["split"]]
+    if moved:
+        raise SystemExit("w12 tables: genomes of the reference's held-out tables are elsewhere in this search's list: %s" % [ridx["genomes"][i]["id"] for i in moved[:5]])
+    return dict(part, folder=os.path.join(w_out, "heldout"), copied_from=dict(ref, run_id=os.path.basename(os.path.normpath(ref["run"])))), rcounts["parts"]["heldout"], files, used
 
 
 def _strip(gen):
@@ -173,7 +234,13 @@ def build(st, cfg, run_dir, which="v1"):
     man, genomes, files, prov = search_run(s["search_from"])
     arrays, sealed_ev, island_prov = load_arrays(man, genomes, cfg, s, st, with_islands=which == "islands")
     gix = {g["id"]: i for i, g in enumerate(genomes)}
-    examined = [g for g in genomes if g["split"] in w["parts"]]
+    plan_genomes, since = genomes, None
+    if which == "x":                                               # the held-out genomes the reference set did not have
+        _, sidx, _ = reference_set(s["new_since"])
+        old_ids = {g["id"] for g in sidx["genomes"]}
+        plan_genomes = [dict(g, split="heldout_before") if g["split"] == "heldout" and g["id"] in old_ids else g for g in genomes]
+        since = dict(s["new_since"], run_id=os.path.basename(os.path.normpath(s["new_since"]["run"])), heldout_before=sum(1 for g in plan_genomes if g["split"] == "heldout_before"))
+    examined = [g for g in plan_genomes if g["split"] in w["parts"]]
     if not examined:
         raise SystemExit("%s: no genome of the parts %s in the search" % (w["block"], w["parts"]))
     need = [os.path.join(SEARCH, g["id"] + ".npz") for g in examined]
@@ -191,14 +258,20 @@ def build(st, cfg, run_dir, which="v1"):
     parts, counts, out_files, used = {}, {}, [], set()
     rel_of = {g["id"]: g.get("relation", "") for g in W.source(man["settings"]["source"], pairs=False)["index"]["genomes"]}
     for part in w["parts"]:
+        if part == "heldout" and s["heldout_from"]:
+            parts[part], counts[part], copied, used_here = copy_heldout(s["heldout_from"], genomes, groups, s["rows"], base, w["out"])
+            out_files += copied
+            used |= used_here
+            say("part heldout: %d tables copied from run %s" % (parts[part]["tables"], parts[part]["copied_from"]["run_id"]))
+            continue
         per = s["per_chromosome"] * sum(1 for g in genomes if g["split"] == "island") if part == "island" else s[part + "_per_group"]
-        mine = [g for g in genomes if g["split"] == part]
+        mine = [g for g in plan_genomes if g["split"] == part]
         valid = {g["id"]: np.flatnonzero(np.diff(arrays[g["id"]].coff) > 0) for g in mine if g["id"] in arrays}
         by_gene = part == "train" and s["train_sampling"] == "gene"
-        plan = V1.plan_by_gene(genomes, groups, part, per, s["seed"], valid, s["max_uses_per_target"]) if by_gene else V1.plan_set(genomes, groups, part, per, s["seed"])
+        plan = V1.plan_by_gene(plan_genomes, groups, part, per, s["seed"], valid, s["max_uses_per_target"]) if by_gene else V1.plan_set(plan_genomes, groups, part, per, s["seed"])
         folder = os.path.join(base, part)
         shards, census = V1.build_set(builder, groups, part, plan, folder, shard_tables=s["shard_tables"], seed=s["seed"], processes=s["processes"], progress=say)
-        problems = V1.verify_set(folder, shards, s["rows"], part, {gix[g["id"]] for g in genomes if g["split"] == part}, set(train), len(groups))
+        problems = V1.verify_set(folder, shards, s["rows"], part, {gix[g["id"]] for g in plan_genomes if g["split"] == part}, set(train), len(groups))
         if problems:
             raise SystemExit("%s: the %s tables are not sound: %s" % (w["block"], part, problems[:10]))
         hashes = _hash(folder, shards, s["rows"], s["processes"])
@@ -248,9 +321,11 @@ def build(st, cfg, run_dir, which="v1"):
     listed = [dict(id=genomes[i]["id"], taxid=genomes[i].get("taxid"), split=genomes[i]["split"]) for i in sorted(used)]
     n_close = sum(1 for g in genomes if rel_of.get(g["id"]) in ("same species", "same genus"))
     island = which == "islands"
+    xset = which == "x"
     doc = handoff.finish(dict(
-        format="rel-tableset", format_version=1, name=s["name"] or "w12-%s-r%d-s%d" % (which, s["rows"], s["seed"]), kind=api.TABLE_REAL, api_version=V0.API_VERSION,
-        table_version=V1.TABLE_VERSION, layout=api.LAYOUT_STORED, purpose="heldout" if island else None, not_for_training=island or None,
+        format="rel-tableset", format_version=1, name=s["name"] or "w12-%s-r%d-s%d" % ("v1x" if xset else which, s["rows"], s["seed"]), kind=api.TABLE_REAL,
+        api_version=V0.API_VERSION, table_version=V1.TABLE_VERSION, layout=api.LAYOUT_STORED, purpose="heldout" if island or xset else None,
+        not_for_training=(island or xset) or None, new_since=since,
         coverage=dict(groups=["bacteria"] if island else groups,
                       scenarios=["the island set's development chromosomes as examined genomes, other rows training genomes (task breakdown 8.8)" if island
                                  else "far relatives of the medium corpus, rows drawn by distance tier among the genomes with a homolog (the uncapped search)"]
@@ -258,7 +333,9 @@ def build(st, cfg, run_dir, which="v1"):
                       not_covered=([] if n_close else ["close relatives (the corpus has few)"]) + ["the sealed test split and the sealed chromosomes"] + (
                           ["any training: these tables are for diagnosis only"] if island else []),
                       note=("Development chromosomes as row 0; never read by any training (not_for_training)." if island else
-                            "Tables of version 1: rows from the uncapped search; stored placement from the alignment anchored on the examined gene.")),
+                            ("Held-out genomes new since table set %s (its held-out genomes are not examined here): read and reported apart from its "
+                             "held-out tables; never read by any training (not_for_training)." % (since or {}).get("run_id") if xset else
+                             "Tables of version 1: rows from the uncapped search; stored placement from the alignment anchored on the examined gene."))),
         tables=sum(p["tables"] for p in parts.values()), rows=s["rows"], seed=s["seed"], parts=parts, files=out_files, group_names=groups, genomes=listed,
         search=prov, islands=island_prov, sealed_check=dict(passed=True, **sealed_ev), index=os.path.join(w["out"], "index.json"), frame_index=frame_ix,
         producer=dict(stage=w["stage"], package="W12", run_id=os.path.basename(run_dir), commit=cfg["git"]["sha"])))
@@ -335,6 +412,17 @@ def gate(st, cfg, run_dir, which="v1"):
             problems.append(dict(error="genomes of other splits than the development chromosomes and the training rows"))
     elif splits - {"train", "heldout"}:
         problems.append(dict(error="genomes outside the open splits"))
+    if which == "x":
+        if doc.get("purpose") != "heldout" or doc.get("not_for_training") is not True:
+            problems.append(dict(error="the set of new held-out genomes must be marked purpose heldout and not_for_training"))
+        _, sidx, _ = reference_set(s["new_since"])
+        old = {g["id"] for g in sidx["genomes"]}
+        gl = [g["id"] for g in json.load(open(os.path.join(run_dir, w["out"], "index.json")))["genomes"]]
+        ex = set()
+        for sh in (doc.get("parts") or {}).get("heldout", {}).get("shards") or []:
+            ex |= {int(x) for x in np.load(os.path.join(run_dir, w["out"], "heldout", "%s.genome.npy" % sh["name"]))[:, 0] if x >= 0}
+        if any(gl[i] in old for i in ex):
+            problems.append(dict(error="examined genomes that the reference set already had"))
     man, genomes, _, prov = search_run(s["search_from"])
     if doc.get("search") != prov:
         problems.append(dict(error="the manifest names another search than the configured run's"))

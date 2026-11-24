@@ -221,11 +221,14 @@ def main():
         head = dict(run=os.path.basename(os.path.normpath(run_dir)), commit=(cfg.get("git") or {}).get("sha", ""), seed=seed,
                     table_set=held.manifest["name"], table_kind=held.manifest["kind"], items_sha256=held.manifest["sha256"],
                     versions="evalh.conditions=%d;evalh.score=%d;baselines.run=%d;table=%s" % (cond.VERSION, score.VERSION, brun.VERSION, held.manifest["table_version"]))
+        coverage = score.row_coverage(tables["n"], tables["col"])           # score version 5: the rows that count for the nearest identity
         rows = brun.result_rows(results, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
-                                kind=tables["kind"], layouts=layouts)
+                                kind=tables["kind"], layouts=layouts, coverage=coverage)
         on_subset = brun.restrict(results, sub)
         rows_sub = brun.result_rows(on_subset, meta["group"], meta["identity"], params, head, n_groups, dict(enumerate(groups)), brun.other_rows(tables),
-                                    item_half=SUBSET, kind=tables["kind"], layouts=layouts)
+                                    item_half=SUBSET, kind=tables["kind"], layouts=layouts, coverage=coverage)
+        fine = score.fine_stratum(meta["identity"], tables["kind"], coverage)
+        cov_by = score.coverage_by_stratum(fine, score.nearest_coverage(meta["identity"], coverage, tables["kind"]))
 
         rows_path, sub_path, params_path, report_path, out_path = (st.path("rel_w5", "baselines", n) for n in
                                                                    ("rows.tsv", "rows_subset.tsv", "params.json", "report.md", "results.json"))
@@ -234,7 +237,7 @@ def main():
         write_json(params_path, params)
         title = "Classical baselines on table set %s (%d held-out tables, seed %d)" % (held.manifest["name"], n_held, seed)
         with open(report_path, "w") as f:
-            f.write(brun.markdown(rows, title, groups) + brun.subset_markdown(rows_sub, sub.shape[0]) + "\nLimits:\n"
+            f.write(brun.markdown(rows, title, groups, cov_by) + brun.subset_markdown(rows_sub, sub.shape[0]) + "\nLimits:\n"
                     + "".join("- %s\n" % x for x in ([LIMIT_OFFLINE] if offline else []) + LIMITS))
         doc = dict(
             stage=STAGE, api=api.API, seed=seed, conditions=list(results), baselines=list(brun.names(with_chain)), chain=with_chain,

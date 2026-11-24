@@ -172,6 +172,7 @@ def strata_means(bits_t, cells_t, group, mask):
     return per, tab, (sum(per.values()) / len(per) if per else None), int(has.sum())
 
 
+COVERAGE_COL = "coverage of the nearest row (median)"   # over the held-out tables of the arms' set (the stratum's tables)
 STRATA_V4 = ("The strata are the identity of the nearest row over the aligned part of the target block (the evaluator's version 4): "
              "short, very similar fragments enter the top bins, so a flat top bin does not show that close relatives are of no use.")
 STRATA_V5 = ("The strata of the nearest identity are the evaluator's version %d, derived again by this report from every arm's cells per "
@@ -831,7 +832,7 @@ def build(st, cfg, run_dir):
     # headline: by stratum (ten bins, without the bin of tables without other rows), then the eukaryotic groups apart
     headline = [[c, x.replace(SC.FINE_PREFIX, "")] + ([coverage_of(cov_arm, x, "final", c)] if cov_arm else []) + [F(v, c, SC.ALL, x) for v in cols]
                 for c in conds for x in SC.FINE if x != NONE_BIN and any(F(v, c, SC.ALL, x) is not None for v in cols)]
-    head_cols = ["condition", "nearest identity"] + (["coverage of the nearest row (median, %s)" % cov_arm] if cov_arm else []) + \
+    head_cols = ["condition", "nearest identity"] + ([COVERAGE_COL] if cov_arm else []) + \
         [col_label.get(v, v) for v in cols]
     group_set = sorted({k[4] for k in bits if k[4] != SC.ALL})
     in_block = {b: [g for g in group_set if BLOCK_OF(g) == b] for b in BLOCKS}

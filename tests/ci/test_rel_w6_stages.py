@@ -664,7 +664,8 @@ def test_report_derives_the_identity_strata_again_from_the_cells_per_table(tmp_p
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "copy_nearest (strata v%d)" % (SC.VERSION - 1) in text
     if v5:
-        assert abs(top["coverage of the nearest row (median, %s)" % arm] - 0.9) < 1e-9 and w6_report.STRATA_V5[:40] in text
+        assert abs(top[w6_report.COVERAGE_COL] - 0.9) < 1e-9 and w6_report.STRATA_V5[:40] in text and "short_fragments_only" in text
+        assert abs(frag[w6_report.COVERAGE_COL] - 0.3) < 1e-9 and rep["strata"]["coverage_of"] in (arm, old, other)
 
 
 def test_the_rows_of_a_control_never_stand_for_the_condition():

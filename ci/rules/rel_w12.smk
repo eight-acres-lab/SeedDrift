@@ -36,3 +36,10 @@ rule rel_w12_compo:
     input: "gates/pre.ok"
     output: "data/rel_w12/compo/report.json"
     shell: STAGE.format(name="rel.w12_compo")
+
+# w12_v1x: tables v1 of the held-out genomes a reference table set did not have (round 2's new held-out genomes), an
+# evaluation set of their own, never for training (ci/stages/rel/w12_v1x.py)
+rule rel_w12_v1x:
+    input: "gates/pre.ok"
+    output: "data/rel_w12/v1x/tableset.json"
+    shell: STAGE.format(name="rel.w12_v1x")

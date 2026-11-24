@@ -247,3 +247,73 @@ def test_the_genomes_of_a_few_groups_are_listed_with_their_nearest_training_geno
     with Stage(run_dir, "gates_rel_w12_compo") as st:
         WCO.gate(st, cfg, run_dir)
     assert "nearest training genome" in open(os.path.join(run_dir, WCO.OUT, "report.md")).read()
+
+
+def test_round_2_takes_the_held_out_part_of_round_1_as_it_is(runs, monkeypatch):
+    """rel_w12_v1.heldout_from (the programme lead, 2026-11-24): the held-out part is the reference set's, copied file
+    by file, when every genome its tables name has the same place in this search's genome list; heldout_equals holds."""
+    import shutil
+    TS.patch(monkeypatch, runs["tmp"])
+    ref = runs["out"]["v1"]
+    r = dict(run=ref["run_dir"], sha256=ref["doc"]["sha256"])
+    block = dict(search_from=runs["search"], expect=TS.SIZES, rows=32, train_per_group=40, heldout_per_group=2, shard_tables=20, processes=2,
+                 dist_k=4, dist_size=256, train_sampling="gene", max_uses_per_target=5, heldout_from=r, heldout_equals=r)
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261124T000030-v1from", rel_w12_v1=block)
+    with Stage(run_dir, "rel_w12_v1") as st:
+        doc = WV.build(st, cfg, run_dir, "v1")
+    assert handoff.tableset_problems(doc, run_dir) == [] and doc["parts"]["heldout"]["copied_from"]["run_id"] == os.path.basename(ref["run_dir"])
+    assert doc["parts"]["heldout"]["tables"] == ref["doc"]["parts"]["heldout"]["tables"] and doc["parts"]["train"]["tables"] > ref["doc"]["parts"]["train"]["tables"]
+    mine = {os.path.basename(f["path"]): f["sha256"] for f in doc["files"] if "/heldout/" in f["path"]}
+    theirs = {os.path.basename(f["path"]): f["sha256"] for f in ref["doc"]["files"] if "/heldout/" in f["path"]}
+    assert mine == theirs and mine
+    with Stage(run_dir, "gates_rel_w12_v1") as st:
+        WV.gate(st, cfg, run_dir)
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w12_v1.json")))["status"] == "pass"
+    with open(os.path.join(runs["search"], "data", "rel_w12", "search", "genomes.json")) as f:
+        genomes = json.load(f)["genomes"]
+    groups = sorted({g["group"] for g in genomes if g["split"] != "island"})
+    other = os.path.join(str(runs["tmp"]), "other-base")
+    with pytest.raises(SystemExit, match="elsewhere"):                     # a search whose list puts the genomes elsewhere
+        WV.copy_heldout(r, list(reversed(genomes)), groups, 32, other, WV.WHICH["v1"]["out"])
+    shutil.rmtree(other, ignore_errors=True)
+    with pytest.raises(SystemExit, match="heldout_from belongs"):
+        WV.settings(dict(rel_w12_islands=dict(search_from="x", heldout_from=r)), "islands")
+
+
+def test_the_new_held_out_genomes_have_a_table_set_of_their_own(runs, monkeypatch):
+    """Stage rel_w12_v1x: the held-out genomes a reference set did not have (here a copy of round 1's set without the
+    held-out genomes of two groups) are the examined genomes of a set marked purpose heldout and not_for_training."""
+    import shutil
+    TS.patch(monkeypatch, runs["tmp"])
+    ref = runs["out"]["v1"]
+    fake = os.path.join(str(runs["tmp"]), "ci-root", "runs", "20261124T000031-before")
+    shutil.copytree(os.path.join(ref["run_dir"], "data"), os.path.join(fake, "data"))
+    out = WV.WHICH["v1"]["out"]
+    ip = os.path.join(fake, out, "index.json")
+    idx = json.load(open(ip))
+    held = sorted({g["group"] for g in idx["genomes"] if g["split"] == "heldout"})[:2]
+    gone = {g["id"] for g in idx["genomes"] if g["split"] == "heldout" and g["group"] in held}
+    json.dump(dict(idx, genomes=[g for g in idx["genomes"] if g["id"] not in gone]), open(ip, "w"))
+    doc = json.load(open(os.path.join(fake, out, "tableset.json")))
+    from ci.hashing import sha256_file
+    for f in doc["files"]:
+        if f["path"] == os.path.join(out, "index.json"):
+            f.update(sha256=sha256_file(ip, use_sidecar=False), bytes=os.path.getsize(ip))
+    doc = handoff.finish({k: v for k, v in doc.items() if k != "sha256"})
+    json.dump(doc, open(os.path.join(fake, out, "tableset.json"), "w"))
+    block = dict(search_from=runs["search"], expect=TS.SIZES, rows=32, heldout_per_group=3, shard_tables=20, processes=2, dist_k=4, dist_size=256,
+                 new_since=dict(run=fake, sha256=doc["sha256"]), name="w12-v1x-test")
+    run_dir, cfg = RF.rel_run(runs["tmp"], stages=("w12_v1",), run_id="20261124T000032-v1x", rel_w12_v1x=block)
+    with Stage(run_dir, "rel_w12_v1x") as st:
+        x = WV.build(st, cfg, run_dir, "x")
+    assert handoff.tableset_problems(x, run_dir) == [] and x["purpose"] == "heldout" and x["not_for_training"] is True and set(x["parts"]) == {"heldout"}
+    assert x["new_since"]["heldout_before"] == sum(1 for g in idx["genomes"] if g["split"] == "heldout") - len(gone) and x["name"] == "w12-v1x-test"
+    gl = [g["id"] for g in json.load(open(os.path.join(run_dir, x["index"])))["genomes"]]
+    folder = os.path.join(run_dir, x["parts"]["heldout"]["folder"])
+    row0 = {gl[int(i)] for n in x["parts"]["heldout"]["shards"] for i in np.load(os.path.join(folder, "%s.genome.npy" % n["name"]))[:, 0]}
+    assert row0 == gone and x["parts"]["heldout"]["tables"] == 3 * len(held)
+    with Stage(run_dir, "gates_rel_w12_v1x") as st:
+        WV.gate(st, cfg, run_dir, "x")
+    assert json.load(open(os.path.join(run_dir, "gates", "G4_rel_w12_v1x.json")))["status"] == "pass"
+    with pytest.raises(SystemExit, match="new_since"):
+        WV.settings(dict(rel_w12_v1x=dict(search_from="x")), "x")

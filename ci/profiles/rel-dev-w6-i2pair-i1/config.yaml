@@ -52,7 +52,7 @@ rel_w6_report:
       The nodes of ref30m-s2 and ref30m-s3 during training were rendered online (rows leakfree-online, about 0.10 bits too
       low on scattered and span), those of the strict arm by W3's strict aligner: the curves at equal tables seen mix two
       renderings and are not compared between these arms; only the ends are.
-  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261123T221348-exp-rel-7c02795e-rel-dev-w5-baselines-v1-i1, path: data/rel_w5/baselines/rows.tsv}]
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261124T092020-exp-rel-4a4530a7-rel-dev-w5-baselines-v1-i1, path: data/rel_w5/baselines/rows.tsv}]
 train:
   gpu_lease: false
   device: cpu

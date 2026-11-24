@@ -75,6 +75,7 @@ WITH_RELATIVES = getattr(SC, "RELATIVES", (None,))[0]               # the stratu
 WITHOUT_RELATIVES = getattr(SC, "RELATIVES", (None, None))[1]
 GROUP_FLOOR = 0.02                    # the least threshold of a group's own reading (the programme lead, 2026-11-23)
 NODE_CELLS = "node_cells.npz"         # the trainer's bits per held-out table at every node
+AGAIN_RX = re.compile(r"^.*\.(node@\d+|best)$")  # weights read again by w6_eval (a node, the best): an entry, not an arm with a curve
 
 
 def held_units(conf, source):
@@ -472,10 +473,19 @@ def build(st, cfg, run_dir):
     conds = [c for c in list(cond.CONDITIONS) + list(getattr(cond, "EXTRA_CONDITIONS", ())) + extra if any(F(v, c) is not None for v in cols)]
     reading = {a: (s["main"] if arms[a]["variant"]["relatives"] else s["main"] + NO_REL) for a in names}
     nodes = {a: sorted({k[2] for k in bits if k[0] == a and k[1] == "node"}) for a in names}
-    same = same_items(arms, digests)
+    # the cells the baselines scored are checked against the arms read on the baselines' own held-out set; an arm read on
+    # another set (round 1b's long arm on version 0, beside the long arm of version 1 for the reading of data) is listed
+    # apart, never in the check (its cells cannot be the baselines')
+    base_sets = {r.get("items_sha256") for r in base if r.get("items_sha256")}
+    arm_sets = {}
+    for r in rows:
+        if r["variant"] in arms and r.get("items_sha256"):
+            arm_sets.setdefault(r["variant"], set()).add(r["items_sha256"])
+    other_set = sorted(a for a in arms if base_sets and arm_sets.get(a) and not (arm_sets[a] & base_sets))
+    same = same_items({a: x for a, x in arms.items() if a not in other_set}, digests)
     same_subset = {}
     for c in cond.CONDITIONS:                                         # the nodes against the baselines' subset
-        mine = {a["node_items"].get(c) for a in arms.values() if a["status"] == "ok"} - {None}
+        mine = {a["node_items"].get(c) for n_, a in arms.items() if a["status"] == "ok" and n_ not in other_set and not AGAIN_RX.match(n_)} - {None}
         if mine and sub["digests"].get(c):
             same_subset[c] = mine == {sub["digests"][c]}
     lines = {}                                                        # {condition: {baseline: bits}} on the subset, over the groups
@@ -979,6 +989,8 @@ def build(st, cfg, run_dir):
     if bnames:
         md += ["", "Arms and baselines scored the same cells (digests of the scored cells): %s." % (
             ", ".join("%s %s" % (c, "yes" if v else "NO") for c, v in same.items()) or "not known (no digests beside the baseline rows)")]
+        if other_set:
+            md += ["Read on another held-out set than the baselines' (not in that check, not comparable cell by cell): %s." % ", ".join(other_set)]
     md += ["", "### The two blocks over all their tables (mean of the groups, all strata)", ""] + md_table(["condition", "block"] + cols, blocks)
     md += ["", "## What relatives are worth", "",
            "Bits without relatives minus bits with them (positive: relatives help), on the held-out tables with a relative on the target block. "
@@ -1285,7 +1297,8 @@ def build(st, cfg, run_dir):
             md += ["", "%s failed: `%s`" % (a, " ".join((arms[a].get("error") or "").split())[-600:])]
     with open(os.path.join(folder, "report.md"), "w") as f:
         f.write("\n".join(md) + "\n")
-    report = dict(main=s["main"], caveats=caveats, sources=sources, conditions=conds, groups=groups, same_items=same, heldout_alone=held_alone,
+    report = dict(main=s["main"], caveats=caveats, sources=sources, conditions=conds, groups=groups, same_items=same, other_heldout_set=other_set,
+                  heldout_alone=held_alone,
                   trained_alone=trained_alone,
                   arms={a: dict(status=arms[a]["status"], run=arms[a]["run"], relatives=arms[a]["variant"]["relatives"], info=arms[a]["info"],
                                 evaluations=len(nodes.get(a, [])) + (1 if any(F(a, c) is not None for c in conds) else 0),
@@ -1370,6 +1383,8 @@ def gate(st, cfg, run_dir):
     if not trained:
         problems.append(dict(error="no trained arm in the report"))
     for a, x in trained.items():
+        if AGAIN_RX.match(a):                                          # a node read again: one point, read in its own section
+            continue
         if x["evaluations"] < 2:
             problems.append(dict(arm=a, error="a curve of %d evaluations" % x["evaluations"]))
         if not any(v is not None for v in x["final"].values()):

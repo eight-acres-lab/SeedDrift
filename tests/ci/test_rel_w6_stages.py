@@ -611,6 +611,34 @@ def test_the_rows_of_a_control_never_stand_for_the_condition():
     assert w6_report.index_rows(later, arms, [])[("a", "final", None, "scattered", SC.ALL, SC.ALL)] == 3.0
 
 
+def test_an_arm_on_another_held_out_set_and_a_node_read_again_pass_the_gate(tmp_path):
+    """The same-cells check holds the arms read on the baselines' own held-out set: an arm read on another set (round 1b's
+    long arm on version 0 beside version 1) is listed apart, and a node read again (<arm>.node@<n>, one point) is no arm
+    the gate asks a curve of."""
+    run_dir, cfg, doc, _ = _finished_fit(tmp_path / "a", statuses=("ok", "ok", "ok"))
+    base_run = _baselines(run_dir)
+    other, _, _, _ = _finished_fit(tmp_path / "b", statuses=("ok", "failed", "failed"))
+    _passed(other, os.path.join(w6_fit.OUT, "models.json"))
+    p = os.path.join(other, w6_fit.OUT, "results.tsv")              # the other run read another held-out set: other cells, other set
+    SC.write_rows(p, [dict(r, items_sha256="9" * 64) for r in SC.read_rows(p)])
+    mp = os.path.join(other, w6_fit.OUT, "models.json")
+    with open(mp) as f:
+        m = json.load(f)
+    for v in m["variants"]:
+        if v["info"].get("final_items"):
+            v["info"]["final_items"] = {c: "other-" + c for c in v["info"]["final_items"]}
+    m = handoff.finish(m)
+    with open(mp, "w") as f:
+        json.dump(m, f)
+    _passed(other, os.path.join(w6_fit.OUT, "models.json"))
+    st = Stage(run_dir, "rel_w6_report")
+    rep = w6_report.build(st, dict(cfg, rel_w6_report=dict(fits=[dict(run=other, label="v0")], readings_exclude=["w6-ref30m-s1 @v0"],
+                                                            baselines=[base_run])), run_dir)
+    assert rep["other_heldout_set"] == ["w6-ref30m-s1 @v0"] and all(rep["same_items"].values())
+    w6_report.gate(st, cfg, run_dir)
+    assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
+
+
 def test_scale_exclude_keeps_an_arm_in_the_relatives_reading(tmp_path):
     run_dir, cfg, doc, _ = _finished_fit(tmp_path, statuses=("ok", "ok", "ok"))
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(scale_exclude=["w6-ref10m-s1"])), run_dir)
@@ -959,6 +987,8 @@ def test_evaluation_again_reads_the_weights_each_entry_names(tmp_path, monkeypat
     assert ("w6-ref30m-s1.node@1000", "node", "1000") in at
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
     assert "## Node weights read again on all held-out tables" in text                    # the node read again against the arm's end
+    w6_report.gate(Stage(run_dir, "rel_w6_report"), cfg, run_dir)                          # the entries read again ask no curve of their own
+    assert _gate(run_dir, "G4_rel_w6_report")["status"] == "pass"
 
 
 def test_evaluation_again_reads_the_final_weights_online_too(tmp_path, monkeypatch):

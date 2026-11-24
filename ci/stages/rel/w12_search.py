@@ -245,6 +245,17 @@ def extension(s, src, genomes, island_prov):
                 fresh=[g["id"] for g in genomes if g["split"] == "train" and g["id"] not in olds])
 
 
+def differences(gid, i, kept, again, genomes, ext):
+    """What a sampled gene's rows of the extension (kept) and of the search done again (again) do not share, for the
+    report of a failed verification: the alignments only on one side (target genome, earlier or new, target gene,
+    qs, qe, ss, se, CIGAR) and whether the two hold the same alignments in another order."""
+    def show(r):
+        return [genomes[r[0]]["id"], "earlier" if genomes[r[0]]["id"] in ext["old"] else "new"] + list(r[1:6]) + [r[6].decode()]
+    only_k = [show(r) for r in kept if r not in again][:4]
+    only_a = [show(r) for r in again if r not in kept][:4]
+    return dict(genome=gid, gene=i, kept=len(kept), again=len(again), only_kept=only_k, only_again=only_a, same_set_other_order=sorted(kept) == sorted(again))
+
+
 def verify_sample(ext, genomes, gix, gene_index, names, prots, searched, n_genes, s, diamond, db, db_new, parts, say):
     """Before the long calls of an extension: about verify_proteins genes of the genomes searched before (20 genes of
     each of verify_proteins / 20 genomes, at random) searched again against the whole database; their rows must be the
@@ -276,7 +287,7 @@ def verify_sample(ext, genomes, gix, gene_index, names, prots, searched, n_genes
     if db_new:
         diamond_search(diamond, q, db_new, s, lambda lines: H.stream(lines, gix, gene_index, keep, extra.__setitem__, n_genes, mask))
     os.remove(q)
-    bad = []
+    bad, detail = [], []
     for gid, idx in genes.items():
         rows.setdefault(gid, H.empty(n_genes[gid], mask[gid]))
         held = genomes[gix[gid]]["split"] in ("heldout", "island")
@@ -284,10 +295,16 @@ def verify_sample(ext, genomes, gix, gene_index, names, prots, searched, n_genes
         if db_new:
             pieces.append(H.flat(extra.get(gid) or H.empty(n_genes[gid], mask[gid])))
         a = H.combine(pieces, n_genes[gid], searched[gid])
-        bad += [(gid, i) for i in idx if H.gene_rows(a, i) != H.gene_rows(rows[gid], i)]
+        for i in idx:
+            x, y = H.gene_rows(a, i), H.gene_rows(rows[gid], i)
+            if x != y:
+                bad.append((gid, i))
+                if len(detail) < 3:
+                    detail.append(differences(gid, i, x, y, genomes, ext))
     n = sum(len(v) for v in genes.values())
     if bad:
-        raise SystemExit("rel_w12_search: the extension differs from the search done again for %d of %d sampled genes, e.g. %s" % (len(bad), n, bad[:5]))
+        raise SystemExit("rel_w12_search: the extension differs from the search done again for %d of %d sampled genes, e.g. %s; %s" % (
+            len(bad), n, bad[:5], json.dumps(detail)[:3000]))
     say("verified: %d genes of %d genomes searched again give the extended rows exactly" % (n, len(genes)))
     return dict(genomes=len(genes), proteins=n, seconds=round(time.time() - t0, 1), early_mismatches=0, rows=rows, genes=genes)
 

@@ -149,10 +149,33 @@ def test_an_extended_search_is_the_full_search(run_source, tmp_path):
 
 @pytest.mark.skipif(shutil.which("diamond") is None, reason="DIAMOND is not installed here (it is in the CI environment)")
 def test_an_extended_search_is_the_full_search_with_diamond(run_source, tmp_path):
-    source = run_source
-    e_rep, x_rep, f_rep, problems, _ = extended_equals_full(source, tmp_path, shutil.which("diamond"), verify=200)
-    assert problems == [] and x_rep["extension"]["verify"]["early_mismatches"] == 0
-    assert f_rep["rows"]["hsps"] == x_rep["rows"]["hsps"]
+    """With DIAMOND: the extension of an earlier search made with algo 0 (and without, as the k3 search was: DIAMOND
+    chooses the seed search algorithm; recorded, not required) equals the full search; the full search does not
+    depend on how the queries are cut into calls. The message names every outcome."""
+    source, d, out = run_source, shutil.which("diamond"), {}
+    old, sizes, _ = earlier(source["src"], source["metas"])
+    letters = None
+    for k, (label, block) in enumerate((("earlier search with DIAMOND's choice of algorithm", {}), ("earlier search with algo 0", dict(algo=0)),
+                                        ("earlier search with algo 0 and dbsize", "dbsize"))):
+        if block == "dbsize":
+            block = dict(algo=0, dbsize=letters)
+        e_dir, e_rep = search(source, tmp_path, "20261124T00001%d-old" % k, old, sizes, d, **block)
+        letters = e_rep["database"]["letters"]
+        try:
+            x_dir, _ = search(source, tmp_path, "20261124T00002%d-ext" % k, source["src"], TS.SIZES, d, extend_from=e_dir, verify_proteins=100000)
+        except SystemExit as err:
+            out[label] = "the extension stopped: %s" % str(err)[:1500]
+            continue
+        if "full" not in out:
+            f_dir, f_rep = search(source, tmp_path, "20261124T000030-full", source["src"], TS.SIZES, d, dbsize=letters, algo=0, self_batch_proteins=1)
+            g_dir, _ = search(source, tmp_path, "20261124T000031-full", source["src"], TS.SIZES, d, dbsize=letters, algo=0, self_batch_proteins=1,
+                              chunk_proteins=37)
+            out["full"] = "made"
+            out["full search cut into other calls"] = same_search(f_dir, g_dir) or "the same"
+        out[label] = same_search(x_dir, f_dir) or "the same"
+    msg = json.dumps(out, indent=1)
+    assert out["earlier search with algo 0"] == "the same" and out["earlier search with algo 0 and dbsize"] == "the same", msg
+    assert out["full search cut into other calls"] == "the same", msg
 
 
 def test_an_extension_that_differs_stops_before_the_long_calls(run_source, tmp_path, monkeypatch):

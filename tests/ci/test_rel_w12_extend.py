@@ -127,6 +127,25 @@ def same_search(a, b):
     return out
 
 
+def gene_differences(a, b, limit=6):
+    """For the genomes whose rows differ between two search runs: per differing gene the alignments only in the first
+    and only in the second (target genome id, target gene, qs, qe, ss, se, CIGAR), and the genes' lengths."""
+    out = []
+    ga = json.load(open(os.path.join(a, WS.OUT, "genomes.json")))["genomes"]
+    ids = [g["id"] for g in ga]
+    for g in ga:
+        x, y = H.load(os.path.join(a, WS.OUT, g["id"] + ".npz")), H.load(os.path.join(b, WS.OUT, g["id"] + ".npz"))
+        for i in range(g["genes"]):
+            rx, ry = H.gene_rows(x, i), H.gene_rows(y, i)
+            if rx != ry:
+                show = lambda r: [ids[r[0]]] + list(r[1:6]) + [r[6].decode()]      # noqa: E731
+                out.append(dict(genome=g["id"], gene=i, only_first=[show(r) for r in rx if r not in ry][:4], only_second=[show(r) for r in ry if r not in rx][:4],
+                                same_set=sorted(rx) == sorted(ry)))
+            if len(out) >= limit:
+                return out
+    return out
+
+
 def extended_equals_full(source, tmp, diamond, verify):
     old, sizes, gone = earlier(source["src"], source["metas"])
     e_dir, e_rep = search(source, tmp, "20261124T000001-old", old, sizes, diamond)
@@ -172,6 +191,7 @@ def test_an_extended_search_is_the_full_search_with_diamond(run_source, tmp_path
                               chunk_proteins=37)
             out["full"] = "made"
             out["full search cut into other calls"] = same_search(f_dir, g_dir) or "the same"
+            out["genes that differ when cut into other calls"] = gene_differences(f_dir, g_dir)
         out[label] = same_search(x_dir, f_dir) or "the same"
     msg = json.dumps(out, indent=1)
     assert out["earlier search with algo 0"] == "the same" and out["earlier search with algo 0 and dbsize"] == "the same", msg

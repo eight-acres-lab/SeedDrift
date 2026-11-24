@@ -1,0 +1,58 @@
+# Machine i-1: round 1's reading i2_pair (a) (protocol round1, version 11; stage w6_report of package W6, alone): the
+# filler on i-2, W6's reference trunk trained on W3's strict rendering (w6-ref30m-strict-v1, seed 2, 94,000 tables; run
+# 20261124T050050, i-2's A100 beside the vLLM service, alone, micro-batches of 1 table), read at the end on all 3,000
+# held-out tables of version 1 strictly offline (run 20261124T073015 on exp/rel ffeadaa, stage w6_eval, its rows in the
+# evaluator's strata version 5; both copied to i-1 over R2 without checkpoints, every file checked by sha256), against
+# batch 1's ref30m-s2 (the same seed and tables, trained online on i-1's A800 beside two other arms; run 20261123T144801,
+# read at the end through run 20261123T220309, rows of strata version 4 whose bins the report derives again from the
+# cells per table): the second's end minus the first's, paired by table, by block and by relatives stratum, against the
+# threshold 0.009. ref30m-s3 gives the seeds' threshold. Reads result rows, model indexes, preflight records, the arms'
+# steps.csv and their cells per table; CPU only. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261123T144801-exp-rel-6bb5f500-rel-r1short-i1
+    - {run: /hy-tmp/seeddrift-ci/runs/20261123T220309-exp-rel-7c02795e-rel-r1eval-i1, folder: data/rel_w6/eval}
+    - /hy-tmp/seeddrift-ci/imports/runs/20261124T050050-exp-rel-ab09078f-rel-r1strict-i2
+    - {run: /hy-tmp/seeddrift-ci/imports/runs/20261124T073015-exp-rel-ffeadaa6-rel-r1evalstrict-i2, folder: data/rel_w6/eval}
+  seeds: [[w6-ref30m-v1-s2, w6-ref30m-v1-s3]]
+  threshold_floor: 0.008
+  worth_without: end
+  units_source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  heldout_tables: {run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json}
+  readings_exclude: [w6-ref30m-strict-v1-s2]
+  scale_exclude: [w6-ref30m-strict-v1-s2]
+  paired_ends:
+    - {name: "i2_pair (a): trained on the strict rendering (i-2) against trained online (i-1), seed 2, 94,000 tables",
+       first: w6-ref30m-v1-s2, second: w6-ref30m-strict-v1-s2, threshold: 0.009}
+  notes:
+    - >-
+      The reading (protocol round1, version 10, i2_pair (a)): w6-ref30m-strict-v1-s2 minus w6-ref30m-v1-s2 at their ends,
+      both read strictly offline on all 3,000 held-out tables of version 1, paired by table, by block and by relatives
+      stratum, against the threshold 0.009 (the seeds' difference of batch 1 at its last common node). It holds the
+      rendering trained on and the machine at once: the strict arm trained alone on i-2's A100 beside the vLLM service,
+      ref30m-s2 on i-1's A800 at once with ref30m-s3 and norel30m. It is read only if the strict arm's online rendering
+      minus its offline rendering reads 0.000 (the section on the online rendering): for an arm trained strictly the
+      online rendering is W3's strict aligner, which must give the offline tables' cells.
+    - >-
+      The nodes of ref30m-s2 and ref30m-s3 during training were rendered online (rows leakfree-online, about 0.10 bits too
+      low on scattered and span), those of the strict arm by W3's strict aligner: the curves at equal tables seen mix two
+      renderings and are not compared between these arms; only the ends are.
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261123T221348-exp-rel-7c02795e-rel-dev-w5-baselines-v1-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

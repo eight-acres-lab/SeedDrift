@@ -23,7 +23,7 @@ rel_w18_readout:
   tables: {run: /hy-tmp/seeddrift-ci/runs/20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1, path: data/rel_w18/rulers/tableset.json, sha256: 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3}
   eval_run:
     - /hy-tmp/seeddrift-ci/runs/20261123T205316-exp-rel-7f7bc6d5-rel-w18c1-i1
-    - /hy-tmp/seeddrift-ci/imports/runs/W18C1-I2-RUN-NOT-SET
+    - /hy-tmp/seeddrift-ci/imports/runs/20261124T020934-exp-rel-7f7bc6d5-rel-w18c1-i2
   offline: /hy-tmp/seeddrift-ci/runs/20261123T151318-exp-rel-36fa1982-rel-dev-w18-offline-v3-i1
   reps: 2000
 train:

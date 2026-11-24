@@ -14,7 +14,9 @@ from tests.ci.test_rel_w15_registry import _row
 NODES = {1: (1, "no rank", "root"), 2: (1, "superkingdom", "Eukaryota"), 3: (2, "kingdom", "Metazoa"),
          4: (3, "class", "Insecta"), 5: (4, "genus", "Drosophila"), 6: (5, "species", "Drosophila ananassae"),
          7: (4, "genus", "Aphis"), 10: (1, "superkingdom", "Bacteria"), 11: (10, "family", "Pseudomonadaceae"),
-         12: (11, "genus", "Pseudomonas"), 13: (10, "genus", "Neisseria"), 14: (1, "no rank", "Aphis")}
+         12: (11, "genus", "Pseudomonas"), 13: (10, "genus", "Neisseria"), 14: (1, "no rank", "Aphis"),
+         20: (5, "subgenus", "Sophophora"), 21: (20, "species group", "Drosophila melanogaster group"),
+         22: (6, "varietas", "Drosophila ananassae var. pallida"), 23: (12, "species", "Pseudomonas sp. VKM F-3808")}
 
 
 class Tax:
@@ -396,14 +398,23 @@ def _index():
                          dict(id="plants_algae_nicotiana_attenuata", split="test", taxid=6, group="eukaryota.plants_algae")])
 
 
-def test_latin_names_from_free_text():
-    assert W._latin("bdelloid rotifers (Adineta vaga and others)", single=False) == ["adineta_vaga"]
-    assert W._latin("diatoms (Thalassiosira pseudonana, Phaeodactylum tricornutum)", single=False) == [
-        "thalassiosira_pseudonana", "phaeodactylum_tricornutum"]
-    assert W._latin("Pseudomonas sp. (many strains)") == [] and W._latin("Pseudomonas sp. and Vibrio cholerae") == ["vibrio_cholerae"]
-    assert W._latin("Candidatus Pelagibacter ubique") == ["pelagibacter_ubique"] and W._latin("Ca. Hodgkinia") == ["hodgkinia"]
-    assert W._latin("Wolbachia") == ["wolbachia"] and W._latin("Wolbachia", single=False) == []
-    assert W._latin("Klosneuvirus and relatives", single=False) == [] and W._latin("Homo sapiens (and 25 others)") == ["homo_sapiens"]
+def test_latin_names_by_the_reviewers_rule():
+    assert W._latin("bdelloid rotifers (Adineta vaga and others)") == ["adineta_vaga"]                     # EV016
+    assert W._latin("diatoms (Thalassiosira pseudonana, Phaeodactylum tricornutum and others)") == [
+        "thalassiosira_pseudonana", "phaeodactylum_tricornutum"]                                           # EV019
+    assert W._latin("Candidatus Pelagibacter ubique") == ["pelagibacter_ubique"]                            # never 'candidatus'
+    assert W._latin("Ca. Hodgkinia", single=True) == ["hodgkinia"] and W._latin("Candidatus Hodgkinia") == []
+    for unnamed in ("Pseudomonas sp.", "Chaetothyriales sp. CBS 135597", "Pseudogymnoascus sp. VKM F-3808", "Vibrio spp."):
+        assert W._latin(unnamed, single=True) == [], unnamed                    # the assembly numbers cover them
+    assert W._latin("Pseudomonas sp. and Vibrio cholerae") == ["vibrio_cholerae"]
+    assert W._latin("Wolbachia", single=True) == ["wolbachia"] and W._latin("Wolbachia") == []
+    assert W._latin("Klosneuvirus and relatives") == [] and W._latin("Homo sapiens (and 25 other genomes)") == ["homo_sapiens"]
+
+
+def test_nucleotide_accessions_as_the_drafts_cite_them():
+    text = "contig JN900499; scaffolds EQ111801, EQ113280; NC_009504.1 and NZ_CP012345.1; WGS ANGL00000000; M35027"
+    assert W._nucleotide(text) == {"JN900499", "EQ111801", "EQ113280", "NC_009504", "NZ_CP012345", "ANGL00000000", "M35027"}
+    assert W._nucleotide("Pfam PF00729, run EV012, PMC6410850, ST828, ASEM_AUS1_12345, GCA_004135705.1") == set()
 
 
 def test_unseen_genomes_by_assembly_id_and_species_words():
@@ -421,16 +432,40 @@ def test_exposure_tokens_use_only_train_and_heldout_genomes():
     rows = [_row("E1", "Pseudomonas (genus)", "Bacteria;Pseudomonadaceae;Pseudomonas", recipient="Pseudomonas sp. (many strains)"),
             _row("E2", "Drosophila (genus)", "Eukaryota;Metazoa;Insecta;Drosophila", recipient="Drosophila ananassae (lines Hawaii, India)"),
             _row("E3", "Insecta (class)", "Eukaryota;Metazoa;Insecta", recipient="insects (several)"),
-            _row("E4", "Nothing (genus)", "Eukaryota;Nothing", recipient="unknown hosts")]
+            _row("E4", "Nothing (genus)", "Eukaryota;Nothing", recipient="unknown hosts", region="contig JN900499"),
+            _row("E5", "Sophophora (subgenus)", "Eukaryota;Metazoa;Insecta;Drosophila;Sophophora", recipient="flies"),
+            _row("E6", "Drosophila melanogaster group (species group)", "Eukaryota;Insecta;Drosophila;Sophophora", recipient="flies"),
+            _row("E7", "Drosophila ananassae var. pallida (varietas)", "Eukaryota;Insecta;Drosophila", recipient="flies"),
+            _row("E8", "Pseudomonas sp. VKM F-3808 (species)", "Bacteria;Pseudomonas", recipient="a strain")]
     tax = Tax()
     found = W.taxa(rows, tax)
     inside = W.radius_genomes(found, _index(), tax)
     assert inside["E1"] == [("bacteria_GCF_000000123.1", 12)]          # the test genome of the same genus is not read
-    tok = W.exposure_tokens(rows, found, inside, tax)
-    assert tok["E1"] == dict(genomes=1, accessions=["000000123"], names=["pseudomonas"])
-    assert tok["E2"] == dict(genomes=1, accessions=[], names=["drosophila", "drosophila_ananassae"])
-    assert tok["E3"] == dict(genomes=1, accessions=[], names=["drosophila_ananassae"])     # a class adds no name of its own
-    assert tok["E4"] == dict(genomes=0, accessions=[], names=[])
+    islands = {"NC_000001.1": 12, "NC_000002.1": 6}
+    tok = W.exposure_tokens(rows, found, inside, tax, islands)
+    assert tok["E1"] == dict(genomes=1, accessions=["000000123"], nucleotide=["NC_000001"], names=["pseudomonas"])
+    assert tok["E2"] == dict(genomes=1, accessions=[], nucleotide=["NC_000002"], names=["drosophila", "drosophila_ananassae"])
+    assert tok["E3"]["names"] == ["drosophila_ananassae"] and tok["E3"]["nucleotide"] == ["NC_000002"]   # a class: no name
+    assert tok["E4"] == dict(genomes=0, accessions=[], nucleotide=["JN900499"], names=[])       # cited by the draft
+    assert tok["E5"]["names"] == []                                     # below the genus, one word: not a token
+    assert tok["E6"]["names"] == ["drosophila_melanogaster"]
+    assert tok["E7"]["names"] == ["drosophila_ananassae"] and tok["E7"]["nucleotide"] == []   # the species' island: outside a varietas
+    assert tok["E8"]["names"] == []                                     # no epithet: no genus either
+
+
+def test_island_taxa_leave_the_sealed_and_the_candidates_out(tmp_path):
+    ref = tmp_path / "v2_reference_set.tsv"
+    ref.write_text("accession\torganism\tgenus\tfamily\torder\tpart\tlevel\tstatus\tlevel_from\n"
+                   "NC_000001.1\tA b\tA\tF\tO\tdevelopment\tL3\tdevelopment\tx\n"
+                   "NC_000002.1\tA c\tA\tF\tO\tsealed_v1\tL0\tsealed_v1\tx\n"
+                   "NC_000003.1\tA d\tA\tF\tO\trest\tL1\tcandidate\tx\n"
+                   "NC_000004.1\tA e\tA\tF\tO\trest\tL2\tdemoted\tx\n"
+                   "NC_000005.1\tA f\tA\tF\tO\tdevelopment\tL3\tdevelopment\tx\n")
+    (tmp_path / "panel").mkdir()
+    (tmp_path / "panel" / "island_set_taxa.json").write_text(json.dumps({"NC_000001.1": 12, "NC_000002.1": 12, "NC_000003.1": 12,
+                                                                        "NC_000004.1": 6}))
+    got = W.island_taxa(str(ref), str(tmp_path))
+    assert got["taxids"] == {"NC_000001.1": 12, "NC_000004.1": 6} and got["left_out"] == 2 and got["without_taxid"] == ["NC_000005.1"]
 
 
 def _touch(base, *rel):
@@ -443,7 +478,8 @@ def _touch(base, *rel):
 TOKENS = {"E1": dict(genomes=1, accessions=["000000123"], names=["pseudomonas"]),
           "E2": dict(genomes=1, accessions=[], names=["drosophila_ananassae"]),
           "E3": dict(genomes=0, accessions=[], names=["homo"]), "E4": dict(genomes=0, accessions=[], names=[]),
-          "E5": dict(genomes=0, accessions=[], names=["nicotiana"])}
+          "E5": dict(genomes=0, accessions=[], names=["nicotiana"]),
+          "E6": dict(genomes=0, accessions=[], nucleotide=["JN900499"], names=[])}
 
 
 def test_exposure_scan_levels_by_own_name_prunes_and_skips(tmp_path):
@@ -458,7 +494,8 @@ def test_exposure_scan_levels_by_own_name_prunes_and_skips(tmp_path):
            "r8/old/nicotiana_attenuata/eval/nicotiana_genes.tsv",              # inside its folder: not entered
            "cas/ab/GCF_000000123.1",                                           # pruned by relative path
            "own/data/pseudomonas_everything.tsv",                              # this run's own folder: not entered
-           "r6/notes/unrelated_file.txt")
+           "r6/notes/unrelated_file.txt",
+           "r9/views/JN900499.1.gb", "r9/raw/AJN900499.gb", "r9/raw/JN9004990.gb")   # scan_names bounds: only the first
     roots = [dict(path=str(runs), prune=["cas", "nothing_here"]), str(tmp_path / "nowhere")]
     got = W.exposure_scan(TOKENS, roots, W.unseen_genomes(_index()), skip={str(runs / "own")})
     assert got["missing_roots"] == [str(tmp_path / "nowhere")]
@@ -467,6 +504,7 @@ def test_exposure_scan_levels_by_own_name_prunes_and_skips(tmp_path):
     assert got["events"]["E1"]["level"] == "L4" and got["events"]["E1"]["paths"] == {"L3": 1, "L4": 1}
     assert got["events"]["E2"]["level"] == "L5" and got["events"]["E2"]["examples"]["L5"] == ["runs/r3/eval/drosophila_ananassae_bits.json"]
     assert got["events"]["E3"] == dict(level="no_hit") and got["events"]["E4"] == dict(level="no_tokens")
+    assert got["events"]["E6"]["level"] == "L4" and got["events"]["E6"]["examples"] == {"L4": ["runs/r9/views/JN900499.1.gb"]}
     assert got["events"]["E5"] == dict(level="no_hit")                  # nicotiana appears only in the test genome's paths
     assert got["skipped_unseen"] == 5 and got["walk_error_count"] == 0
     dump = json.dumps(got)
@@ -579,8 +617,8 @@ def test_markdown_shows_the_exposure_scan(tmp_path):
     ex["levels"] = W.exposure_levels(rows, ex)
     ex["above_declared"] = []
     md = W.markdown_server(dict(taxa={}, pretraining={}, sealed_overlap={}, exposure=ex, papers=[]))
-    assert "| E2 | 1 | 0 assemblies, drosophila_ananassae | ? | L5 | L5 | L5 1 | drosophila_ananassae | runs/r3/eval/" in md
-    assert "| E4 | 0 | 0 assemblies, no names | ? | no_tokens | ? |" in md and "| %s | 5 | - | 0 | 0 |" % runs in md
+    assert "| E2 | 1 | 0 assemblies, 0 nucleotide, drosophila_ananassae | ? | L5 | L5 | L5 1 | drosophila_ananassae | runs/r3/eval/" in md
+    assert "| E4 | 0 | 0 assemblies, 0 nucleotide, no names | ? | no_tokens | ? |" in md and "| %s | 5 | - | 0 | 0 |" % runs in md
 
 
 def _stored_run(tmp_path, status="passed", gate="pass", archive=None):
@@ -699,3 +737,11 @@ def test_settings_check_the_pdf_text_block():
         with pytest.raises(SystemExit):
             W.settings(dict(rel_w15_registry=dict(reg_, pdf_text=bad)))
     assert W.settings(dict(rel_w15_registry=dict(reg_, pdf_text=dict(from_run="/runs/x", files=["*.pdf"]))))["pdf_text"]["files"] == ["*.pdf"]
+
+
+def test_settings_check_the_island_store():
+    base = dict(registry="bench/rel/registry/events_v0.2-sample.tsv")
+    for bad in ("islandpick", ["/srv/islandpick"]):
+        with pytest.raises(SystemExit):
+            W.settings(dict(rel_w15_registry=dict(base, exposure_islands=bad)))
+    assert W.settings(dict(rel_w15_registry=dict(base, exposure_islands="/srv/islandpick")))["exposure_islands"] == "/srv/islandpick"

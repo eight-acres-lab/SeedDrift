@@ -19,8 +19,10 @@ Up to seven things, all from the registry draft the profile names (bench/rel/reg
    page (gene records only, never sequence), every page stored with its sha256.
 6. with `exposure_roots`, the exposure scan of bench/hard/V2_REGISTER.md, names only, never file contents: every file
    and folder under the roots is matched by its own name (as register.scan_names) against the assembly numbers and the
-   species of the corpus genomes inside each radius (train and held-out splits) and the record's exclusion taxon (genus
-   or lower) and recipient binomials. A hit is L3, L4 under a score folder, L5 under eval/ (register.path_level). Paths
+   species of the corpus genomes inside each radius (train and held-out splits), the island-set chromosomes inside it
+   (with `exposure_islands`; never the sealed ones or the sealing candidates), the nucleotide accessions the record
+   cites, and the record's exclusion taxon (genus, or binomials below a genus) and recipient binomials. A hit is L3, L4
+   under a score folder, L5 under eval/ (register.path_level). Paths
    naming a genome outside the train and held-out splits (by assembly number, id or species words) are skipped and
    counted in total only; walk errors and examples are checked the same way; this run's own folder is not scanned.
 7. with `pdf_text` (from_run, files), the text of PDFs an earlier registry run stored: that run must have passed with
@@ -32,7 +34,8 @@ Up to seven things, all from the registry draft the profile names (bench/rel/reg
 Profile block rel_w15_registry: registry (repository path of the draft, or a list of drafts read as one registry), source (the run directory of a passed selfsup
 run, for its training-data index; optional), fetch (bool), supplements (DOIs whose supplements are fetched),
 max_supplement_mb (default 50), pause_s (default 0.5), annotation (wgs_master, max_mb; optional), exposure_roots
-(absolute folders, or {path, prune: [folders relative to it]}; needs source), exposure_max_paths (default 20 million) and
+(absolute folders, or {path, prune: [folders relative to it]}; needs source), exposure_islands (the island store, for
+the island set's taxid cache; optional), exposure_max_paths (default 20 million) and
 pdf_text (from_run, files: names or fnmatch patterns of stored PDFs).
 Output data/rel_w15/registry/report.json and report.md; papers in data/rel_w15/registry/papers/.
 Gate G4_rel_w15_registry: the draft breaks no rule, every role is unassigned, nothing sits at bench/catalogue/events.tsv,
@@ -69,7 +72,7 @@ from ci.stages.rel import common
 STAGE = "rel_w15_registry"
 OUT = os.path.join("data", "rel_w15", "registry")
 KEYS = {"registry", "source", "fetch", "supplements", "max_supplement_mb", "pause_s", "annotation", "exposure_roots",
-        "exposure_max_paths", "pdf_text"}
+        "exposure_max_paths", "exposure_islands", "pdf_text"}
 ACC_RE = re.compile(r"(?<![a-z0-9])gc[af]_?(\d{9})(?!\d)", re.I)
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 DATASETS = "https://api.ncbi.nlm.nih.gov/datasets/v2/genome/accession/"
@@ -102,6 +105,9 @@ def settings(cfg) -> dict:
                             or not os.path.isabs(pdf["from_run"]) or not isinstance(pdf.get("files"), list) or not pdf["files"]
                             or not all(isinstance(x, str) and x for x in pdf["files"])):
         raise SystemExit("%s: pdf_text needs from_run (an absolute run directory) and files (names or patterns)" % STAGE)
+    islands = c.get("exposure_islands")
+    if islands is not None and not (isinstance(islands, str) and os.path.isabs(islands)):
+        raise SystemExit("%s: exposure_islands is the island store's absolute path" % STAGE)
     roots = c.get("exposure_roots") or []
     ok = isinstance(roots, list)
     for x in roots if ok else []:
@@ -111,7 +117,7 @@ def settings(cfg) -> dict:
             and isinstance(prune, list) and all(isinstance(q, str) and q and not os.path.isabs(q) and ".." not in q.split("/") for q in prune)
     if not ok:
         raise SystemExit("%s: exposure_roots is a list of absolute paths, or of {path, prune: [paths relative to it]}" % STAGE)
-    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)), annotation=ann, exposure_roots=roots, pdf_text=pdf,
+    return dict(registry=paths, source=c.get("source"), fetch=bool(c.get("fetch", False)), annotation=ann, exposure_roots=roots, exposure_islands=islands, pdf_text=pdf,
                 exposure_max_paths=int(c.get("exposure_max_paths", 20_000_000)),
                 supplements=[d.lower() for d in c.get("supplements") or []],
                 max_supplement_mb=float(c.get("max_supplement_mb", 50)), pause_s=float(c.get("pause_s", 0.5)))
@@ -211,23 +217,51 @@ NOT_EPITHET = {"sp", "spp", "and", "or", "of", "the", "with", "group", "x", "cf"
                "relatives", "others", "several", "many", "five"}
 
 
-def _latin(text, single=True) -> list:
-    """The Latin names in a free-text name, lower case and joined by '_': every 'Genus epithet' anywhere in the text
-    (inside brackets too; 'Candidatus' or 'Ca.' before the genus dropped), and, when single is true and the text names a
-    genus alone, that genus. 'Genus sp.' gives nothing: the genus is not the taxon."""
+LATIN_PAIR = re.compile(r"\b([A-Z][a-z]+)\s+([a-z]{3,})\b")
+UNNAMED = re.compile(r"\b[A-Z][a-z]+\s+spp?\.")
+
+
+def _latin(text, single=False) -> list:
+    """The Latin names in a free-text name, lower case and joined by '_' (the reviewers' rule, 2026-11-24): every pair
+    'Genus epithet' ([A-Z][a-z]+ [a-z]{3,}) in every clause, inside brackets too, stop words aside; 'Candidatus' (or
+    'Ca.') is a prefix and the two words after it are the name, never 'candidatus' alone. A species-level name without
+    an epithet ('Pseudomonas sp.', 'Chaetothyriales sp. CBS 135597') gives nothing, never its genus or order (the
+    assembly numbers cover those genomes). A lone word only when single is true: the name is a genus in NCBI."""
     text = re.sub(r"\b(?:Candidatus|Ca\.)\s+", "", text or "")
-    out, unnamed = [], False
-    for m in re.finditer(r"\b([A-Z][a-z]{2,})\s+([a-z][a-z-]{2,}|sp\.|spp\.)", text):
-        ep = m.group(2).rstrip(".")
-        if ep in ("sp", "spp"):
-            unnamed = True
-        elif ep not in NOT_EPITHET:
-            out.append("%s_%s" % (m.group(1).lower(), ep))
-    if not out and single and not unnamed:
-        m = re.fullmatch(r"\s*([A-Z][a-z]{2,})\s*", text)
+    out = [("%s_%s" % (m.group(1).lower(), m.group(2))) for m in LATIN_PAIR.finditer(text) if m.group(2) not in NOT_EPITHET]
+    if not out and single and not UNNAMED.search(text):
+        m = re.fullmatch(r"\s*([A-Z][a-z]+)\s*", text)
         if m:
             out.append(m.group(1).lower())
-    return out
+    return list(dict.fromkeys(out))
+
+
+# nucleotide accessions (GenBank, RefSeq, WGS) as the drafts cite them; matched as register.scan_names does
+NUC_RE = re.compile(r"(?<![A-Za-z0-9])((?:AC|NC|NG|NT|NW|NZ)_(?:[A-Z]{2})?\d{6,9}|[A-Z]\d{5}|[A-Z]{2}\d{6}(?:\d{2})?"
+                    r"|[A-Z]{4}\d{8,10}|[A-Z]{6}\d{9,11})(?:\.\d+)?(?![0-9])")
+REFERENCE_SET = os.path.join("bench", "hard", "results", "v2_reference_set.tsv")
+
+
+def _nucleotide(text) -> set:
+    return {m.group(1) for m in NUC_RE.finditer(text or "")}
+
+
+def island_taxa(ref_path, store) -> dict:
+    """accession -> taxid of the island-set chromosomes that may be tokens: the rows of bench/hard/results/
+    v2_reference_set.tsv that are neither sealed (part sealed_*) nor sealing candidates (status candidate), with taxids
+    from the store's taxid cache (panel/island_set_taxa.json). Sealed and candidate rows are left out unused: their
+    exposure is the V2 register's (bench/hard/V2_REGISTER.md)."""
+    with open(ref_path) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    keep = [r["accession"] for r in rows if not r["part"].startswith("sealed") and r["status"] not in ("candidate",)
+            and not r["status"].startswith("sealed")]
+    taxa_path = os.path.join(store, "panel", "island_set_taxa.json")
+    with open(taxa_path) as f:
+        cache = json.load(f)
+    taxids = {a: int(cache[a]) for a in keep if a in cache}
+    return dict(taxids=taxids, used=len(taxids), without_taxid=sorted(a for a in keep if a not in cache),
+                left_out=len(rows) - len(keep), reference_sha256=sha256_file(ref_path, use_sidecar=False),
+                taxa_sha256=sha256_file(taxa_path, use_sidecar=False))
 
 
 def radius_genomes(found, index, tax) -> dict:
@@ -292,26 +326,49 @@ class Unseen:
         return False
 
 
-def exposure_tokens(rows, found, inside, tax) -> dict:
-    """event_id -> dict(genomes, accessions, names): what the scan looks for. Of every corpus genome inside the radius
-    (train and held-out) its assembly number, and its NCBI species when the corpus does not name it by assembly
-    (Ensembl genomes); of the record the exclusion taxon when NCBI ranks it genus or lower, and the Latin names of the
-    recipient column (binomials only)."""
+def exposure_tokens(rows, found, inside, tax, islands=None) -> dict:
+    """event_id -> dict(genomes, accessions, nucleotide, names): what the scan looks for.
+    - of every corpus genome inside the radius (train and held-out): its assembly number, and its NCBI species when the
+      corpus does not name it by assembly (Ensembl genomes);
+    - of the island set (island_taxa: neither sealed nor candidates): the chromosomes inside the radius;
+    - of the record: the nucleotide accessions it cites in any column (EV012's JN900499), the exclusion taxon's name when
+      NCBI ranks it genus (one word allowed) or any rank below a genus (binomials only), and the binomials of the
+      recipient column."""
+    lineage = {}
+
+    def lin(t):
+        if t not in lineage:
+            try:
+                lineage[t] = set(tax.lineage(t))
+            except Exception:  # noqa: BLE001 - an island taxid NCBI does not resolve is left out
+                lineage[t] = set()
+        return lineage[t]
     out = {}
     for r in rows:
         eid = r["event_id"]
-        accs, names = set(), set()
+        accs, names, nuc = set(), set(), set()
         genomes = inside.get(eid, [])
         for gid, t in genomes:
             accs |= _acc_keys(gid)
             sp = tax.at_rank(t, "species")
             if sp and not re.search(r"GC[AF]_\d{9}\.\d", gid):
-                names.update(_latin(tax.name(sp), single=False))
+                names.update(_latin(tax.name(sp)))
         rec = found.get(eid) or {}
-        if rec.get("ncbi_rank") in ("genus", "species", "subspecies", "strain"):
-            names.update(_latin(reg._taxon(r)))
-        names.update(_latin(r.get("recipient") or "", single=False))
-        out[eid] = dict(genomes=len(genomes), accessions=sorted(accs), names=sorted(n for n in names if n))
+        t = rec.get("taxid")
+        if t:
+            genus = tax.at_rank(t, "genus")
+            if rec.get("ncbi_rank") == "genus":
+                names.update(_latin(reg._taxon(r), single=True))
+            elif genus and genus != t:                   # subgenus, species group, species, varietas, isolate, ...
+                names.update(_latin(reg._taxon(r)))
+            for acc, it in (islands or {}).items():
+                if t in lin(it):
+                    nuc.add(acc.split(".")[0])
+        names.update(_latin(r.get("recipient") or ""))
+        for col, value in r.items():
+            if col != "event_id" and value:
+                nuc |= _nucleotide(value)
+        out[eid] = dict(genomes=len(genomes), accessions=sorted(accs), nucleotide=sorted(nuc), names=sorted(n for n in names if n))
     return out
 
 
@@ -329,12 +386,15 @@ def exposure_scan(tokens, roots, unseen=None, skip=(), max_paths=20_000_000) -> 
     counted only; every example and error is checked once more and dropped (counted) if it names one."""
     from ci.stages.register import path_level
     names_unseen = Unseen(unseen)
-    acc_ev, name_ev = defaultdict(set), defaultdict(set)
+    acc_ev, name_ev, nuc_ev = defaultdict(set), defaultdict(set), defaultdict(set)
     for eid, t in tokens.items():
         for a in t["accessions"]:
             acc_ev[a].add(eid)
         for n in t["names"]:
             name_ev[n].add(eid)
+        for a in t.get("nucleotide") or ():
+            nuc_ev[a.split(".")[0]].add(eid)
+    nuc_rx = re.compile(r"(?<![A-Za-z0-9])(%s)(?:\.\d+)?(?![0-9])" % "|".join(sorted(map(re.escape, nuc_ev)))) if nuc_ev else None
     hits, per_root, errors = {}, [], []
     walked = skipped = errors_unseen = dropped = 0
     stopped = False
@@ -386,6 +446,9 @@ def exposure_scan(tokens, roots, unseen=None, skip=(), max_paths=20_000_000) -> 
                 for a in _acc_keys(low):
                     for eid in acc_ev.get(a, ()):
                         matched[eid].add(a)
+                for m in nuc_rx.finditer(name) if nuc_rx else ():
+                    for eid in nuc_ev[m.group(1)]:
+                        matched[eid].add(m.group(1))
                 words = re.findall(r"[a-z]+", low)
                 for i, w in enumerate(words):
                     for key in (w, w + "_" + words[i + 1] if i + 1 < len(words) else None):
@@ -416,7 +479,7 @@ def exposure_scan(tokens, roots, unseen=None, skip=(), max_paths=20_000_000) -> 
     events = {}
     for eid, t in sorted(tokens.items()):
         h = hits.get(eid)
-        if not (t["accessions"] or t["names"]):
+        if not (t["accessions"] or t["names"] or t.get("nucleotide")):
             events[eid] = dict(level="no_tokens")
         elif not h:
             events[eid] = dict(level="no_hit")
@@ -880,8 +943,11 @@ def build(st, cfg, run_dir):
         st.extra["source"] = src["provenance"]
         if s["exposure_roots"]:
             inside = radius_genomes(found, src["index"], tax)
-            exposure = exposure_scan(exposure_tokens(rows, found, inside, tax), s["exposure_roots"], unseen_genomes(src["index"]),
+            islands = island_taxa(st.repo(REFERENCE_SET), s["exposure_islands"]) if s["exposure_islands"] else None
+            exposure = exposure_scan(exposure_tokens(rows, found, inside, tax, (islands or {}).get("taxids")), s["exposure_roots"],
+                                     unseen_genomes(src["index"]),
                                      skip={os.path.abspath(run_dir), run_dir}, max_paths=s["exposure_max_paths"])
+            exposure["islands"] = {k: v for k, v in (islands or {}).items() if k != "taxids"} or None
             exposure["levels"] = exposure_levels(rows, exposure)
             exposure["above_declared"] = sorted(e for e, v in exposure["levels"].items() if v.get("above_declared"))
     elif s["exposure_roots"]:
@@ -945,8 +1011,9 @@ def markdown_server(doc) -> str:
             v = ex["events"].get(eid, {})
             t = (ex.get("tokens") or {}).get(eid, {})
             top = ((v.get("examples") or {}).get(v.get("level")) or [""])[0]
-            out.append("| %s | %s | %d assemblies, %s | %s%s | %s | %s%s | %s | %s | %s |" % (
-                eid, t.get("genomes", 0), len(t.get("accessions") or []), ", ".join(t.get("names") or []) or "no names",
+            out.append("| %s | %s | %d assemblies, %d nucleotide, %s | %s%s | %s | %s%s | %s | %s | %s |" % (
+                eid, t.get("genomes", 0), len(t.get("accessions") or []), len(t.get("nucleotide") or []),
+                ", ".join(t.get("names") or []) or "no names",
                 lv["declared"], " (not a level)" if lv.get("declared_unknown") else "", lv["scan"], lv["level"],
                 " (above the declared level)" if lv.get("above_declared") else "",
                 ", ".join("%s %d" % kv for kv in (v.get("paths") or {}).items()), ", ".join(v.get("matched") or []), top))

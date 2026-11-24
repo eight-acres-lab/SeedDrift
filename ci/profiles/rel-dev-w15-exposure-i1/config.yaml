@@ -1,7 +1,9 @@
 # Machine i-1: the exposure levels (L0-L5) of the event registry drafts (stage w15_registry, ci/stages/rel/w15_registry.py,
 # item 6; package W15), by the names-only scan of bench/hard/V2_REGISTER.md: every file and folder under the roots below
 # is matched by its own name against the assembly numbers and species of the corpus genomes inside each exclusion radius
-# (train and held-out splits of round R3's training-data index) and the records' own genus or species names. No file is
+# (train and held-out splits of round R3's training-data index), the island-set chromosomes inside it (never the sealed
+# ones or the sealing candidates of bench/hard/results/v2_reference_set.tsv), the nucleotide accessions the drafts cite,
+# and the records' own genus or species names. No file is
 # opened; a hit is L3, L4 under a score folder, L5 under eval/. Paths naming a genome outside the train and held-out
 # splits (by assembly number, id or species words) are skipped and counted in total only, and so are walk errors on
 # them. Pruned (paths relative to each root): content stores, code copies (a name there is L0), environments and
@@ -43,6 +45,7 @@ rel_w15_registry:
       prune: [jobs]
     - path: /hy-tmp/hgtscan                        # the old line's workspace
       prune: [mamba, mamba-root, bin, tools, hgtscan]   # environments, binaries and the old package's code
+  exposure_islands: /hy-tmp/seeddrift-store/evalsets/islandpick   # the island set's taxid cache (panel/island_set_taxa.json)
   exposure_max_paths: 20000000
 train:
   gpu_lease: false

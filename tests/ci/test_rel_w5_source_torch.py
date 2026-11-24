@@ -116,9 +116,10 @@ def test_the_sources_readout_on_saved_weights():
 
 
 def test_both_arms_train_on_the_strict_layout():
-    """Round 1's third batch (protocol round1, version 9): S1 and S2 trained on W3's strict rendering (done by the
-    trainer's sampler; the module unchanged), the whole gene on its frame relative; the nodes read scattered strictly
-    online, the end on W3's offline rendering; W3's fourth test on the training's sample 0 passes."""
+    """Round 1's third batch (protocol round1, version 9): S1, S2 and copy-aa30m (S2 with the amino-acid level) trained
+    on W3's strict rendering (done by the trainer's sampler; the module unchanged), the whole gene on its frame relative;
+    the nodes read scattered strictly online, the end on W3's offline rendering; W3's fourth test on the training's
+    sample 0 passes."""
     import csv
     root = tempfile.mkdtemp()
     D = W6.D
@@ -126,12 +127,13 @@ def test_both_arms_train_on_the_strict_layout():
     tables = D.write_tableset(root, [("train/s0000", train), ("heldout/s0000", held)], kind=A.TABLE_REAL, sub="v1")
     off = W6._offline(root, held)
     four = [cond.SCATTERED, cond.WHOLE_GENE, cond.SCATTERED + "+" + cond.NO_RELATIVES, cond.WHOLE_GENE + "+" + cond.NO_RELATIVES]
-    for arm in SR.ARMS:
+    for arm, kw in SR.TESTED:
         cfg = W6._config(root, train_tables=tables, heldout_tables=tables, probe=False, rows=[2, 8], layout="strict", whole_gene_layout="frame",
                          eval_online=True, heldout_offline_tables=off, heldout_offline_root=root, only_conditions=four, max_steps=6, eval_first=4,
-                         model="source", author="w5", size=dict(layers=2, width=256, arm=arm, self_layers=1), out=os.path.join(root, "out-" + arm))
+                         model="source", author="w5", size=dict(layers=2, width=256, arm=arm, self_layers=1, **kw),
+                         out=os.path.join(root, "out-%s%s" % (arm, "-aa" if kw else "")))
         pre = loop.preflight(cfg)
-        assert pre["ok"] and pre["sampler"]["strict_tables"] > 0 and pre["params"] == SR.count_parameters(2, 256, arm, ext=True), (arm, pre)
+        assert pre["ok"] and pre["sampler"]["strict_tables"] > 0 and pre["params"] == SR.count_parameters(2, 256, arm, ext=True, **kw), (arm, kw, pre)
         out = loop.fit(cfg)
         assert out["status"] == "ok" and out["traincheck"]["failures"] == 0 and out["traincheck"]["checked"] >= 1, (arm, out.get("traincheck"))
         assert all(math.isfinite(v) for v in out["final"].values() if v is not None), (arm, out["final"])

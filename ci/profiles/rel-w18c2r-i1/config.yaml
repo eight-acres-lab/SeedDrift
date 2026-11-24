@@ -1,0 +1,32 @@
+# Machine i-1: the counting reading of the HGT capability check (protocol w18-v3, version 4), strict offline rendering,
+# with all four arms of round 1 with relatives: stage w18_readout on the per-cell files of rel-w18c1-i1 (run
+# 20261123T205316: ref30m-s2, ref30m-s3, norel30m), rel-w18c1-i2 (run 20261124T020934, copied from i-2: ref30m-long and
+# the untrained seed-1 variant, the control of every arm) and rel-w18c2-i1 (ref100m-long), on the implant tables of
+# version 1 with self-copy rows (run 20261123T132811) and their offline placements (run 20261123T151318). The protocol's
+# count over four arms and two blocks (8 verdicts each). Run from commit 7f7bc6d plus this profile and the readout's
+# duplicate-key check (3d0578e) only, as rel-w18c1r-i1 ran. CPU only. The run of rel-w18c2-i1 is set below once it has
+# passed.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 5
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w18_readout]
+rel_w18_readout:
+  tables: {run: /hy-tmp/seeddrift-ci/runs/20261123T132811-exp-rel-fa0cd396-rel-dev-w18-rulers-v3-i1, path: data/rel_w18/rulers/tableset.json, sha256: 7d08eecb2a370afac59628919f22206959fed5883d6dea415a84d538fe358fb3}
+  eval_run:
+    - /hy-tmp/seeddrift-ci/runs/20261123T205316-exp-rel-7f7bc6d5-rel-w18c1-i1
+    - /hy-tmp/seeddrift-ci/imports/runs/20261124T020934-exp-rel-7f7bc6d5-rel-w18c1-i2
+    - /hy-tmp/seeddrift-ci/runs/W18C2-I1-RUN-NOT-SET
+  offline: /hy-tmp/seeddrift-ci/runs/20261123T151318-exp-rel-36fa1982-rel-dev-w18-offline-v3-i1
+  reps: 2000
+train:
+  gpu_lease: false
+  device: cpu

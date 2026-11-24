@@ -513,17 +513,18 @@ def build(st, cfg, run_dir):
 
     # the seeds' largest spread per group under scattered at the last node they all reached (the noise of a group's
     # reading: a group is read on its own 50 tables of the nodes, so its spread is larger than that of the mean)
-    group_spread = {}
+    group_spread = {}                                                  # {(group, condition): the seeds' spread}
     for have in seed_groups:
         common = sorted(set.intersection(*[set(nodes.get(a, [])) for a in have]) - {0})
         if not common:
             continue
         for g in sorted({k[4] for k in bits if k[4] != SC.ALL}):
-            ys = [N(a, common[-1], cond.SCATTERED, g) for a in have]
-            if all(y is not None for y in ys):
-                d = max(ys) - min(ys)
-                if g not in group_spread or d > group_spread[g]["bits"]:
-                    group_spread[g] = dict(bits=d, node=common[-1])
+            for c in (cond.SCATTERED, cond.WHOLE_GENE):
+                ys = [N(a, common[-1], c, g) for a in have]
+                if all(y is not None for y in ys):
+                    d = max(ys) - min(ys)
+                    if (g, c) not in group_spread or d > group_spread[(g, c)]["bits"]:
+                        group_spread[(g, c)] = dict(bits=d, node=common[-1])
 
     def noise(t, c, x=SC.ALL):
         """{bits, node}: the largest spread of the seeds under condition c at node t, on the stratum x of the nodes'
@@ -824,7 +825,7 @@ def build(st, cfg, run_dir):
     # is overfitting)
     over, iv_why, iv_cache = [], {}, {}
 
-    def interval(a, g, t_lo, t_hi):
+    def interval(a, g, t_lo, t_hi, c=cond.SCATTERED):
         """The paired bootstrap (the evaluator's intervals.paired_bootstrap: split units inside the group, 2,000 replicates,
         seed 20261123) of the change of arm a's scattered bits in group g from node t_lo to node t_hi, on the nodes' tables;
         None (the reason in iv_why) without the trainer's node_cells.npz, the units' source or the evaluator's intervals."""
@@ -851,7 +852,7 @@ def build(st, cfg, run_dir):
         if iv_cache[a] is None:
             return None
         IV, nc, group, unit = iv_cache[a]
-        lo, hi = ("t%d_%s" % (t, cond.SCATTERED) for t in (t_lo, t_hi))
+        lo, hi = ("t%d_%s" % (t, c.replace("+", "__")) for t in (t_lo, t_hi))
         if lo + "_bits" not in nc or hi + "_bits" not in nc or not np.array_equal(nc[lo + "_cells"], nc[hi + "_cells"]):
             return None
         tabs = np.asarray(nc["tables"]).astype(np.int64)
@@ -887,8 +888,9 @@ def build(st, cfg, run_dir):
         # 2026-11-23: the over-fitting of round 1 is read group by group; the mean over the groups hides a group that
         # over-fits first, the eukaryotic viruses of version 1 say)
         by_g = []
-        for g in group_set:
-            pts = [(t, N(a, t, cond.SCATTERED, g)) for t in nodes.get(a, []) if t > 0]
+        for g, gc in [(g, c) for c in ((cond.SCATTERED, cond.WHOLE_GENE) if arms[a]["variant"]["relatives"] else (cond.SCATTERED + NO_REL,))
+                      for g in group_set]:
+            pts = [(t, N(a, t, gc, g)) for t in nodes.get(a, []) if t > 0]
             pts = [(t, y) for t, y in pts if y is not None]
             if not pts:
                 continue
@@ -896,10 +898,10 @@ def build(st, cfg, run_dir):
             t0, y0 = pts[k]
             nxt = pts[k + 1] if k + 1 < len(pts) else None
             rise = pts[-1][1] - y0 if k + 1 < len(pts) else None
-            gn = group_spread.get(g)
+            gn = group_spread.get((g, gc))
             gn = dict(gn, bits=max(gn["bits"], GROUP_FLOOR)) if gn else None        # a pair of seeds can differ by 0 in a group by chance
             above = rise is not None and gn is not None and rise > gn["bits"]
-            iv = interval(a, g, t0, pts[-1][0]) if rise is not None else None   # paired, the same tables at the two nodes
+            iv = interval(a, g, t0, pts[-1][0], gc) if rise is not None else None   # paired, the same tables at the two nodes
             excl = bool(iv and iv["excludes_zero"] and iv["low"] > 0)
             said = ("no rise after it (the last node)" if rise is None else
                     "over-fits: beyond the threshold, its interval above 0" if above and excl else
@@ -909,7 +911,7 @@ def build(st, cfg, run_dir):
                          pts[-1][0], rise, fmt_noise(gn) if gn else "none",
                          ("%.3f to %.3f (%d units)" % (iv["low"], iv["high"], iv["units"])) if iv else ("" if rise is None else iv_why.get(a, "none")),
                          said,
-                         F(a, cond.SCATTERED, g)])
+                         F(a, gc, g), gc])
         over.append(dict(arm=a, train_tables=tt, rows=rows_p, groups=by_g, final=dict(tables_seen=arms[a]["info"].get("tables_seen"),
                                                                            passes=(arms[a]["info"].get("tables_seen") or 0) / tt if tt else None,
                                                                            bits={c: F(a, c) for c in sweep_conds})))
@@ -944,7 +946,8 @@ def build(st, cfg, run_dir):
         risen = [r for r in o.get("groups") or [] if r[11] == "over-fits: beyond the threshold, its interval above 0"]
         if risen:
             key.append("Over-fitting by group (%s): %s." % (o["arm"], "; ".join(
-                "%s lowest at %s tables (%.2f passes), then +%.3f by %s tables" % (r[0], "{:,}".format(r[2]), r[3] or 0, r[8], "{:,}".format(r[7]))
+                "%s under %s lowest at %s tables (%.2f passes), then +%.3f by %s tables" % (r[0], r[13], "{:,}".format(r[2]), r[3] or 0, r[8],
+                                                                                         "{:,}".format(r[7]))
                 for r in risen)))
     if scale:
         key.append("Scale, at the last node every arm with relatives reached (%s tables seen): %s." % ("{:,}".format(scale["node"]), scale["verdict"]))
@@ -1194,16 +1197,16 @@ def build(st, cfg, run_dir):
         md += ["", "End: %s tables (%s passes): %s." % ("{:,}".format(f["tables_seen"] or 0), "%.2f" % f["passes"] if f["passes"] else "?",
                                                       ", ".join("%s %.3f" % (c, v) for c, v in f["bits"].items() if v is not None))]
         if o.get("groups"):
-            md += ["", "By group (scattered; each group on its own first held-out tables at the nodes, so a group's reading is noisier than "
+            md += ["", "By group (scattered and whole_gene; each group on its own first held-out tables at the nodes, so a group's reading is noisier than "
                    "the mean's; its threshold is the seeds' largest difference in that group at the last node they all reached, at least "
                    "0.02 bits): the node of "
                    "the group's lowest held-out bits, the change to the next node and to the last node. A rise beyond the group's seeds' "
                    "difference whose paired interval (split units inside the group, 2,000 replicates, seed 20261123, 95%) lies above 0 is "
                    "the group's over-fitting (a key point); one of the two alone is listed only. The end is read on all held-out tables "
                    "of the group (other tables than the nodes').", ""]
-            md += md_table(["group", "block", "lowest at (tables)", "passes there", "bits there", "next node", "change to it", "last node",
-                            "change to the last", "threshold (group's seeds' difference, at least 0.02)", "95% interval of that change",
-                            "reading", "end (all tables)"], o["groups"])
+            md += md_table(["condition", "group", "block", "lowest at (tables)", "passes there", "bits there", "next node", "change to it",
+                            "last node", "change to the last", "threshold (group's seeds' difference, at least 0.02)", "95% interval of that change",
+                            "reading", "end (all tables)"], [[r[13]] + r[:13] for r in o["groups"]])
     md += ["", "## The cost of re-pairing, on the tables that can be re-paired (two or more other rows), paired", ""]
     md += md_table(["arm or baseline", "whole_gene", "whole_gene+repaired", "cost"], repair)
     md += ["", "No difference would not show that the relation blocks go unused."]

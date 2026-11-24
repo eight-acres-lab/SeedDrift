@@ -437,8 +437,9 @@ def test_report_reads_over_fitting_group_by_group(tmp_path):
     SC.write_rows(q, SC.read_rows(q) + later)
     cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"]))
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
-    by = {r[0]: r for r in rep["passes"][0]["groups"]}
+    by = {r[0]: r for r in rep["passes"][0]["groups"] if r[13] == cond.SCATTERED}
     g0, g1 = by[GROUPS[0]], by[GROUPS[1]]
+    assert {r[13] for r in rep["passes"][0]["groups"]} == {cond.SCATTERED, cond.WHOLE_GENE}       # both conditions, group by group
     assert g0[2] == 4000 and g0[8] is None and g0[11] == "no rise after it (the last node)"
     assert g1[2] == 2000 and abs(g1[4] - 5.7) < 1e-9 and g1[5] == 4000 and abs(g1[6] - 0.5) < 1e-9 and abs(g1[8] - 0.5) < 1e-9
     assert g1[9] == "0.200 (at 2,000 tables)" and abs(g1[3] - 2000 / 100800) < 1e-12
@@ -485,13 +486,13 @@ def test_report_over_fitting_by_group_needs_its_threshold_and_its_interval(tmp_p
     cfg = dict(cfg, rel_w6_report=dict(fits=[dict(run=second, label="i2")], seeds=[["w6-ref30m-s1", "w6-ref30m-s1 @i2"]], passes=["w6-ref30m-s1"],
                                        units_source="/x/runs/source"))
     rep = w6_report.build(Stage(run_dir, "rel_w6_report"), cfg, run_dir)
-    by = {r[0]: r for r in rep["passes"][0]["groups"]}
+    by = {r[0]: r for r in rep["passes"][0]["groups"] if r[13] == cond.SCATTERED}
     assert len(seen) == 1 and seen[0]["group"] == [GROUPS[1]] * 2 and seen[0]["unit"] == ["u2", "u4"] and seen[0]["blocks"] is False
     assert seen[0]["diff"] == [10.0, 20.0] and seen[0]["cells"] == [20, 40]          # the second group's tables: node 4,000 minus node 2,000
     g1 = by[GROUPS[1]]
     assert g1[10] == "0.100 to 0.900 (2 units)" and g1[11] == "over-fits: beyond the threshold, its interval above 0"
     text = open(os.path.join(run_dir, w6_report.OUT, "report.md")).read()
-    assert "Over-fitting by group (w6-ref30m-s1): %s lowest at 2,000 tables" % GROUPS[1] in text
+    assert "Over-fitting by group (w6-ref30m-s1): %s under scattered lowest at 2,000 tables" % GROUPS[1] in text
 
 
 def test_held_units_are_the_split_units_of_the_examined_genomes(tmp_path, monkeypatch):

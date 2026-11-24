@@ -1,5 +1,5 @@
-# Machine i-1, round 1, batch 3 (protocol round1, version 9): the start gate's probe of batch 3's arms (five, and a
-# sixth, copy-aa30m, while the user decides) on the strict layout (W5's extended strict rendering merged, its pre-launch gate passed in run 20261123T222325, W6's sampler
+# Machine i-1, round 1, batch 3 (protocol round1, version 10): the start gate's probe of batch 3's five arms on the
+# strict layout (W5's extended strict rendering merged, its pre-launch gate passed in run 20261123T222325, W6's sampler
 # spot check merged: the protocol's condition for strict), 50 steps of the preflight each on the real tables of version 1
 # (finite loss, peak memory, tables per second, the sampler's cost with the strict rendering), each arm alone one after
 # another, all at micro-batches of 1 table (arms[].micro: arms compared in one batch share one micro-batch). Seed 4 for
@@ -7,7 +7,9 @@
 # 6 GB free (the programme lead's rule of 2026-11-23). Nothing trained. Development diagnosis only.
 # Run on the evening of 2026-11-24 after W18's 100M scorings, beside the corpus build on the CPU (the programme lead's
 # ruling): the data wait it measures does not count; the GPU's tables per second and the peaks do, and batch 3's wall
-# and margin are set from them. Batch 3 itself starts after the corpus build; its data wait is read in its first hour.
+# and margin are set from them. Batch 3 starts after this probe, beside the corpus build; its data wait is read in its
+# first hour. copy-aa30m is not a batch-3 arm (six arms do not fit the memory margin; protocol version 10): it is read
+# on i-2 against the strict reference trunk (rel-r1strict-i2, rel-r1copyaa-i2).
 pipeline: rel_traineval
 tier: medium
 seed: 1
@@ -38,7 +40,6 @@ rel_w6_fit:
     - {variant: configs/rel/variants/w5-src30m-s2-strict-v1.yaml, seed: 4, micro: 1}
     - {variant: configs/rel/variants/w6-ref30m-wholegene-strict-v1.yaml, seed: 4, micro: 1}
     - {variant: configs/rel/variants/w6-ref30m-samegenome-strict-v1.yaml, seed: 4, micro: 1}
-    - {variant: configs/rel/variants/w5-copy-aa30m-strict-v1.yaml, seed: 4, micro: 1}   # the sixth arm, pending the user's decision (copy-aa30m passed S2 on rel-srcaa-i2); removed if not
   preflight_only: true           # round 1's probe: every arm preflighted on the real tables, nothing trained, no checkpoint
   preflight_steps: 50
   wall_s: 1800

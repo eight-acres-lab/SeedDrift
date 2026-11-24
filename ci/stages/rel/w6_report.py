@@ -70,7 +70,7 @@ import yaml
 from ci.gates import GateResult, require
 from ci.hashing import sha256_file, sha256_json
 from ci.stages.common import main_args, write_json
-from ci.stages.rel import common
+from ci.stages.rel import common, w6_pair
 from seeddrift.train.rel import handoff
 from seeddrift.train.rel.evalh import conditions as cond
 from seeddrift.train.rel.evalh import score as SC
@@ -218,6 +218,14 @@ def settings(cfg) -> dict:
     seeds = [[str(a) for a in g] for g in sc.get("seeds") or []]
     if any(len(g) < 2 or len(set(g)) != len(g) for g in seeds):
         raise SystemExit("rel_w6_report.seeds: groups of two or more different arms of one variant: %r" % (seeds,))
+    pairs = sc.get("paired_ends") or []
+    for pair in pairs:
+        if set(pair) - {"name", "first", "second", "threshold", "strict_online_tables"}:
+            raise ValueError(f"paired ends: unknown configuration field in {pair}")
+        if "strict_online_tables" in pair:
+            count = pair["strict_online_tables"]
+            if type(count) is not int or count < 1 or not sc.get("heldout_tables") or not sc.get("units_source"):
+                raise ValueError("paired ends: strict_online_tables requires a positive count, heldout_tables and units_source")
     base = [dict(run=str(b["run"]), path=str(b["path"])) for b in sc.get("baselines") or []]
     fits = []
     for x in sc.get("fits") or []:
@@ -236,8 +244,9 @@ def settings(cfg) -> dict:
                 units_source=str(sc["units_source"]) if sc.get("units_source") else None,
                 threshold_floor=float(sc.get("threshold_floor") or 0.0), worth_without=str(sc.get("worth_without") or "lower"),
                 heldout_tables=dict(run=str(sc["heldout_tables"]["run"]), path=str(sc["heldout_tables"]["path"])) if sc.get("heldout_tables") else None,
-                paired_ends=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"]), threshold=float(q["threshold"]))
-                             for q in sc.get("paired_ends") or []])
+                paired_ends=[dict(name=str(q["name"]), first=str(q["first"]), second=str(q["second"]), threshold=float(q["threshold"]),
+                                 strict_online_tables=q.get("strict_online_tables"))
+                             for q in pairs])
 
 
 LR_CONCLUSIONS = {
@@ -343,7 +352,8 @@ def collect(st, run_dir, s):
         for v in doc["variants"]:
             if (v.get("info") or {}).get("render") == "online":          # the same final weights read online (w6_eval online_too)
                 if v.get("status") == "ok":
-                    online[key(v["name"][:-len(".online")])] = dict(folder=os.path.join(f, v["info"]["folder"]), run=os.path.basename(f))
+                    online[key(v["name"][:-len(".online")])] = dict(folder=os.path.join(f, v["info"]["folder"]), run=os.path.basename(f),
+                                                                     info=v["info"], evaluated_on=doc.get("evaluated_on"))
                 continue
             pre = read_json(os.path.join(f, v["info"]["folder"], "preflight.json")) or {}
             node_items = {}
@@ -356,7 +366,7 @@ def collect(st, run_dir, s):
                             break
             except (OSError, ValueError):
                 pass
-            entry = dict(v, name=key(v["name"]), run=os.path.basename(f), run_dir=f, variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"),
+            entry = dict(v, name=key(v["name"]), evaluated_on=doc.get("evaluated_on"), run=os.path.basename(f), run_dir=f, variant=variant_of(st, v["variant_file"]), train_tables=pre.get("train_tables"),
                          node_items=node_items)
             old = arms.get(entry["name"])
             if old is not None:                                        # a later entry adds to and replaces an earlier one
@@ -1265,8 +1275,7 @@ def build(st, cfg, run_dir):
                                     "; ".join("%s %s" % (k, fmt_iv(v)) for k, v in (iv or {}).items() if k != "all")])
     if online_rows:
         md += ["", "## The online rendering of the nodes against the strict offline rendering", "",
-               "The same final weights on the same held-out tables, rendered online (the leak-free renderer of the training and of the "
-               "nodes: the anchors of scattered and span are the stored pairs, aligned while the hidden residues were visible) and "
+               "The same final weights on the same held-out tables, rendered online (using the arm's training renderer) and "
                "strictly offline (package W3; the rendering every scored reading uses): online minus offline (negative: the online "
                "rendering reads too low), with its paired interval, over all tables and by the relatives strata.", ""]
         md += md_table(["arm", "condition", "tables", "bits offline", "bits online (all)", "online minus offline", "95% interval", "by block"],
@@ -1339,6 +1348,28 @@ def build(st, cfg, run_dir):
     for q in s["paired_ends"]:
         if q["first"] not in arms or q["second"] not in arms:
             raise SystemExit("rel_w6_report.paired_ends %s: %s are no arms of the report" % (q["name"], [x for x in (q["first"], q["second"]) if x not in arms]))
+        audit = None
+        if q["strict_online_tables"] is not None:
+            from seeddrift.train.rel.data import tables as T
+            spec = s["heldout_tables"]
+            if not spec or q["second"] not in online:
+                raise ValueError("paired ends: the report needs a local held-out table set and the strict arm's online evaluation")
+            held = T.open_split(spec["run"], os.path.join(spec["run"], spec["path"]), 1)
+            entries = []
+            for arm in (q["first"], q["second"]):
+                a = arms[arm]
+                if a["status"] != "ok" or a["info"].get("render") != "offline" or arm in other_set or held_of(arm) is None:
+                    raise ValueError(f"paired ends: missing valid offline evaluation or local split units for {arm}")
+                entries.append((a["info"], os.path.join(a["run_dir"], a["info"]["folder"])))
+            on = online[q["second"]]
+            entries.append((on["info"], on["folder"]))
+            for evaluated in (arms[q["first"]], arms[q["second"]], on):
+                source = evaluated.get("evaluated_on") or {}
+                if source.get("sha256") != held.sha256 or source.get("split") != 1:
+                    raise ValueError("paired ends: the evaluation index differs from the local held-out manifest or split")
+            inputs = [dict(folder=folder, final_items=info["final_items"], tables=info["eval_final"],
+                           checkpoint=info["evaluated_again"]["checkpoints"].get("final")) for info, folder in entries]
+            audit = w6_pair.verify(held, q["strict_online_tables"], *inputs)
         prow = []
         for c in (cond.SCATTERED, cond.WHOLE_GENE, getattr(cond, "SUFFIX", "suffix")):
             for x in [SC.ALL] + list(getattr(SC, "RELATIVE_KINDS", ())):
@@ -1354,7 +1385,7 @@ def build(st, cfg, run_dir):
                 prow.append([c, x, u, v, est, fmt_iv((iv or {}).get("all")) or why or "",
                              "; ".join("%s %s (%s)" % (k, fmt_iv(w), "%.3f" % w["estimate"]) for k, w in (iv or {}).items() if k != "all"),
                              q["threshold"], said])
-        ends_out.append(dict(q, rows=prow))
+        ends_out.append(dict(q, rows=prow, integrity=audit))
     for q in ends_out:
         md += ["", "## %s: %s against %s, at their ends, paired" % (q["name"], q["second"], q["first"]), "",
                "The second minus the first (negative: the second is lower) on the cells both scored at their ends (all held-out tables, "
@@ -1363,6 +1394,10 @@ def build(st, cfg, run_dir):
                "threshold with its interval excluding 0.", ""]
         md += md_table(["condition", "tables", "bits, first", "bits, second", "second minus first", "95% interval", "by block (estimate)",
                         "threshold", "reading"], q["rows"])
+        if q["integrity"]:
+            md += md_table(["condition", "held-out tables", "scored tables", "scored cells", "strict online maximum absolute cell difference"],
+                           [[r["condition"], r["heldout_tables"], r["scored_tables"], r["scored_cells"],
+                             r.get("max_abs_cell_delta")] for r in q["integrity"]])
     # what each arm optimised: the realised share of every mask scheme in the target cells and in the loss (round 1)
     shares_rows, tiers = [], {}
     for a in names:

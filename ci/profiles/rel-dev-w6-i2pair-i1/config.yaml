@@ -38,7 +38,7 @@ rel_w6_report:
   scale_exclude: [w6-ref30m-strict-v1-s2]
   paired_ends:
     - {name: "i2_pair (a): trained on the strict rendering (i-2) against trained online (i-1), seed 2, 94,000 tables",
-       first: w6-ref30m-v1-s2, second: w6-ref30m-strict-v1-s2, threshold: 0.009}
+       first: w6-ref30m-v1-s2, second: w6-ref30m-strict-v1-s2, threshold: 0.009, strict_online_tables: 3000}
   notes:
     - >-
       The reading (protocol round1, version 10, i2_pair (a)): w6-ref30m-strict-v1-s2 minus w6-ref30m-v1-s2 at their ends,

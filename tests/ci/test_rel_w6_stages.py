@@ -600,6 +600,16 @@ def test_report_reads_what_relatives_are_worth_with_its_threshold_floor_and_inte
     assert seen_conf and all(c["heldout_tables"] == os.path.join("/here/runs/t", "h1.json") and c["heldout_root"] == "/here/runs/t" for c in seen_conf)
     assert "## The mask schemes each arm trained on" in text and "## The whole gene's frame relative, by distance" in text
     assert "## The controls of the renderer" in text                    # the control apart, the plain reading not replaced by it
+    # two ends paired by table (paired_ends): the second arm 0.2 bits a cell above the first, on the cells both scored
+    np.savez(os.path.join(fit, "w6-ref10m-s1", "heldout_final.npz"), bits_scattered=np.full(6, 3.2), table_scattered=tab)
+    with open(os.path.join(fit, "w6-ref10m-s1", "conf.json"), "w") as f:
+        json.dump(dict(heldout_tables="h.json", heldout_root="/x"), f)
+    seen.clear()
+    rep2 = w6_report.build(Stage(run_dir, "rel_w6_report"), dict(cfg, rel_w6_report=dict(cfg["rel_w6_report"], paired_ends=[
+        dict(name="strict against online", first="w6-ref30m-s1", second="w6-ref10m-s1", threshold=0.009)])), run_dir)
+    pe = {(r[0], r[1]): r for r in rep2["paired_ends"][0]["rows"]}
+    assert (cond.SCATTERED, SC.ALL) in pe and abs(seen[-1]["diff"][0] - 0.4) < 1e-9 and seen[-1]["cells"][0] == 2.0     # 0.2 a cell, table 0
+    assert pe[(cond.SCATTERED, SC.ALL)][8] == "counts: beyond the threshold, its interval excludes 0"
     plain = next(float(x["bits"]) for x in SC.read_rows(q) if x["variant"] == "w6-ref30m-s1" and x["weights"] == "ema@final" and
                  x["condition"] == cond.SCATTERED and x["group"] == SC.ALL and x["stratum"] == x0 and x["layout"] != "leakfree+shuffle")
     assert abs(r["bits_with_end"] - plain) < 1e-9                       # not the control's 0.5 bits more

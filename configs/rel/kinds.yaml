@@ -105,6 +105,13 @@ kinds:
         module: ci.stages.rel.w3_traincheck
         gates: [G4_rel_w3_traincheck]
         side: data
+      w2_d5_census:
+        package: W2
+        rule: rel_w2_d5_census
+        output: data/rel_w2/d5_census/report.json
+        module: ci.stages.rel.w2_d5_census
+        gates: [G4_rel_w2_d5_census]
+        side: data
       w2_census:
         package: W2
         rule: rel_w2_census

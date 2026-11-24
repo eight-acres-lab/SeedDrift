@@ -1,11 +1,13 @@
 # Machine i-1, round 1, batch 3 (protocol round1, version 9): the start gate's probe of batch 3's arms (five, and a
-# sixth, copy-aa30m, while the user decides) on the
-# strict layout (W5's extended strict rendering merged, its pre-launch gate passed in run 20261123T222325, W6's sampler
+# sixth, copy-aa30m, while the user decides) on the strict layout (W5's extended strict rendering merged, its pre-launch gate passed in run 20261123T222325, W6's sampler
 # spot check merged: the protocol's condition for strict), 50 steps of the preflight each on the real tables of version 1
 # (finite loss, peak memory, tables per second, the sampler's cost with the strict rendering), each arm alone one after
 # another, all at micro-batches of 1 table (arms[].micro: arms compared in one batch share one micro-batch). Seed 4 for
 # every arm, as the protocol's batch 3 (ref30m-s4 the reference). Batch 3's start needs the sum of their peaks x 1.1 +
 # 6 GB free (the programme lead's rule of 2026-11-23). Nothing trained. Development diagnosis only.
+# Run on the evening of 2026-11-24 after W18's 100M scorings, beside the corpus build on the CPU (the programme lead's
+# ruling): the data wait it measures does not count; the GPU's tables per second and the peaks do, and batch 3's wall
+# and margin are set from them. Batch 3 itself starts after the corpus build; its data wait is read in its first hour.
 pipeline: rel_traineval
 tier: medium
 seed: 1

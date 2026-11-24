@@ -54,6 +54,10 @@ class NoRecord(Exception):
 # archive cannot give: left out and listed like a 404, under fetch.allow_missing; default: the stage fails). Set by main().
 RETRY_S = None
 SERVER_ERRORS_UNAVAILABLE = False
+# profile block fetch: `incomplete_unavailable` (an INSDC FASTA whose answer lacks a requested sequence or holds it empty,
+# asked for three times, is a record the archive cannot give in that version: left out and listed under
+# fetch.allow_missing with the names the archive gave; default: the stage fails at once). Set by main().
+INCOMPLETE_UNAVAILABLE = False
 
 
 def get(url, tries=5, pause=10):
@@ -160,7 +164,27 @@ def check_fasta(data: bytes, want, what):
     missing = sorted(w for w, n in got.items() if n is None)
     empty = sorted(w for w, n in got.items() if n is not None and lens.get(n, 0) == 0)
     if missing or empty or not names:
-        raise SystemExit("%s: incomplete download (missing %s, empty %s, %d records)" % (what, missing[:5], empty[:5], len(names)))
+        raise SystemExit("%s: incomplete download (missing %s, empty %s, %d records; the archive gave %s)" % (
+            what, missing[:5], empty[:5], len(names), sorted(set(names) - set(got.values()))[:5]))
+
+
+def ena_fasta(url, want, what):
+    """The INSDC FASTA of `want` from ENA, checked (check_fasta()). With fetch.incomplete_unavailable an answer that
+    lacks a requested sequence (a sequence of another version, say) is asked for again twice, then the source is a
+    record the archive cannot give (NoRecord); otherwise the stage fails at once, as before."""
+    tries = 3 if INCOMPLETE_UNAVAILABLE else 1
+    for k in range(tries):
+        data = get(url)
+        if data[:2] == b"\x1f\x8b":
+            data = gzip.decompress(data)
+        try:
+            check_fasta(data, want, what)
+            return data
+        except SystemExit as err:
+            if k == tries - 1:
+                if INCOMPLETE_UNAVAILABLE:
+                    raise NoRecord(str(err))
+                raise
 
 
 def check_ncbi_zip(data: bytes, accession, include):
@@ -213,19 +237,13 @@ def fetch_source(src, cas, index):
         if not accs:
             raise SystemExit("%s: no replicons of types %s" % (src["ena_assembly"], sorted(types)))
         url = ENA_FASTA % ",".join(accs)
-        data = get(url)
-        if data[:2] == b"\x1f\x8b":
-            data = gzip.decompress(data)
-        check_fasta(data, accs, src["ena_assembly"])
+        data = ena_fasta(url, accs, src["ena_assembly"])
         path, sha = store(cas, data, ".fna")
         files.append(dict(path=path, sha256=sha, bytes=len(data), kind="fna"))
         prov.append(dict(url=url, replicons=accs))
     if "ena_sequences" in src:
         url = ENA_FASTA % ",".join(src["ena_sequences"])
-        data = get(url)
-        if data[:2] == b"\x1f\x8b":
-            data = gzip.decompress(data)
-        check_fasta(data, src["ena_sequences"], src["id"])
+        data = ena_fasta(url, src["ena_sequences"], src["id"])
         path, sha = store(cas, data, ".fna")
         files.append(dict(path=path, sha256=sha, bytes=len(data), kind="fna"))
         prov.append(dict(url=url))
@@ -276,10 +294,11 @@ def main():
         cfg = st.config
         with open(st.repo(cfg["corpus_spec"])) as f:
             spec = yaml.safe_load(f)
-        global RETRY_S, SERVER_ERRORS_UNAVAILABLE
+        global RETRY_S, SERVER_ERRORS_UNAVAILABLE, INCOMPLETE_UNAVAILABLE
         fc = cfg.get("fetch") or {}
         RETRY_S = [float(x) for x in fc["retry_s"]] if fc.get("retry_s") else None
         SERVER_ERRORS_UNAVAILABLE = bool(fc.get("server_errors_unavailable"))
+        INCOMPLETE_UNAVAILABLE = bool(fc.get("incomplete_unavailable"))
         cas = os.path.join(cfg["data_root"], "cas")
         index_path = os.path.join(cas, "fetch_index.json")
         index = json.load(open(index_path)) if os.path.exists(index_path) else {}

@@ -1,0 +1,57 @@
+# Machine i-1: the downloads of the supplement (corpus medium-k3x, configs/corpus/medium-k3x.yaml, sha256 f6c5c0ae: corpus
+# medium-k3 and the 6,213 eukaryotic viruses and 487 plants and algae of the training and held-out units that run
+# 20261124T042814-exp-rel-933e8b09-rel-dev-w13-xpick-i1 named; the user's decision of 2026-11-24, "都下"): stage fetch only
+# (rel_w13_build.upto: fetch). Viruses: their sequences from ENA (122 Mbp, about 0.13 GB of FASTA). Plants and algae: the
+# coding sequences and the sequence report of each assembly from NCBI Datasets, no genome (their annotations hold 19.4
+# million genes; about 7-15 GB of zip files, kept as they come and never unpacked to disk). Every file into the CI's
+# content store with its URL, size and sha256 (the fetch manifest), the corpus's earlier files taken from the store;
+# retries after 10, 30 and 90 s, a source still not given is listed, more than 5% of the new genomes fails the run.
+# Generic user agent. Network, 2 cores, about 3-5 hours (NCBI's speed from this machine varies); resumable per source.
+# Raw files to R2 sources/ by the coordinator. Development data only.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 20
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium-k3x.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.05
+  threads: 8
+  retry_s: [10, 30, 90]
+  server_errors_unavailable: true
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-5
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from: [/hy-tmp/seeddrift-ci/runs/20261118T104626-exp-0.2-pilot-948f2584-medium-search]
+  reuse_per_genome: true
+  reuse_check: 0
+train_data:
+  test_split: true
+  hits: 32
+rel:
+  machine: i1
+  stages: [w13_build]
+rel_w13_build:
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261124T042814-exp-rel-933e8b09-rel-dev-w13-xpick-i1
+  upto: fetch
+train:
+  gpu_lease: false
+  device: cpu

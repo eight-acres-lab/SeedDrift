@@ -10,8 +10,12 @@ Source kinds:
   annotated_cds                        Ensembl coding sequences (cds.all): protein-coding genes only, the longest
                                        coding sequence of each gene, coordinates from the FASTA headers, organelle
                                        replicons left out (a separate class), optionally only some `replicons`
-                                       and at most `max_genes` genes in genome order
-Remote sources (ena_assembly, ena_sequences, ensembl) take their files from the fetch stage (data/fetch/manifest.json).
+                                       and at most `max_genes` genes in genome order; from an NCBI Datasets zip
+                                       file (ncbi_datasets) the same, by ncbi_cds(): pseudogenes and organelle
+                                       sequences (by the sequence report) left out, a gene by its GeneID (else
+                                       locus tag), with `require_start_stop` an ATG start and a stop codon; every
+                                       coding sequence left out is counted by reason (the manifest's cds_quality)
+Remote sources (ena_assembly, ena_sequences, ensembl, ncbi_datasets) take their files from the fetch stage (data/fetch/manifest.json).
 Every genome gets data/corpus/<id>/{genes.tsv, proteins.faa, cds.fna}; the manifest (data/corpus/manifest.json,
 content-addressed copy in manifests/) lists each genome with taxid, source kind, protein count and file hashes.
 """
@@ -33,7 +37,9 @@ def revcomp(s):
     return s.translate(COMP)[::-1]
 
 
-REMOTE = ("ena_assembly", "ena_sequences", "ensembl")
+REMOTE = ("ena_assembly", "ena_sequences", "ensembl", "ncbi_datasets")
+NUCLEAR = {"", "Chromosome", "Linkage Group"}                       # NCBI sequence reports: other location types are organelles
+STOPS = ("TAA", "TAG", "TGA")
 ORGANELLE = {"MT", "Mt", "mt", "MtDNA", "mitochondrion", "Mito", "Pt", "chloroplast", "plastid", "apicoplast", "M"}
 
 
@@ -176,6 +182,111 @@ def annotated_cds(path, table, replicons=None, max_genes=0):
     return genes, "annotated (Ensembl)"
 
 
+def _ncbi_tags(head):
+    import re
+    return dict(re.findall(r"\[([A-Za-z_]+)=([^\]]*)\]", head))
+
+
+def ncbi_cds(path, table=1, max_genes=0, require_start_stop=True):
+    """(genes, mode, counts) of an NCBI Datasets zip file: its cds_from_genomic.fna (header '>lcl|REPLICON_cds_PROTEIN_N
+    [gene=..] [locus_tag=..] [db_xref=GeneID:..] [protein_id=..] [location=..] [gbkey=CDS]') and its sequence report.
+    Left out and counted: pseudogenes, coding sequences on an organelle (a location type of the report other than a
+    chromosome) or with another genetic code, every coding sequence of a gene but its longest; then, in genome order,
+    a length not a multiple of 3, a stop codon inside, fewer than 30 codons, and with require_start_stop no ATG start or
+    no stop codon at the end. The first max_genes genes that pass are kept, as in annotated_cds()."""
+    import io
+    import re
+    import zipfile
+    from Bio.Seq import Seq
+    q = dict(records=0, pseudogene=0, organelle=0, another_genetic_code=0, replicon_not_in_report=0, partial=0, genes=0, other_isoforms=0,
+             length_not_multiple_of_3=0, stop_codon_inside=0, fewer_than_30_codons=0, no_atg_start=0, no_stop_codon=0, passed=0, kept=0,
+             beyond_max_genes=0, organelle_by_type={})
+    best = {}
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        cds = [n for n in names if n.endswith("/cds_from_genomic.fna")]
+        rep = [n for n in names if n.endswith("/sequence_report.jsonl")]
+        if len(cds) != 1 or len(rep) != 1:
+            raise SystemExit("%s: an NCBI Datasets file needs one cds_from_genomic.fna and one sequence_report.jsonl (has %s)" % (path, names[:8]))
+        loc = {}
+        for line in z.read(rep[0]).decode().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                for k in ("genbankAccession", "refseqAccession"):
+                    if r.get(k):
+                        loc[r[k]] = r.get("assignedMoleculeLocationType") or ""
+
+        def take(head, seq):
+            q["records"] += 1
+            tags = _ncbi_tags(head)
+            first = head[1:].split()[0] if head[1:].split() else ""
+            replicon = (first[4:] if first.startswith("lcl|") else first).split("_cds_")[0]
+            if tags.get("pseudo") == "true":
+                q["pseudogene"] += 1
+                return
+            if replicon not in loc:
+                q["replicon_not_in_report"] += 1
+            elif loc[replicon] not in NUCLEAR:
+                q["organelle"] += 1
+                q["organelle_by_type"][loc[replicon]] = q["organelle_by_type"].get(loc[replicon], 0) + 1
+                return
+            if tags.get("transl_table") and tags["transl_table"] != str(table):
+                q["another_genetic_code"] += 1
+                return
+            if tags.get("partial"):
+                q["partial"] += 1
+            gid = re.search(r"GeneID:(\d+)", tags.get("db_xref", ""))
+            key = ("GeneID_" + gid.group(1)) if gid else (tags.get("locus_tag") or tags.get("gene") or tags.get("protein_id") or first)
+            key = re.sub(r"[^A-Za-z0-9_.\-]", "_", key)
+            nums = [int(n) for n in re.findall(r"\d+", tags.get("location", ""))] or [0]
+            g = dict(gene_id=key, replicon=replicon, start=min(nums), end=max(nums), strand="-" if tags.get("location", "").startswith(("complement(", "join(complement(")) else "+",
+                     partial="00", cds=seq.upper())
+            if key in best:
+                q["other_isoforms"] += 1
+                if len(g["cds"]) <= len(best[key]["cds"]):
+                    return
+            best[key] = g
+        head, buf = None, []
+        with io.TextIOWrapper(z.open(cds[0]), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith(">"):
+                    if head:
+                        take(head, "".join(buf))
+                    head, buf = line.rstrip("\n"), []
+                else:
+                    buf.append(line.strip())
+            if head:
+                take(head, "".join(buf))
+    genes = []
+    q["genes"] = len(best)
+    for g in sorted(best.values(), key=lambda g: (g["replicon"], g["start"], g["gene_id"])):
+        s = g["cds"]
+        if len(s) % 3:
+            q["length_not_multiple_of_3"] += 1
+            continue
+        p = str(Seq(s).translate(table=table))
+        if "*" in p.rstrip("*"):
+            q["stop_codon_inside"] += 1
+            continue
+        if len(p) < 30:
+            q["fewer_than_30_codons"] += 1
+            continue
+        if require_start_stop and s[:3] != "ATG":
+            q["no_atg_start"] += 1
+            continue
+        if require_start_stop and s[-3:] not in STOPS:
+            q["no_stop_codon"] += 1
+            continue
+        q["passed"] += 1
+        if max_genes and len(genes) >= max_genes:
+            q["beyond_max_genes"] += 1
+            continue
+        g["protein"] = p.rstrip("*")
+        genes.append(g)
+    q["kept"] = len(genes)
+    return genes, "annotated (NCBI Datasets)", q
+
+
 def build_one(src, out_dir):
     kind = src["source_kind"]
     table = int(src.get("table", 11))
@@ -183,6 +294,12 @@ def build_one(src, out_dir):
         raise SystemExit("source %s: exclude_regions works on DNA sources only, not on %s" % (src["id"], kind))
     if kind == "annotated":
         genes, mode = annotated(src["files"], table)
+    elif kind == "annotated_cds" and src["files"][0].endswith(".zip"):              # an NCBI Datasets file (source field ncbi_datasets)
+        if src.get("replicons"):
+            raise SystemExit("source %s: replicons is not read from an NCBI Datasets file" % src["id"])
+        genes, mode, q = ncbi_cds(src["files"][0], int(src.get("table", 1)), int(src.get("max_genes", 0)), bool(src.get("require_start_stop", True)))
+        os.makedirs(out_dir, exist_ok=True)
+        write_json(os.path.join(out_dir, "cds_quality.json"), q)
     elif kind == "annotated_cds":
         genes, mode = annotated_cds(src["files"][0], int(src.get("table", 1)), set(src.get("replicons") or []), int(src.get("max_genes", 0)))
     elif kind in ("raw_prokaryote", "raw_virus", "plasmid"):
@@ -227,9 +344,11 @@ def main():
             out_dir = st.path("corpus", src["id"], "x")[:-2]
             genes, mode = build_one(src, out_dir)
             files = [M.file_entry(os.path.join(out_dir, n), run_dir) for n in ("genes.tsv", "proteins.faa", "cds.fna")]
+            qp = os.path.join(out_dir, "cds_quality.json")                # the counts of an NCBI Datasets source only
+            extra = dict(cds_quality=json.load(open(qp))) if os.path.exists(qp) else {}
             entries.append(dict(id=src["id"], taxid=int(src["taxid"]), source_kind=src["source_kind"], proteins=len(genes), gene_calling=mode, files=files,
                                 accession=src.get("accession", ""), paired_accession=src.get("paired_accession", ""),
-                                **({k: src[k] for k in ("cluster", "relation") if src.get(k)})))
+                                **({k: src[k] for k in ("cluster", "relation") if src.get(k)}), **extra))
         man = M.build(spec["name"], "corpus", entries, meta=dict(spec=st.config["corpus_spec"]))
         sha = M.write(man, os.path.join(run_dir, "manifests"))
         mp = st.path("corpus", "manifest.json")

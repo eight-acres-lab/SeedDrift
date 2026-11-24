@@ -47,3 +47,11 @@ rule rel_w13_supply:
     input: "gates/pre.ok"
     output: "data/rel_w13/supply/report.json"
     shell: STAGE.format(name="rel.w13_supply")
+
+# w13_xpick: the supplement of eukaryotic viruses and plants and algae by name (the supply's candidates of the training
+# and held-out units under stage train_data's split) and the corpus spec that adds them (ci/stages/rel/w13_xpick.py);
+# metadata only (the ENA records of the viruses)
+rule rel_w13_xpick:
+    input: "gates/pre.ok"
+    output: "data/rel_w13/xpick/report.json"
+    shell: STAGE.format(name="rel.w13_xpick")

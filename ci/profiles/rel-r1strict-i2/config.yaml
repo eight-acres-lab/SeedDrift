@@ -1,0 +1,53 @@
+# Machine i-2, round 1 (the programme lead's ruling of 2026-11-24): a filler run in i-2's free GPU time, W6's
+# reference trunk trained on W3's strict rendering (w6-ref30m-strict-v1: scattered and span on the strict aligner,
+# the whole gene on its frame relative) on the tables of version 1 (imported to i-2), seed 2, micro-batches of 1 table,
+# 23,500 steps of 4 tables (94,000 tables, the tables batch 1's ref30m-s2 reached). Against batch 1's ref30m-s2 (run
+# 20261123T144801, the same seed and tables, trained online on i-1): whether training on the strict rendering takes
+# back the ~0.1 bits between the online and the offline readings; also a rehearsal of batch 3 and round 2. The machine
+# differs (i-2's A100 beside its vLLM service, i-1's A800 in batch 1): the reading says so. The end is read again on all
+# 3,000 held-out tables strictly offline by a second run (rel-r1evalstrict-i2) on code that knows the strict variant:
+# round 1's end evaluations ran on 7c02795, which does not. W6 reads the result.
+# Time: ref30m alone on i-2 at micro 1 trained 11.4 to 11.6 tables per second (run 20261123T150503); the strict
+# rendering's cost is the preflight's. wall_s covers 94,000 tables at 6.9 tables per second or more with the programme
+# lead's margin (x 1.15, x 1.043 for the evaluations in the loop) and the final evaluation.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 10
+disk_reserve_gb: 30
+gpu_mem_min_mb: 19000           # i-2's A100 beside the vLLM service (about 22 GB free); ref30m at micro 1 reserved 10.1 GB
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i2
+  stages: [w6_selftest, w6_fit]
+  parallel: 1
+rel_w6_selftest:
+  modules: [seeddrift.train.rel.models.axial, seeddrift.train.rel.models.source]
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 0}
+    heldout: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1, path: data/rel_w12/v1/tableset.json, sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1, split: 1}
+    heldout_offline: {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1, path: data/rel_w3/offline/tableset.json, sha256: 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496}
+  arms:
+    - {variant: configs/rel/variants/w6-ref30m-strict-v1.yaml, seed: 2, micro: 1}
+  max_steps: 23500               # 94,000 tables; the arm must end by it (G4_rel_w6_fit)
+  wall_s: 16200
+  only_conditions: [scattered, whole_gene, scattered+no_relatives, whole_gene+no_relatives]
+  eval_per_group: 50             # the in-loop subset: the first 50 held-out tables of each group (600), as batch 1
+  final_per_group: 50            # the run's end on the same 600 tables, on the strict offline rendering (leakfree)
+  eval_max_rows: 32
+  eval_online: true
+  keep_node_weights: true        # the moving average at every node (ema_tables<n>.pt), kept on this machine
+  data_workers: 1                # the strict rendering in one background process
+  preflight_steps: 200
+train:
+  gpu_lease: false
+  device: auto
+  python: /hy-tmp/seeddrift-ci/envs/model-torch/bin/python
+  python_lock: ci/envs/model-torch-venv.pip.txt

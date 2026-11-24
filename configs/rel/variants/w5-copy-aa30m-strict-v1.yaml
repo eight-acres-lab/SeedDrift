@@ -1,0 +1,24 @@
+# copy-aa30m for round 1's batch 3 (package W5; the programme lead's ruling of 2026-11-24): arm S2 of decision D7 with
+# one more copy level whose tilt reads amino acids only, B_aa[aa(c), aa(x)] (models/source.py, switch aa_level): no bias
+# between synonymous codons, the own-row distribution chooses the codon; S2's codon levels kept, the weights of all
+# levels from the trunk's scores. w5-src30m-s2-strict-v1 but for the switch: set against w6-ref30m-strict-v1 in the
+# same way (layout strict by W3's strict rendering, the whole gene on its frame relative, tables of version 1, 4 to 32
+# rows, 30 M at 1.5e-4, 4 tables per step). Its development comparison on tables of version 0 (run
+# 20261124T041640, rel-srcaa-i2): 0.118 bits below S2 under scattered, the same code, machine and seed.
+name: w5-copy-aa30m-strict-v1
+author: w5
+api: 1
+model: source
+objective: mlm
+masks: [scattered, span, whole_gene]      # one scheme per table
+layout: strict                            # scattered and span: W3's strict rendering
+whole_gene_layout: frame                  # W3's strict aligner on the rows drawn, then rendered leak-free
+rows: [4, 32]
+columns: 1024
+size: {layers: 12, width: 384, arm: s2, self_layers: 4, aa_level: true}
+relatives: true
+optimizer: {lr: 1.5e-4}
+micro: 2
+gpu_mb: 29000                             # the reference arm's 28 GB and about 1 GB for the output layer; the profile may lower the micro-batch (arms[].micro)
+alone_share: 0.05                         # as the reference arm
+tables: real

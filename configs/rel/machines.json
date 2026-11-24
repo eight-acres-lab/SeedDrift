@@ -6,8 +6,8 @@
    "gpu_name": "NVIDIA A800 80GB PCIe",
    "gpu_mem_mb": 81920,
    "ci_root": "/hy-tmp/seeddrift-ci",
-   "parallel_max": 3,
-   "note": "A800 80 GB, 16-CPU quota; the GPU is shared with other users' processes"
+   "parallel_max": 5,
+   "note": "A800 80 GB, 16-CPU quota; the GPU is shared with other users' processes; up to 5 trainings at once (round 1's batch 3, the programme lead's ruling of 2026-11-24), each within the memory margin its preflight measures"
   },
   "i2": {
    "gpu_name": "NVIDIA A100-PCIE-40GB",

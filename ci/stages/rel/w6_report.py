@@ -835,7 +835,9 @@ def build(st, cfg, run_dir):
             for c in (cond.SCATTERED, sfx):
                 u, v = (F(a1, c), F(a2, c)) if t == "end" else (N(a1, t, c), N(a2, t, c))
                 u0, v0 = (F(a1, c + NO_REL), F(a2, c + NO_REL)) if t == "end" else (N(a1, t, c + NO_REL), N(a2, t, c + NO_REL))
-                if u0 is None and v0 is None:
+                if u0 is None and v0 is None:                       # never scored without relatives (suffix in round 1)
+                    if u is not None or v is not None:
+                        norel_rows.append([t, c, u, v, diff(v, u), None, None, None, "no control; see %s" % cond.SCATTERED])
                     continue
                 d, d0 = diff(v, u), diff(v0, u0)
                 norel_rows.append([t, c, u, v, d, u0, v0, d0, diff(d, d0) if d is not None and d0 is not None else None])

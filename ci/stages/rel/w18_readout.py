@@ -211,6 +211,32 @@ LINEAGE = ("source_shift_aa", "gain_aa", "gain_rel_aa")          # the lineage r
 POOLED_STRATA = ("all", "donor_tier", "host_codon_quartile")
 
 
+def duplicate_cells(cells):
+    """A problem of one per-cell file, or None: a (table, pass, slot) scored twice, or a pass name twice (the presence
+    passes and the plain ones are told apart by their pass names only)."""
+    names = [str(x) for x in cells["pass_names"]]
+    if len(set(names)) != len(names):
+        return "pass names repeated"
+    key = (np.asarray(cells["table"], np.int64) * (len(names) + 1) + np.asarray(cells["pass_id"], np.int64)) * (P.L + 1) + np.asarray(cells["slot"], np.int64)
+    dup = int(len(key) - len(np.unique(key)))
+    return "%d cells repeated" % dup if dup else None
+
+
+STAT_KEY = ("label", "score", "statistic", "comparison", "block", "stratum_kind", "stratum", "scenario", "rule9")
+CRITERION_KEY = ("label", "score", "reference", "block", "scenario", "rule9", "variant")
+
+
+def duplicate_keys(rows, key):
+    """[key] that occur twice among rows (a result written twice would hide one of them)."""
+    seen, dup = set(), []
+    for r in rows:
+        k = tuple(str(r.get(x)) for x in key)
+        if k in seen:
+            dup.append(k)
+        seen.add(k)
+    return dup
+
+
 def untrained_control(arms, named=None):
     """The label of the reading's one untrained model with relatives, the control of every arm (protocol w18-v3 version
     4: the ref30m variant with seed 1, mapped here, never paired by name); `named` (setting untrained: its arm name or
@@ -268,6 +294,10 @@ def build(st, cfg, run_dir):
     genomes = index["genomes"]
     n = ts.tables
     loaded = [(arm, path, sha) + P.load_cells(path) for arm, path, sha in cell_files(s, run_dir)]
+    for arm, path, _, cells, _ in loaded:
+        bad = duplicate_cells(cells)
+        if bad:
+            raise SystemExit("rel_w18_readout: %s holds a cell twice or a pass name twice (%s)" % (path, bad))
     adapts = {head.get("adapt_v0") for _, _, _, _, head in loaded}
     if len(adapts) != 1:
         raise SystemExit("rel_w18_readout: the arms read the tables adapted in different ways (%s); one reading reads one way" % sorted(map(str, adapts)))
@@ -718,6 +748,22 @@ def gate(st, cfg, run_dir):
         problems.append(dict(error="no result row, or a win rate or AUC outside [0, 1]", n=len(bad)))
     if any(c.get("mark") == "evaluated" for c in rep.get("coverage") or []):
         problems.append(dict(error="a ruler never marks a cell evaluated"))
+    dup = duplicate_keys(rows, STAT_KEY)
+    if dup:                                                         # one result row per key: nothing overwrites another
+        problems.append(dict(error="a result row twice in stats.tsv", n=len(dup), first=list(dup[0])))
+    cp = os.path.join(run_dir, OUT, "criterion.tsv")
+    if os.path.exists(cp):
+        with open(cp) as f:
+            crit = list(csv.DictReader(f, delimiter="\t"))
+        if duplicate_keys(crit, CRITERION_KEY):
+            problems.append(dict(error="a criterion row twice in criterion.tsv"))
+    for name, key in (("verdicts", ("arm", "block")), ("second_verdicts", ("arm", "block")), ("arms", ("label",))):
+        if duplicate_keys(rep.get(name) or [], key):
+            problems.append(dict(error="%s holds one key twice" % name))
+    with open(os.path.join(run_dir, OUT, "scores.tsv")) as f:
+        header = f.readline().rstrip("\n").split("\t")
+    if len(set(header)) != len(header):
+        problems.append(dict(error="a score column twice in scores.tsv"))
     if not rep.get("tables", {}).get("sha256") or not rep.get("run"):
         problems.append(dict(error="the report does not name its run and tables"))
     require(GateResult("G4_rel_w18_readout", "fail" if problems else "pass", dict(problems=problems[:20], arms=[a["arm"] + ":" + a["weights"] for a in rep.get("arms") or []],

@@ -4,6 +4,7 @@ recorded checksums, leaves the sealed test split unopened, and writes a ruler se
 checks accept; rel_w18_readout (ci/stages/rel/w18_readout.py) turns per-cell bits into the readouts and their AUCs.
 The stages are not yet in configs/rel/kinds.yaml (a request asks the coordinator), so the tests call build and gate
 with the plain Stage."""
+import csv
 import json
 import os
 
@@ -527,6 +528,19 @@ def test_offline_stage_and_a_leak_free_reading(v1stage, tmp_path_factory, monkey
     assert rep["multiplicity"]["second"]["total"] == 2 and "too few to read" in rep["multiplicity"]["second"]["text"]
     page = open(os.path.join(ev, w18_readout.OUT, "report.md")).read()
     assert "Second verdict" in page and "First verdict, counted" in page
+    with Stage(ev, "gates_rel_w18_readout") as st:                      # one row per key, every key once
+        w18_readout.gate(st, ecfg, ev)
+    assert _gate(ev, "G4_rel_w18_readout")["status"] == "pass"
+    cells, _ = P.load_cells(os.path.join(ev, "data", "rel_w6", "eval", "lf", P.RULER_CELLS))
+    assert w18_readout.duplicate_cells(cells) is None
+    twice = {k: (np.concatenate([v, v[:5]]) if k in ("table", "pass_id", "slot") else v) for k, v in cells.items()}
+    assert w18_readout.duplicate_cells(twice) == "5 cells repeated"
+    with open(os.path.join(ev, w18_readout.OUT, "stats.tsv")) as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    assert w18_readout.duplicate_keys(rows, w18_readout.STAT_KEY) == [] and len(w18_readout.duplicate_keys(rows + rows[:3], w18_readout.STAT_KEY)) == 3
+    presence = [r for r in rows if r["label"].startswith("presence:")]
+    plain = [r for r in rows if r["label"] == "lf"]
+    assert presence and plain and {r["score"] for r in presence} <= {r["score"] for r in plain}      # apart, by label
     # the 2 x 2 table: the same arms read under the stored layout in another run, compared
     ev2, ecfg2 = RF.rel_run(tmp_path_factory.mktemp("w18st"), kind="rel_traineval", stages=("w6_eval",), run_id="20261124T000003-exp-rel-00000000-eval")
     with Stage(ev2, "rel_w6_eval") as st:

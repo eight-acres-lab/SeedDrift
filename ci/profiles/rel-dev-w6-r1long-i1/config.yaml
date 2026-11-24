@@ -1,0 +1,73 @@
+# Machine i-1: the report of round 1's long arm (protocol round1, version 9; stage w6_report of package W6, alone):
+# ref30m-long (run 20261123T150503, i-2 alone, micro-batches of 1 table, 448,452 tables, 2.22 passes over the 201,600
+# training tables of version 1), read at the end on all 3,000 held-out tables of version 1 strictly offline with its
+# moving averages at 100,000, 128,000 and 256,000 tables read again the same way (run 20261124T030223, stage w6_eval;
+# both copied to i-1 over R2 without checkpoints, every file checked by sha256). Beside batch 1 (run 20261123T144801,
+# read at the end through run 20261123T220309) for the seeds' threshold and the seed-and-machine check, round 1b's
+# leak-free 30 M long arm on version 0 (run 20261123T035654) for the reading of data, and W5's baselines of version 1.
+# Reads result rows, model indexes, preflight records, the arms' steps.csv, node_cells.npz and their cells per table;
+# CPU only. Development diagnosis only.
+pipeline: rel_traineval
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 2
+blas_threads: 1
+disk_gb: 1
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions: [configs/exclusions/pilot_recipients.tsv]
+rel:
+  machine: i1
+  stages: [w6_report]
+  parallel: 1
+rel_w6_report:
+  fits:
+    - /hy-tmp/seeddrift-ci/runs/20261123T144801-exp-rel-6bb5f500-rel-r1short-i1
+    - {run: /hy-tmp/seeddrift-ci/runs/20261123T220309-exp-rel-7c02795e-rel-r1eval-i1, folder: data/rel_w6/eval}
+    - /hy-tmp/seeddrift-ci/imports/runs/20261123T150503-exp-rel-f17fff25-rel-r1long-i2
+    - {run: /hy-tmp/seeddrift-ci/imports/runs/20261124T030223-exp-rel-r1evali2-5619d89b-rel-r1eval-i2, folder: data/rel_w6/eval}
+    - {run: /hy-tmp/seeddrift-ci/imports/runs/20261123T035654-exp-rel-48d1de93-rel-r1blong-i2, label: v0}
+  seeds: [[w6-ref30m-v1-s2, w6-ref30m-v1-s3]]
+  threshold_floor: 0.008
+  worth_without: end
+  units_source: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  passes: [w6-ref30m-v1-s1]
+  readings_exclude: [w6-ref30m-v1-s1, w6-ref30m-v1-s1.node@100000, w6-ref30m-v1-s1.node@128000, w6-ref30m-v1-s1.node@256000,
+                     "w6-ref30m-leakfree-lr1.5e-4-s1 @v0"]
+  scale_exclude: [w6-ref30m-v1-s1, w6-ref30m-v1-s1.node@100000, w6-ref30m-v1-s1.node@128000, w6-ref30m-v1-s1.node@256000,
+                  "w6-ref30m-leakfree-lr1.5e-4-s1 @v0"]
+  pairs:
+    - {name: "data at 128,000 tables, version 1 against version 0 (both strictly offline)", first: "w6-ref30m-leakfree-lr1.5e-4-s1 @v0",
+       second: w6-ref30m-v1-s1.node@128000}
+    - {name: "data at 256,000 tables, version 1 against version 0 (both strictly offline)", first: "w6-ref30m-leakfree-lr1.5e-4-s1 @v0",
+       second: w6-ref30m-v1-s1.node@256000}
+    - {name: "seed and machine: ref30m-long (i-2, seed 1) against ref30m-s2 (i-1, seed 2)", first: w6-ref30m-v1-s2, second: w6-ref30m-v1-s1}
+  notes:
+    - >-
+      The readings that count are those on all 3,000 held-out tables of version 1 rendered strictly offline (package W3):
+      the long arm's end and its moving averages at 100,000, 128,000 and 256,000 tables read again the same way (entries
+      <arm>.node@<tables>). Its nodes during training were rendered online (rows leakfree-online): the anchors of scattered
+      and span are the stored pairs, so the nodes read scattered and span too low (about 0.10 bits on the same weights,
+      the report of batch 1); its whole gene is laid on the frame relative by W3's strict aligner, the end's own layout.
+    - >-
+      Data, version 1 against version 0: the long arm's moving averages at 128,000 and 256,000 tables read strictly
+      offline on all 3,000 held-out tables of version 1, against round 1b's leak-free 30 M long arm at its nodes of the same
+      tables seen, read strictly offline on the first 50 held-out tables of every group of version 0. The held-out sets
+      differ, so this compares curves, not cells; scattered and span only: round 1b's long arm trained the whole gene in the
+      stored layout, so its whole gene read on the frame relative is not a reading of version 0.
+    - >-
+      The cap per target gene (K) for the tables of round 2: on version 1 the eukaryotic viruses' whole gene begins to
+      over-fit when every target gene has been used about 4.6 times (the lowest node at 100,000 tables, 0.50 passes; 1,804
+      genes, 9.3 uses per pass): if round 2's long arm makes two passes or more, K = 5 per pass does not prevent it. How K
+      changes is the programme lead's decision.
+    - >-
+      ref30m-long trained alone on i-2 beside the vLLM service, micro-batches of 1 table, 4 tables per step; ref30m-s2,
+      ref30m-s3 and norel30m trained at once on i-1: the seed-and-machine check holds a seed and a machine at once and is
+      never the threshold. Below 2.5 passes the over-fitting reading over all groups is "not reached"; the groups are read
+      one by one against their own seeds' difference (at least 0.02 bits) and a paired interval.
+  baselines: [{run: /hy-tmp/seeddrift-ci/runs/20261123T221348-exp-rel-7c02795e-rel-dev-w5-baselines-v1-i1, path: data/rel_w5/baselines/rows.tsv}]
+train:
+  gpu_lease: false
+  device: cpu

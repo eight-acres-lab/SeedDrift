@@ -5,6 +5,16 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.11 (branch exp/rel-corpus-ready-20261125, 2026-11-26: full expanded W12 search on i2)
+
+Register the complete medium-k3x W12 search on i2 using the passed 151253 source with verified open-source imports.
+The successful one-percent trial 160716 measured 1.159 GB of output and extrapolated 116.458 GB for the full search.
+The profile reserves 170 GB for output and transient search files plus the existing 30 GB free-space floor; the
+capacity review also budgets subsequent tables. Imported source, islands and old table-index references retain
+all original hashes. Scientific search settings and query batch boundaries are unchanged. The machine allocation
+is eight CPU cores with the agreed twelve DIAMOND threads under that quota. The 10,500-second call boundary is
+resumed in the same run, preserving completed calls.
+
 ## 0.10 (branch exp/rel-corpus-ready-20261125, 2026-11-25: expanded W12 capacity trial)
 
 Register a one-percent query trial against the complete expanded training-protein database. The source is the

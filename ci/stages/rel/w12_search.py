@@ -43,6 +43,10 @@ programme lead, 2026-11-24: round 2 searches in full with round 1's settings).
 Outputs under data/rel_w12/search/: <genome>.npz per query genome (v1_hits.py), genomes.json (the genome list the
 arrays index), index/ (the lookup index of all of them, memory-mappable: v1_hits.Index), report.md and manifest.json (written last: settings, sizes, wall times, rows, bytes and, for a sample
 run, the linear extrapolation to the full search with the disk it needs).
+Optional output_order_from ({run, sha256}, a passed version-1 table set) keeps that set's complete genome-index
+prefix in the final arrays, with new genomes appended. The DIAMOND database, query order, calls and resumable parts
+retain the source order. Only the final consolidated target indices and lookup index are renumbered, so an earlier
+held-out table set can be copied byte for byte even when new source IDs sort before earlier ones.
 Gate G4_rel_w12_search (gate()): every query genome has its file, sound and as listed; the query genomes are the open
 splits of the source and the database genomes its training split; the files are the ones the manifest names.
 """
@@ -67,7 +71,7 @@ from seeddrift.train.rel.tables import v1_hits as H
 
 OUT = os.path.join("data", "rel_w12", "search")
 KEYS = {"source", "expect", "islands", "islands_from", "sample", "seed", "threads", "block_size", "sensitivity", "evalue", "chunk_proteins", "self_batch_proteins",
-        "probe_proteins", "wall_s", "reserve_gb", "extend_from", "dbsize", "algo", "verify_proteins"}
+        "probe_proteins", "wall_s", "reserve_gb", "extend_from", "dbsize", "algo", "verify_proteins", "output_order_from"}
 
 
 def settings(cfg) -> dict:
@@ -83,7 +87,14 @@ def settings(cfg) -> dict:
                probe_proteins=int(c.get("probe_proteins", 200 if sample < 1 else 0)), wall_s=float(c["wall_s"]) if c.get("wall_s") else None,
                reserve_gb=float(c.get("reserve_gb", 30)), max_left_out=20, extend_from=str(c["extend_from"]) if c.get("extend_from") else None,
                dbsize=int(c["dbsize"]) if c.get("dbsize") else None, algo=int(c["algo"]) if c.get("algo") is not None else None,
-               verify_proteins=int(c.get("verify_proteins", 2000 if c.get("extend_from") else 0)))
+               verify_proteins=int(c.get("verify_proteins", 2000 if c.get("extend_from") else 0)),
+               output_order_from=c.get("output_order_from"))
+    ref = out["output_order_from"]
+    if ref is not None:
+        if not isinstance(ref, dict) or set(ref) != {"run", "sha256"} or not ref.get("run") or not isinstance(ref.get("sha256"), str) \
+                or len(ref["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in ref["sha256"]):
+            raise SystemExit("rel_w12_search: output_order_from needs run and the table-set sha256")
+        out["output_order_from"] = dict(run=str(ref["run"]), sha256=ref["sha256"])
     if out["extend_from"] and (sample < 1 or out["probe_proteins"]):
         raise SystemExit("rel_w12_search: extend_from extends a full search (sample 1, no probe)")
     if out["algo"] not in (None, 0, 1) or out["verify_proteins"] < 0:
@@ -92,6 +103,35 @@ def settings(cfg) -> dict:
             and out["sensitivity"] in ("fast", "mid-sensitive", "sensitive", "more-sensitive", "very-sensitive", "ultra-sensitive")):
         raise SystemExit("rel_w12_search: settings out of range: %r" % out)
     return out
+
+
+def output_order(genomes, ref):
+    """Final genome order, source-index -> final-index map, and checked provenance. No search input is changed."""
+    if ref is None:
+        return genomes, None, None
+    from ci.stages.rel.w12_v1 import reference_set
+    with open(os.path.join(ref["run"], "record.json")) as f:
+        rec = json.load(f)
+    if rec.get("status") != "passed":
+        raise SystemExit("rel_w12_search: output-order reference run is not passed")
+    rp = os.path.join(ref["run"], "data", "rel_w12", "v1", "tableset.json")
+    W._output(ref["run"], "rel_w12_v1", "tableset", rp)
+    _, idx, _ = reference_set(ref)
+    prior = idx["genomes"]
+    current = {g["id"]: g for g in genomes}
+    before = {g["id"]: g for g in prior}
+    if len(current) != len(genomes) or len(before) != len(prior):
+        raise SystemExit("rel_w12_search: duplicate genome IDs in the output-order reference or current list")
+    bad = [g["id"] for g in prior if g["id"] not in current or any(current[g["id"]].get(k) != g.get(k) for k in ("group", "split", "taxid"))]
+    if bad:
+        raise SystemExit("rel_w12_search: output-order reference genomes are missing or changed: %s" % bad[:5])
+    ordered = [current[g["id"]] for g in prior] + [g for g in genomes if g["id"] not in before]
+    positions = {g["id"]: i for i, g in enumerate(ordered)}
+    tmap = np.asarray([positions[g["id"]] for g in genomes], dtype=np.int64)
+    return ordered, tmap, dict(ref, run_id=rec.get("run_id") or os.path.basename(os.path.normpath(ref["run"])),
+                               index_sha256=sha256_file(os.path.join(ref["run"], "data", "rel_w12", "v1", "index.json"), use_sidecar=False),
+                               preserved_genomes=len(prior), appended_genomes=len(genomes) - len(prior),
+                               note="only final output indices are renumbered; search calls and resumable parts retain source order")
 
 
 def diamond_search(diamond, queries, db, s, out_lines):
@@ -338,7 +378,9 @@ def build(st, cfg, run_dir):
     from ci.stages.search import gene_ids
     names, prots = {}, {}
     islands, island_prov = island_genomes(s["islands_from"], sealed) if s["islands"] else ([], None)
-    for m in metas + islands:
+    working_metas = [dict(m, taxid=int(m["taxid"])) for m in metas + islands]
+    ordered_metas, output_tmap, order_prov = output_order(working_metas, s["output_order_from"])
+    for m in working_metas:
         folder = m.get("folder") or os.path.join(run, "data", "corpus", m["id"])
         names[m["id"]] = gene_ids(folder)
         if len(names[m["id"]]) != int(m["genes"]):
@@ -347,7 +389,9 @@ def build(st, cfg, run_dir):
         prots[m["id"]] = [fa["%s__%s" % (m["id"], n)] for n in names[m["id"]]]
     say("%d genomes and %d development chromosomes, %d proteins, files checked" % (len(metas), len(islands), sum(len(v) for v in prots.values())))
     genomes = [dict(id=m["id"], group=m["group"], split=m["split"], taxid=int(m["taxid"]), genes=len(names[m["id"]]),
-                    letters=int(sum(len(x) for x in prots[m["id"]]))) for m in metas + islands]
+                    letters=int(sum(len(x) for x in prots[m["id"]]))) for m in working_metas]
+    output_by_id = {g["id"]: g for g in genomes}
+    output_genomes = [output_by_id[m["id"]] for m in ordered_metas]
     gix = {g["id"]: i for i, g in enumerate(genomes)}
     gene_index = {g: {n: i for i, n in enumerate(v)} for g, v in names.items()}
     searched = sample_genes(genomes, names, s["sample"], s["seed"])
@@ -510,6 +554,10 @@ def build(st, cfg, run_dir):
         others = a["tgenome"] != gix[g["id"]]
         if g["split"] != "train" and others.any() and set(np.unique(a["tgenome"][others]).tolist()) - {gix[t] for t in train}:
             raise SystemExit("rel_w12_search: %s has rows to genomes outside the training split" % g["id"])
+        if output_tmap is not None:
+            a = H.combine([H.flat(a, output_tmap)], g["genes"], a["searched"])
+            if H.check(a, len(output_genomes)):
+                raise SystemExit("rel_w12_search: the renumbered rows of %s are not sound" % g["id"])
         p = os.path.join(out, g["id"] + ".npz")
         H.save(p, a)
         g.update(pairs=int(len(a["tgenome"])), hsps=int(len(a["qs"])), self_pairs=int((~others).sum()))
@@ -522,6 +570,7 @@ def build(st, cfg, run_dir):
         raise SystemExit("rel_w12_search: the extension differs from the search done again for %d sampled genes (after the long calls), e.g. %s" % (len(late), late[:5]))
     if verify:
         verify.update(late_mismatches=0)
+    genomes = output_genomes
     gp = os.path.join(out, "genomes.json")
     write_json(gp, dict(genomes=genomes, note="the genome list the arrays index (tgenome)"))
     files.append(gp)
@@ -543,7 +592,7 @@ def build(st, cfg, run_dir):
                database=dict(genomes=len(train), proteins=int(sum(len(prots[g]) for g in train)), letters=int(sum(len(x) for g in train for x in prots[g]))),
                queries=dict(genomes=len(genomes), proteins=int(sum(g["genes"] for g in genomes)), letters=total_letters, searched_proteins=stats["genes_searched"],
                             searched_letters=searched_letters, per_split={sp: sum(1 for g in genomes if g["split"] == sp) for sp in V.OPEN_SPLITS + ("island",)}),
-               islands=island_prov,
+               islands=island_prov, output_order=order_prov,
                index=dict(index_sizes, folder=os.path.relpath(ix_dir, run_dir), bytes=index_bytes),
                rows=dict(stats, bytes=nbytes, index_bytes=index_bytes, bytes_per_hsp=(nbytes / stats["hsps"]) if stats["hsps"] else None,
                          hsps_per_searched_gene=(stats["hsps"] / stats["genes_searched"]) if stats["genes_searched"] else None),
@@ -579,7 +628,7 @@ def build(st, cfg, run_dir):
     mp = os.path.join(out, "manifest.json")
     write_json(mp, rep)
     st.output("search_manifest", mp)
-    st.extra.update(rows=rep["rows"], timing=timing, extrapolation=rep.get("extrapolation"))
+    st.extra.update(rows=rep["rows"], timing=timing, extrapolation=rep.get("extrapolation"), output_order=order_prov)
     return rep
 
 
@@ -606,6 +655,11 @@ def page_of(rep):
          "| searched genes with at least one pair | %s of %s |" % ("{:,}".format(r["genes_with_pairs"]), "{:,}".format(r["genes_searched"])),
          "| bytes on disk | %.2f GB, %.1f per alignment (the lookup index %.2f GB of it) |" % (r["bytes"] / 1e9, r["bytes_per_hsp"] or 0.0, r.get("index_bytes", 0) / 1e9),
          "| free disk | %.0f GB (reserve %.0f GB) |" % (rep["disk"]["free_gb"], rep["disk"]["reserve_gb"])]
+    order = rep.get("output_order")
+    if order:
+        L += ["", "Final output indices preserve the %d-genome prefix of table set `%s` (sha256 `%s`), with %d genomes appended. "
+              "The database, query calls and resumable parts retain source order. Target indices are renumbered only after the searches finish."
+              % (order["preserved_genomes"], order["run_id"], order["sha256"], order["appended_genomes"])]
     x = rep.get("extension")
     if x:
         v = x.get("verify") or {}
@@ -648,6 +702,19 @@ def gate(st, cfg, run_dir):
     have = sorted(g["id"] for g in genomes if g["split"] != "island")
     if any(g["split"] not in V.OPEN_SPLITS + ("island",) for g in genomes) or not set(have) <= set(want) or len(want) - len(have) != len(rep.get("left_out") or []):
         problems.append(dict(error="the query genomes are not the open splits of the source (less the ones left out)"))
+    if s["output_order_from"]:
+        try:
+            # Reconstruct source order independently, including the island order, rather than trusting the output tail.
+            present = set(have)
+            working = [m for m in src["index"]["genomes"] if m.get("source", "corpus") == "corpus" and m["id"] in present]
+            if s["islands"]:
+                working += island_genomes(s["islands_from"], common.sealed_set(cfg))[0]
+            ordered, _, prov = output_order(working, s["output_order_from"])
+            fields = ("id", "group", "split", "taxid")
+            if [tuple(g.get(k) for k in fields) for g in ordered] != [tuple(g.get(k) for k in fields) for g in genomes] or rep.get("output_order") != prov:
+                problems.append(dict(error="the final genome order or its provenance differs from the fixed reference and source"))
+        except SystemExit as err:
+            problems.append(dict(error=str(err)[:300]))
     isl = [g["id"] for g in genomes if g["split"] == "island"]
     if isl and not s["islands"]:
         problems.append(dict(error="island chromosomes among the queries of a run without islands"))

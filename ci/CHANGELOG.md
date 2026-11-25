@@ -5,6 +5,16 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.8 (branch exp/rel-corpus-ready-20261125, 2026-11-25: preserve held-out table indices)
+
+The uncapped W12 search accepts `output_order_from`, a passed version-1 table set pinned by its manifest digest.
+Its final arrays and lookup index retain that set's complete genome-index prefix, with new genomes appended.
+The DIAMOND database, query order, call boundaries and resumable part files keep the source order. Consolidation
+renumbers and sorts target pairs after the main and self searches. The gate verifies the reference and final order.
+This permits byte-for-byte reuse of the original held-out tables when expanded source IDs sort before old IDs.
+Regression coverage checks identical search inputs, alignments, self copies, island indices, lookups and resumed
+output arrays, and rejects changed, missing, duplicate or unverified reference metadata.
+
 ## 0.7 (branch exp/rel-corpus-resume-20261125, 2026-11-25: damaged archive retries)
 
 NCBI Datasets ZIP validation now normalizes DEFLATE errors and truncated-member EOFs into the existing damaged

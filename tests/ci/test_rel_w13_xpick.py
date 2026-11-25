@@ -5,7 +5,9 @@ and the sequence report of an assembly)."""
 import io
 import json
 import os
+import struct
 import zipfile
+import zlib
 
 import pytest
 import yaml
@@ -200,6 +202,69 @@ def test_fetch_keeps_an_ncbi_datasets_zip_file(tmp_path, monkeypatch):
     assert len(urls) == 3                                                     # a damaged zip file is asked for twice more
     with pytest.raises(SystemExit, match="unknown parts"):
         fetch.fetch_source(dict(src, ncbi_datasets=dict(accession=acc, include=["GENOME_FASTA"])), str(tmp_path / "cas4"), {})
+
+
+def corrupt_ncbi_readme(data):
+    """Keep the ZIP directory intact and damage only its plain-text README's DEFLATE block."""
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        offset = archive.getinfo("README.md").header_offset
+    damaged = bytearray(data)
+    name_length, extra_length = struct.unpack_from("<HH", damaged, offset + 26)
+    payload_start = offset + 30 + name_length + extra_length
+    damaged[payload_start] = (damaged[payload_start] & 0xF8) | 0x07  # reserved DEFLATE block type
+    return bytes(damaged)
+
+
+def test_fetch_retries_a_corrupt_ncbi_member_before_storing(tmp_path, monkeypatch):
+    from ci.stages import fetch
+    acc = "GCA_000000605.1"
+    src = dict(id=A605, ncbi_datasets=dict(accession=acc, include=["CDS_FASTA", "SEQUENCE_REPORT"]))
+    good = ncbi_zip(acc)
+    damaged = corrupt_ncbi_readme(good)
+    with zipfile.ZipFile(io.BytesIO(damaged)) as archive:
+        with pytest.raises(zlib.error):
+            archive.testzip()
+    responses = iter([damaged, good])
+    urls = []
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: urls.append(url) or next(responses))
+    monkeypatch.setattr(fetch, "SERVER_ERRORS_UNAVAILABLE", False)
+    cas = tmp_path / "cas"
+    files, _, hit = fetch.fetch_source(src, str(cas), {})
+    assert len(urls) == 2 and not hit
+    assert len(files) == 1
+    stored = list(cas.glob("*/*.ncbi.zip"))
+    assert len(stored) == 1 and str(stored[0]) == files[0]["path"]
+    assert stored[0].read_bytes() == good
+
+
+def test_fetch_rejects_three_corrupt_ncbi_members(tmp_path, monkeypatch):
+    from ci.stages import fetch
+    acc = "GCA_000000605.1"
+    src = dict(id=A605, ncbi_datasets=dict(accession=acc, include=["CDS_FASTA", "SEQUENCE_REPORT"]))
+    damaged = corrupt_ncbi_readme(ncbi_zip(acc))
+    urls = []
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: urls.append(url) or damaged)
+    monkeypatch.setattr(fetch, "SERVER_ERRORS_UNAVAILABLE", False)
+    cas = tmp_path / "cas"
+    with pytest.raises(RuntimeError, match="not a complete zip file"):
+        fetch.fetch_source(src, str(cas), {})
+    assert len(urls) == 3
+    assert not cas.exists()
+
+
+def test_fetch_records_three_corrupt_ncbi_members_as_unavailable(tmp_path, monkeypatch):
+    from ci.stages import fetch
+    acc = "GCA_000000605.1"
+    src = dict(id=A605, ncbi_datasets=dict(accession=acc, include=["CDS_FASTA", "SEQUENCE_REPORT"]))
+    damaged = corrupt_ncbi_readme(ncbi_zip(acc))
+    urls = []
+    monkeypatch.setattr(fetch, "get", lambda url, **kw: urls.append(url) or damaged)
+    monkeypatch.setattr(fetch, "SERVER_ERRORS_UNAVAILABLE", True)
+    cas = tmp_path / "cas"
+    with pytest.raises(fetch.NoRecord, match="not a complete zip file"):
+        fetch.fetch_source(src, str(cas), {})
+    assert len(urls) == 3
+    assert not cas.exists()
 
 
 def test_corpus_reads_the_coding_sequences_of_an_ncbi_datasets_file(tmp_path):

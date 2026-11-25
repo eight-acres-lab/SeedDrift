@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import zlib
 
 from ci import ROOT, manifest as M
 from ci.hashing import sha256_json
@@ -196,7 +197,7 @@ def check_ncbi_zip(data: bytes, accession, include):
     try:
         z = zipfile.ZipFile(io.BytesIO(data))
         bad = z.testzip()
-    except zipfile.BadZipFile as err:
+    except (zipfile.BadZipFile, zlib.error, EOFError) as err:
         raise RuntimeError("%s: not a complete zip file (%s)" % (accession, err))
     if bad:
         raise RuntimeError("%s: a damaged member %s" % (accession, bad))

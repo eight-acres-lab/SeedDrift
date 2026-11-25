@@ -5,6 +5,13 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.7 (branch exp/rel-corpus-resume-20261125, 2026-11-25: damaged archive retries)
+
+NCBI Datasets ZIP validation now normalizes DEFLATE errors and truncated-member EOFs into the existing damaged
+archive retry path. A valid ZIP directory with a damaged compressed member is retried up to three times. A file
+is stored only after validation succeeds. After three failures, the configured missing-source policy determines
+whether the download fails or records an unavailable source. Regression tests cover recovery and both policies.
+
 ## 0.6 (branch exp/rel, 2026-11-23: round 1's foundation)
 
 Round 1 on tables of version 1 under the leak-free layout (protocol round1, version 3), the HGT capability check's

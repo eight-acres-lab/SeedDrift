@@ -1,0 +1,64 @@
+# All five actual part runs are pinned. Launch after every referenced part has passed.
+pipeline: rel_corpus
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 4
+disk_gb: 40
+disk_reserve_gb: 30
+gpu_mem_min_mb: 0
+corpus_spec: configs/corpus/medium-k3x.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions:
+- configs/exclusions/pilot_recipients.tsv
+reference:
+  faa: /hy-tmp/seeddrift-store/reference/reference.faa
+  dmnd: /hy-tmp/seeddrift-store/reference/ref.dmnd
+  cache: true
+corpus:
+  processes: 12
+scenario:
+  table: tests/ci/fixtures/tiny/scenario.tsv
+  truth: tests/ci/fixtures/tiny/scenario_truth.tsv
+fetch:
+  allow_missing: 0.05
+  threads: 8
+  retry_s:
+  - 10
+  - 30
+  - 90
+  server_errors_unavailable: true
+  incomplete_unavailable: true
+search:
+  sensitivity: sensitive
+  max_target_seqs: 1000
+  evalue: 1.0e-05
+  threads: 12
+  block_size: 4
+  nearest: 32
+  keep_sseq: 32
+  reuse_from:
+  - /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  - /hy-tmp/seeddrift-ci/runs/20261125T040722-exp-rel-corpus-resume-20261125-bdad2cb7-rel-dev-w13x-search1-i1
+  - /hy-tmp/seeddrift-ci/runs/20261125T061601-exp-rel-corpus-resume-20261125-bdad2cb7-rel-dev-w13x-search2-i1
+  - /hy-tmp/seeddrift-ci/runs/20261125T082341-exp-rel-corpus-resume-20261125-bdad2cb7-rel-dev-w13x-search3-i1
+  - /hy-tmp/seeddrift-ci/runs/20261125T104151-exp-rel-corpus-resume-20261125-bdad2cb7-rel-dev-w13x-search4-i1
+  - /hy-tmp/seeddrift-ci/runs/20261125T125332-exp-rel-corpus-resume-20261125-bdad2cb7-rel-dev-w13x-search5-i1
+  reuse_per_genome: true
+  reuse_check: 0
+train_data:
+  test_split: true
+  hits: 32
+rel:
+  machine: i1
+  stages:
+  - w13_build
+rel_w13_build:
+  pick_from: /hy-tmp/seeddrift-ci/runs/20261124T042814-exp-rel-933e8b09-rel-dev-w13-xpick-i1
+  upto: all
+  pinned_from: /hy-tmp/seeddrift-ci/runs/20261123T023429-exp-rel-30f29fa1-rel-dev-w13-build-i1
+  pinned_index_sha256: 69b852fde4c1ce856599f69fb2501d0bbbaf7a66f17cb6e244762e3a68bae5b1
+train:
+  gpu_lease: false
+  device: cpu

@@ -5,6 +5,13 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.9 (branch exp/rel-corpus-ready-20261125, 2026-11-25: expanded corpus consolidation)
+
+Register the complete medium-k3x build using the five pinned reference-search parts. The build reuses their
+per-genome hits after those runs pass, constructs training arrays, and checks the old k3 membership and splits
+against run 023429 and its index digest. Source availability and coding-sequence quality remain explicit in the
+build report. The profile is scheduled after the fifth part succeeds.
+
 ## 0.8 (branch exp/rel-corpus-ready-20261125, 2026-11-25: preserve held-out table indices)
 
 The uncapped W12 search accepts `output_order_from`, a passed version-1 table set pinned by its manifest digest.

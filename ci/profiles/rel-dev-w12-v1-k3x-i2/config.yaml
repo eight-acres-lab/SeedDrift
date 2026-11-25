@@ -1,0 +1,41 @@
+# Launch only after the fixed full search and the complete source NPZ import pass.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 8
+blas_threads: 1
+disk_gb: 55
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3x.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions:
+- configs/exclusions/pilot_recipients.tsv
+rel:
+  machine: i2
+  stages:
+  - w12_v1
+rel_w12_v1:
+  search_from: /hy-tmp/seeddrift-ci/runs/20261125T182036-exp-rel-corpus-ready-20261125-2263b559-rel-dev-w12-full-k3x-i2
+  expect:
+    train: 6672
+    heldout: 1539
+    test: 257
+  rows: 32
+  train_per_group: 33600
+  heldout_per_group: 250
+  shard_tables: 2400
+  processes: 8
+  seed: 1
+  name: w12-v1-k3x-r32-s1-n33600-bygene
+  train_sampling: gene
+  max_uses_per_target: 5
+  heldout_equals:
+    run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+    sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1
+  heldout_from:
+    run: /hy-tmp/seeddrift-ci/imports/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+    sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1
+train:
+  gpu_lease: false
+  device: cpu

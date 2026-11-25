@@ -5,6 +5,15 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.12 (branch exp/rel-corpus-ready-20261125, 2026-11-26: expanded training and held-out tables)
+
+Register version-1 tables and the separate newly held-out set from the fixed full W12 search 182036 on i2.
+Version 1 samples training genes with at most five uses per target and up to 33,600 tables per group. The original
+3,000 held-out tables are copied and checked byte for byte against the pinned 122205 manifest, with the original
+genome-index prefix preserved by the search. Version 1x excludes all previously held-out targets and remains
+held-out-only. Both profiles require the search's passed producer record, and construction hashes every required
+source NPZ before loading it. Scheduling also waits for complete source-import acceptance.
+
 ## 0.11 (branch exp/rel-corpus-ready-20261125, 2026-11-26: full expanded W12 search on i2)
 
 Register the complete medium-k3x W12 search on i2 using the passed 151253 source with verified open-source imports.

@@ -5,6 +5,14 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.10 (branch exp/rel-corpus-ready-20261125, 2026-11-25: expanded W12 capacity trial)
+
+Register a one-percent query trial against the complete expanded training-protein database. The source is the
+actual full-build run 151253; the expected 6,672 training, 1,539 held-out and 257 test corpus members are derived
+from its frozen corpus manifest by the native split function and must agree with the successful source index
+before launch. The passed-source reader enforces completion. The trial retains the full-search settings and
+old table-index prefix and measures time and storage before selecting the complete-search machine.
+
 ## 0.9 (branch exp/rel-corpus-ready-20261125, 2026-11-25: expanded corpus consolidation)
 
 Register the complete medium-k3x build using the five pinned reference-search parts. The build reuses their

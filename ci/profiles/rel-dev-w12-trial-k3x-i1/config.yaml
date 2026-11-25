@@ -1,0 +1,40 @@
+# Full-database, 1% query engineering trial. Launch only after the source passes and actual index counts agree.
+pipeline: rel_tables
+needs_gpu: false
+tier: medium
+seed: 1
+cores: 12
+blas_threads: 1
+disk_gb: 10
+disk_reserve_gb: 30
+corpus_spec: configs/corpus/medium-k3x.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions:
+- configs/exclusions/pilot_recipients.tsv
+rel:
+  machine: i1
+  stages:
+  - w12_search
+rel_w12_search:
+  source: /hy-tmp/seeddrift-ci/runs/20261125T151253-exp-rel-corpus-ready-20261125-54c2f62b-rel-dev-w13x-build-i1
+  expect:
+    train: 6672
+    heldout: 1539
+    test: 257
+  islands: true
+  sample: 0.01
+  seed: 1
+  threads: 12
+  block_size: 4
+  sensitivity: sensitive
+  evalue: 1.0e-05
+  chunk_proteins: 60000
+  self_batch_proteins: 30000
+  probe_proteins: 200
+  islands_from: /hy-tmp/seeddrift-ci/runs/20261120T155822-exp-truth-labels-a568390f-selfsup-medium-r3-i1
+  output_order_from:
+    run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+    sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1
+train:
+  gpu_lease: false
+  device: cpu

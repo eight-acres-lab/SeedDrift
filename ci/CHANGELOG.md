@@ -5,6 +5,15 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.13 (branch exp/rel-corpus-ready-20261125, 2026-11-27: expanded-data GPU preflights)
+
+Register one preflight-only profile for each reference model size on the passed expanded version-1 tables.
+Both pin the actual 010842 producer and its logical table-set digest, use the training split of 403,200 tables,
+and retain the original 3,000 held-out tables and strict offline rendering. The native W6 entry verifies every
+manifest member, runs the 200-step divergence guard and measures throughput and memory. These profiles produce
+preflight evidence for a common training-budget decision; they do not produce trained model checkpoints.
+The 100M profile waits for a complete, byte-verified import of the same producer on its training machine.
+
 ## 0.12 (branch exp/rel-corpus-ready-20261125, 2026-11-26: expanded training and held-out tables)
 
 Register version-1 tables and the separate newly held-out set from the fixed full W12 search 182036 on i2.

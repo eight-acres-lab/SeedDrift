@@ -26,7 +26,7 @@ from seeddrift.train.rel import api as A
 from seeddrift.train.rel.evalh import shards
 from seeddrift.train.rel.tables import render as _RD       # package W3's renderer (numpy only): its version is recorded
 
-READER_VERSION = "2"
+READER_VERSION = "3"
 RENDER_VERSION = "stored-w3-%s" % _RD.VERSION   # the stored layout of package W3's renderer (tables/render.py), with the
                                                 # renderer's version, so every run's versions record it (protocol)
 API_VERSION = getattr(A, "API", None) or getattr(A, "API_VERSION", None)          # the version of the contract loaded

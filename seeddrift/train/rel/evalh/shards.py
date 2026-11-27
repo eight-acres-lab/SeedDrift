@@ -14,6 +14,7 @@ import os
 import numpy as np
 
 from seeddrift.train.rel import api
+from seeddrift.train.rel.tables.v0_io import open_files_for
 
 SPLIT_TRAIN, SPLIT_HELDOUT = 0, 1
 SHARD_KNOWN = dict(api.SHARD_FIELDS, **getattr(api, "SHARD_FIELDS_ADDED", {}))      # the contract's fields and its
@@ -41,6 +42,9 @@ class TableSet:
         missing = [(s, f) for s in self.shards for f in self.fields if (s, f) not in files]
         if missing:
             raise ValueError("table set %s: shards without a field: %s" % (folder, missing[:5]))
+        # The reader retains each mapped field, as the table writer does.
+        # Reserve its descriptor budget before even the shard-size scan.
+        open_files_for(len(files))
         self._open = {}
         self.sizes = [int(self.array(s, "n").shape[0]) for s in self.shards]
         self.tables = int(sum(self.sizes))

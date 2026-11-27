@@ -5,6 +5,15 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.14 (branch exp/rel-corpus-ready-20261125, 2026-11-27: descriptor budget for table readers)
+
+The evaluator's table reader reserves enough process file descriptors for its manifest before opening the shard
+maps, using the existing writer helper. Expanded training sets can exceed the inherited soft limit of 1,024
+descriptors during sampling. The helper raises only the process soft limit within the existing hard limit; cached
+maps, caller views, table contents and sampling order retain their behavior. Reader version 3 records this resource
+change. A subprocess regression starts at a 64-file soft limit, reads 160 shards in varying order and checks every
+returned value and file digest. The expanded-data preflight profiles are rerun against this reader.
+
 ## 0.13 (branch exp/rel-corpus-ready-20261125, 2026-11-27: expanded-data GPU preflights)
 
 Register one preflight-only profile for each reference model size on the passed expanded version-1 tables.

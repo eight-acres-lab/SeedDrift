@@ -1,0 +1,66 @@
+# Expanded-data reference training: 100000 updates / 400000 table presentations, seed 1; fixed original final evaluation.
+pipeline: rel_traineval
+tier: medium
+seed: 1
+cores: 4
+blas_threads: 2
+disk_gb: 15
+disk_reserve_gb: 30
+gpu_mem_min_mb: 30000
+corpus_spec: configs/corpus/medium-k3x.yaml
+taxdump: /hy-tmp/seeddrift-store/reference/taxdump
+extra_exclusions:
+- configs/exclusions/pilot_recipients.tsv
+rel:
+  machine: i1
+  stages:
+  - w6_selftest
+  - w6_fit
+  parallel: 1
+rel_w6_selftest:
+  modules:
+  - seeddrift.train.rel.models.axial
+  - seeddrift.train.rel.models.source
+  threads: 2
+  wall_s: 840
+rel_w6_fit:
+  tables:
+    train:
+      run: /hy-tmp/seeddrift-ci/imports/runs/20261127T010842-exp-rel-corpus-ready-20261125-72cdad27-rel-dev-w12-v1-k3x-i2
+      path: data/rel_w12/v1/tableset.json
+      sha256: 575629641cb7ad699e3f243516bb06c929903227d2e2809367c227e6b859b597
+      split: 0
+    heldout:
+      run: /hy-tmp/seeddrift-ci/runs/20261123T122205-exp-rel-c76dd7cd-rel-dev-w12-v1-k3-i1
+      path: data/rel_w12/v1/tableset.json
+      sha256: dfb612a560fc9cb8991cdb0ffce3541d1bb3ea79ab63489d58a881d5695202c1
+      split: 1
+    heldout_offline:
+      run: /hy-tmp/seeddrift-ci/runs/20261123T124714-exp-rel-8015afa8-rel-dev-w3-offline-v1-i1
+      path: data/rel_w3/offline/tableset.json
+      sha256: 2f761265d52ac6a09dbea7285f5a90e1e6b0dbea99bb6603c5e6c260f862d496
+  arms:
+  - variant: configs/rel/variants/w6-ref100m-v1.yaml
+    seed: 1
+  wall_s: 93887
+  micro_fallback: true
+  only_conditions:
+  - scattered
+  - whole_gene
+  - scattered+no_relatives
+  - whole_gene+no_relatives
+  eval_per_group: 50
+  final_per_group: 0
+  eval_max_rows: 32
+  eval_online: true
+  keep_node_weights: true
+  data_workers: 1
+  preflight_steps: 200
+  nodes_every: 50000
+  nodes_every_from: 100000
+  max_steps: 100000
+train:
+  gpu_lease: false
+  device: auto
+  python: /usr/local/bin/python3
+  python_lock: ci/envs/model-torch.pip.txt

@@ -5,6 +5,16 @@ MAJOR: an existing gate changes what it decides or is removed, a rule of an exis
 run record format changes incompatibly. MINOR: new pipeline kinds with their own gates, thresholds, configurations and
 fixes.
 
+## 0.15 (branch exp/rel-corpus-ready-20261125, 2026-11-27: matched expanded-data reference training)
+
+Register the 30M and 100M reference arms for 100,000 optimizer updates each, four table presentations per update,
+on the same passed expanded training pool. Both use seed 1, micro-batches of one, retain the EMA at 200,000
+presentations, and finish on all 3,000 original held-out tables with the pinned strict offline rendering. The
+measured new-data preflights passed the divergence and memory checks with reader version 3. The per-arm wall
+allowances include measured throughput with a 30 percent engineering margin, node evaluations, checkpoint IO
+and the full final evaluation; completion requires max_steps. Admission also checks the actual remaining calendar
+budget before launch. The reference learning rates and hardware differ between sizes and remain in the record.
+
 ## 0.14 (branch exp/rel-corpus-ready-20261125, 2026-11-27: descriptor budget for table readers)
 
 The evaluator's table reader reserves enough process file descriptors for its manifest before opening the shard
